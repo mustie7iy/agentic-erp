@@ -140,6 +140,10 @@ func (s *MaterialCreate) setDefaults() {
 		val := bool(false)
 		s.BatchManaged.SetTo(val)
 	}
+	{
+		val := bool(false)
+		s.SerialManaged.SetTo(val)
+	}
 }
 
 // setDefaults set default value of fields.

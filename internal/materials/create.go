@@ -41,6 +41,9 @@ type Input struct {
 	Units         []UnitInput
 	// BatchManaged manages the material in batches (As built S2f).
 	BatchManaged bool
+	// SerialManaged gives the material a serial number profile (As built
+	// S2g).
+	SerialManaged bool
 	// Reason is the creator's, kept on the create change.
 	Reason string
 	// ConfirmDuplicate creates the material though others have its
@@ -179,6 +182,10 @@ func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUI
 		return nil, problem.Invalid("materials.batch_managed_not_stocked", "batch_managed", "A material of type "+in.Type+
 			" is kept in no stock, so it has no batches.")
 	}
+	if in.SerialManaged && !stocked[in.Type] {
+		return nil, problem.Invalid("materials.serial_managed_not_stocked", "serial_managed", "A material of type "+in.Type+
+			" is kept in no stock, so its units have no serial numbers.")
+	}
 	if err := checkUnits(ctx, tx, in.BaseUnit, in.Units); err != nil {
 		return nil, err
 	}
@@ -225,8 +232,8 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 		return Material{}, err
 	}
 	if err := e.record(ctx, m, change{action: "create", name: "created", detail: map[string]any{"number": m.Number, "description": m.Description,
-		"base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status, "batch_managed": m.BatchManaged, "plants": plantIDs(m.Plants),
-		"alternative_units": unitDetail(m.Units), "material_change_id": c.ID, "possible_duplicates": len(dups)}}, nil); err != nil {
+		"base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status, "batch_managed": m.BatchManaged,
+		"serial_managed": m.SerialManaged, "plants": plantIDs(m.Plants), "alternative_units": unitDetail(m.Units), "material_change_id": c.ID, "possible_duplicates": len(dups)}}, nil); err != nil {
 		return Material{}, err
 	}
 	if err := recordChange(ctx, c, m, "materials.change.request", nil, nil); err != nil {
@@ -245,8 +252,8 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, l
 	number, status string) (Material, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type,
-			material_group, status, batch_managed, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
-		p.TenantID, id, number, le.ID, in.Description, in.BaseUnit, in.Type, in.Group, status, in.BatchManaged, p.ID); err != nil {
+			material_group, status, batch_managed, serial_managed, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
+		p.TenantID, id, number, le.ID, in.Description, in.BaseUnit, in.Type, in.Group, status, in.BatchManaged, in.SerialManaged, p.ID); err != nil {
 		return Material{}, fmt.Errorf("materials: insert material %s: %w", number, err)
 	}
 	if err := writePlants(ctx, tx, p, id, in.Plants, companies); err != nil {
@@ -265,7 +272,7 @@ func requestedOf(m Material, in Input, companies map[uuid.UUID]uuid.UUID) Reques
 		units[i] = RequestedUnit(u)
 	}
 	return Requested{Description: &m.Description, BaseUnit: &m.BaseUnit, Type: &m.Type, Group: &m.Group, Plants: requestedPlants(in.Plants, companies),
-		Units: &units, BatchManaged: &m.BatchManaged}
+		Units: &units, BatchManaged: &m.BatchManaged, SerialManaged: &m.SerialManaged}
 }
 
 // writePlants writes the plants a material is extended to and their

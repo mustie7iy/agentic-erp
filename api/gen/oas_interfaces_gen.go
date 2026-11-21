@@ -1289,6 +1289,10 @@ type GetSegmentRes interface {
 	getSegmentRes()
 }
 
+type GetSerialNumberRes interface {
+	getSerialNumberRes()
+}
+
 type GetSodRuleRes interface {
 	getSodRuleRes()
 }
@@ -1959,6 +1963,10 @@ type ListScheduleLinesRes interface {
 
 type ListSegmentsRes interface {
 	listSegmentsRes()
+}
+
+type ListSerialNumbersRes interface {
+	listSerialNumbersRes()
 }
 
 type ListSodRulesRes interface {

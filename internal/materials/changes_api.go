@@ -96,6 +96,9 @@ func changeAPI(c MaterialChange, refs changeRefs) gen.MaterialChange {
 	if r.BatchManaged != nil {
 		req.BatchManaged = gen.NewOptBool(*r.BatchManaged)
 	}
+	if r.SerialManaged != nil {
+		req.SerialManaged = gen.NewOptBool(*r.SerialManaged)
+	}
 	dups := make([]gen.MaterialDuplicate, len(c.PossibleDuplicates))
 	for i, d := range c.PossibleDuplicates {
 		dups[i] = gen.MaterialDuplicate{MaterialID: d.MaterialID, Number: d.Number, Description: d.Description}

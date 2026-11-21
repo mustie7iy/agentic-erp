@@ -6820,6 +6820,7 @@ components:
         material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
         material_group: {type: string, description: The material group.}
         batch_managed: {type: boolean, description: 'Whether the material is managed in batches (S2f); it does not change. Not required (ADR-0041).'}
+        serial_managed: {type: boolean, description: 'Whether the material has a serial number profile (S2g); it does not change. Not required (ADR-0041).'}
         status: {type: string, description: "The material's status after the change. Open enum: pending, active, blocked."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         plants:
@@ -6916,6 +6917,7 @@ components:
               in_transit: {type: boolean, description: "Whether the line moves stock in transit to its storage location (a stock transport order's, S2h) rather than the stock at that location; not required (ADR-0041)."}
               batch_id: {type: [string, 'null'], format: uuid, description: "The batch the line moves, `inventory.batch.id`, of a batch-managed material (S2f); null on a line of another material; not required (ADR-0041)."}
               batch_number: {type: [string, 'null'], description: "That batch's number; null with it; not required (ADR-0041)."}
+              serial_numbers: {type: [array, 'null'], items: {type: string}, description: "The serial numbers the line moves, of a serial-managed material (S2g), sorted by number; null on a line of another material; not required (ADR-0041)."}
     OutboundDeliveryChangedV1:
       type: object
       required: [outbound_delivery_id, number, legal_entity_id, legal_entity_code, sales_order_id, sales_order_number, customer_id, customer_number, plant_id, plant_code, storage_location_id, storage_location_code, status, picking_status, goods_issue_date, material_document_id, material_document_number, items, version]

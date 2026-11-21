@@ -54669,6 +54669,18 @@ func (s *GetSegmentOKHeaders) SetResponse(val Segment) {
 
 func (*GetSegmentOKHeaders) getSegmentRes() {}
 
+type GetSerialNumberBadRequest Problem
+
+func (*GetSerialNumberBadRequest) getSerialNumberRes() {}
+
+type GetSerialNumberForbidden Problem
+
+func (*GetSerialNumberForbidden) getSerialNumberRes() {}
+
+type GetSerialNumberNotFound Problem
+
+func (*GetSerialNumberNotFound) getSerialNumberRes() {}
+
 type GetSodRuleBadRequest Problem
 
 func (*GetSodRuleBadRequest) getSodRuleRes() {}
@@ -68569,6 +68581,14 @@ type ListSegmentsForbidden Problem
 
 func (*ListSegmentsForbidden) listSegmentsRes() {}
 
+type ListSerialNumbersBadRequest Problem
+
+func (*ListSerialNumbersBadRequest) listSerialNumbersRes() {}
+
+type ListSerialNumbersForbidden Problem
+
+func (*ListSerialNumbersForbidden) listSerialNumbersRes() {}
+
 type ListSodRulesBadRequest Problem
 
 func (*ListSodRulesBadRequest) listSodRulesRes() {}
@@ -69610,6 +69630,9 @@ type Material struct {
 	// Whether the material is managed in batches (S2f): every goods movement of it names a batch of it. It
 	// does not change.
 	BatchManaged bool `json:"batch_managed"`
+	// Whether the material has a serial number profile (S2g): every goods movement of it names the serial
+	// number of each unit it moves. It does not change.
+	SerialManaged bool `json:"serial_managed"`
 	// Its pending material change (`GET /v1/material-changes/{id}`); absent when none is pending.
 	PendingChangeID OptUUID `json:"pending_change_id"`
 	// That change's number; absent when none is pending.
@@ -69698,6 +69721,11 @@ func (s *Material) GetStatus() string {
 // GetBatchManaged returns the value of BatchManaged.
 func (s *Material) GetBatchManaged() bool {
 	return s.BatchManaged
+}
+
+// GetSerialManaged returns the value of SerialManaged.
+func (s *Material) GetSerialManaged() bool {
+	return s.SerialManaged
 }
 
 // GetPendingChangeID returns the value of PendingChangeID.
@@ -69798,6 +69826,11 @@ func (s *Material) SetStatus(val string) {
 // SetBatchManaged sets the value of BatchManaged.
 func (s *Material) SetBatchManaged(val bool) {
 	s.BatchManaged = val
+}
+
+// SetSerialManaged sets the value of SerialManaged.
+func (s *Material) SetSerialManaged(val bool) {
+	s.SerialManaged = val
 }
 
 // SetPendingChangeID sets the value of PendingChangeID.
@@ -70182,6 +70215,8 @@ type MaterialChangeRequested struct {
 	MaterialType OptString `json:"material_type"`
 	// Whether the material is managed in batches (a create's only).
 	BatchManaged OptBool `json:"batch_managed"`
+	// Whether the material has a serial number profile (a create's only).
+	SerialManaged OptBool `json:"serial_managed"`
 	// The material group.
 	MaterialGroup OptString `json:"material_group"`
 	// The status, `active` or `blocked`.
@@ -70212,6 +70247,11 @@ func (s *MaterialChangeRequested) GetMaterialType() OptString {
 // GetBatchManaged returns the value of BatchManaged.
 func (s *MaterialChangeRequested) GetBatchManaged() OptBool {
 	return s.BatchManaged
+}
+
+// GetSerialManaged returns the value of SerialManaged.
+func (s *MaterialChangeRequested) GetSerialManaged() OptBool {
+	return s.SerialManaged
 }
 
 // GetMaterialGroup returns the value of MaterialGroup.
@@ -70252,6 +70292,11 @@ func (s *MaterialChangeRequested) SetMaterialType(val OptString) {
 // SetBatchManaged sets the value of BatchManaged.
 func (s *MaterialChangeRequested) SetBatchManaged(val OptBool) {
 	s.BatchManaged = val
+}
+
+// SetSerialManaged sets the value of SerialManaged.
+func (s *MaterialChangeRequested) SetSerialManaged(val OptBool) {
+	s.SerialManaged = val
 }
 
 // SetMaterialGroup sets the value of MaterialGroup.
@@ -70303,6 +70348,12 @@ type MaterialCreate struct {
 	// (`GET /v1/batch-stock`). Only a material kept in stock is (422 `materials.batch_managed_not_stocked`
 	// for `non_stock` and `service`). It does not change.
 	BatchManaged OptBool `json:"batch_managed"`
+	// Give the material a serial number profile (ADR-0082 As built S2g; SAP's serial number profile, from
+	// memory): every goods movement of it names the serial number of each unit it moves
+	// (`serial_numbers`), and each serial number is in stock at most once (`GET /v1/serial-numbers`). Only
+	// a material kept in stock has one (422 `materials.serial_managed_not_stocked` for `non_stock` and
+	// `service`). It does not change.
+	SerialManaged OptBool `json:"serial_managed"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -70355,6 +70406,11 @@ func (s *MaterialCreate) GetBatchManaged() OptBool {
 	return s.BatchManaged
 }
 
+// GetSerialManaged returns the value of SerialManaged.
+func (s *MaterialCreate) GetSerialManaged() OptBool {
+	return s.SerialManaged
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *MaterialCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -70403,6 +70459,11 @@ func (s *MaterialCreate) SetConfirmDuplicate(val OptBool) {
 // SetBatchManaged sets the value of BatchManaged.
 func (s *MaterialCreate) SetBatchManaged(val OptBool) {
 	s.BatchManaged = val
+}
+
+// SetSerialManaged sets the value of SerialManaged.
+func (s *MaterialCreate) SetSerialManaged(val OptBool) {
+	s.SerialManaged = val
 }
 
 // A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted
@@ -70779,6 +70840,14 @@ type MaterialDocumentItemInput struct {
 	// `inventory.batch_invalid`): named for a batch-managed material (422 `inventory.batch_required`) and
 	// for no other (422 `inventory.batch_not_allowed`; S2f). A transfer receives the same batch.
 	BatchID OptUUID `json:"batch_id"`
+	// The serial numbers of the units moved (S2g), one for each unit of the base unit (422
+	// `inventory.serial_required`; the quantity a whole number of base units, 422
+	// `inventory.serial_quantity`), each once in the document (422 `inventory.serial_repeated`): named for
+	// a serial-managed material and for no other (422 `inventory.serial_not_allowed`). A receipt's serial
+	// numbers are in no stock (409 `inventory.serial_in_stock`; a new one is created), an issue's in stock
+	// at the item's storage location (409 `inventory.serial_not_in_stock`); a transfer receives the same
+	// serial numbers.
+	SerialNumbers []string `json:"serial_numbers"`
 }
 
 // GetMaterialID returns the value of MaterialID.
@@ -70826,6 +70895,11 @@ func (s *MaterialDocumentItemInput) GetBatchID() OptUUID {
 	return s.BatchID
 }
 
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *MaterialDocumentItemInput) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
 // SetMaterialID sets the value of MaterialID.
 func (s *MaterialDocumentItemInput) SetMaterialID(val uuid.UUID) {
 	s.MaterialID = val
@@ -70871,6 +70945,11 @@ func (s *MaterialDocumentItemInput) SetBatchID(val OptUUID) {
 	s.BatchID = val
 }
 
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *MaterialDocumentItemInput) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
+}
+
 // A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the
 // material's base unit, signed (a receipt positive, an issue negative).
 // Ref: #/components/schemas/MaterialDocumentLine
@@ -70912,6 +70991,9 @@ type MaterialDocumentLine struct {
 	BatchID OptUUID `json:"batch_id"`
 	// That batch's number; absent with it.
 	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers the line moves, of a serial-managed material (`GET /v1/serial-numbers?number=`,
+	// S2g), sorted by number; absent on a line of another material.
+	SerialNumbers []string `json:"serial_numbers"`
 	// Whether the line moves stock in transit to its storage location of its plant (a stock transport
 	// order's, S2h: into transit on its goods issue, 351, out of it on its goods receipt, 101) rather than
 	// the stock at that location; stock in transit is in the plant's valuation but in no location's stock
@@ -71008,6 +71090,11 @@ func (s *MaterialDocumentLine) GetBatchID() OptUUID {
 // GetBatchNumber returns the value of BatchNumber.
 func (s *MaterialDocumentLine) GetBatchNumber() OptString {
 	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *MaterialDocumentLine) GetSerialNumbers() []string {
+	return s.SerialNumbers
 }
 
 // GetInTransit returns the value of InTransit.
@@ -71108,6 +71195,11 @@ func (s *MaterialDocumentLine) SetBatchID(val OptUUID) {
 // SetBatchNumber sets the value of BatchNumber.
 func (s *MaterialDocumentLine) SetBatchNumber(val OptString) {
 	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *MaterialDocumentLine) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
 }
 
 // SetInTransit sets the value of InTransit.
@@ -113422,6 +113514,429 @@ type SendOutgoingEInvoiceUnprocessableEntity Problem
 
 func (*SendOutgoingEInvoiceUnprocessableEntity) sendOutgoingEInvoiceRes() {}
 
+// A serial number of a serial-managed material (SAP's serial number master, from memory): where the
+// unit is in stock now, at most at one storage location, or that it is in none (issued, scrapped).
+// Only goods movements change it.
+// Ref: #/components/schemas/SerialNumber
+type SerialNumber struct {
+	// The serial number's id.
+	ID uuid.UUID `json:"id"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The serial number, unique for its material.
+	Number string `json:"number"`
+	// Whether the unit is in stock now, at the plant and storage location given.
+	InStock bool `json:"in_stock"`
+	// The plant it is in stock at; absent when it is in no stock.
+	PlantID OptUUID `json:"plant_id"`
+	// The plant's code; absent with it.
+	PlantCode OptString `json:"plant_code"`
+	// The plant's name, as it is now; absent with it.
+	PlantName OptString `json:"plant_name"`
+	// The storage location it is in stock at; absent when it is in no stock.
+	StorageLocationID OptUUID `json:"storage_location_id"`
+	// The storage location's code; absent with it.
+	StorageLocationCode OptString `json:"storage_location_code"`
+	// The storage location's name, as it is now; absent with it.
+	StorageLocationName OptString `json:"storage_location_name"`
+	// The company of the goods movement that last moved it.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// Its goods movements in the companies the caller may act in, in the order they were posted
+	// (`getSerialNumber` only; absent in a list).
+	History []SerialNumberMovement `json:"history"`
+	// When its first receipt named it.
+	CreatedAt time.Time `json:"created_at"`
+	// When a goods movement last moved it.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *SerialNumber) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *SerialNumber) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *SerialNumber) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *SerialNumber) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetNumber returns the value of Number.
+func (s *SerialNumber) GetNumber() string {
+	return s.Number
+}
+
+// GetInStock returns the value of InStock.
+func (s *SerialNumber) GetInStock() bool {
+	return s.InStock
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SerialNumber) GetPlantID() OptUUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *SerialNumber) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *SerialNumber) GetPlantName() OptString {
+	return s.PlantName
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *SerialNumber) GetStorageLocationID() OptUUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *SerialNumber) GetStorageLocationCode() OptString {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *SerialNumber) GetStorageLocationName() OptString {
+	return s.StorageLocationName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SerialNumber) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *SerialNumber) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetHistory returns the value of History.
+func (s *SerialNumber) GetHistory() []SerialNumberMovement {
+	return s.History
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SerialNumber) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SerialNumber) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *SerialNumber) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *SerialNumber) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *SerialNumber) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *SerialNumber) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetNumber sets the value of Number.
+func (s *SerialNumber) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetInStock sets the value of InStock.
+func (s *SerialNumber) SetInStock(val bool) {
+	s.InStock = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SerialNumber) SetPlantID(val OptUUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *SerialNumber) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *SerialNumber) SetPlantName(val OptString) {
+	s.PlantName = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *SerialNumber) SetStorageLocationID(val OptUUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *SerialNumber) SetStorageLocationCode(val OptString) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *SerialNumber) SetStorageLocationName(val OptString) {
+	s.StorageLocationName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SerialNumber) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *SerialNumber) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetHistory sets the value of History.
+func (s *SerialNumber) SetHistory(val []SerialNumberMovement) {
+	s.History = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SerialNumber) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SerialNumber) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SerialNumberHeaders wraps SerialNumber with response headers.
+type SerialNumberHeaders struct {
+	ETag     OptString
+	Response SerialNumber
+}
+
+// GetETag returns the value of ETag.
+func (s *SerialNumberHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *SerialNumberHeaders) GetResponse() SerialNumber {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *SerialNumberHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SerialNumberHeaders) SetResponse(val SerialNumber) {
+	s.Response = val
+}
+
+func (*SerialNumberHeaders) getSerialNumberRes() {}
+
+// A goods movement of a serial number: the material document line that received the unit at a storage
+// location or issued it from one.
+// Ref: #/components/schemas/SerialNumberMovement
+type SerialNumberMovement struct {
+	// The material document (`GET /v1/material-documents/{id}`).
+	MaterialDocumentID uuid.UUID `json:"material_document_id"`
+	// Its number.
+	MaterialDocumentNumber string `json:"material_document_number"`
+	// Its fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Its movement type, such as `501` or `201`.
+	MovementType string `json:"movement_type"`
+	// The movement type's name.
+	MovementTypeName string `json:"movement_type_name"`
+	// Its posting date.
+	PostingDate time.Time `json:"posting_date"`
+	// The document's line that moved the unit.
+	LineNo int32 `json:"line_no"`
+	// `received`: the line put the unit in stock at its location. `issued`: it took the unit out. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Direction string `json:"direction"`
+	// The line's plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The line's storage location.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The storage location's code.
+	StorageLocationCode string `json:"storage_location_code"`
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *SerialNumberMovement) GetMaterialDocumentID() uuid.UUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *SerialNumberMovement) GetMaterialDocumentNumber() string {
+	return s.MaterialDocumentNumber
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *SerialNumberMovement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetMovementType returns the value of MovementType.
+func (s *SerialNumberMovement) GetMovementType() string {
+	return s.MovementType
+}
+
+// GetMovementTypeName returns the value of MovementTypeName.
+func (s *SerialNumberMovement) GetMovementTypeName() string {
+	return s.MovementTypeName
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *SerialNumberMovement) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *SerialNumberMovement) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDirection returns the value of Direction.
+func (s *SerialNumberMovement) GetDirection() string {
+	return s.Direction
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SerialNumberMovement) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *SerialNumberMovement) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *SerialNumberMovement) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *SerialNumberMovement) GetStorageLocationCode() string {
+	return s.StorageLocationCode
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *SerialNumberMovement) SetMaterialDocumentID(val uuid.UUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *SerialNumberMovement) SetMaterialDocumentNumber(val string) {
+	s.MaterialDocumentNumber = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *SerialNumberMovement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetMovementType sets the value of MovementType.
+func (s *SerialNumberMovement) SetMovementType(val string) {
+	s.MovementType = val
+}
+
+// SetMovementTypeName sets the value of MovementTypeName.
+func (s *SerialNumberMovement) SetMovementTypeName(val string) {
+	s.MovementTypeName = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *SerialNumberMovement) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *SerialNumberMovement) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *SerialNumberMovement) SetDirection(val string) {
+	s.Direction = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SerialNumberMovement) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *SerialNumberMovement) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *SerialNumberMovement) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *SerialNumberMovement) SetStorageLocationCode(val string) {
+	s.StorageLocationCode = val
+}
+
+// One page of serial numbers.
+// Ref: #/components/schemas/SerialNumberPage
+type SerialNumberPage struct {
+	// The serial numbers on this page.
+	Items []SerialNumber `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *SerialNumberPage) GetItems() []SerialNumber {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SerialNumberPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *SerialNumberPage) SetItems(val []SerialNumber) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SerialNumberPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*SerialNumberPage) listSerialNumbersRes() {}
+
 // ServiceUnavailableHeaders wraps Problem with response headers.
 type ServiceUnavailableHeaders struct {
 	RetryAfter OptInt32
@@ -120399,6 +120914,7 @@ func (*TooManyRequestsHeaders) getSalesOrderUploadRes()                   {}
 func (*TooManyRequestsHeaders) getSalesPriceRes()                         {}
 func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
+func (*TooManyRequestsHeaders) getSerialNumberRes()                       {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                            {}
 func (*TooManyRequestsHeaders) getStatisticalKeyFigureRes()               {}
 func (*TooManyRequestsHeaders) getStockTransportOrderRes()                {}
@@ -120567,6 +121083,7 @@ func (*TooManyRequestsHeaders) listSalesOrdersRes()                       {}
 func (*TooManyRequestsHeaders) listSalesPricesRes()                       {}
 func (*TooManyRequestsHeaders) listScheduleLinesRes()                     {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
+func (*TooManyRequestsHeaders) listSerialNumbersRes()                     {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFiguresRes()             {}
@@ -121368,6 +121885,7 @@ func (*UnauthorizedHeaders) getSalesOrderUploadRes()                   {}
 func (*UnauthorizedHeaders) getSalesPriceRes()                         {}
 func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
+func (*UnauthorizedHeaders) getSerialNumberRes()                       {}
 func (*UnauthorizedHeaders) getSodRuleRes()                            {}
 func (*UnauthorizedHeaders) getStatisticalKeyFigureRes()               {}
 func (*UnauthorizedHeaders) getStockTransportOrderRes()                {}
@@ -121536,6 +122054,7 @@ func (*UnauthorizedHeaders) listSalesOrdersRes()                       {}
 func (*UnauthorizedHeaders) listSalesPricesRes()                       {}
 func (*UnauthorizedHeaders) listScheduleLinesRes()                     {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
+func (*UnauthorizedHeaders) listSerialNumbersRes()                     {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
 func (*UnauthorizedHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*UnauthorizedHeaders) listStatisticalKeyFiguresRes()             {}

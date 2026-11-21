@@ -138,6 +138,12 @@ func TestCreateRefusals(t *testing.T) {
 	if f := field(e.Problem(422, "shipping.material_not_usable", "POST", deliveries, e.create(order, "1 1 BOX"), "")); f != "items[0].order_item_no" {
 		t.Errorf("a batch-managed material's field: got %v, want items[0].order_item_no", f)
 	}
+	// So is the serial number profile; the bracket is made serial-managed
+	// the same way.
+	pgtest.Unguarded(t, `UPDATE materials.material SET batch_managed = false, serial_managed = true, version = version + 1 WHERE id = $1`, e.bracket)
+	if f := field(e.Problem(422, "shipping.material_not_usable", "POST", deliveries, e.create(order, "1 1 BOX"), "")); f != "items[0].order_item_no" {
+		t.Errorf("a serial-managed material's field: got %v, want items[0].order_item_no", f)
+	}
 	var n int
 	pgtest.Scan(t, `SELECT count(*) FROM shipping.outbound_delivery WHERE tenant_id = $1`, []any{e.Tenant.ID}, &n)
 	if n != 0 {

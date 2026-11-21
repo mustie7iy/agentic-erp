@@ -237,6 +237,9 @@ func countLines(in CountInput, r refs) ([]Line, error) {
 		case m.BatchManaged:
 			return nil, problem.Invalid("inventory.batch_not_supported", field, "Material "+m.Number+" is managed in batches; a count by batch "+
 				"is not built yet.")
+		case m.SerialManaged:
+			return nil, problem.Invalid("inventory.serial_not_supported", field, "Material "+m.Number+" has a serial number profile; a count by "+
+				"serial number is not built yet.")
 		case slices.Contains(in.Materials[:i], id):
 			return nil, problem.Invalid("inventory.duplicate_material", field, "Material "+m.Number+" is counted once in a document.")
 		}

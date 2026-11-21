@@ -6860,6 +6860,29 @@ erDiagram
   in transit of a batch-managed material (`movement_batch`), and adds a
   batch's line to its batch stock row, which must exist
   (`movement_batch_stock`): the batches at a location add up to its stock.
+- S2g (migration 000431): `materials.material.serial_managed` (a serial
+  number profile, SAP MARC's SERNP kept on the material, from memory),
+  fixed once created (`material_fixed`). `inventory.stock.serial_managed`
+  and `inventory.transit_stock.serial_managed`: whether the row's material
+  is serial-managed, written with the row and not updated by the
+  application. `inventory.serial` (SAP's serial number master, from
+  memory): a serial number of a material, its `number` 1 to 18 capitals,
+  digits, `-` or `_` (`serial_number_check`) once per material
+  (`serial_number_once`), where it is in stock now (`plant_id` and
+  `storage_location_id`, both or neither, `serial_location`), written out
+  of stock (`serial_from_movements`) and never deleted, and the company of
+  its last movement; the application changes only `updated_at`.
+  `inventory.movement_serial` (SAP SER03, from memory): a serial number a
+  line moves, of its material (`movement_serial_serial_fkey`), on a line
+  at a location (`movement_serial_of_movement`); insert-only. Each moves
+  its serial number (`movement_serial_moves`): a receipt only when it is
+  in no stock (`serial_in_stock_once`, 409 `inventory.serial_in_stock`),
+  so a serial number is in stock at most once, an issue only from where
+  it is (`serial_issued_from_stock`, 409 `inventory.serial_not_in_stock`).
+  At commit, a line of a serial-managed stock row names one serial number
+  for each unit it moves and any other line none (`movement_serials`, a
+  deferred constraint trigger, as the serial numbers are written after
+  their lines).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,

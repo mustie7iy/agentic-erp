@@ -141311,6 +141311,120 @@ func (s *GetSegmentNotFound) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes GetSerialNumberBadRequest as json.
+func (s *GetSerialNumberBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetSerialNumberBadRequest from json.
+func (s *GetSerialNumberBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetSerialNumberBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetSerialNumberBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetSerialNumberBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetSerialNumberBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetSerialNumberForbidden as json.
+func (s *GetSerialNumberForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetSerialNumberForbidden from json.
+func (s *GetSerialNumberForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetSerialNumberForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetSerialNumberForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetSerialNumberForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetSerialNumberForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetSerialNumberNotFound as json.
+func (s *GetSerialNumberNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetSerialNumberNotFound from json.
+func (s *GetSerialNumberNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetSerialNumberNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetSerialNumberNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetSerialNumberNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetSerialNumberNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes GetSodRuleBadRequest as json.
 func (s *GetSodRuleBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -181410,6 +181524,82 @@ func (s *ListSegmentsForbidden) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes ListSerialNumbersBadRequest as json.
+func (s *ListSerialNumbersBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListSerialNumbersBadRequest from json.
+func (s *ListSerialNumbersBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListSerialNumbersBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListSerialNumbersBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListSerialNumbersBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListSerialNumbersBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListSerialNumbersForbidden as json.
+func (s *ListSerialNumbersForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListSerialNumbersForbidden from json.
+func (s *ListSerialNumbersForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListSerialNumbersForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListSerialNumbersForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListSerialNumbersForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListSerialNumbersForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes ListSodRulesBadRequest as json.
 func (s *ListSodRulesBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -185928,6 +186118,10 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 		e.Bool(s.BatchManaged)
 	}
 	{
+		e.FieldStart("serial_managed")
+		e.Bool(s.SerialManaged)
+	}
+	{
 		if s.PendingChangeID.Set {
 			e.FieldStart("pending_change_id")
 			s.PendingChangeID.Encode(e)
@@ -185957,7 +186151,7 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterial = [20]string{
+var jsonFieldsNameOfMaterial = [21]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -185974,10 +186168,11 @@ var jsonFieldsNameOfMaterial = [20]string{
 	13: "material_group",
 	14: "status",
 	15: "batch_managed",
-	16: "pending_change_id",
-	17: "pending_change_number",
-	18: "plants",
-	19: "alternative_units",
+	16: "serial_managed",
+	17: "pending_change_id",
+	18: "pending_change_number",
+	19: "plants",
+	20: "alternative_units",
 }
 
 // Decode decodes Material from json.
@@ -186179,6 +186374,18 @@ func (s *Material) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"batch_managed\"")
 			}
+		case "serial_managed":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := d.Bool()
+				s.SerialManaged = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"serial_managed\"")
+			}
 		case "pending_change_id":
 			if err := func() error {
 				s.PendingChangeID.Reset()
@@ -186200,7 +186407,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"pending_change_number\"")
 			}
 		case "plants":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				s.Plants = make([]MaterialPlant, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -186218,7 +186425,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plants\"")
 			}
 		case "alternative_units":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				s.AlternativeUnits = make([]MaterialUnit, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -186247,7 +186454,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00001100,
+		0b00011001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -187019,6 +187226,12 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.SerialManaged.Set {
+			e.FieldStart("serial_managed")
+			s.SerialManaged.Encode(e)
+		}
+	}
+	{
 		if s.MaterialGroup.Set {
 			e.FieldStart("material_group")
 			s.MaterialGroup.Encode(e)
@@ -187052,15 +187265,16 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialChangeRequested = [8]string{
+var jsonFieldsNameOfMaterialChangeRequested = [9]string{
 	0: "description",
 	1: "base_unit",
 	2: "material_type",
 	3: "batch_managed",
-	4: "material_group",
-	5: "status",
-	6: "plants",
-	7: "alternative_units",
+	4: "serial_managed",
+	5: "material_group",
+	6: "status",
+	7: "plants",
+	8: "alternative_units",
 }
 
 // Decode decodes MaterialChangeRequested from json.
@@ -187110,6 +187324,16 @@ func (s *MaterialChangeRequested) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"batch_managed\"")
+			}
+		case "serial_managed":
+			if err := func() error {
+				s.SerialManaged.Reset()
+				if err := s.SerialManaged.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"serial_managed\"")
 			}
 		case "material_group":
 			if err := func() error {
@@ -187256,19 +187480,26 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 			s.BatchManaged.Encode(e)
 		}
 	}
+	{
+		if s.SerialManaged.Set {
+			e.FieldStart("serial_managed")
+			s.SerialManaged.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialCreate = [10]string{
-	0: "legal_entity_id",
-	1: "description",
-	2: "base_unit",
-	3: "material_type",
-	4: "material_group",
-	5: "plants",
-	6: "alternative_units",
-	7: "reason",
-	8: "confirm_duplicate",
-	9: "batch_managed",
+var jsonFieldsNameOfMaterialCreate = [11]string{
+	0:  "legal_entity_id",
+	1:  "description",
+	2:  "base_unit",
+	3:  "material_type",
+	4:  "material_group",
+	5:  "plants",
+	6:  "alternative_units",
+	7:  "reason",
+	8:  "confirm_duplicate",
+	9:  "batch_managed",
+	10: "serial_managed",
 }
 
 // Decode decodes MaterialCreate from json.
@@ -187404,6 +187635,16 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"batch_managed\"")
+			}
+		case "serial_managed":
+			if err := func() error {
+				s.SerialManaged.Reset()
+				if err := s.SerialManaged.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"serial_managed\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -188088,9 +188329,19 @@ func (s *MaterialDocumentItemInput) encodeFields(e *jx.Encoder) {
 			s.BatchID.Encode(e)
 		}
 	}
+	{
+		if s.SerialNumbers != nil {
+			e.FieldStart("serial_numbers")
+			e.ArrStart()
+			for _, elem := range s.SerialNumbers {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialDocumentItemInput = [9]string{
+var jsonFieldsNameOfMaterialDocumentItemInput = [10]string{
 	0: "material_id",
 	1: "plant_id",
 	2: "storage_location_id",
@@ -188100,6 +188351,7 @@ var jsonFieldsNameOfMaterialDocumentItemInput = [9]string{
 	6: "to_storage_location_id",
 	7: "amount",
 	8: "batch_id",
+	9: "serial_numbers",
 }
 
 // Decode decodes MaterialDocumentItemInput from json.
@@ -188206,6 +188458,25 @@ func (s *MaterialDocumentItemInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"batch_id\"")
+			}
+		case "serial_numbers":
+			if err := func() error {
+				s.SerialNumbers = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.SerialNumbers = append(s.SerialNumbers, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"serial_numbers\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -188350,6 +188621,16 @@ func (s *MaterialDocumentLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.SerialNumbers != nil {
+			e.FieldStart("serial_numbers")
+			e.ArrStart()
+			for _, elem := range s.SerialNumbers {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		e.FieldStart("in_transit")
 		e.Bool(s.InTransit)
 	}
@@ -188367,7 +188648,7 @@ func (s *MaterialDocumentLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialDocumentLine = [20]string{
+var jsonFieldsNameOfMaterialDocumentLine = [21]string{
 	0:  "line_no",
 	1:  "item_no",
 	2:  "material_id",
@@ -188385,9 +188666,10 @@ var jsonFieldsNameOfMaterialDocumentLine = [20]string{
 	14: "cost_center_code",
 	15: "batch_id",
 	16: "batch_number",
-	17: "in_transit",
-	18: "amount",
-	19: "price_difference",
+	17: "serial_numbers",
+	18: "in_transit",
+	19: "amount",
+	20: "price_difference",
 }
 
 // Decode decodes MaterialDocumentLine from json.
@@ -188591,8 +188873,27 @@ func (s *MaterialDocumentLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"batch_number\"")
 			}
+		case "serial_numbers":
+			if err := func() error {
+				s.SerialNumbers = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.SerialNumbers = append(s.SerialNumbers, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"serial_numbers\"")
+			}
 		case "in_transit":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Bool()
 				s.InTransit = bool(v)
@@ -188635,7 +188936,7 @@ func (s *MaterialDocumentLine) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111111,
 		0b00011111,
-		0b00000010,
+		0b00000100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -278556,6 +278857,794 @@ func (s *SendOutgoingEInvoiceUnprocessableEntity) MarshalJSON() ([]byte, error) 
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SendOutgoingEInvoiceUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SerialNumber) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SerialNumber) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("material_id")
+		json.EncodeUUID(e, s.MaterialID)
+	}
+	{
+		e.FieldStart("material_number")
+		e.Str(s.MaterialNumber)
+	}
+	{
+		e.FieldStart("material_description")
+		e.Str(s.MaterialDescription)
+	}
+	{
+		e.FieldStart("number")
+		e.Str(s.Number)
+	}
+	{
+		e.FieldStart("in_stock")
+		e.Bool(s.InStock)
+	}
+	{
+		if s.PlantID.Set {
+			e.FieldStart("plant_id")
+			s.PlantID.Encode(e)
+		}
+	}
+	{
+		if s.PlantCode.Set {
+			e.FieldStart("plant_code")
+			s.PlantCode.Encode(e)
+		}
+	}
+	{
+		if s.PlantName.Set {
+			e.FieldStart("plant_name")
+			s.PlantName.Encode(e)
+		}
+	}
+	{
+		if s.StorageLocationID.Set {
+			e.FieldStart("storage_location_id")
+			s.StorageLocationID.Encode(e)
+		}
+	}
+	{
+		if s.StorageLocationCode.Set {
+			e.FieldStart("storage_location_code")
+			s.StorageLocationCode.Encode(e)
+		}
+	}
+	{
+		if s.StorageLocationName.Set {
+			e.FieldStart("storage_location_name")
+			s.StorageLocationName.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		if s.History != nil {
+			e.FieldStart("history")
+			e.ArrStart()
+			for _, elem := range s.History {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
+		e.FieldStart("created_at")
+		json.EncodeDateTime(e, s.CreatedAt)
+	}
+	{
+		e.FieldStart("updated_at")
+		json.EncodeDateTime(e, s.UpdatedAt)
+	}
+}
+
+var jsonFieldsNameOfSerialNumber = [17]string{
+	0:  "id",
+	1:  "material_id",
+	2:  "material_number",
+	3:  "material_description",
+	4:  "number",
+	5:  "in_stock",
+	6:  "plant_id",
+	7:  "plant_code",
+	8:  "plant_name",
+	9:  "storage_location_id",
+	10: "storage_location_code",
+	11: "storage_location_name",
+	12: "legal_entity_id",
+	13: "company_code",
+	14: "history",
+	15: "created_at",
+	16: "updated_at",
+}
+
+// Decode decodes SerialNumber from json.
+func (s *SerialNumber) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SerialNumber to nil")
+	}
+	var requiredBitSet [3]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "material_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.MaterialID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "material_number":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.MaterialNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_number\"")
+			}
+		case "material_description":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.MaterialDescription = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_description\"")
+			}
+		case "number":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.Number = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"number\"")
+			}
+		case "in_stock":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Bool()
+				s.InStock = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"in_stock\"")
+			}
+		case "plant_id":
+			if err := func() error {
+				s.PlantID.Reset()
+				if err := s.PlantID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_id\"")
+			}
+		case "plant_code":
+			if err := func() error {
+				s.PlantCode.Reset()
+				if err := s.PlantCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_code\"")
+			}
+		case "plant_name":
+			if err := func() error {
+				s.PlantName.Reset()
+				if err := s.PlantName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_name\"")
+			}
+		case "storage_location_id":
+			if err := func() error {
+				s.StorageLocationID.Reset()
+				if err := s.StorageLocationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_id\"")
+			}
+		case "storage_location_code":
+			if err := func() error {
+				s.StorageLocationCode.Reset()
+				if err := s.StorageLocationCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_code\"")
+			}
+		case "storage_location_name":
+			if err := func() error {
+				s.StorageLocationName.Reset()
+				if err := s.StorageLocationName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_name\"")
+			}
+		case "legal_entity_id":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "history":
+			if err := func() error {
+				s.History = make([]SerialNumberMovement, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SerialNumberMovement
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.History = append(s.History, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"history\"")
+			}
+		case "created_at":
+			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.CreatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "updated_at":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.UpdatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"updated_at\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SerialNumber")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [3]uint8{
+		0b00111111,
+		0b10110000,
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSerialNumber) {
+					name = jsonFieldsNameOfSerialNumber[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SerialNumber) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SerialNumber) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SerialNumberMovement) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SerialNumberMovement) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("material_document_id")
+		json.EncodeUUID(e, s.MaterialDocumentID)
+	}
+	{
+		e.FieldStart("material_document_number")
+		e.Str(s.MaterialDocumentNumber)
+	}
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("movement_type")
+		e.Str(s.MovementType)
+	}
+	{
+		e.FieldStart("movement_type_name")
+		e.Str(s.MovementTypeName)
+	}
+	{
+		e.FieldStart("posting_date")
+		json.EncodeDate(e, s.PostingDate)
+	}
+	{
+		e.FieldStart("line_no")
+		e.Int32(s.LineNo)
+	}
+	{
+		e.FieldStart("direction")
+		e.Str(s.Direction)
+	}
+	{
+		e.FieldStart("plant_id")
+		json.EncodeUUID(e, s.PlantID)
+	}
+	{
+		e.FieldStart("plant_code")
+		e.Str(s.PlantCode)
+	}
+	{
+		e.FieldStart("storage_location_id")
+		json.EncodeUUID(e, s.StorageLocationID)
+	}
+	{
+		e.FieldStart("storage_location_code")
+		e.Str(s.StorageLocationCode)
+	}
+}
+
+var jsonFieldsNameOfSerialNumberMovement = [12]string{
+	0:  "material_document_id",
+	1:  "material_document_number",
+	2:  "fiscal_year",
+	3:  "movement_type",
+	4:  "movement_type_name",
+	5:  "posting_date",
+	6:  "line_no",
+	7:  "direction",
+	8:  "plant_id",
+	9:  "plant_code",
+	10: "storage_location_id",
+	11: "storage_location_code",
+}
+
+// Decode decodes SerialNumberMovement from json.
+func (s *SerialNumberMovement) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SerialNumberMovement to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "material_document_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.MaterialDocumentID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_id\"")
+			}
+		case "material_document_number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.MaterialDocumentNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_number\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "movement_type":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.MovementType = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"movement_type\"")
+			}
+		case "movement_type_name":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.MovementTypeName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"movement_type_name\"")
+			}
+		case "posting_date":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.PostingDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"posting_date\"")
+			}
+		case "line_no":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Int32()
+				s.LineNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"line_no\"")
+			}
+		case "direction":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.Direction = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"direction\"")
+			}
+		case "plant_id":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.PlantID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_id\"")
+			}
+		case "plant_code":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.PlantCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_code\"")
+			}
+		case "storage_location_id":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.StorageLocationID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_id\"")
+			}
+		case "storage_location_code":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.StorageLocationCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_code\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SerialNumberMovement")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11111111,
+		0b00001111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSerialNumberMovement) {
+					name = jsonFieldsNameOfSerialNumberMovement[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SerialNumberMovement) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SerialNumberMovement) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SerialNumberPage) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SerialNumberPage) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("items")
+		e.ArrStart()
+		for _, elem := range s.Items {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		if s.NextPageToken.Set {
+			e.FieldStart("next_page_token")
+			s.NextPageToken.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfSerialNumberPage = [2]string{
+	0: "items",
+	1: "next_page_token",
+}
+
+// Decode decodes SerialNumberPage from json.
+func (s *SerialNumberPage) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SerialNumberPage to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "items":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				s.Items = make([]SerialNumber, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SerialNumber
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		case "next_page_token":
+			if err := func() error {
+				s.NextPageToken.Reset()
+				if err := s.NextPageToken.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_page_token\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SerialNumberPage")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSerialNumberPage) {
+					name = jsonFieldsNameOfSerialNumberPage[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SerialNumberPage) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SerialNumberPage) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

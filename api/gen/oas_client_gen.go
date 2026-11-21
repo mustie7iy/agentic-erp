@@ -2168,22 +2168,30 @@ type Invoker interface {
 	// batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
 	// `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
 	// receives the same batch, and a batch's stock at a location never goes below zero either (409
-	// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
-	// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
-	// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
-	// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
-	// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
-	// 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`;
-	// else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard
-	// price what the stock is worth at it after the receipt, the rest a price difference), a transfer's
-	// receipt what its issue took. The value is posted through the ledger in one journal entry dated the
-	// posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the
-	// document moves no value): the valuation class's stock account against the account its movement type
-	// posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price
-	// differences on its price difference account (422 `inventory.no_inventory_account` when the class
-	// lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused
-	// posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same
-	// `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`).
+	// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock. A
+	// serial-managed material's item names the serial number of each unit it moves (`serial_numbers`,
+	// S2g): as many as its quantity in base units, a whole number (422 `inventory.serial_required`,
+	// `inventory.serial_quantity`), each once in the document (422 `inventory.serial_repeated`), and
+	// another material's none (422 `inventory.serial_not_allowed`); a receipt's serial numbers are in no
+	// stock, a new one created by it (409 `inventory.serial_in_stock`, naming it), an issue's in stock at
+	// the item's storage location (409 `inventory.serial_not_in_stock`), a transfer receives the same
+	// serial numbers and a reversal moves its original's back, so a serial number is in stock at most once
+	// (`GET /v1/serial-numbers`). Every line is valued (S1d): its material is valued in its plant (422
+	// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+	// a standard price the rest is worth its quantity at the price; at a moving price the value in
+	// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+	// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+	// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+	// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+	// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+	// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+	// otherwise; none when the document moves no value): the valuation class's stock account against the
+	// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+	// scrapping), and price differences on its price difference account (422
+	// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
+	// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-documents
 	CreateMaterialDocument(ctx context.Context, request *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
@@ -2289,7 +2297,8 @@ type Invoker interface {
 	// date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
 	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 	// Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
-	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
+	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
+	// material too, as it carries no serial numbers yet (S2g).
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
@@ -2394,7 +2403,9 @@ type Invoker interface {
 	// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
 	// answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
-	// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
+	// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f); a serial-managed
+	// material too (422 `inventory.serial_not_supported`): a count by serial number is not built yet
+	// (S2g).
 	//
 	// POST /v1/physical-inventory-documents
 	CreatePhysicalInventoryDocument(ctx context.Context, request *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error)
@@ -2912,7 +2923,9 @@ type Invoker interface {
 	// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
 	// created. Human-only (`x-agent: false`). A batch-managed material is refused (422
-	// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
+	// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f); a
+	// serial-managed material too (422 `inventory.serial_not_supported`): stock in transit holds no serial
+	// numbers yet (S2g).
 	//
 	// POST /v1/stock-transport-orders
 	CreateStockTransportOrder(ctx context.Context, request *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error)
@@ -5192,6 +5205,16 @@ type Invoker interface {
 	//
 	// GET /v1/segments/{id}
 	GetSegment(ctx context.Context, params GetSegmentParams) (GetSegmentRes, error)
+	// GetSerialNumber invokes getSerialNumber operation.
+	//
+	// One serial number (ADR-0082 As built S2g; SAP IQ03's serial number history, from memory): its
+	// material by number and description, where it is in stock now or that it is in none, and its history,
+	// every goods movement that moved it in a company the caller may act in, in the order they were
+	// posted, each naming its material document, movement type, location and whether it received or issued
+	// the unit. One whose last movement was in another company is not found.
+	//
+	// GET /v1/serial-numbers/{id}
+	GetSerialNumber(ctx context.Context, params GetSerialNumberParams) (GetSerialNumberRes, error)
 	// GetSodRule invokes getSodRule operation.
 	//
 	// Returns one segregation-of-duties rule.
@@ -6884,6 +6907,17 @@ type Invoker interface {
 	//
 	// GET /v1/segments
 	ListSegments(ctx context.Context, params ListSegmentsParams) (ListSegmentsRes, error)
+	// ListSerialNumbers invokes listSerialNumbers operation.
+	//
+	// The serial numbers of serial-managed materials (ADR-0082 As built S2g; SAP IQ09, from memory) whose
+	// last goods movement was in a company the caller may act in, each as `getSerialNumber` gives it
+	// without its history: where it is in stock now, or that it is in none. A serial number is created by
+	// the first receipt that names it and is in stock at most once. Filtered by material, number, plant,
+	// storage location and whether it is in stock; in the order they were first received. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/serial-numbers
+	ListSerialNumbers(ctx context.Context, params ListSerialNumbersParams) (ListSerialNumbersRes, error)
 	// ListSodRules invokes listSodRules operation.
 	//
 	// Segregation-of-duties rules of the tenant, including ended ones. Sortable by: `created_at`.
@@ -7487,7 +7521,8 @@ type Invoker interface {
 	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
 	// are reversals. A batch-managed material's stock item is refused (422
-	// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
+	// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
+	// material's too (422 `inventory.serial_not_supported`, S2g).
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -7553,7 +7588,8 @@ type Invoker interface {
 	// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 	// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
 	// Human-only (`x-agent: false`). A batch-managed material is refused (422
-	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
+	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
+	// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 	//
 	// POST /v1/outbound-deliveries/{id}:postGoodsIssue
 	PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error)
@@ -27111,22 +27147,30 @@ func (c *Client) sendCreateMaterial(ctx context.Context, request *MaterialCreate
 // batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
 // `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
 // receives the same batch, and a batch's stock at a location never goes below zero either (409
-// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
-// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
-// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
-// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
-// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
-// 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`;
-// else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard
-// price what the stock is worth at it after the receipt, the rest a price difference), a transfer's
-// receipt what its issue took. The value is posted through the ledger in one journal entry dated the
-// posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the
-// document moves no value): the valuation class's stock account against the account its movement type
-// posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price
-// differences on its price difference account (422 `inventory.no_inventory_account` when the class
-// lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused
-// posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same
-// `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`).
+// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock. A
+// serial-managed material's item names the serial number of each unit it moves (`serial_numbers`,
+// S2g): as many as its quantity in base units, a whole number (422 `inventory.serial_required`,
+// `inventory.serial_quantity`), each once in the document (422 `inventory.serial_repeated`), and
+// another material's none (422 `inventory.serial_not_allowed`); a receipt's serial numbers are in no
+// stock, a new one created by it (409 `inventory.serial_in_stock`, naming it), an issue's in stock at
+// the item's storage location (409 `inventory.serial_not_in_stock`), a transfer receives the same
+// serial numbers and a reversal moves its original's back, so a serial number is in stock at most once
+// (`GET /v1/serial-numbers`). Every line is valued (S1d): its material is valued in its plant (422
+// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+// a standard price the rest is worth its quantity at the price; at a moving price the value in
+// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+// otherwise; none when the document moves no value): the valuation class's stock account against the
+// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+// scrapping), and price differences on its price difference account (422
+// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
+// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents
 func (c *Client) CreateMaterialDocument(ctx context.Context, request *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error) {
@@ -27976,7 +28020,8 @@ func (c *Client) sendCreateOrgUnit(ctx context.Context, request *OrgUnitCreate, 
 // date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
 // OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 // Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
-// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
+// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
+// material too, as it carries no serial numbers yet (S2g).
 //
 // POST /v1/outbound-deliveries
 func (c *Client) CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error) {
@@ -28701,7 +28746,9 @@ func (c *Client) sendCreatePersonalDataDeletionRun(ctx context.Context, request 
 // `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
 // answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
-// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
+// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f); a serial-managed
+// material too (422 `inventory.serial_not_supported`): a count by serial number is not built yet
+// (S2g).
 //
 // POST /v1/physical-inventory-documents
 func (c *Client) CreatePhysicalInventoryDocument(ctx context.Context, request *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error) {
@@ -32910,7 +32957,9 @@ func (c *Client) sendCreateStatisticalKeyFigurePosting(ctx context.Context, requ
 // of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
 // created. Human-only (`x-agent: false`). A batch-managed material is refused (422
-// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f); a
+// serial-managed material too (422 `inventory.serial_not_supported`): stock in transit holds no serial
+// numbers yet (S2g).
 //
 // POST /v1/stock-transport-orders
 func (c *Client) CreateStockTransportOrder(ctx context.Context, request *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error) {
@@ -59320,6 +59369,141 @@ func (c *Client) sendGetSegment(ctx context.Context, params GetSegmentParams) (r
 
 	stage = "DecodeResponse"
 	result, err := decodeGetSegmentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetSerialNumber invokes getSerialNumber operation.
+//
+// One serial number (ADR-0082 As built S2g; SAP IQ03's serial number history, from memory): its
+// material by number and description, where it is in stock now or that it is in none, and its history,
+// every goods movement that moved it in a company the caller may act in, in the order they were
+// posted, each naming its material document, movement type, location and whether it received or issued
+// the unit. One whose last movement was in another company is not found.
+//
+// GET /v1/serial-numbers/{id}
+func (c *Client) GetSerialNumber(ctx context.Context, params GetSerialNumberParams) (GetSerialNumberRes, error) {
+	res, err := c.sendGetSerialNumber(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetSerialNumber(ctx context.Context, params GetSerialNumberParams) (res GetSerialNumberRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSerialNumber"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/serial-numbers/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetSerialNumberOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/serial-numbers/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetSerialNumberOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetSerialNumberResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -97535,6 +97719,264 @@ func (c *Client) sendListSegments(ctx context.Context, params ListSegmentsParams
 	return result, nil
 }
 
+// ListSerialNumbers invokes listSerialNumbers operation.
+//
+// The serial numbers of serial-managed materials (ADR-0082 As built S2g; SAP IQ09, from memory) whose
+// last goods movement was in a company the caller may act in, each as `getSerialNumber` gives it
+// without its history: where it is in stock now, or that it is in none. A serial number is created by
+// the first receipt that names it and is in stock at most once. Filtered by material, number, plant,
+// storage location and whether it is in stock; in the order they were first received. Sortable by:
+// `created_at`.
+//
+// GET /v1/serial-numbers
+func (c *Client) ListSerialNumbers(ctx context.Context, params ListSerialNumbersParams) (ListSerialNumbersRes, error) {
+	res, err := c.sendListSerialNumbers(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListSerialNumbers(ctx context.Context, params ListSerialNumbersParams) (res ListSerialNumbersRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSerialNumbers"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/serial-numbers"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListSerialNumbersOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/serial-numbers"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Number.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "storage_location_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "storage_location_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.StorageLocationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "in_stock" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "in_stock",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.InStock.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListSerialNumbersOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListSerialNumbersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListSodRules invokes listSodRules operation.
 //
 // Segregation-of-duties rules of the tenant, including ended ones. Sortable by: `created_at`.
@@ -105206,7 +105648,8 @@ func (c *Client) sendPostExpenseReport(ctx context.Context, request OptExpenseRe
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
 // are reversals. A batch-managed material's stock item is refused (422
-// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
+// material's too (422 `inventory.serial_not_supported`, S2g).
 //
 // POST /v1/goods-receipts
 func (c *Client) PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error) {
@@ -105520,7 +105963,8 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 // more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 // SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
 // Human-only (`x-agent: false`). A batch-managed material is refused (422
-// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
+// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 //
 // POST /v1/outbound-deliveries/{id}:postGoodsIssue
 func (c *Client) PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error) {
