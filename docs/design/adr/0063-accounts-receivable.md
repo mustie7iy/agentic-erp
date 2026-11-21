@@ -893,7 +893,10 @@ customer invoice entered in receivables: its item names the emirate.
 - For the tax specialist (Musto Ibrahim, UAE VAT signer): confirm in one
   line "the plant's emirate, else the company's establishment" as the
   default (product owner 2026-11-21; a default, editable, so the build
-  did not wait).
+  did not wait), and that an order from a quotation keeps its items'
+  emirates as offered, the establishment's for a stock item even when
+  the order has a plant (decided by default 2; re-defaulting would need
+  the quotation item to record that it defaulted).
 - Tests: `TestItemJurisdictionDefaults` (sales), `TestOrgUnitRegion`
   (tenancy, db). Walkthrough step 148.
 

@@ -59,11 +59,6 @@ func init() {
 	problem.RegisterConstraint("storage_location_code_once", func() *problem.Problem {
 		return problem.Conflict("tenancy.org_unit_code_taken", "The plant already has a storage location with this code.")
 	})
-	// What checkRegion refuses first (migration 000431).
-	problem.RegisterConstraint("org_unit_region", func() *problem.Problem {
-		return problem.Unprocessable("tenancy.invalid_region", "Only a plant has a region, an ISO 3166-2 subdivision code.",
-			problem.FieldError{Field: "region", Code: "invalid", Message: "a plant's ISO 3166-2 subdivision code"})
-	})
 }
 
 // LegalEntity is a row of tenancy.legal_entity.
@@ -463,14 +458,11 @@ func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error,
 		return OrgUnit{}, fmt.Errorf("tenancy: update org unit %s: %w", id, err)
 	}
 	return updated, audit.Record(ctx, "tenancy.org_unit.update", "tenancy.org_unit", id,
-		changed(u.Name != name, "name", !sameParent(u.ParentID, parent), "parent_id", !sameText(u.Region, region), "region"))
+		changed(u.Name != name, "name", !samePtr(u.ParentID, parent), "parent_id", !samePtr(u.Region, region), "region"))
 }
 
-func sameParent(a, b *uuid.UUID) bool {
-	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
-}
-
-func sameText(a, b *string) bool {
+// samePtr says whether two optional values are both absent or equal.
+func samePtr[T comparable](a, b *T) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 

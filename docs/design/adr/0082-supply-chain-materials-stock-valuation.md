@@ -1342,8 +1342,10 @@ The product owner's answer of 2026-11-21 to S2j's question above
   with its plant; a plant set on a draft by a change is Later, with
   per-item plants and their determination from customer and material
   data (SAP's VBAP-WERKS, from memory; product owner: Later). A
-  confirmed order without a plant (one confirmed before this step) is
-  left as S2j left it: a change adding a stock item to it is not checked.
+  confirmed order without a plant (of services alone, or one confirmed
+  before this step) takes no stock item unchecked: `changeSalesOrder`
+  refuses one that adds a stock item or changes a stock item's quantity
+  (422 `sales.plant_required`, review round 1).
 - **A plant's region** (migration 000431, `tenancy.org_unit.region`;
   `org_unit_region`, `TestOrgUnitRegion`): the country subdivision of the
   plant's address (ISO 3166-2, a UAE plant's emirate), on

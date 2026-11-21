@@ -1,11 +1,15 @@
 package sales_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -164,5 +168,31 @@ func TestPlantRequired(t *testing.T) {
 		if got["status"] != "confirmed" {
 			t.Errorf("the order of services: got %v, want confirmed", got["status"])
 		}
+		stock := e.ofMaterial(hinge, "1 EA", `, "unit_price": {"amount": "3.00", "currency": "EUR"}`)
+		p := e.Problem(422, "sales.plant_required", "POST", changing(confirmed), fmt.Sprintf(`{"new_items": [%s]}`, stock), e.version(t, confirmed))
+		if f := field(p); f != "plant_id" {
+			t.Errorf("a stock item added to it: got field %v, want plant_id", f)
+		}
+		added, _ := e.Must(200, "POST", changing(confirmed), fmt.Sprintf(`{"new_items": [%s]}`, e.item(line{})), e.version(t, confirmed))
+		if n := len(items(t, added)); n != 2 {
+			t.Errorf("a service added to it: got %d items, want 2", n)
+		}
+	})
+}
+
+// TestChangeReadsThePlantInARequest: a change adding an item to an order
+// with a plant reads the plant, its added items' jurisdictions defaulting
+// from it, in the request's transaction, and fails as it does.
+func TestChangeReadsThePlantInARequest(t *testing.T) {
+	e := setupWith(t, emirates("AE-DU"))
+	e.plant(t, "P1", "AE-SH")
+	order, _ := e.Must(201, "POST", "/v1/sales-orders", e.direct(e.customer, "", e.item(line{})), "")
+	id := uuid.MustParse(order["id"].(string))
+	h := endpoints(t, time.Now())
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "add an item to an order with a plant", func(ctx context.Context) error {
+		_, err := h.ChangeSalesOrder(ctx, &gen.SalesOrderChangeRequest{NewItems: []gen.SalesItemCreate{{Description: gen.NewOptString("Freight"),
+			Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.NewOptMoney(gen.Money{Amount: "5.00", Currency: "EUR"}), AccountID: e.revenue,
+			TaxCode: gen.NewOptString("U5")}}}, gen.ChangeSalesOrderParams{ID: id, IfMatch: `"1"`})
+		return err
 	})
 }

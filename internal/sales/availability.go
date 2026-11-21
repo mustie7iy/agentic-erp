@@ -80,10 +80,18 @@ func unitID(u *tenancy.Unit) *uuid.UUID {
 // be checked, so it could promise stock another order was promised. An
 // order of services and non-stock items needs none.
 func (e *Endpoints) plantRequired(ctx context.Context, o Order) error {
+	return e.plantRequiredFor(ctx, o, o.Items, func(OrderItem) bool { return true })
+}
+
+// plantRequiredFor is plantRequired for the items check selects: what a
+// confirmation confirms, or what a change of a confirmed order adds or
+// changes the quantity of (quantityChanged), which an order without a
+// plant would otherwise promise unchecked.
+func (e *Endpoints) plantRequiredFor(ctx context.Context, o Order, items []OrderItem, check func(OrderItem) bool) error {
 	if o.PlantID != nil {
 		return nil
 	}
-	p, err := e.checkPlan(ctx, o.Items, func(OrderItem) bool { return true })
+	p, err := e.checkPlan(ctx, items, check)
 	if err != nil || len(p.checked) == 0 {
 		return err
 	}

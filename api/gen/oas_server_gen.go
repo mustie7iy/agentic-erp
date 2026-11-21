@@ -700,13 +700,16 @@ type Handler interface {
 	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
 	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
 	// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
-	// release; a lower value leaves the block as it is. A confirmed order with a plant has the items the
-	// change adds, and those whose quantity it changes, checked for availability again as a confirmation
-	// checks them (`confirmSalesOrder`, S2j): an item keeps what it had confirmed, up to its new quantity,
-	// and has more confirmed as far as the plant has it available. The change is kept, numbered within the
-	// order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's
-	// `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with
-	// the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+	// release; a lower value leaves the block as it is. A confirmed order without a plant takes no item of
+	// a material kept in stock that the change adds or whose quantity it changes (422
+	// `sales.plant_required` naming `plant_id`; product owner 2026-11-21): its availability could not be
+	// checked. A confirmed order with a plant has the items the change adds, and those whose quantity it
+	// changes, checked for availability again as a confirmation checks them (`confirmSalesOrder`, S2j): an
+	// item keeps what it had confirmed, up to its new quantity, and has more confirmed as far as the plant
+	// has it available. The change is kept, numbered within the order, with its reason and its values
+	// before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted.
+	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+	// changed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:change
 	ChangeSalesOrder(ctx context.Context, req *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
@@ -2757,11 +2760,13 @@ type Handler interface {
 	// confirmed while it has an item of a material kept in stock (422 `sales.plant_required`). A UAE item
 	// that names no `tax_jurisdiction` takes the seller's emirate: its plant's `region` for an item of a
 	// material kept in stock of an order with a plant, else the company's establishment, the region of its
-	// postal address (`SalesItemCreate`). It is created `draft`, dated the company's date today in its
-	// time zone, with a document number from the company's `sales_order` number range of that date's
-	// fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted.
-	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
-	// order created. Human-only (`x-agent: false`).
+	// postal address (`SalesItemCreate`); an order from a quotation keeps its items' emirates as offered,
+	// the company's establishment's for a stock item even when the order has a plant (a quotation has
+	// none). It is created `draft`, dated the company's date today in its time zone, with a document
+	// number from the company's `sales_order` number range of that date's fiscal year; each item starts
+	// with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as
+	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)

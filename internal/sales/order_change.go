@@ -183,6 +183,11 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Order{}, err
 	}
+	if o.Status == Confirmed { // a confirmed order without a plant takes no stock item unchecked (product owner 2026-11-21)
+		if err := e.plantRequiredFor(ctx, o, c.items, quantityChanged(c.changes)); err != nil {
+			return Order{}, err
+		}
+	}
 	block := o.CreditBlock
 	if c.check != nil && c.check.block == Blocked {
 		block = Blocked

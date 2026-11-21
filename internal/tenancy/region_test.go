@@ -42,8 +42,14 @@ func TestOrgUnitRegion(t *testing.T) {
 				}
 				return
 			}
-			if status != 422 || m["code"] != "tenancy.invalid_region" || field(m) != "region" || code(m) != tc.code {
-				t.Errorf("got %d %v %v %v, want 422 tenancy.invalid_region naming region, %s", status, m["code"], field(m), code(m), tc.code)
+			if status != 422 || m["code"] != "tenancy.invalid_region" {
+				t.Errorf("got %d %v, want 422 tenancy.invalid_region", status, m["code"])
+			}
+			if field(m) != "region" {
+				t.Errorf("the field: got %v, want region", field(m))
+			}
+			if code(m) != tc.code {
+				t.Errorf("the field's code: got %v, want %s", code(m), tc.code)
 			}
 		})
 	}
@@ -79,8 +85,14 @@ func onlyPlant(t *testing.T, ten pgtest.Tenant, c client, de map[string]any, pla
 		t.Helper()
 		if err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
 			u, ok, err := tenancy.Directory{}.OnlyPlant(ctx, le)
-			if ok != want || (ok && (u.ID != plant || u.Region == nil || *u.Region != region)) {
-				t.Errorf("the only plant: got %v %v, want found %v, %s in %s", u, ok, want, plant, region)
+			if ok != want {
+				t.Errorf("the only plant found: got %v, want %v", ok, want)
+			}
+			if ok && u.ID != plant {
+				t.Errorf("the only plant: got %s, want %s", u.ID, plant)
+			}
+			if ok && (u.Region == nil || *u.Region != region) {
+				t.Errorf("the only plant's region: got %v, want %s", u.Region, region)
 			}
 			units, err2 := tenancy.Directory{}.OrgUnits(ctx, []uuid.UUID{plant})
 			if r := units[plant].Region; r == nil || *r != region {
