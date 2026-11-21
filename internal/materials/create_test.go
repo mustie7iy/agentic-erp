@@ -19,7 +19,7 @@ func TestCreate(t *testing.T) {
 	got, tag := e.Must(201, "POST", path, e.bracket(t, map[string]any{"reason": "New bracket"}), "")
 	fields(t, got, map[string]any{"number": "MA2000-100000", "company_code": "2000", "description": "Machined bracket M10", "base_unit": "EA",
 		"base_unit_name": "Each", "material_type": "trading_good", "material_group": "BRACKETS", "status": "pending", "version": 1,
-		"pending_change_number": "MC00000001", "batch_managed": false})
+		"pending_change_number": "MC00000001", "batch_managed": false, "serial_managed": false})
 	if tag != `"1"` {
 		t.Errorf("ETag: got %s, want \"1\"", tag)
 	}
@@ -76,6 +76,13 @@ func TestCreate(t *testing.T) {
 	if ev := e.events(t, "material_changed", second["id"].(string)); len(ev) != 1 || ev[0]["batch_managed"] != true {
 		t.Errorf("the batch-managed material's event: got %v, want it batch-managed", ev)
 	}
+	third := e.create(t, map[string]any{"description": "Pressure gauge", "plants": nil, "alternative_units": nil, "serial_managed": true})
+	fields(t, third, map[string]any{"serial_managed": true, "batch_managed": false})
+	c, _ = e.Must(200, "GET", "/v1/material-changes/"+third["pending_change_id"].(string), "", "")
+	fields(t, c["requested"].(map[string]any), map[string]any{"serial_managed": true})
+	if ev := e.events(t, "material_changed", third["id"].(string)); len(ev) != 1 || ev[0]["serial_managed"] != true {
+		t.Errorf("the serial-managed material's event: got %v, want it serial-managed", ev)
+	}
 }
 
 // TestCreateRefusals: each refusal names the request's field and creates
@@ -101,6 +108,7 @@ func TestCreateRefusals(t *testing.T) {
 		"a blank description":         {map[string]any{"description": "  "}, 422, "request.validation_failed", "description"},
 		"an unknown type":             {map[string]any{"material_type": "gadget"}, 422, "materials.unknown_material_type", "material_type"},
 		"a service in batches":        {map[string]any{"material_type": "service", "batch_managed": true}, 422, "materials.batch_managed_not_stocked", "batch_managed"},
+		"a service by serial number":  {map[string]any{"material_type": "service", "serial_managed": true}, 422, "materials.serial_managed_not_stocked", "serial_managed"},
 		"an unknown base unit":        {map[string]any{"base_unit": "XX"}, 422, "materials.unknown_unit", "base_unit"},
 		"an unknown unit":             {map[string]any{"alternative_units": []any{unit("XX")}}, 422, "materials.unknown_unit", "alternative_units[0].unit"},
 		"the base unit converted":     {map[string]any{"alternative_units": []any{unit("EA")}}, 422, "materials.base_unit_conversion", "alternative_units[0].unit"},

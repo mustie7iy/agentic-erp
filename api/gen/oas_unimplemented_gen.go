@@ -2480,22 +2480,30 @@ func (UnimplementedHandler) CreateMaterial(ctx context.Context, req *MaterialCre
 // batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
 // `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
 // receives the same batch, and a batch's stock at a location never goes below zero either (409
-// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
-// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
-// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
-// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
-// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
-// 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`;
-// else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard
-// price what the stock is worth at it after the receipt, the rest a price difference), a transfer's
-// receipt what its issue took. The value is posted through the ledger in one journal entry dated the
-// posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the
-// document moves no value): the valuation class's stock account against the account its movement type
-// posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price
-// differences on its price difference account (422 `inventory.no_inventory_account` when the class
-// lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused
-// posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same
-// `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`).
+// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock. A
+// serial-managed material's item names the serial number of each unit it moves (`serial_numbers`,
+// S2g): as many as its quantity in base units, a whole number (422 `inventory.serial_required`,
+// `inventory.serial_quantity`), each once in the document (422 `inventory.serial_repeated`), and
+// another material's none (422 `inventory.serial_not_allowed`); a receipt's serial numbers are in no
+// stock, a new one created by it (409 `inventory.serial_in_stock`, naming it), an issue's in stock at
+// the item's storage location (409 `inventory.serial_not_in_stock`), a transfer receives the same
+// serial numbers and a reversal moves its original's back, so a serial number is in stock at most once
+// (`GET /v1/serial-numbers`). Every line is valued (S1d): its material is valued in its plant (422
+// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+// a standard price the rest is worth its quantity at the price; at a moving price the value in
+// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+// otherwise; none when the document moves no value): the valuation class's stock account against the
+// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+// scrapping), and price differences on its price difference account (422
+// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
+// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents
 func (UnimplementedHandler) CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (r CreateMaterialDocumentRes, _ error) {
@@ -2622,7 +2630,8 @@ func (UnimplementedHandler) CreateOrgUnit(ctx context.Context, req *OrgUnitCreat
 // date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
 // OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 // Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
-// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
+// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
+// material too, as it carries no serial numbers yet (S2g).
 //
 // POST /v1/outbound-deliveries
 func (UnimplementedHandler) CreateOutboundDelivery(ctx context.Context, req *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (r CreateOutboundDeliveryRes, _ error) {
@@ -2742,7 +2751,9 @@ func (UnimplementedHandler) CreatePersonalDataDeletionRun(ctx context.Context, r
 // `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
 // answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
-// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
+// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f); a serial-managed
+// material too (422 `inventory.serial_not_supported`): a count by serial number is not built yet
+// (S2g).
 //
 // POST /v1/physical-inventory-documents
 func (UnimplementedHandler) CreatePhysicalInventoryDocument(ctx context.Context, req *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (r CreatePhysicalInventoryDocumentRes, _ error) {
@@ -3354,7 +3365,9 @@ func (UnimplementedHandler) CreateStatisticalKeyFigurePosting(ctx context.Contex
 // of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
 // created. Human-only (`x-agent: false`). A batch-managed material is refused (422
-// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f); a
+// serial-managed material too (422 `inventory.serial_not_supported`): stock in transit holds no serial
+// numbers yet (S2g).
 //
 // POST /v1/stock-transport-orders
 func (UnimplementedHandler) CreateStockTransportOrder(ctx context.Context, req *StockTransportOrderCreate, params CreateStockTransportOrderParams) (r CreateStockTransportOrderRes, _ error) {
@@ -6168,6 +6181,19 @@ func (UnimplementedHandler) GetSegment(ctx context.Context, params GetSegmentPar
 	return r, ht.ErrNotImplemented
 }
 
+// GetSerialNumber implements getSerialNumber operation.
+//
+// One serial number (ADR-0082 As built S2g; SAP IQ03's serial number history, from memory): its
+// material by number and description, where it is in stock now or that it is in none, and its history,
+// every goods movement that moved it in a company the caller may act in, in the order they were
+// posted, each naming its material document, movement type, location and whether it received or issued
+// the unit. One whose last movement was in another company is not found.
+//
+// GET /v1/serial-numbers/{id}
+func (UnimplementedHandler) GetSerialNumber(ctx context.Context, params GetSerialNumberParams) (r GetSerialNumberRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSodRule implements getSodRule operation.
 //
 // Returns one segregation-of-duties rule.
@@ -8364,6 +8390,20 @@ func (UnimplementedHandler) ListSegments(ctx context.Context, params ListSegment
 	return r, ht.ErrNotImplemented
 }
 
+// ListSerialNumbers implements listSerialNumbers operation.
+//
+// The serial numbers of serial-managed materials (ADR-0082 As built S2g; SAP IQ09, from memory) whose
+// last goods movement was in a company the caller may act in, each as `getSerialNumber` gives it
+// without its history: where it is in stock now, or that it is in none. A serial number is created by
+// the first receipt that names it and is in stock at most once. Filtered by material, number, plant,
+// storage location and whether it is in stock; in the order they were first received. Sortable by:
+// `created_at`.
+//
+// GET /v1/serial-numbers
+func (UnimplementedHandler) ListSerialNumbers(ctx context.Context, params ListSerialNumbersParams) (r ListSerialNumbersRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListSodRules implements listSodRules operation.
 //
 // Segregation-of-duties rules of the tenant, including ended ones. Sortable by: `created_at`.
@@ -9084,7 +9124,8 @@ func (UnimplementedHandler) PostExpenseReport(ctx context.Context, req OptExpens
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
 // are reversals. A batch-managed material's stock item is refused (422
-// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
+// material's too (422 `inventory.serial_not_supported`, S2g).
 //
 // POST /v1/goods-receipts
 func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (r PostGoodsReceiptRes, _ error) {
@@ -9156,7 +9197,8 @@ func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEn
 // more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 // SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
 // Human-only (`x-agent: false`). A batch-managed material is refused (422
-// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
+// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 //
 // POST /v1/outbound-deliveries/{id}:postGoodsIssue
 func (UnimplementedHandler) PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (r PostOutboundDeliveryGoodsIssueRes, _ error) {

@@ -89,9 +89,10 @@ func (e *Endpoints) stockItem(ctx context.Context, h orderHeader, field string, 
 }
 
 // usableAt checks an added stock item's plant, an active one of the
-// company, and that its material is active, kept in stock, not managed in
-// batches (a goods receipt carries no batch yet, ADR-0082 As built S2f)
-// and kept at its storage location there.
+// company, and that its material is active, kept in stock, neither
+// managed in batches nor serial-managed (a goods receipt carries no batch
+// and no serial numbers yet, ADR-0082 As built S2f, S2g) and kept at its
+// storage location there.
 func (e *Endpoints) usableAt(ctx context.Context, h orderHeader, field string, it Item, m materials.Material) error {
 	if err := e.orgUnit(ctx, it.PlantID, h.le.ID, "plant", field+".plant_id"); err != nil {
 		return err
@@ -103,6 +104,9 @@ func (e *Endpoints) usableAt(ctx context.Context, h orderHeader, field string, i
 	case m.BatchManaged:
 		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "Material "+m.Number+
 			" is managed in batches; a purchase order's goods receipt carries no batch yet.")
+	case m.SerialManaged:
+		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "Material "+m.Number+
+			" has a serial number profile; a purchase order's goods receipt carries no serial numbers yet.")
 	case !m.KeptAt(*it.PlantID, *it.StorageLocationID):
 		return problem.Invalid("procurement.invalid_stock_item", field+".storage_location_id", "Material "+m.Number+
 			" is not kept at this storage location of the plant.")

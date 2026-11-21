@@ -73,6 +73,9 @@ func takeStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 	if err := takeBatches(ctx, tx, p, company, lines, r); err != nil {
 		return err
 	}
+	if err := takeSerials(ctx, tx, p, company, lines, r); err != nil {
+		return err
+	}
 	for _, l := range lines {
 		k, move := keyOf(l), money.ParseRat(l.Quantity)
 		after := new(big.Rat).Add(current[k], move)
@@ -102,8 +105,8 @@ func atLocations(keys []stockKey) []stockKey {
 // time, with no quantity, and locks every one, in the keys' order: the
 // stock at locations (inventory.stock), then the stock in transit
 // (inventory.transit_stock). It answers each row's quantity. A row is
-// written saying whether its material is batch-managed, as r reads it
-// (S2f).
+// written saying whether its material is batch-managed (S2f) and
+// serial-managed (S2g), as r reads it.
 func lockStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.UUID, keys []stockKey, r refs) (map[stockKey]*big.Rat, error) {
 	out := map[stockKey]*big.Rat{}
 	at := atLocations(keys)
@@ -122,15 +125,19 @@ func lockStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 func lockRows(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.UUID, table string, keys []stockKey, out map[stockKey]*big.Rat,
 	r refs) error {
 	ids, ms, plants, locations := make([]uuid.UUID, len(keys)), make([]uuid.UUID, len(keys)), make([]uuid.UUID, len(keys)), make([]uuid.UUID, len(keys))
-	managed := make([]bool, len(keys))
+	managed, serials := make([]bool, len(keys)), make([]bool, len(keys))
 	for i, k := range keys {
-		ids[i], ms[i], plants[i], locations[i], managed[i] = uuid.Must(uuid.NewV7()), k.material, k.plant, k.location, r.materials[k.material].BatchManaged
+		m := r.materials[k.material]
+		ids[i], ms[i], plants[i], locations[i], managed[i], serials[i] = uuid.Must(uuid.NewV7()), k.material, k.plant, k.location, m.BatchManaged,
+			m.SerialManaged
 	}
 	name := pgx.Identifier{"inventory", table}.Sanitize()
-	if _, err := tx.Exec(ctx, `INSERT INTO `+name+` (tenant_id, id, legal_entity_id, material_id, plant_id, storage_location_id, batch_managed)
-		SELECT $1, x.id, $2, x.m, x.p, x.s, x.b FROM unnest($3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[], $7::boolean[]) WITH ORDINALITY AS x (id, m, p, s, b, n)
+	if _, err := tx.Exec(ctx, `INSERT INTO `+name+` (tenant_id, id, legal_entity_id, material_id, plant_id, storage_location_id, batch_managed,
+			serial_managed)
+		SELECT $1, x.id, $2, x.m, x.p, x.s, x.b, x.sn FROM unnest($3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[], $7::boolean[], $8::boolean[])
+			WITH ORDINALITY AS x (id, m, p, s, b, sn, n)
 		ORDER BY x.n ON CONFLICT (tenant_id, material_id, plant_id, storage_location_id) DO NOTHING`,
-		p.TenantID, company, ids, ms, plants, locations, managed); err != nil {
+		p.TenantID, company, ids, ms, plants, locations, managed, serials); err != nil {
 		return fmt.Errorf("inventory: %s rows of %d locations: %w", table, len(keys), err)
 	}
 	rows, _ := tx.Query(ctx, `SELECT s.material_id, s.plant_id, s.storage_location_id, s.quantity::text FROM `+name+` s

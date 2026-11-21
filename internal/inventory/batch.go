@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -162,9 +161,9 @@ func readBatches(ctx context.Context, tx pgx.Tx, items []ItemInput) (map[uuid.UU
 // when it is not.
 func batchOf(at string, it ItemInput, mt movementType, m materials.Material, r refs) error {
 	switch {
-	case m.BatchManaged && !mt.batches:
+	case m.BatchManaged && !mt.tracked:
 		return problem.Invalid("inventory.batch_not_supported", at+"material_id", "Material "+m.Number+" is managed in batches; a "+
-			strings.ToLower(mt.name[:1])+mt.name[1:]+" does not carry batches yet.")
+			lowerFirst(mt.name)+" does not carry batches yet.")
 	case m.BatchManaged && it.BatchID == nil:
 		return problem.Invalid("inventory.batch_required", at+"batch_id", "Material "+m.Number+" is managed in batches; the item names its batch.")
 	case !m.BatchManaged && it.BatchID != nil:

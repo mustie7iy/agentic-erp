@@ -15915,6 +15915,62 @@ step_available_to_promise() {
   passed
 }
 
+# step_serial_numbers is S2g (ADR-0082 As built S2g, plan-supply-chain.md):
+# Mira creates a pressure gauge with a serial number profile, which Priya
+# approves and Ines values. Wade receives two gauges into the main store
+# (501), the item naming both serial numbers; a receipt of one of them
+# again is refused, as it is in stock already, and so is an item whose
+# serial numbers do not match its quantity. Maintenance takes one gauge
+# (201): it leaves stock, the other stays; issuing the issued one again is
+# refused. The issued gauge's history names its receipt and its issue.
+step_serial_numbers() {
+  heading "Step 151 — Serial numbers: a pressure gauge with a serial number profile, two gauges received each by its serial number, one issued to maintenance; a serial number in stock received again refused, an issued one issued again refused; each gauge where it is, with its history"
+  local gauge cc issued
+  [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
+  as mira
+  say "Mira creates the pressure gauge, a trading good with a serial number profile, kept in Toronto's main store; Priya approves it:"
+  api 201 '"material \(.number) \(.description): serial-managed \(.serial_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Pressure gauge 0-16 bar\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"GAUGES\",
+      \"serial_managed\": true, \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  gauge=$(field .id)
+  approve priya "$(material_request "$gauge")" "Gauges for the test bench."
+  as ines
+  say "Ines values it in Toronto at a moving price of 85.00 CAD:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$gauge\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"85.00\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Two gauges arrive without an order (501), worth 170.00 CAD; the item names both serial numbers:"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) \(.quantity.value) \(.quantity.unit), serial numbers \(.serial_numbers | join(", "))")' \
+    createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$gauge\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"serial_numbers\": [\"PG-1001\", \"PG-1002\"], \"amount\": {\"amount\": \"170.00\", \"currency\": \"CAD\"}}]}"
+  expect "the receipt's serial numbers" "$(field '.lines[0].serial_numbers | join(" ")')" "PG-1001 PG-1002"
+  say "A receipt of PG-1001 again is refused: it is in stock already, and a serial number is in stock at most once:"
+  refused 409 inventory.serial_in_stock createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$gauge\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"serial_numbers\": [\"PG-1001\"]}]}"
+  say "So is a receipt of two gauges naming one serial number:"
+  refused 422 inventory.serial_required createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$gauge\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"serial_numbers\": [\"PG-1003\"]}]}"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "Maintenance takes gauge PG-1002 for the test bench (201):"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) \(.quantity.value) \(.quantity.unit), serial numbers \(.serial_numbers | join(", "))")' \
+    createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$gauge\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"serial_numbers\": [\"PG-1002\"], \"cost_center_id\": \"$cc\"}]}"
+  say "Issuing PG-1002 again is refused: it is no longer in stock:"
+  refused 409 inventory.serial_not_in_stock createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$gauge\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"serial_numbers\": [\"PG-1002\"],
+      \"cost_center_id\": \"$cc\"}]}"
+  say "The gauges' serial numbers: one in the main store, one issued:"
+  api 200 '.items[] | "  \(.number): \(if .in_stock then "in stock at \(.plant_code) \(.storage_location_code)" else "in no stock" end)"' \
+    listSerialNumbers -p "material_id=$gauge"
+  expect "the serial numbers" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "PG-1001:true PG-1002:false"
+  issued=$(field '.items[] | select(.number == "PG-1002") | .id')
+  say "PG-1002's history:"
+  api 200 '.history[] | "  \(.posting_date) \(.material_document_number) (\(.movement_type)): \(.direction) at \(.storage_location_code)"' getSerialNumber -p "id=$issued"
+  expect "PG-1002's history" "$(field '[.history[] | "\(.movement_type):\(.direction)"] | join(" ")')" "501:received 201:issued"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -17945,7 +18001,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_close'
 
 main() {
   stop_unseen

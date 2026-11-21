@@ -110,6 +110,15 @@ func TestTakeOverRefused(t *testing.T) {
 	if p := problem.From(err); p.Code != "inventory.batch_required" {
 		t.Errorf("a batch-managed material's take-over: got %v, want inventory.batch_required", err)
 	}
+	// Nor serial numbers, so a serial-managed material's is refused (S2g).
+	gauge := e.serialManaged(t, "Taken-over gauge")
+	err = e.inRequest(t, func(ctx context.Context) error {
+		_, err := h.TakeOver(ctx, e.takeOver(gauge, inventory.MovingAverage, "1.00", inventory.TakeOverItem{StorageLocationID: e.s1, Quantity: "1"}))
+		return err
+	})
+	if p := problem.From(err); p.Code != "inventory.serial_required" {
+		t.Errorf("a serial-managed material's take-over: got %v, want inventory.serial_required", err)
+	}
 }
 
 // TestTakeOverDatabaseFailures: every database error of a take-over and

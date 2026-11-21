@@ -671,6 +671,22 @@ storage location's.
 unit's serial number on receipt and issue. **Adds:** `inventory.serial`
 and its history. **Acceptance:** a serial number is in stock at most once.
 
+- **Detailed** (lane serial, 2026-11-21; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2g): a material has a
+  serial number profile from its creation (`serial_managed` on `POST
+  /v1/materials`, fixed once created; SAP MARC's SERNP, from memory).
+  Every goods movement of it (`POST /v1/material-documents`) names the
+  serial number of each unit it moves (`serial_numbers`, a whole number
+  of base units), unique per material; the first receipt naming one
+  creates it. `inventory.serial` holds where each is in stock now and
+  `inventory.movement_serial` its history; the database refuses a
+  receipt of one in stock and an issue of one not at the line's location,
+  so a serial number is in stock at most once. `GET /v1/serial-numbers`
+  and `/{id}` with its history. The flows that carry no serial numbers
+  yet refuse a serial-managed material where they refuse a batch-managed
+  one (S2f). **Later:** serial numbers in those flows, profiles per plant
+  and other serial number usages.
+
 **Later for Batch and serial number management:** batch classification
 and determination (FEFO), where-used lists, recall, serial numbers in
 maintenance (phase 6).

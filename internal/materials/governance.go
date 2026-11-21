@@ -85,6 +85,9 @@ type Requested struct {
 	// BatchManaged is a create's: whether the material is managed in
 	// batches (As built S2f).
 	BatchManaged *bool `json:"batch_managed,omitempty"`
+	// SerialManaged is a create's: whether the material has a serial
+	// number profile (As built S2g).
+	SerialManaged *bool `json:"serial_managed,omitempty"`
 }
 
 // Duplicate is an existing material a new one may duplicate: by id,

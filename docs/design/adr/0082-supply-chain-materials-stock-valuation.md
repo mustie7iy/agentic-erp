@@ -1225,6 +1225,90 @@ reads a location's stock without a lock for shipping's picking.
   expiry checks and batch determination (FEFO), classification,
   where-used and recall.
 
+### S2g (2026-11-21)
+
+- Migration 000435 (03 §3.35, S2g): `materials.material.serial_managed`,
+  the stock rows' `serial_managed`, `inventory.serial` and
+  `inventory.movement_serial` with their triggers, under schema tests
+  (`db/serial_test.go`, the insert-only triggers also as the owner, the
+  down's refusal). No permission: serial numbers are moved by the goods
+  movements that name them (`inventory.movement.post`) and read with the
+  stock (`inventory.stock.read`).
+- **A serial number profile is the material's, fixed once created**
+  (`serial_managed` on `POST /v1/materials`; SAP keeps the profile per
+  plant, MARC's SERNP, from memory), as batch management is (As built
+  S2f): one profile, "a serial number for every unit on every goods
+  movement" (SAP's serializing procedure MMSL with serial number usage
+  obligatory, from memory); other usages and per-plant profiles are
+  Later. Only a material kept in stock has one (422
+  `materials.serial_managed_not_stocked`). On the create change and in
+  `MaterialChanged` (not required, ADR-0041). A material may be both
+  batch-managed and serial-managed; each rule applies on its own.
+  Decided by default.
+- **A serial number is unique per material** (SAP's serial number per
+  material, from memory): 1 to 18 capitals, digits, `-` or `_` (SERNR's
+  length, from memory). **The first receipt that names one creates it**
+  (SAP MIGO's automatic creation, from memory), so there is no serial
+  number master endpoint to keep apart from stock; it is never deleted.
+  Decided by default.
+- **Every goods movement of a serial-managed material names the serial
+  number of each unit it moves**: `serial_numbers` on the items of `POST
+  /v1/material-documents`, the item's quantity a whole number of base
+  units (422 `inventory.serial_quantity`) and its serial numbers as many
+  (422 `inventory.serial_required`), each once in the document (422
+  `inventory.serial_repeated`), another material's none (422
+  `inventory.serial_not_allowed`); a transfer (311, 301) receives the same
+  serial numbers, a reversal moves its original's back. The lines, the
+  audit and `MaterialDocumentPosted` (not required) name them, sorted by
+  number.
+- **A serial number is in stock at most once, database-enforced**:
+  `inventory.serial` holds where it is now (a plant's storage location, or
+  none); only `inventory.movement_serial`, its history, moves it
+  (`movement_serial_moves`: a receipt of one in stock is refused,
+  `serial_in_stock_once`; an issue of one not at the line's location,
+  `serial_issued_from_stock`); at commit a line of a serial-managed stock
+  row names one per unit and any other line none (`movement_serials` on
+  the line, `movement_serial_counted` on each serial number added to a
+  line written before, so one added later to a committed line is refused
+  too; each line is counted once at commit, review rounds 1 and 2;
+  `TestSerialManyUnits` posts an item of 1000).
+  The posting checks both first and answers 409
+  `inventory.serial_in_stock` (naming the serial number and where to read
+  it) and `inventory.serial_not_in_stock` (naming the location).
+- **Locks:** after the locations' and the batches' stock rows, a posting
+  writes the serial numbers its receipts name for the first time (`ON
+  CONFLICT DO NOTHING`) and then locks every serial number it moves, both
+  in (material, number) order, bytewise as PostgreSQL's C collation orders
+  them; every write precedes every lock, and `FOR UPDATE` does not wait on
+  a row not yet committed, so two postings never wait on each other in a
+  cycle (`TestSerialMovementsAtOnce`: receipts at two locations, so under
+  no common stock row, of the same serial numbers named in opposite
+  order, issued ones and new ones, post one each time; review round 1).
+- **The flows that carry no serial numbers yet refuse a serial-managed
+  material** where they refuse a batch-managed one: a purchase order's
+  stock item (422 `procurement.invalid_stock_item`), an outbound
+  delivery's item (422 `shipping.material_not_usable`), a stock transport
+  order and a count document (422 `inventory.serial_not_supported`, which
+  the goods receipt and goods issue also answer beneath) and the SAP stock
+  take-over (561 without serial numbers, `inventory.serial_required`).
+  A quotation's or sales order's item is not refused here (S2f's
+  `sales.material_not_usable` refusal of a batch-managed one): the sales
+  order's code is another lane's in batch 87, so a serial-managed
+  material's order item is refused at its delivery's creation until the
+  sales refusal is added beside the batch one. Decided by default.
+- `GET /v1/serial-numbers` (material, number, plant, storage location,
+  in stock) and `/{id}` with its history (each movement's material
+  document, movement type, location and whether it received or issued the
+  unit), filtered by the company of the serial number's last movement
+  and its movements' companies (SAP IQ09 and IQ03, from memory).
+- Walkthrough step 151, `step_serial_numbers`.
+- **Not built** (Later, plan §S2g): serial numbers in the purchase
+  order's goods receipt, the delivery's goods issue, stock transport
+  orders, counts and the SAP take-over; profiles per plant and other
+  serial number usages (optional, automatic); equipment master data and
+  serial numbers in maintenance and service (phase 6); a serial number's
+  history as at a date.
+
 ### S2j (2026-11-20)
 
 - Migration 000430: `sales.sales_order.plant_id`,

@@ -83,10 +83,11 @@ type movementType struct {
 	// transit, which procurement posts (IssueForTransport, S2h), never a
 	// person here, and which is not reversed yet.
 	transport bool
-	// batches: an item of a batch-managed material names its batch
-	// (S2f); the other movement types carry no batch yet, and refuse a
-	// batch-managed material.
-	batches bool
+	// tracked: an item of a batch-managed material names its batch
+	// (S2f), and one of a serial-managed material the serial number of
+	// each unit (S2g); the other movement types carry neither yet, and
+	// refuse such a material.
+	tracked bool
 }
 
 // movementTypes are the forward movement types a person posts and their
@@ -102,18 +103,18 @@ type movementType struct {
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true},
-	"501": {name: "Receipt without purchase order", sign: 1, reversal: "502", batches: true},
-	"502": {name: "Reversal of a receipt without purchase order", sign: -1, reverses: "501", batches: true},
-	"561": {name: "Initial entry of stock", sign: 1, reversal: "562", batches: true},
-	"562": {name: "Reversal of an initial entry of stock", sign: -1, reverses: "561", batches: true},
-	"201": {name: "Issue to a cost center", sign: -1, costCenter: true, reversal: "202", batches: true},
-	"202": {name: "Reversal of an issue to a cost center", sign: 1, costCenter: true, reverses: "201", batches: true},
-	"551": {name: "Scrapping", sign: -1, costCenter: true, reversal: "552", batches: true},
-	"552": {name: "Reversal of a scrapping", sign: 1, costCenter: true, reverses: "551", batches: true},
-	"311": {name: "Transfer between storage locations", sign: -1, transfer: betweenStorageLocations, reversal: "312", batches: true},
-	"312": {name: "Reversal of a transfer between storage locations", sign: 1, transfer: betweenStorageLocations, reverses: "311", batches: true},
-	"301": {name: "Transfer between plants", sign: -1, transfer: betweenPlants, reversal: "302", batches: true},
-	"302": {name: "Reversal of a transfer between plants", sign: 1, transfer: betweenPlants, reverses: "301", batches: true},
+	"501": {name: "Receipt without purchase order", sign: 1, reversal: "502", tracked: true},
+	"502": {name: "Reversal of a receipt without purchase order", sign: -1, reverses: "501", tracked: true},
+	"561": {name: "Initial entry of stock", sign: 1, reversal: "562", tracked: true},
+	"562": {name: "Reversal of an initial entry of stock", sign: -1, reverses: "561", tracked: true},
+	"201": {name: "Issue to a cost center", sign: -1, costCenter: true, reversal: "202", tracked: true},
+	"202": {name: "Reversal of an issue to a cost center", sign: 1, costCenter: true, reverses: "201", tracked: true},
+	"551": {name: "Scrapping", sign: -1, costCenter: true, reversal: "552", tracked: true},
+	"552": {name: "Reversal of a scrapping", sign: 1, costCenter: true, reverses: "551", tracked: true},
+	"311": {name: "Transfer between storage locations", sign: -1, transfer: betweenStorageLocations, reversal: "312", tracked: true},
+	"312": {name: "Reversal of a transfer between storage locations", sign: 1, transfer: betweenStorageLocations, reverses: "311", tracked: true},
+	"301": {name: "Transfer between plants", sign: -1, transfer: betweenPlants, reversal: "302", tracked: true},
+	"302": {name: "Reversal of a transfer between plants", sign: 1, transfer: betweenPlants, reverses: "301", tracked: true},
 	"351": {name: "Goods issue for a stock transport order", sign: -1, transfer: betweenPlants, transport: true},
 	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true},
 	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true},
@@ -221,6 +222,10 @@ type Line struct {
 	// (S2f), and BatchNumber its number; nil on another material's line.
 	BatchID     *uuid.UUID `json:"batch_id"`
 	BatchNumber *string    `json:"batch_number"`
+	// SerialNumbers are the serial numbers of the units the line moves, of
+	// a serial-managed material (S2g), by number; nil on another
+	// material's line.
+	SerialNumbers []string `json:"serial_numbers"`
 	// InTransit says the line moves stock in transit to its storage
 	// location of its plant, the receiving one of a stock transport order
 	// (S2h), rather than the stock at that location.

@@ -23341,22 +23341,30 @@ func (s *Server) handleCreateMaterialRequest(args [0]string, argsEscaped bool, w
 // batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
 // `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
 // receives the same batch, and a batch's stock at a location never goes below zero either (409
-// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
-// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
-// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
-// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
-// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
-// 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`;
-// else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard
-// price what the stock is worth at it after the receipt, the rest a price difference), a transfer's
-// receipt what its issue took. The value is posted through the ledger in one journal entry dated the
-// posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the
-// document moves no value): the valuation class's stock account against the account its movement type
-// posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price
-// differences on its price difference account (422 `inventory.no_inventory_account` when the class
-// lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused
-// posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same
-// `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`).
+// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock. A
+// serial-managed material's item names the serial number of each unit it moves (`serial_numbers`,
+// S2g): as many as its quantity in base units, a whole number (422 `inventory.serial_required`,
+// `inventory.serial_quantity`), each once in the document (422 `inventory.serial_repeated`), and
+// another material's none (422 `inventory.serial_not_allowed`); a receipt's serial numbers are in no
+// stock, a new one created by it (409 `inventory.serial_in_stock`, naming it), an issue's in stock at
+// the item's storage location (409 `inventory.serial_not_in_stock`), a transfer receives the same
+// serial numbers and a reversal moves its original's back, so a serial number is in stock at most once
+// (`GET /v1/serial-numbers`). Every line is valued (S1d): its material is valued in its plant (422
+// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+// a standard price the rest is worth its quantity at the price; at a moving price the value in
+// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+// otherwise; none when the document moves no value): the valuation class's stock account against the
+// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+// scrapping), and price differences on its price difference account (422
+// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
+// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents
 func (s *Server) handleCreateMaterialDocumentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -24641,7 +24649,8 @@ func (s *Server) handleCreateOrgUnitRequest(args [0]string, argsEscaped bool, w 
 // date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
 // OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 // Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
-// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
+// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
+// material too, as it carries no serial numbers yet (S2g).
 //
 // POST /v1/outbound-deliveries
 func (s *Server) handleCreateOutboundDeliveryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -25726,7 +25735,9 @@ func (s *Server) handleCreatePersonalDataDeletionRunRequest(args [0]string, args
 // `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
 // answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
-// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
+// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f); a serial-managed
+// material too (422 `inventory.serial_not_supported`): a count by serial number is not built yet
+// (S2g).
 //
 // POST /v1/physical-inventory-documents
 func (s *Server) handleCreatePhysicalInventoryDocumentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -31955,7 +31966,9 @@ func (s *Server) handleCreateStatisticalKeyFigurePostingRequest(args [1]string, 
 // of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
 // created. Human-only (`x-agent: false`). A batch-managed material is refused (422
-// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f); a
+// serial-managed material too (422 `inventory.serial_not_supported`): stock in transit holds no serial
+// numbers yet (S2g).
 //
 // POST /v1/stock-transport-orders
 func (s *Server) handleCreateStockTransportOrderRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -66722,6 +66735,197 @@ func (s *Server) handleGetSegmentRequest(args [1]string, argsEscaped bool, w htt
 	}
 
 	if err := encodeGetSegmentResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetSerialNumberRequest handles getSerialNumber operation.
+//
+// One serial number (ADR-0082 As built S2g; SAP IQ03's serial number history, from memory): its
+// material by number and description, where it is in stock now or that it is in none, and its history,
+// every goods movement that moved it in a company the caller may act in, in the order they were
+// posted, each naming its material document, movement type, location and whether it received or issued
+// the unit. One whose last movement was in another company is not found.
+//
+// GET /v1/serial-numbers/{id}
+func (s *Server) handleGetSerialNumberRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSerialNumber"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/serial-numbers/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetSerialNumberOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetSerialNumberOperation,
+			ID:   "getSerialNumber",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetSerialNumberOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetSerialNumberParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetSerialNumberRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetSerialNumberOperation,
+			OperationSummary: "Get a serial number with its history",
+			OperationID:      "getSerialNumber",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetSerialNumberParams
+			Response = GetSerialNumberRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetSerialNumberParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetSerialNumber(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetSerialNumber(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetSerialNumberResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -102419,6 +102623,226 @@ func (s *Server) handleListSegmentsRequest(args [0]string, argsEscaped bool, w h
 	}
 }
 
+// handleListSerialNumbersRequest handles listSerialNumbers operation.
+//
+// The serial numbers of serial-managed materials (ADR-0082 As built S2g; SAP IQ09, from memory) whose
+// last goods movement was in a company the caller may act in, each as `getSerialNumber` gives it
+// without its history: where it is in stock now, or that it is in none. A serial number is created by
+// the first receipt that names it and is in stock at most once. Filtered by material, number, plant,
+// storage location and whether it is in stock; in the order they were first received. Sortable by:
+// `created_at`.
+//
+// GET /v1/serial-numbers
+func (s *Server) handleListSerialNumbersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSerialNumbers"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/serial-numbers"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListSerialNumbersOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListSerialNumbersOperation,
+			ID:   "listSerialNumbers",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListSerialNumbersOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListSerialNumbersParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListSerialNumbersRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListSerialNumbersOperation,
+			OperationSummary: "List serial numbers",
+			OperationID:      "listSerialNumbers",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
+				{
+					Name: "number",
+					In:   "query",
+				}: params.Number,
+				{
+					Name: "plant_id",
+					In:   "query",
+				}: params.PlantID,
+				{
+					Name: "storage_location_id",
+					In:   "query",
+				}: params.StorageLocationID,
+				{
+					Name: "in_stock",
+					In:   "query",
+				}: params.InStock,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListSerialNumbersParams
+			Response = ListSerialNumbersRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListSerialNumbersParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListSerialNumbers(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListSerialNumbers(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListSerialNumbersResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListSodRulesRequest handles listSodRules operation.
 //
 // Segregation-of-duties rules of the tenant, including ended ones. Sortable by: `created_at`.
@@ -110853,7 +111277,8 @@ func (s *Server) handlePostExpenseReportRequest(args [1]string, argsEscaped bool
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
 // are reversals. A batch-managed material's stock item is refused (422
-// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
+// material's too (422 `inventory.serial_not_supported`, S2g).
 //
 // POST /v1/goods-receipts
 func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -111311,7 +111736,8 @@ func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool,
 // more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 // SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
 // Human-only (`x-agent: false`). A batch-managed material is refused (422
-// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
+// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
+// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 //
 // POST /v1/outbound-deliveries/{id}:postGoodsIssue
 func (s *Server) handlePostOutboundDeliveryGoodsIssueRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
