@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -501,5 +502,77 @@ func TestTenants(t *testing.T) {
 		if _, err := database.Tenants(ctx, pool, failing, "erp_worker", query, ten.ID); !errors.Is(err, pgtest.ErrInjected) {
 			t.Errorf("got %v, want the injected failure", err)
 		}
+	})
+}
+
+// TestLockTenant: the lock is held to the end of the transaction, under
+// the key the SQL call sites write ("<name>:<tenant>:<part>…"), so a
+// transaction taking it the old way waits for one taking it here; within
+// the transaction's tenant only, so another tenant's same name and parts
+// do not wait; refused without a tenant; a failed statement reported.
+func TestLockTenant(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	ten, other := pgtest.NewTenant(t), pgtest.NewTenant(t)
+	plant, material := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	begin := func(t *testing.T, tenant uuid.UUID) pgx.Tx {
+		t.Helper()
+		tx, err := pool.Begin(ctx, database.Scope{Role: "erp_app", TenantID: tenant})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = tx.Rollback(ctx) }) // a transaction the test committed or rolled back already answers ErrTxClosed
+		if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '100ms'`); err != nil {
+			t.Fatal(err)
+		}
+		return tx
+	}
+	holder := begin(t, ten.ID)
+	if err := database.LockTenant(ctx, holder, "sales.availability", plant.String(), material.String()); err != nil {
+		t.Fatalf("first lock: got %v, want nil", err)
+	}
+	t.Run("the same key written in SQL waits", func(t *testing.T) {
+		tx := begin(t, ten.ID)
+		_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('sales.availability:' || platform.require_tenant() || ':'
+			|| $1::text || ':' || $2::text, 0))`, plant, material)
+		var pg *pgconn.PgError
+		if !errors.As(err, &pg) || pg.Code != "55P03" {
+			t.Errorf("got %v, want lock_not_available (55P03)", err)
+		}
+	})
+	t.Run("the helper waits and says which lock", func(t *testing.T) {
+		tx := begin(t, ten.ID)
+		err := database.LockTenant(ctx, tx, "sales.availability", plant.String(), material.String())
+		pgtest.CheckErr(t, err, "database: advisory lock sales.availability:"+plant.String()+":"+material.String())
+	})
+	t.Run("another tenant does not wait", func(t *testing.T) {
+		if err := database.LockTenant(ctx, begin(t, other.ID), "sales.availability", plant.String(), material.String()); err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
+	})
+	t.Run("other parts do not wait", func(t *testing.T) {
+		if err := database.LockTenant(ctx, begin(t, ten.ID), "sales.availability", plant.String()); err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
+	})
+	t.Run("released at the end of the transaction", func(t *testing.T) {
+		if err := holder.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := database.LockTenant(ctx, begin(t, ten.ID), "sales.availability", plant.String(), material.String()); err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
+	})
+	t.Run("without a tenant", func(t *testing.T) {
+		// The application's role, which may call platform.require_tenant(), with no tenant set: the refusal is
+		// require_tenant's own, not a missing privilege.
+		tx, err := pool.Begin(ctx, database.Scope{Role: "erp_app"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = tx.Rollback(ctx) }) // the failed statement aborted the transaction, which wrote nothing: its rollback has nothing to undo
+		err = database.LockTenant(ctx, tx, "sales.availability")
+		pgtest.CheckErr(t, err, "database: advisory lock sales.availability")
+		pgtest.CheckErr(t, err, "no tenant scope")
 	})
 }

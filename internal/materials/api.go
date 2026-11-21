@@ -58,7 +58,8 @@ func materialAPI(m Material, refs references) gen.Material {
 	out := gen.Material{ID: m.ID, Version: m.Version, CreatedAt: m.CreatedAt, CreatedBy: m.CreatedBy, UpdatedAt: m.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(m.UpdatedBy), Number: m.Number, LegalEntityID: m.LegalEntityID, CompanyCode: refs.companies[m.LegalEntityID].Code,
 		Description: m.Description, BaseUnit: m.BaseUnit, BaseUnitName: m.BaseUnitName, MaterialType: m.Type, MaterialGroup: m.Group, Status: m.Status,
-		Plants: []gen.MaterialPlant{}, AlternativeUnits: make([]gen.MaterialUnit, len(m.Units)), PendingChangeID: apitypes.OptUUID(m.PendingChangeID),
+		BatchManaged: m.BatchManaged,
+		Plants:       []gen.MaterialPlant{}, AlternativeUnits: make([]gen.MaterialUnit, len(m.Units)), PendingChangeID: apitypes.OptUUID(m.PendingChangeID),
 		PendingChangeNumber: apitypes.OptString(m.PendingChangeNumber)}
 	for _, p := range m.Plants {
 		if !refs.access.Allows(p.LegalEntityID) {
@@ -111,7 +112,8 @@ func inputs(plants []gen.MaterialPlantInput, units []gen.MaterialUnitInput) ([]P
 func (e *Endpoints) CreateMaterial(ctx context.Context, req *gen.MaterialCreate, _ gen.CreateMaterialParams) (gen.CreateMaterialRes, error) {
 	plants, units := inputs(req.Plants, req.AlternativeUnits)
 	m, err := e.Create(ctx, Input{LegalEntityID: req.LegalEntityID, Description: req.Description, BaseUnit: req.BaseUnit, Type: req.MaterialType,
-		Group: req.MaterialGroup, Plants: plants, Units: units, Reason: req.Reason.Value, ConfirmDuplicate: req.ConfirmDuplicate.Value})
+		Group: req.MaterialGroup, Plants: plants, Units: units, Reason: req.Reason.Value, ConfirmDuplicate: req.ConfirmDuplicate.Value,
+		BatchManaged: req.BatchManaged.Value})
 	out, tag, err := e.one(ctx, m, err)
 	if err != nil {
 		return nil, err

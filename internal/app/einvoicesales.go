@@ -32,6 +32,18 @@ type einvoiceSales struct{ keys *fieldcrypt.Keyring }
 // names (the UAE pack's FTA registration, T61g).
 const uaeAuthority, uaeTaxScheme = "FTA", "AE_TRN"
 
+// Issued lists the company's posted invoices and credit memos dated in
+// the period (receivables' published IssuedInvoices).
+func (einvoiceSales) Issued(ctx context.Context, company uuid.UUID, from, to time.Time) ([]einvoicing.Issued, error) {
+	docs, err := receivables.IssuedInvoices(ctx, company, from, to)
+	out := make([]einvoicing.Issued, len(docs))
+	for i, d := range docs {
+		out[i] = einvoicing.Issued{ID: d.ID, Number: d.Number, Kind: d.Kind, IssueDate: d.InvoiceDate, CustomerID: d.CustomerID, Currency: d.Currency,
+			Exponent: d.Exponent, Gross: d.Gross}
+	}
+	return out, err
+}
+
 func (s einvoiceSales) Sale(ctx context.Context, id uuid.UUID) (einvoicing.Sale, bool, error) {
 	v, err := receivables.GetInvoice(ctx, id)
 	if err != nil {

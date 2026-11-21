@@ -163,7 +163,9 @@ type changed struct {
 // with its values before and after, the order's change count and version
 // move, and its audit record and SalesOrderChanged (with
 // SalesOrderCreditBlocked for an order blocked again) are written in the
-// request's transaction. Nothing is posted.
+// request's transaction. A confirmed order with a plant has the items the
+// change added or changed the quantity of checked for availability again
+// (quantityChanged; S2j). Nothing is posted.
 func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, in OrderChangeInput) (Order, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -189,6 +191,12 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Order{}, err
 	}
+	var promises []promise
+	if o.Status == Confirmed {
+		if promises, err = e.availability(ctx, tx, o, c.items, quantityChanged(c.changes)); err != nil {
+			return Order{}, err
+		}
+	}
 	after, err := loadOrder(ctx, tx, id, false)
 	if err != nil {
 		return Order{}, err
@@ -198,7 +206,22 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		return Order{}, fmt.Errorf("sales: customer of sales order %s: %w", id, err)
 	}
 	extra := map[string]any{"change_no": no, "reason": in.Reason, "items_changed": len(c.changes), "net_amount_before": money.EventAmount(o.Net, o.Currency, o.Exponent)}
+	if checked := promised(promises, o.PlantID); checked != nil {
+		extra["availability"] = checked
+	}
 	return after, recordOrder(ctx, "sales.sales_order.change", after, le, names[o.CustomerID].Number, &o.Status, c.check, extra)
+}
+
+// quantityChanged reports whether a change added the item or changed its
+// quantity: what a confirmed order's availability check confirms again
+// (S2j), as far as there is stock, keeping what the item had confirmed up
+// to its new quantity.
+func quantityChanged(changes []ItemChange) func(OrderItem) bool {
+	return func(it OrderItem) bool {
+		i := slices.IndexFunc(changes, func(c ItemChange) bool { return c.ItemNo == it.ItemNo })
+		return i >= 0 && (changes[i].Kind == ItemAdded ||
+			changes[i].Kind == ItemChanged && money.ParseRat(changes[i].QuantityBefore).Cmp(money.ParseRat(changes[i].QuantityAfter)) != 0)
+	}
 }
 
 // change works out what the request makes of the order: its items

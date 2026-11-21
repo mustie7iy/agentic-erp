@@ -642,6 +642,29 @@ extended, expand-migrate-contract). **Acceptance:** a batch-managed
 material is refused without a batch; stock by batch adds up to the
 storage location's.
 
+- **Detailed** (lane batch, 2026-11-20; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2f): a material is
+  batch-managed from its creation (`batch_managed` on `POST
+  /v1/materials`, SAP MARA's XCHPF, from memory; fixed once created).
+  `POST /v1/batches` (`inventory.batch.write`) creates a batch of it: a
+  number given by the request, unique per material (SAP's batch level
+  material, from memory), a manufacture date and an optional expiry date
+  not before it; `GET /v1/batches` and `/{id}`. Every goods movement of a
+  batch-managed material names a batch of it (`batch_id` on the items of
+  `POST /v1/material-documents`; a transfer keeps it, a reversal takes
+  its original's), and another material's none. Stock by batch is
+  `inventory.batch_stock` (SAP MCHB) beside the location's stock row
+  rather than a wider stock key, so the location's stock and its readers
+  stay as they are; the database adds a batch's movement to both and
+  refuses one that would leave them apart, so the batches add up to the
+  location's stock (`GET /v1/batch-stock`). The flows that carry no batch
+  yet refuse a batch-managed material at their first step: a purchase
+  order's stock item, a quotation's or sales order's item, a stock transport
+  order, a count and the SAP stock take-over.
+  **Later:** batches in those flows, a batch created at goods receipt,
+  internal batch numbers, changing a batch's dates, batch status, stock
+  by batch as at a date, transfer to another batch (309).
+
 ### S2g Serial numbers
 
 **Capability.** A material with a serial number profile records each
@@ -706,6 +729,18 @@ deliveries) and confirms what is available on the requested date.
 **Later for Available-to-promise:** checking rules with replenishment lead
 time, back-order processing, product allocation, global ATP across
 plants.
+
+- **Detailed** (lane atp, 2026-11-20; ADR-0082 As built S2j, decided by
+  default): the order names its plant (`plant_id`, optional, kept);
+  confirming checks each item of a material kept in stock against the
+  plant's stock (inventory's `PlantStock`) less the other confirmed
+  orders' confirmed and undelivered quantities, under a lock per
+  material and plant, and confirms in full, in part or nothing
+  (`confirmed_quantity`); deliveries take at most that, from the order's
+  plant; a change rechecks the items it adds or changes. Per-item plants
+  join the Later list.
+- **As built** (2026-11-20): ADR-0082 As built S2j, migration 000430,
+  walkthrough step 150.
 
 ### S2k MRP net requirements
 

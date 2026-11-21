@@ -30,6 +30,9 @@ func init() {
 	problem.RegisterConstraint("sales_order_item_in_delivery", func() *problem.Problem {
 		return problem.Conflict("sales.exceeds_open_quantity", "An order item's quantity is at least what is delivered and what outbound deliveries hold.")
 	})
+	problem.RegisterConstraint("sales_order_item_confirmed", func() *problem.Problem {
+		return problem.Conflict("sales.exceeds_open_quantity", "An order item's deliveries take at most what its availability check confirmed.")
+	})
 	problem.RegisterConstraint("sales_order_item_removed_unshipped", func() *problem.Problem {
 		return problem.Conflict("sales.order_item_delivered", "An order item an outbound delivery holds is not removed.")
 	})
@@ -39,15 +42,19 @@ func init() {
 }
 
 // ShipInput is what an outbound delivery takes of a sales order: the
-// delivery by id and number and its items, each a quantity of an order
-// item in its unit, or, when Items is nil, every open quantity of the
-// order items Open names.
+// delivery by id and number, the plant it ships from, and its items, each
+// a quantity of an order item in its unit, or, when Items is nil, every
+// open quantity of the order items Open names.
 type ShipInput struct {
 	OrderID        uuid.UUID
 	DeliveryID     uuid.UUID
 	DeliveryNumber string
-	Items          []ItemQuantity
-	Open           []int32
+	// PlantID is the plant the delivery ships from, required: what it
+	// holds there of an order without a plant counts in that plant's
+	// availability (S2j).
+	PlantID uuid.UUID
+	Items   []ItemQuantity
+	Open    []int32
 }
 
 // Ship takes quantities of a confirmed sales order's items into an
@@ -92,7 +99,7 @@ func (e *Endpoints) Ship(ctx context.Context, in ShipInput) (Shipped, error) {
 	if err != nil {
 		return Shipped{}, fmt.Errorf("sales: customer of sales order %s: %w", o.ID, err)
 	}
-	if err := assign(ctx, tx, p, o.ID, in.DeliveryID, in.DeliveryNumber, items, false); err != nil {
+	if err := assign(ctx, tx, p, held{order: o.ID, delivery: in.DeliveryID, number: in.DeliveryNumber, plant: in.PlantID}, items, false); err != nil {
 		return Shipped{}, err
 	}
 	detail := map[string]any{"document_number": o.DocumentNumber, "outbound_delivery_id": in.DeliveryID, "outbound_delivery_number": in.DeliveryNumber,
@@ -125,10 +132,15 @@ func shippable(o Order) error {
 	return nil
 }
 
-// open is what is open of an order item to deliver: what was ordered
-// less what is delivered and what outbound deliveries hold.
+// open is what is open of an order item to deliver: what was ordered,
+// or for an item the availability check confirmed what it confirmed
+// (S2j), less what is delivered and what outbound deliveries hold.
 func (it OrderItem) open() *big.Rat {
-	open := new(big.Rat).Sub(money.ParseRat(it.Quantity), money.ParseRat(it.Delivered))
+	promised := it.Quantity
+	if it.Confirmed != nil {
+		promised = *it.Confirmed
+	}
+	open := new(big.Rat).Sub(money.ParseRat(promised), money.ParseRat(it.Delivered))
 	return open.Sub(open, money.ParseRat(it.InDelivery))
 }
 
@@ -147,19 +159,30 @@ func openItems(o Order, nos []int32) []ItemQuantity {
 	return out
 }
 
+// held is whose quantities an assignment holds: the order's, for the
+// outbound delivery by id and number, at the plant it ships from.
+type held struct {
+	order, delivery uuid.UUID
+	number          string
+	plant           uuid.UUID
+}
+
 // assign writes an assignment per quantity, in the order given, each
 // adding it to its order item's quantity in delivery, negated when back
 // is set (the goods issue gives a delivery's quantities back).
-func assign(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orderID, deliveryID uuid.UUID, number string, items []ItemQuantity, back bool) error {
+func assign(ctx context.Context, tx pgx.Tx, p reqctx.Principal, h held, items []ItemQuantity, back bool) error {
+	if h.plant == uuid.Nil {
+		return fmt.Errorf("sales: outbound delivery %s of sales order %s names no plant", h.number, h.order)
+	}
 	for _, it := range items {
 		q := it.Quantity
 		if back {
 			q = money.PlainQuantity(new(big.Rat).Neg(money.ParseRat(q)))
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id,
-				outbound_delivery_number, quantity, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8)`,
-			p.TenantID, uuid.Must(uuid.NewV7()), orderID, it.ItemNo, deliveryID, number, q, p.ID); err != nil {
-			return fmt.Errorf("sales: assign item %d of sales order %s to outbound delivery %s: %w", it.ItemNo, orderID, number, err)
+				outbound_delivery_number, quantity, created_by, plant_id) VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9)`,
+			p.TenantID, uuid.Must(uuid.NewV7()), h.order, it.ItemNo, h.delivery, h.number, q, p.ID, h.plant); err != nil {
+			return fmt.Errorf("sales: assign item %d of sales order %s to outbound delivery %s: %w", it.ItemNo, h.order, h.number, err)
 		}
 	}
 	return nil
@@ -187,12 +210,13 @@ type IssuedItem struct {
 }
 
 // GoodsIssue is an outbound delivery's goods issue as sales records it:
-// the delivery and its material document by id and number, the day it
-// posted on, the cost's currency and the items.
+// the delivery and its material document by id and number, the plant it
+// shipped from, the day it posted on, the cost's currency and the items.
 type GoodsIssue struct {
 	OrderID                uuid.UUID
 	DeliveryID             uuid.UUID
 	DeliveryNumber         string
+	PlantID                uuid.UUID
 	MaterialDocumentID     uuid.UUID
 	MaterialDocumentNumber string
 	Date                   time.Time
@@ -226,7 +250,7 @@ func (e *Endpoints) Issue(ctx context.Context, in GoodsIssue) (Delivery, error) 
 	for i, it := range in.Items {
 		back[i] = ItemQuantity{ItemNo: it.ItemNo, Quantity: it.Held}
 	}
-	if err := assign(ctx, tx, p, o.ID, in.DeliveryID, in.DeliveryNumber, back, true); err != nil {
+	if err := assign(ctx, tx, p, held{order: o.ID, delivery: in.DeliveryID, number: in.DeliveryNumber, plant: in.PlantID}, back, true); err != nil {
 		return Delivery{}, err
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, o.LegalEntityID) // a stored order's legal entity exists

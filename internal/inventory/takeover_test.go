@@ -100,6 +100,16 @@ func TestTakeOverRefused(t *testing.T) {
 	if p := problem.From(err); p.Code != "inventory.storage_location_invalid" {
 		t.Errorf("got %v, want inventory.storage_location_invalid", err)
 	}
+	// A take-over names no batch, so a batch-managed material's is refused
+	// (S2f).
+	sealant := e.batchManaged(t, "Taken-over sealant")
+	err = e.inRequest(t, func(ctx context.Context) error {
+		_, err := h.TakeOver(ctx, e.takeOver(sealant, inventory.MovingAverage, "1.00", inventory.TakeOverItem{StorageLocationID: e.s1, Quantity: "1"}))
+		return err
+	})
+	if p := problem.From(err); p.Code != "inventory.batch_required" {
+		t.Errorf("a batch-managed material's take-over: got %v, want inventory.batch_required", err)
+	}
 }
 
 // TestTakeOverDatabaseFailures: every database error of a take-over and

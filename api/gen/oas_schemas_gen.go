@@ -16640,6 +16640,484 @@ func (s *BankStatusReport) SetReason(val OptString) {
 	s.Reason = val
 }
 
+// A batch (SAP MCH1): a lot of a batch-managed material, with its manufacture and expiry dates. It
+// does not change.
+// Ref: #/components/schemas/Batch
+type Batch struct {
+	// The batch's id, which material documents name (`batch_id`).
+	ID uuid.UUID `json:"id"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The batch's number, unique for its material.
+	Number string `json:"number"`
+	// The day it was made.
+	ManufactureDate time.Time `json:"manufacture_date"`
+	// The day it is to be used by; absent when it does not expire.
+	ExpiryDate OptDate `json:"expiry_date"`
+	// When it was created.
+	CreatedAt time.Time `json:"created_at"`
+	// Who created it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *Batch) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *Batch) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *Batch) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *Batch) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetNumber returns the value of Number.
+func (s *Batch) GetNumber() string {
+	return s.Number
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *Batch) GetManufactureDate() time.Time {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *Batch) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Batch) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Batch) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *Batch) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *Batch) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *Batch) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *Batch) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetNumber sets the value of Number.
+func (s *Batch) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *Batch) SetManufactureDate(val time.Time) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *Batch) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Batch) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Batch) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// A batch to create (ADR-0082 As built S2f): a lot of a batch-managed material.
+// Ref: #/components/schemas/BatchCreate
+type BatchCreate struct {
+	// The batch-managed material (`GET /v1/materials/{id}`, `batch_managed`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier
+	// or the plant gives it.
+	Number string `json:"number"`
+	// The day the batch was made.
+	ManufactureDate time.Time `json:"manufacture_date"`
+	// The day it is to be used by, not before its manufacture date; absent when it does not expire.
+	ExpiryDate OptDate `json:"expiry_date"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *BatchCreate) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetNumber returns the value of Number.
+func (s *BatchCreate) GetNumber() string {
+	return s.Number
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *BatchCreate) GetManufactureDate() time.Time {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *BatchCreate) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *BatchCreate) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *BatchCreate) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *BatchCreate) SetManufactureDate(val time.Time) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *BatchCreate) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
+// BatchHeaders wraps Batch with response headers.
+type BatchHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Batch
+}
+
+// GetETag returns the value of ETag.
+func (s *BatchHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BatchHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *BatchHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *BatchHeaders) GetResponse() Batch {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *BatchHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BatchHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *BatchHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BatchHeaders) SetResponse(val Batch) {
+	s.Response = val
+}
+
+func (*BatchHeaders) createBatchRes() {}
+
+// One page of batches.
+// Ref: #/components/schemas/BatchPage
+type BatchPage struct {
+	// The batches on this page.
+	Items []Batch `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BatchPage) GetItems() []Batch {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BatchPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BatchPage) SetItems(val []Batch) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BatchPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BatchPage) listBatchesRes() {}
+
+// The stock of a batch at a storage location of a plant (SAP MCHB's unrestricted stock), in its
+// material's base unit.
+// Ref: #/components/schemas/BatchStock
+type BatchStock struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The batch (`GET /v1/batches/{id}`).
+	BatchID uuid.UUID `json:"batch_id"`
+	// The batch's number.
+	BatchNumber string `json:"batch_number"`
+	// The day the batch was made.
+	ManufactureDate time.Time `json:"manufacture_date"`
+	// The day it is to be used by; absent when it does not expire.
+	ExpiryDate OptDate `json:"expiry_date"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The storage location.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The storage location's code.
+	StorageLocationCode string `json:"storage_location_code"`
+	// The storage location's name, as it is now.
+	StorageLocationName string `json:"storage_location_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The batch's quantity in stock there, in the material's base unit.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *BatchStock) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *BatchStock) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *BatchStock) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetBatchID returns the value of BatchID.
+func (s *BatchStock) GetBatchID() uuid.UUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *BatchStock) GetBatchNumber() string {
+	return s.BatchNumber
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *BatchStock) GetManufactureDate() time.Time {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *BatchStock) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *BatchStock) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *BatchStock) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *BatchStock) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *BatchStock) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *BatchStock) GetStorageLocationCode() string {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *BatchStock) GetStorageLocationName() string {
+	return s.StorageLocationName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BatchStock) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *BatchStock) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *BatchStock) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *BatchStock) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *BatchStock) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *BatchStock) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetBatchID sets the value of BatchID.
+func (s *BatchStock) SetBatchID(val uuid.UUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *BatchStock) SetBatchNumber(val string) {
+	s.BatchNumber = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *BatchStock) SetManufactureDate(val time.Time) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *BatchStock) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *BatchStock) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *BatchStock) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *BatchStock) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *BatchStock) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *BatchStock) SetStorageLocationCode(val string) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *BatchStock) SetStorageLocationName(val string) {
+	s.StorageLocationName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BatchStock) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *BatchStock) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *BatchStock) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of stock by batch.
+// Ref: #/components/schemas/BatchStockPage
+type BatchStockPage struct {
+	// The stock on this page.
+	Items []BatchStock `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BatchStockPage) GetItems() []BatchStock {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BatchStockPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BatchStockPage) SetItems(val []BatchStock) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BatchStockPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BatchStockPage) listBatchStockRes() {}
+
 // The cancellation of a billing document (ADR-0067, As built T79c): a document of its own, with the
 // customer credit memo that reversed a posted document's invoice.
 // Ref: #/components/schemas/BillingCancellation
@@ -27835,6 +28313,7 @@ func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
 func (*ConflictHeaders) createAssetTransferRes()                   {}
 func (*ConflictHeaders) createAuditEvidenceExportRes()             {}
+func (*ConflictHeaders) createBatchRes()                           {}
 func (*ConflictHeaders) createBillingDocumentRes()                 {}
 func (*ConflictHeaders) createBusinessPartnerRes()                 {}
 func (*ConflictHeaders) createCashExportRes()                      {}
@@ -28058,6 +28537,7 @@ func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
 func (*ConflictHeaders) retireEntryTemplateRes()                   {}
+func (*ConflictHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*ConflictHeaders) reverseAllocationRunRes()                  {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
@@ -28075,6 +28555,7 @@ func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
 func (*ConflictHeaders) runReportRes()                             {}
 func (*ConflictHeaders) scheduleReportRes()                        {}
+func (*ConflictHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*ConflictHeaders) settleInternalOrderRes()                   {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) signOffYearCloseRes()                      {}
@@ -28129,6 +28610,7 @@ func (*ConflictHeaders) updateYearCloseTaskRes()                   {}
 func (*ConflictHeaders) uploadMemoRecordsRes()                     {}
 func (*ConflictHeaders) verifyAuditChainRes()                      {}
 func (*ConflictHeaders) withdrawChangeRequestRes()                 {}
+func (*ConflictHeaders) withdrawOutgoingEInvoiceTaxDataRes()       {}
 func (*ConflictHeaders) withdrawTaxReturnRes()                     {}
 
 // Merged schema.
@@ -34612,6 +35094,18 @@ func (*CreateAuditEvidenceExportPreconditionRequired) createAuditEvidenceExportR
 type CreateAuditEvidenceExportUnprocessableEntity Problem
 
 func (*CreateAuditEvidenceExportUnprocessableEntity) createAuditEvidenceExportRes() {}
+
+type CreateBatchBadRequest Problem
+
+func (*CreateBatchBadRequest) createBatchRes() {}
+
+type CreateBatchForbidden Problem
+
+func (*CreateBatchForbidden) createBatchRes() {}
+
+type CreateBatchUnprocessableEntity Problem
+
+func (*CreateBatchUnprocessableEntity) createBatchRes() {}
 
 type CreateBillingDocumentBadRequest Problem
 
@@ -45338,10 +45832,13 @@ type EInvoice struct {
 	CompanyCode NilString `json:"company_code"`
 	// The company's name; null with `legal_entity_id`.
 	CompanyName NilString `json:"company_name"`
-	// Open enum: received (recorded; once processed, read as a PINT AE document and found valid, waiting
-	// to be entered) or refused (T65c: read and refused by validation, `problem_code` and `problem_detail`
-	// saying why; kept, never entered, final). The later slices add entered, held and dismissed (ADR-0061
-	// §7).
+	// Open enum: received (recorded; once processed, read as a PINT AE document and found valid: a tax
+	// credit note waits there to be entered, T65e), refused (T65c: read and refused by validation,
+	// `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid
+	// tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured
+	// one is) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as
+	// `payables.capture_needs_order` for one naming no purchase order, for a person to resolve). The later
+	// slices add dismissed (ADR-0061 §7).
 	Status string `json:"status"`
 	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
 	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
@@ -45352,18 +45849,21 @@ type EInvoice struct {
 	// The release of the PINT AE rules it was validated against (ADR-0061 §5 C2), such as
 	// `PINT AE Billing 1.0.4`. Omitted with `processed_at`.
 	ValidatedAgainst OptString `json:"validated_against"`
-	// Why it was refused (ADR-0061 §5): unreadable (not well-formed XML, or declaring a DTD or an entity,
-	// never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381
-	// following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail`
-	// naming each by its business term), amount_precision (an amount with more decimals than its
-	// currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without
-	// VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the
-	// figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's
-	// electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the
-	// company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients
+	// Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice
+	// met, payables' codes among them, or einvoicing.tax_currency_not_entered for a tax invoice not in
+	// AED, whose VAT in AED the entering does not keep yet). Refusals: unreadable (not well-formed XML, or
+	// declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380
+	// or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or
+	// malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more
+	// decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total,
+	// the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT
+	// total, with the figures), not_addressed_to_company (listed for none of the connector's companies,
+	// its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not
+	// the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	ProblemCode OptString `json:"problem_code"`
-	// What was found, for a person to take up with the supplier (no TRN in clear). Omitted unless refused.
+	// What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted
+	// unless refused or held.
 	ProblemDetail OptString `json:"problem_detail"`
 	// The document's number as it states it (IBT-001). Omitted until processed, and for a document that
 	// could not be read.
@@ -45379,6 +45879,28 @@ type EInvoice struct {
 	GrossAmount OptMoney  `json:"gross_amount"`
 	// The specification it states it follows (IBT-024, CustomizationID). Omitted with `document_number`.
 	Specification OptString `json:"specification"`
+	// When a fetch entered or held it (T65d). Omitted until then.
+	EnteredAt OptDateTime `json:"entered_at"`
+	// The fetch that entered or held it: its Operation's id, which lists the document under
+	// `fetch_operation_id` too. Omitted with `entered_at`.
+	EntryFetchOperationID OptUUID `json:"entry_fetch_operation_id"`
+	// The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this
+	// e-invoice's bytes). Omitted unless entered.
+	SupplierInvoiceID OptUUID `json:"supplier_invoice_id"`
+	// That invoice's document number. Omitted with `supplier_invoice_id`.
+	SupplierInvoiceNumber OptString `json:"supplier_invoice_number"`
+	// That invoice's supplier reference, the e-invoice's number as entered. Omitted with
+	// `supplier_invoice_id`.
+	SupplierReference OptString `json:"supplier_reference"`
+	// That invoice's status now (`SupplierInvoice.status`: parked, on_hold, posted and the others).
+	// Omitted with `supplier_invoice_id`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	SupplierInvoiceStatus OptString `json:"supplier_invoice_status"`
+	// That invoice's supplier, the business partner whose tax identifier is the seller's TRN. Omitted with
+	// `supplier_invoice_id`.
+	SupplierID OptUUID `json:"supplier_id"`
+	// The supplier's name. Omitted with `supplier_invoice_id`.
+	SupplierName OptString `json:"supplier_name"`
 	// The SHA-256 of its bytes as received.
 	SHA256 string `json:"sha256"`
 	// The size of its bytes as received.
@@ -45499,6 +46021,46 @@ func (s *EInvoice) GetGrossAmount() OptMoney {
 // GetSpecification returns the value of Specification.
 func (s *EInvoice) GetSpecification() OptString {
 	return s.Specification
+}
+
+// GetEnteredAt returns the value of EnteredAt.
+func (s *EInvoice) GetEnteredAt() OptDateTime {
+	return s.EnteredAt
+}
+
+// GetEntryFetchOperationID returns the value of EntryFetchOperationID.
+func (s *EInvoice) GetEntryFetchOperationID() OptUUID {
+	return s.EntryFetchOperationID
+}
+
+// GetSupplierInvoiceID returns the value of SupplierInvoiceID.
+func (s *EInvoice) GetSupplierInvoiceID() OptUUID {
+	return s.SupplierInvoiceID
+}
+
+// GetSupplierInvoiceNumber returns the value of SupplierInvoiceNumber.
+func (s *EInvoice) GetSupplierInvoiceNumber() OptString {
+	return s.SupplierInvoiceNumber
+}
+
+// GetSupplierReference returns the value of SupplierReference.
+func (s *EInvoice) GetSupplierReference() OptString {
+	return s.SupplierReference
+}
+
+// GetSupplierInvoiceStatus returns the value of SupplierInvoiceStatus.
+func (s *EInvoice) GetSupplierInvoiceStatus() OptString {
+	return s.SupplierInvoiceStatus
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *EInvoice) GetSupplierID() OptUUID {
+	return s.SupplierID
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *EInvoice) GetSupplierName() OptString {
+	return s.SupplierName
 }
 
 // GetSHA256 returns the value of SHA256.
@@ -45646,6 +46208,46 @@ func (s *EInvoice) SetSpecification(val OptString) {
 	s.Specification = val
 }
 
+// SetEnteredAt sets the value of EnteredAt.
+func (s *EInvoice) SetEnteredAt(val OptDateTime) {
+	s.EnteredAt = val
+}
+
+// SetEntryFetchOperationID sets the value of EntryFetchOperationID.
+func (s *EInvoice) SetEntryFetchOperationID(val OptUUID) {
+	s.EntryFetchOperationID = val
+}
+
+// SetSupplierInvoiceID sets the value of SupplierInvoiceID.
+func (s *EInvoice) SetSupplierInvoiceID(val OptUUID) {
+	s.SupplierInvoiceID = val
+}
+
+// SetSupplierInvoiceNumber sets the value of SupplierInvoiceNumber.
+func (s *EInvoice) SetSupplierInvoiceNumber(val OptString) {
+	s.SupplierInvoiceNumber = val
+}
+
+// SetSupplierReference sets the value of SupplierReference.
+func (s *EInvoice) SetSupplierReference(val OptString) {
+	s.SupplierReference = val
+}
+
+// SetSupplierInvoiceStatus sets the value of SupplierInvoiceStatus.
+func (s *EInvoice) SetSupplierInvoiceStatus(val OptString) {
+	s.SupplierInvoiceStatus = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *EInvoice) SetSupplierID(val OptUUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *EInvoice) SetSupplierName(val OptString) {
+	s.SupplierName = val
+}
+
 // SetSHA256 sets the value of SHA256.
 func (s *EInvoice) SetSHA256(val string) {
 	s.SHA256 = val
@@ -45690,6 +46292,289 @@ func (s *EInvoice) SetChangedFetchOperationID(val NilUUID) {
 func (s *EInvoice) SetVersion(val int32) {
 	s.Version = val
 }
+
+// A posted customer document whose e-invoice is not yet transmitted, with its deadline.
+// Ref: #/components/schemas/EInvoiceDeadline
+type EInvoiceDeadline struct {
+	// The customer invoice or credit memo (`getCustomerInvoice`).
+	CustomerInvoiceID     uuid.UUID `json:"customer_invoice_id"`
+	CustomerInvoiceNumber string    `json:"customer_invoice_number"`
+	// Invoice or credit_memo. Open enumeration.
+	Kind string `json:"kind"`
+	// Its invoice date, the transaction date its deadline counts from.
+	IssueDate time.Time `json:"issue_date"`
+	// The 14th business day of the company after the issue date.
+	Deadline time.Time `json:"deadline"`
+	// Whether the deadline is before the key date.
+	Overdue bool `json:"overdue"`
+	// Business days from the key date to the deadline (those after the key date up to the deadline),
+	// negative for those past it; 0 on the deadline, and on a day after it with no business day between
+	// (`overdue` says which).
+	BusinessDaysLeft int32     `json:"business_days_left"`
+	CustomerID       uuid.UUID `json:"customer_id"`
+	CustomerNumber   string    `json:"customer_number"`
+	CustomerName     string    `json:"customer_name"`
+	GrossAmount      Money     `json:"gross_amount"`
+	// Its e-invoice; null while none is rendered.
+	OutgoingEinvoiceID NilUUID `json:"outgoing_einvoice_id"`
+	// Its e-invoice's status (valid, invalid); null while none is rendered.
+	EinvoiceStatus NilString `json:"einvoice_status"`
+	// Its submission's status (queued, sending, submitted, failed); null while it is not sent.
+	TransmissionStatus NilString `json:"transmission_status"`
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *EInvoiceDeadline) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *EInvoiceDeadline) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetKind returns the value of Kind.
+func (s *EInvoiceDeadline) GetKind() string {
+	return s.Kind
+}
+
+// GetIssueDate returns the value of IssueDate.
+func (s *EInvoiceDeadline) GetIssueDate() time.Time {
+	return s.IssueDate
+}
+
+// GetDeadline returns the value of Deadline.
+func (s *EInvoiceDeadline) GetDeadline() time.Time {
+	return s.Deadline
+}
+
+// GetOverdue returns the value of Overdue.
+func (s *EInvoiceDeadline) GetOverdue() bool {
+	return s.Overdue
+}
+
+// GetBusinessDaysLeft returns the value of BusinessDaysLeft.
+func (s *EInvoiceDeadline) GetBusinessDaysLeft() int32 {
+	return s.BusinessDaysLeft
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *EInvoiceDeadline) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *EInvoiceDeadline) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *EInvoiceDeadline) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *EInvoiceDeadline) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetOutgoingEinvoiceID returns the value of OutgoingEinvoiceID.
+func (s *EInvoiceDeadline) GetOutgoingEinvoiceID() NilUUID {
+	return s.OutgoingEinvoiceID
+}
+
+// GetEinvoiceStatus returns the value of EinvoiceStatus.
+func (s *EInvoiceDeadline) GetEinvoiceStatus() NilString {
+	return s.EinvoiceStatus
+}
+
+// GetTransmissionStatus returns the value of TransmissionStatus.
+func (s *EInvoiceDeadline) GetTransmissionStatus() NilString {
+	return s.TransmissionStatus
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *EInvoiceDeadline) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *EInvoiceDeadline) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetKind sets the value of Kind.
+func (s *EInvoiceDeadline) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetIssueDate sets the value of IssueDate.
+func (s *EInvoiceDeadline) SetIssueDate(val time.Time) {
+	s.IssueDate = val
+}
+
+// SetDeadline sets the value of Deadline.
+func (s *EInvoiceDeadline) SetDeadline(val time.Time) {
+	s.Deadline = val
+}
+
+// SetOverdue sets the value of Overdue.
+func (s *EInvoiceDeadline) SetOverdue(val bool) {
+	s.Overdue = val
+}
+
+// SetBusinessDaysLeft sets the value of BusinessDaysLeft.
+func (s *EInvoiceDeadline) SetBusinessDaysLeft(val int32) {
+	s.BusinessDaysLeft = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *EInvoiceDeadline) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *EInvoiceDeadline) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *EInvoiceDeadline) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *EInvoiceDeadline) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetOutgoingEinvoiceID sets the value of OutgoingEinvoiceID.
+func (s *EInvoiceDeadline) SetOutgoingEinvoiceID(val NilUUID) {
+	s.OutgoingEinvoiceID = val
+}
+
+// SetEinvoiceStatus sets the value of EinvoiceStatus.
+func (s *EInvoiceDeadline) SetEinvoiceStatus(val NilString) {
+	s.EinvoiceStatus = val
+}
+
+// SetTransmissionStatus sets the value of TransmissionStatus.
+func (s *EInvoiceDeadline) SetTransmissionStatus(val NilString) {
+	s.TransmissionStatus = val
+}
+
+// One page of a UAE company's customer documents not yet transmitted, by deadline, with the totals of
+// the whole worklist.
+// Ref: #/components/schemas/EInvoiceDeadlinePage
+type EInvoiceDeadlinePage struct {
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	CompanyCode   string    `json:"company_code"`
+	CompanyName   string    `json:"company_name"`
+	// The day the deadlines are judged on.
+	KeyDate time.Time `json:"key_date"`
+	// The first issue date listed.
+	IssuedFrom time.Time `json:"issued_from"`
+	// Every document listed, on all pages.
+	Count int32 `json:"count"`
+	// Those overdue on the key date, on all pages.
+	OverdueCount int32 `json:"overdue_count"`
+	// The documents on this page.
+	Items []EInvoiceDeadline `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *EInvoiceDeadlinePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *EInvoiceDeadlinePage) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *EInvoiceDeadlinePage) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *EInvoiceDeadlinePage) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetIssuedFrom returns the value of IssuedFrom.
+func (s *EInvoiceDeadlinePage) GetIssuedFrom() time.Time {
+	return s.IssuedFrom
+}
+
+// GetCount returns the value of Count.
+func (s *EInvoiceDeadlinePage) GetCount() int32 {
+	return s.Count
+}
+
+// GetOverdueCount returns the value of OverdueCount.
+func (s *EInvoiceDeadlinePage) GetOverdueCount() int32 {
+	return s.OverdueCount
+}
+
+// GetItems returns the value of Items.
+func (s *EInvoiceDeadlinePage) GetItems() []EInvoiceDeadline {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *EInvoiceDeadlinePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *EInvoiceDeadlinePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *EInvoiceDeadlinePage) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *EInvoiceDeadlinePage) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *EInvoiceDeadlinePage) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetIssuedFrom sets the value of IssuedFrom.
+func (s *EInvoiceDeadlinePage) SetIssuedFrom(val time.Time) {
+	s.IssuedFrom = val
+}
+
+// SetCount sets the value of Count.
+func (s *EInvoiceDeadlinePage) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetOverdueCount sets the value of OverdueCount.
+func (s *EInvoiceDeadlinePage) SetOverdueCount(val int32) {
+	s.OverdueCount = val
+}
+
+// SetItems sets the value of Items.
+func (s *EInvoiceDeadlinePage) SetItems(val []EInvoiceDeadline) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *EInvoiceDeadlinePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*EInvoiceDeadlinePage) listEInvoiceTransmissionDeadlinesRes() {}
 
 // A fetch of e-invoices from a provider (ADR-0061 §4).
 // Ref: #/components/schemas/EInvoiceFetch
@@ -50233,6 +51118,46 @@ func (*GetBankStatementRulesForbidden) getBankStatementRulesRes() {}
 type GetBankStatementRulesNotFound Problem
 
 func (*GetBankStatementRulesNotFound) getBankStatementRulesRes() {}
+
+type GetBatchBadRequest Problem
+
+func (*GetBatchBadRequest) getBatchRes() {}
+
+type GetBatchForbidden Problem
+
+func (*GetBatchForbidden) getBatchRes() {}
+
+type GetBatchNotFound Problem
+
+func (*GetBatchNotFound) getBatchRes() {}
+
+// GetBatchOKHeaders wraps Batch with response headers.
+type GetBatchOKHeaders struct {
+	ETag     OptString
+	Response Batch
+}
+
+// GetETag returns the value of ETag.
+func (s *GetBatchOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetBatchOKHeaders) GetResponse() Batch {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetBatchOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetBatchOKHeaders) SetResponse(val Batch) {
+	s.Response = val
+}
+
+func (*GetBatchOKHeaders) getBatchRes() {}
 
 type GetBillingDocumentBadRequest Problem
 
@@ -66476,6 +67401,22 @@ type ListBankStatementsForbidden Problem
 
 func (*ListBankStatementsForbidden) listBankStatementsRes() {}
 
+type ListBatchStockBadRequest Problem
+
+func (*ListBatchStockBadRequest) listBatchStockRes() {}
+
+type ListBatchStockForbidden Problem
+
+func (*ListBatchStockForbidden) listBatchStockRes() {}
+
+type ListBatchesBadRequest Problem
+
+func (*ListBatchesBadRequest) listBatchesRes() {}
+
+type ListBatchesForbidden Problem
+
+func (*ListBatchesForbidden) listBatchesRes() {}
+
 type ListBillingDocumentsBadRequest Problem
 
 func (*ListBillingDocumentsBadRequest) listBillingDocumentsRes() {}
@@ -66815,6 +67756,18 @@ func (*ListDunningRunsBadRequest) listDunningRunsRes() {}
 type ListDunningRunsForbidden Problem
 
 func (*ListDunningRunsForbidden) listDunningRunsRes() {}
+
+type ListEInvoiceTransmissionDeadlinesBadRequest Problem
+
+func (*ListEInvoiceTransmissionDeadlinesBadRequest) listEInvoiceTransmissionDeadlinesRes() {}
+
+type ListEInvoiceTransmissionDeadlinesForbidden Problem
+
+func (*ListEInvoiceTransmissionDeadlinesForbidden) listEInvoiceTransmissionDeadlinesRes() {}
+
+type ListEInvoiceTransmissionDeadlinesUnprocessableEntity Problem
+
+func (*ListEInvoiceTransmissionDeadlinesUnprocessableEntity) listEInvoiceTransmissionDeadlinesRes() {}
 
 type ListEInvoicesBadRequest Problem
 
@@ -68654,6 +69607,9 @@ type Material struct {
 	// `active`: usable. `blocked`: kept, but not to be used in new documents. Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// Whether the material is managed in batches (S2f): every goods movement of it names a batch of it. It
+	// does not change.
+	BatchManaged bool `json:"batch_managed"`
 	// Its pending material change (`GET /v1/material-changes/{id}`); absent when none is pending.
 	PendingChangeID OptUUID `json:"pending_change_id"`
 	// That change's number; absent when none is pending.
@@ -68737,6 +69693,11 @@ func (s *Material) GetMaterialGroup() string {
 // GetStatus returns the value of Status.
 func (s *Material) GetStatus() string {
 	return s.Status
+}
+
+// GetBatchManaged returns the value of BatchManaged.
+func (s *Material) GetBatchManaged() bool {
+	return s.BatchManaged
 }
 
 // GetPendingChangeID returns the value of PendingChangeID.
@@ -68832,6 +69793,11 @@ func (s *Material) SetMaterialGroup(val string) {
 // SetStatus sets the value of Status.
 func (s *Material) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetBatchManaged sets the value of BatchManaged.
+func (s *Material) SetBatchManaged(val bool) {
+	s.BatchManaged = val
 }
 
 // SetPendingChangeID sets the value of PendingChangeID.
@@ -69214,6 +70180,8 @@ type MaterialChangeRequested struct {
 	BaseUnit OptString `json:"base_unit"`
 	// The material type (a create's only).
 	MaterialType OptString `json:"material_type"`
+	// Whether the material is managed in batches (a create's only).
+	BatchManaged OptBool `json:"batch_managed"`
 	// The material group.
 	MaterialGroup OptString `json:"material_group"`
 	// The status, `active` or `blocked`.
@@ -69239,6 +70207,11 @@ func (s *MaterialChangeRequested) GetBaseUnit() OptString {
 // GetMaterialType returns the value of MaterialType.
 func (s *MaterialChangeRequested) GetMaterialType() OptString {
 	return s.MaterialType
+}
+
+// GetBatchManaged returns the value of BatchManaged.
+func (s *MaterialChangeRequested) GetBatchManaged() OptBool {
+	return s.BatchManaged
 }
 
 // GetMaterialGroup returns the value of MaterialGroup.
@@ -69274,6 +70247,11 @@ func (s *MaterialChangeRequested) SetBaseUnit(val OptString) {
 // SetMaterialType sets the value of MaterialType.
 func (s *MaterialChangeRequested) SetMaterialType(val OptString) {
 	s.MaterialType = val
+}
+
+// SetBatchManaged sets the value of BatchManaged.
+func (s *MaterialChangeRequested) SetBatchManaged(val OptBool) {
+	s.BatchManaged = val
 }
 
 // SetMaterialGroup sets the value of MaterialGroup.
@@ -69320,6 +70298,11 @@ type MaterialCreate struct {
 	// Create it though materials with its description exist: it is another material, and its approver sees
 	// them.
 	ConfirmDuplicate OptBool `json:"confirm_duplicate"`
+	// Manage the material in batches (ADR-0082 As built S2f; SAP's batch management requirement): every
+	// goods movement of it names a batch of it (`POST /v1/batches`), and its stock is kept by batch
+	// (`GET /v1/batch-stock`). Only a material kept in stock is (422 `materials.batch_managed_not_stocked`
+	// for `non_stock` and `service`). It does not change.
+	BatchManaged OptBool `json:"batch_managed"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -69367,6 +70350,11 @@ func (s *MaterialCreate) GetConfirmDuplicate() OptBool {
 	return s.ConfirmDuplicate
 }
 
+// GetBatchManaged returns the value of BatchManaged.
+func (s *MaterialCreate) GetBatchManaged() OptBool {
+	return s.BatchManaged
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *MaterialCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -69410,6 +70398,11 @@ func (s *MaterialCreate) SetReason(val OptString) {
 // SetConfirmDuplicate sets the value of ConfirmDuplicate.
 func (s *MaterialCreate) SetConfirmDuplicate(val OptBool) {
 	s.ConfirmDuplicate = val
+}
+
+// SetBatchManaged sets the value of BatchManaged.
+func (s *MaterialCreate) SetBatchManaged(val OptBool) {
+	s.BatchManaged = val
 }
 
 // A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted
@@ -69782,6 +70775,10 @@ type MaterialDocumentItemInput struct {
 	// What a `501` or `561` receipt is worth, in the company's local currency (S1d); absent: its quantity
 	// at the material's price. No other movement type names one.
 	Amount OptMoney `json:"amount"`
+	// The batch moved (`GET /v1/batches/{id}`), one of the item's material (422
+	// `inventory.batch_invalid`): named for a batch-managed material (422 `inventory.batch_required`) and
+	// for no other (422 `inventory.batch_not_allowed`; S2f). A transfer receives the same batch.
+	BatchID OptUUID `json:"batch_id"`
 }
 
 // GetMaterialID returns the value of MaterialID.
@@ -69824,6 +70821,11 @@ func (s *MaterialDocumentItemInput) GetAmount() OptMoney {
 	return s.Amount
 }
 
+// GetBatchID returns the value of BatchID.
+func (s *MaterialDocumentItemInput) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
 // SetMaterialID sets the value of MaterialID.
 func (s *MaterialDocumentItemInput) SetMaterialID(val uuid.UUID) {
 	s.MaterialID = val
@@ -69864,6 +70866,11 @@ func (s *MaterialDocumentItemInput) SetAmount(val OptMoney) {
 	s.Amount = val
 }
 
+// SetBatchID sets the value of BatchID.
+func (s *MaterialDocumentItemInput) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
 // A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the
 // material's base unit, signed (a receipt positive, an issue negative).
 // Ref: #/components/schemas/MaterialDocumentLine
@@ -69900,6 +70907,11 @@ type MaterialDocumentLine struct {
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// The cost center's code; absent with it.
 	CostCenterCode OptString `json:"cost_center_code"`
+	// The batch the line moves, of a batch-managed material (`GET /v1/batches/{id}`, S2f); absent on a
+	// line of another material.
+	BatchID OptUUID `json:"batch_id"`
+	// That batch's number; absent with it.
+	BatchNumber OptString `json:"batch_number"`
 	// Whether the line moves stock in transit to its storage location of its plant (a stock transport
 	// order's, S2h: into transit on its goods issue, 351, out of it on its goods receipt, 101) rather than
 	// the stock at that location; stock in transit is in the plant's valuation but in no location's stock
@@ -69986,6 +70998,16 @@ func (s *MaterialDocumentLine) GetCostCenterID() OptUUID {
 // GetCostCenterCode returns the value of CostCenterCode.
 func (s *MaterialDocumentLine) GetCostCenterCode() OptString {
 	return s.CostCenterCode
+}
+
+// GetBatchID returns the value of BatchID.
+func (s *MaterialDocumentLine) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *MaterialDocumentLine) GetBatchNumber() OptString {
+	return s.BatchNumber
 }
 
 // GetInTransit returns the value of InTransit.
@@ -70076,6 +71098,16 @@ func (s *MaterialDocumentLine) SetCostCenterID(val OptUUID) {
 // SetCostCenterCode sets the value of CostCenterCode.
 func (s *MaterialDocumentLine) SetCostCenterCode(val OptString) {
 	s.CostCenterCode = val
+}
+
+// SetBatchID sets the value of BatchID.
+func (s *MaterialDocumentLine) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *MaterialDocumentLine) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
 }
 
 // SetInTransit sets the value of InTransit.
@@ -75067,6 +76099,96 @@ func (o NilInt64) Or(d int64) int64 {
 	return d
 }
 
+// NewNilOutgoingEInvoiceTransmission returns new NilOutgoingEInvoiceTransmission with value set to v.
+func NewNilOutgoingEInvoiceTransmission(v OutgoingEInvoiceTransmission) NilOutgoingEInvoiceTransmission {
+	return NilOutgoingEInvoiceTransmission{
+		Value: v,
+	}
+}
+
+// NilOutgoingEInvoiceTransmission is nullable OutgoingEInvoiceTransmission.
+type NilOutgoingEInvoiceTransmission struct {
+	Value OutgoingEInvoiceTransmission
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilOutgoingEInvoiceTransmission) SetTo(v OutgoingEInvoiceTransmission) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilOutgoingEInvoiceTransmission) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilOutgoingEInvoiceTransmission) SetToNull() {
+	o.Null = true
+	var v OutgoingEInvoiceTransmission
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilOutgoingEInvoiceTransmission) Get() (v OutgoingEInvoiceTransmission, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilOutgoingEInvoiceTransmission) Or(d OutgoingEInvoiceTransmission) OutgoingEInvoiceTransmission {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewNilOutgoingEInvoiceTransmissionProblem returns new NilOutgoingEInvoiceTransmissionProblem with value set to v.
+func NewNilOutgoingEInvoiceTransmissionProblem(v OutgoingEInvoiceTransmissionProblem) NilOutgoingEInvoiceTransmissionProblem {
+	return NilOutgoingEInvoiceTransmissionProblem{
+		Value: v,
+	}
+}
+
+// NilOutgoingEInvoiceTransmissionProblem is nullable OutgoingEInvoiceTransmissionProblem.
+type NilOutgoingEInvoiceTransmissionProblem struct {
+	Value OutgoingEInvoiceTransmissionProblem
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilOutgoingEInvoiceTransmissionProblem) SetTo(v OutgoingEInvoiceTransmissionProblem) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilOutgoingEInvoiceTransmissionProblem) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilOutgoingEInvoiceTransmissionProblem) SetToNull() {
+	o.Null = true
+	var v OutgoingEInvoiceTransmissionProblem
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilOutgoingEInvoiceTransmissionProblem) Get() (v OutgoingEInvoiceTransmissionProblem, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilOutgoingEInvoiceTransmissionProblem) Or(d OutgoingEInvoiceTransmissionProblem) OutgoingEInvoiceTransmissionProblem {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewNilString returns new NilString with value set to v.
 func NewNilString(v string) NilString {
 	return NilString{
@@ -76027,18 +77149,21 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 	s.Response = val
 }
 
-func (*OperationHeaders) captureSalesOrderRes()      {}
-func (*OperationHeaders) captureSupplierInvoiceRes() {}
-func (*OperationHeaders) createConsolidationRunRes() {}
-func (*OperationHeaders) fetchEInvoicesRes()         {}
-func (*OperationHeaders) proposePaymentRunRes()      {}
-func (*OperationHeaders) reconcileMigrationRunRes()  {}
-func (*OperationHeaders) releasePaymentRunRes()      {}
-func (*OperationHeaders) simulateChangeRequestRes()  {}
-func (*OperationHeaders) startDepreciationRunRes()   {}
-func (*OperationHeaders) startMigrationRunRes()      {}
-func (*OperationHeaders) transmitBankFileRes()       {}
-func (*OperationHeaders) verifyAuditChainRes()       {}
+func (*OperationHeaders) captureSalesOrderRes()               {}
+func (*OperationHeaders) captureSupplierInvoiceRes()          {}
+func (*OperationHeaders) createConsolidationRunRes()          {}
+func (*OperationHeaders) fetchEInvoicesRes()                  {}
+func (*OperationHeaders) proposePaymentRunRes()               {}
+func (*OperationHeaders) reconcileMigrationRunRes()           {}
+func (*OperationHeaders) releasePaymentRunRes()               {}
+func (*OperationHeaders) retryOutgoingEInvoiceTaxDataRes()    {}
+func (*OperationHeaders) sendOutgoingEInvoiceRes()            {}
+func (*OperationHeaders) simulateChangeRequestRes()           {}
+func (*OperationHeaders) startDepreciationRunRes()            {}
+func (*OperationHeaders) startMigrationRunRes()               {}
+func (*OperationHeaders) transmitBankFileRes()                {}
+func (*OperationHeaders) verifyAuditChainRes()                {}
+func (*OperationHeaders) withdrawOutgoingEInvoiceTaxDataRes() {}
 
 // One page of operations.
 // Ref: #/components/schemas/OperationPage
@@ -83123,7 +84248,8 @@ type OutgoingEInvoice struct {
 	Specification string `json:"specification"`
 	// Valid (every mandatory field checked, its XML kept: final) or invalid (`problems` lists what is
 	// missing; rendered again once corrected). Open enumeration: clients must accept and preserve values
-	// not listed here; values may be added within /v1 (sending adds its statuses, E3).
+	// not listed here; values may be added within /v1. Its transmission to the provider has a status of
+	// its own (`transmission`).
 	Status string `json:"status"`
 	// What its last render found missing or wrong, in the rules' order; empty when valid.
 	Problems []OutgoingEInvoiceProblem `json:"problems"`
@@ -83133,7 +84259,13 @@ type OutgoingEInvoice struct {
 	Size NilInt64 `json:"size"`
 	// When it was last rendered.
 	RenderedAt time.Time `json:"rendered_at"`
-	Version    int32     `json:"version"`
+	// Its submission to the accredited provider (`sendOutgoingEInvoice`, As built E3); null while it is
+	// not sent.
+	Transmission NilOutgoingEInvoiceTransmission `json:"transmission"`
+	Version      int32                           `json:"version"`
+	// The ETag it is read at (its `version` and its transmission's, which moves it): the `If-Match` a send
+	// of it takes, also when it was read from a listing (As built E3).
+	Etag string `json:"etag"`
 }
 
 // GetID returns the value of ID.
@@ -83266,9 +84398,19 @@ func (s *OutgoingEInvoice) GetRenderedAt() time.Time {
 	return s.RenderedAt
 }
 
+// GetTransmission returns the value of Transmission.
+func (s *OutgoingEInvoice) GetTransmission() NilOutgoingEInvoiceTransmission {
+	return s.Transmission
+}
+
 // GetVersion returns the value of Version.
 func (s *OutgoingEInvoice) GetVersion() int32 {
 	return s.Version
+}
+
+// GetEtag returns the value of Etag.
+func (s *OutgoingEInvoice) GetEtag() string {
+	return s.Etag
 }
 
 // SetID sets the value of ID.
@@ -83401,9 +84543,19 @@ func (s *OutgoingEInvoice) SetRenderedAt(val time.Time) {
 	s.RenderedAt = val
 }
 
+// SetTransmission sets the value of Transmission.
+func (s *OutgoingEInvoice) SetTransmission(val NilOutgoingEInvoiceTransmission) {
+	s.Transmission = val
+}
+
 // SetVersion sets the value of Version.
 func (s *OutgoingEInvoice) SetVersion(val int32) {
 	s.Version = val
+}
+
+// SetEtag sets the value of Etag.
+func (s *OutgoingEInvoice) SetEtag(val string) {
+	s.Etag = val
 }
 
 // OutgoingEInvoiceHeaders wraps OutgoingEInvoice with response headers.
@@ -83544,6 +84696,372 @@ func (s *OutgoingEInvoiceRender) SetCustomerInvoiceID(val uuid.UUID) {
 // SetCreditNoteReason sets the value of CreditNoteReason.
 func (s *OutgoingEInvoiceRender) SetCreditNoteReason(val OptCreditNoteReason) {
 	s.CreditNoteReason = val
+}
+
+// Where and how to send an e-invoice (ADR-0061 As built E3).
+// Ref: #/components/schemas/OutgoingEInvoiceSend
+type OutgoingEInvoiceSend struct {
+	// The `einvoice_provider` connector naming the company's participant at the provider.
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The transaction's business type at the provider: B2B (to a business) or B2G (to a government
+	// entity); another is refused (422 `einvoicing.unknown_business_type`): B2C is outside the UAE
+	// mandate. Open enumeration: values may be added within /v1.
+	BusinessType string `json:"business_type"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *OutgoingEInvoiceSend) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetBusinessType returns the value of BusinessType.
+func (s *OutgoingEInvoiceSend) GetBusinessType() string {
+	return s.BusinessType
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *OutgoingEInvoiceSend) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetBusinessType sets the value of BusinessType.
+func (s *OutgoingEInvoiceSend) SetBusinessType(val string) {
+	s.BusinessType = val
+}
+
+// An e-invoice's submission to the accredited provider (ADR-0061 As built E3): the outbox of its
+// transmission and what the provider reported of it.
+// Ref: #/components/schemas/OutgoingEInvoiceTransmission
+type OutgoingEInvoiceTransmission struct {
+	// The connector it is sent through.
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The connector's name.
+	ConnectorName string `json:"connector_name"`
+	// The Operation asked for last (`getOperation`): the send's, or that of a request of its tax data
+	// document (kind `einvoicing.tax_data`, As built E4).
+	OperationID uuid.UUID `json:"operation_id"`
+	// B2B or B2G, as asked.
+	BusinessType string `json:"business_type"`
+	// Queued (to be sent), sending (a call to the provider made), submitted (the provider's tracking id
+	// known, its status read), completed (the provider reports it COMPLETED: final) or failed (`problem`
+	// says why; sent again by `sendOutgoingEInvoice`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The provider's processing status as it last reported it (Evatra: PENDING, PROCESSING, COMPLETED,
+	// FAILED, SENDING_FAILED, PERMANENT_FAILED); null before it was submitted. Open enumeration.
+	ProviderStatus NilString `json:"provider_status"`
+	// The provider's id of the current submission; null before it was submitted.
+	TrackingID NilString `json:"tracking_id"`
+	// Calls made for the current send, counted before each is made.
+	Attempts int32 `json:"attempts"`
+	// Sends again after the provider reported SENDING_FAILED.
+	Resends int32 `json:"resends"`
+	// Why it failed; null unless failed.
+	Problem NilOutgoingEInvoiceTransmissionProblem `json:"problem"`
+	// When it is next sent or its status next read; null once completed or failed.
+	NextCheckAt NilDateTime `json:"next_check_at"`
+	// When the provider last gave its tracking id.
+	SubmittedAt NilDateTime `json:"submitted_at"`
+	// When the provider reported it COMPLETED.
+	CompletedAt NilDateTime `json:"completed_at"`
+	// The message level response of the buyer's access point, as the provider last reported it once
+	// completed (As built E4; Evatra: ACCEPTANCE, ACKNOWLEDGING, REJECTION, BUSINESS_RULE_FATAL,
+	// BUSINESS_RULE_WARNING, DELIVERY_FAILURE, SYNTAX_VIOLATION); null while none is reported. Open
+	// enumeration.
+	DeliveryStatus NilString `json:"delivery_status"`
+	// What that response says of the e-invoice (the rule broken, for a rejection), as the provider gives
+	// it; null for none.
+	DeliveryDetail NilString `json:"delivery_detail"`
+	// When that response was recorded.
+	DeliveredAt NilDateTime `json:"delivered_at"`
+	// What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE,
+	// BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED:
+	// to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025,
+	// transmitted), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	DeliveryOutcome NilString `json:"delivery_outcome"`
+	// The tax data document's status at the authority's corner, as the provider last reported it once
+	// completed (As built E4; Evatra: TDD_SEND, TDD_FAILED, TDD_APPROVED, TDD_ACKNOWLEDGED, TDD_REJECTED,
+	// WITHDRAW_SEND, WITHDRAW_FAILED); null while none is reported. A person may send a failed one again
+	// (`retryOutgoingEInvoiceTaxData`) or withdraw a reported one (`withdrawOutgoingEInvoiceTaxData`).
+	// Open enumeration.
+	TaxDataStatus NilString `json:"tax_data_status"`
+	// When that status was recorded.
+	TaxDataAt NilDateTime `json:"tax_data_at"`
+	// A person's request of the tax data document not yet made at the provider; null for none. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	TaxDataRequest NilString `json:"tax_data_request"`
+	// After a request was made, the status the call found, until the provider shows another; meanwhile a
+	// new request is refused (409 `einvoicing.tax_data_request_pending`). Null otherwise.
+	TaxDataAwaited NilString `json:"tax_data_awaited"`
+	// When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to
+	// an hour); null before completion, once both are final and nothing is awaited, or after 500 reads.
+	// Each read moves `version`, and so the ETag.
+	FollowCheckAt NilDateTime `json:"follow_check_at"`
+	// The submission's version.
+	Version int32 `json:"version"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *OutgoingEInvoiceTransmission) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *OutgoingEInvoiceTransmission) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetOperationID returns the value of OperationID.
+func (s *OutgoingEInvoiceTransmission) GetOperationID() uuid.UUID {
+	return s.OperationID
+}
+
+// GetBusinessType returns the value of BusinessType.
+func (s *OutgoingEInvoiceTransmission) GetBusinessType() string {
+	return s.BusinessType
+}
+
+// GetStatus returns the value of Status.
+func (s *OutgoingEInvoiceTransmission) GetStatus() string {
+	return s.Status
+}
+
+// GetProviderStatus returns the value of ProviderStatus.
+func (s *OutgoingEInvoiceTransmission) GetProviderStatus() NilString {
+	return s.ProviderStatus
+}
+
+// GetTrackingID returns the value of TrackingID.
+func (s *OutgoingEInvoiceTransmission) GetTrackingID() NilString {
+	return s.TrackingID
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *OutgoingEInvoiceTransmission) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetResends returns the value of Resends.
+func (s *OutgoingEInvoiceTransmission) GetResends() int32 {
+	return s.Resends
+}
+
+// GetProblem returns the value of Problem.
+func (s *OutgoingEInvoiceTransmission) GetProblem() NilOutgoingEInvoiceTransmissionProblem {
+	return s.Problem
+}
+
+// GetNextCheckAt returns the value of NextCheckAt.
+func (s *OutgoingEInvoiceTransmission) GetNextCheckAt() NilDateTime {
+	return s.NextCheckAt
+}
+
+// GetSubmittedAt returns the value of SubmittedAt.
+func (s *OutgoingEInvoiceTransmission) GetSubmittedAt() NilDateTime {
+	return s.SubmittedAt
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *OutgoingEInvoiceTransmission) GetCompletedAt() NilDateTime {
+	return s.CompletedAt
+}
+
+// GetDeliveryStatus returns the value of DeliveryStatus.
+func (s *OutgoingEInvoiceTransmission) GetDeliveryStatus() NilString {
+	return s.DeliveryStatus
+}
+
+// GetDeliveryDetail returns the value of DeliveryDetail.
+func (s *OutgoingEInvoiceTransmission) GetDeliveryDetail() NilString {
+	return s.DeliveryDetail
+}
+
+// GetDeliveredAt returns the value of DeliveredAt.
+func (s *OutgoingEInvoiceTransmission) GetDeliveredAt() NilDateTime {
+	return s.DeliveredAt
+}
+
+// GetDeliveryOutcome returns the value of DeliveryOutcome.
+func (s *OutgoingEInvoiceTransmission) GetDeliveryOutcome() NilString {
+	return s.DeliveryOutcome
+}
+
+// GetTaxDataStatus returns the value of TaxDataStatus.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataStatus() NilString {
+	return s.TaxDataStatus
+}
+
+// GetTaxDataAt returns the value of TaxDataAt.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataAt() NilDateTime {
+	return s.TaxDataAt
+}
+
+// GetTaxDataRequest returns the value of TaxDataRequest.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataRequest() NilString {
+	return s.TaxDataRequest
+}
+
+// GetTaxDataAwaited returns the value of TaxDataAwaited.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataAwaited() NilString {
+	return s.TaxDataAwaited
+}
+
+// GetFollowCheckAt returns the value of FollowCheckAt.
+func (s *OutgoingEInvoiceTransmission) GetFollowCheckAt() NilDateTime {
+	return s.FollowCheckAt
+}
+
+// GetVersion returns the value of Version.
+func (s *OutgoingEInvoiceTransmission) GetVersion() int32 {
+	return s.Version
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *OutgoingEInvoiceTransmission) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *OutgoingEInvoiceTransmission) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetOperationID sets the value of OperationID.
+func (s *OutgoingEInvoiceTransmission) SetOperationID(val uuid.UUID) {
+	s.OperationID = val
+}
+
+// SetBusinessType sets the value of BusinessType.
+func (s *OutgoingEInvoiceTransmission) SetBusinessType(val string) {
+	s.BusinessType = val
+}
+
+// SetStatus sets the value of Status.
+func (s *OutgoingEInvoiceTransmission) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetProviderStatus sets the value of ProviderStatus.
+func (s *OutgoingEInvoiceTransmission) SetProviderStatus(val NilString) {
+	s.ProviderStatus = val
+}
+
+// SetTrackingID sets the value of TrackingID.
+func (s *OutgoingEInvoiceTransmission) SetTrackingID(val NilString) {
+	s.TrackingID = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *OutgoingEInvoiceTransmission) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetResends sets the value of Resends.
+func (s *OutgoingEInvoiceTransmission) SetResends(val int32) {
+	s.Resends = val
+}
+
+// SetProblem sets the value of Problem.
+func (s *OutgoingEInvoiceTransmission) SetProblem(val NilOutgoingEInvoiceTransmissionProblem) {
+	s.Problem = val
+}
+
+// SetNextCheckAt sets the value of NextCheckAt.
+func (s *OutgoingEInvoiceTransmission) SetNextCheckAt(val NilDateTime) {
+	s.NextCheckAt = val
+}
+
+// SetSubmittedAt sets the value of SubmittedAt.
+func (s *OutgoingEInvoiceTransmission) SetSubmittedAt(val NilDateTime) {
+	s.SubmittedAt = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *OutgoingEInvoiceTransmission) SetCompletedAt(val NilDateTime) {
+	s.CompletedAt = val
+}
+
+// SetDeliveryStatus sets the value of DeliveryStatus.
+func (s *OutgoingEInvoiceTransmission) SetDeliveryStatus(val NilString) {
+	s.DeliveryStatus = val
+}
+
+// SetDeliveryDetail sets the value of DeliveryDetail.
+func (s *OutgoingEInvoiceTransmission) SetDeliveryDetail(val NilString) {
+	s.DeliveryDetail = val
+}
+
+// SetDeliveredAt sets the value of DeliveredAt.
+func (s *OutgoingEInvoiceTransmission) SetDeliveredAt(val NilDateTime) {
+	s.DeliveredAt = val
+}
+
+// SetDeliveryOutcome sets the value of DeliveryOutcome.
+func (s *OutgoingEInvoiceTransmission) SetDeliveryOutcome(val NilString) {
+	s.DeliveryOutcome = val
+}
+
+// SetTaxDataStatus sets the value of TaxDataStatus.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataStatus(val NilString) {
+	s.TaxDataStatus = val
+}
+
+// SetTaxDataAt sets the value of TaxDataAt.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataAt(val NilDateTime) {
+	s.TaxDataAt = val
+}
+
+// SetTaxDataRequest sets the value of TaxDataRequest.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataRequest(val NilString) {
+	s.TaxDataRequest = val
+}
+
+// SetTaxDataAwaited sets the value of TaxDataAwaited.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataAwaited(val NilString) {
+	s.TaxDataAwaited = val
+}
+
+// SetFollowCheckAt sets the value of FollowCheckAt.
+func (s *OutgoingEInvoiceTransmission) SetFollowCheckAt(val NilDateTime) {
+	s.FollowCheckAt = val
+}
+
+// SetVersion sets the value of Version.
+func (s *OutgoingEInvoiceTransmission) SetVersion(val int32) {
+	s.Version = val
+}
+
+// Why a submission failed: a problem code a consumer can branch on and what happened.
+// Ref: #/components/schemas/OutgoingEInvoiceTransmissionProblem
+type OutgoingEInvoiceTransmissionProblem struct {
+	// Einvoicing.permanent_failure, einvoicing.provider_failed, einvoicing.sending_failed,
+	// einvoicing.status_unconfirmed, einvoicing.provider_unavailable, einvoicing.send_cancelled (its
+	// Operation cancelled), or a refusal's code. Open enumeration.
+	Code string `json:"code"`
+	// What happened, and what to do.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *OutgoingEInvoiceTransmissionProblem) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *OutgoingEInvoiceTransmissionProblem) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *OutgoingEInvoiceTransmissionProblem) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *OutgoingEInvoiceTransmissionProblem) SetDetail(val string) {
+	s.Detail = val
 }
 
 type ParkFromEntryTemplateBadRequest Problem
@@ -101223,6 +102741,30 @@ type RetireEntryTemplatePreconditionRequired Problem
 
 func (*RetireEntryTemplatePreconditionRequired) retireEntryTemplateRes() {}
 
+type RetryOutgoingEInvoiceTaxDataBadRequest Problem
+
+func (*RetryOutgoingEInvoiceTaxDataBadRequest) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataForbidden Problem
+
+func (*RetryOutgoingEInvoiceTaxDataForbidden) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataNotFound Problem
+
+func (*RetryOutgoingEInvoiceTaxDataNotFound) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataPreconditionFailed Problem
+
+func (*RetryOutgoingEInvoiceTaxDataPreconditionFailed) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataPreconditionRequired Problem
+
+func (*RetryOutgoingEInvoiceTaxDataPreconditionRequired) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataUnprocessableEntity Problem
+
+func (*RetryOutgoingEInvoiceTaxDataUnprocessableEntity) retryOutgoingEInvoiceTaxDataRes() {}
+
 // A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person
 // confirmed as received on a date. It moves no stock and posts nothing. It is written once and never
 // changed.
@@ -108851,6 +110393,13 @@ type SalesOrder struct {
 	// The day the customer asks to be delivered on; absent when none is asked for. Changed by
 	// `changeSalesOrder`.
 	RequestedDeliveryDate OptDate `json:"requested_delivery_date"`
+	// The plant the order delivers from (`plant_id` of `createSalesOrder`, S2j): where its items of a
+	// material kept in stock are checked for availability and shipped from. Absent when it names none.
+	PlantID OptUUID `json:"plant_id"`
+	// The plant's code; absent, as `plant_id` is, when the order names none.
+	PlantCode OptString `json:"plant_code"`
+	// The plant's name, as it is now; absent, as `plant_id` is, when the order names none.
+	PlantName OptString `json:"plant_name"`
 	// How many changes the order has had (`changeSalesOrder`); they are listed by `listSalesOrderChanges`.
 	Changes int32 `json:"changes"`
 	// Why the order was cancelled; absent unless `status` is `cancelled`.
@@ -108984,6 +110533,21 @@ func (s *SalesOrder) GetStatus() string {
 // GetRequestedDeliveryDate returns the value of RequestedDeliveryDate.
 func (s *SalesOrder) GetRequestedDeliveryDate() OptDate {
 	return s.RequestedDeliveryDate
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SalesOrder) GetPlantID() OptUUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *SalesOrder) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *SalesOrder) GetPlantName() OptString {
+	return s.PlantName
 }
 
 // GetChanges returns the value of Changes.
@@ -109144,6 +110708,21 @@ func (s *SalesOrder) SetStatus(val string) {
 // SetRequestedDeliveryDate sets the value of RequestedDeliveryDate.
 func (s *SalesOrder) SetRequestedDeliveryDate(val OptDate) {
 	s.RequestedDeliveryDate = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SalesOrder) SetPlantID(val OptUUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *SalesOrder) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *SalesOrder) SetPlantName(val OptString) {
+	s.PlantName = val
 }
 
 // SetChanges sets the value of Changes.
@@ -109905,6 +111484,12 @@ type SalesOrderCreate struct {
 	// The day the customer asks to be delivered on: the order's date, the company's date today, or later
 	// (422 `sales.invalid_requested_delivery_date`). Absent: none is asked for.
 	RequestedDeliveryDate OptDate `json:"requested_delivery_date"`
+	// The plant the order delivers from (S2j): an active org unit of kind `plant` of the order's company
+	// (`GET /v1/org-units/{id}`; 422 `sales.plant_invalid`), with or without `quotation_id`. Its
+	// confirmation checks the availability of the items of a material kept in stock there, and its
+	// outbound deliveries ship from it. Kept as entered. Absent: none, and nothing is checked for
+	// availability.
+	PlantID OptUUID `json:"plant_id"`
 	// The items, numbered in this order from 1. Required without `quotation_id`, refused with it.
 	Items []SalesItemCreate `json:"items"`
 }
@@ -109937,6 +111522,11 @@ func (s *SalesOrderCreate) GetPaymentTermCode() OptString {
 // GetRequestedDeliveryDate returns the value of RequestedDeliveryDate.
 func (s *SalesOrderCreate) GetRequestedDeliveryDate() OptDate {
 	return s.RequestedDeliveryDate
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SalesOrderCreate) GetPlantID() OptUUID {
+	return s.PlantID
 }
 
 // GetItems returns the value of Items.
@@ -109972,6 +111562,11 @@ func (s *SalesOrderCreate) SetPaymentTermCode(val OptString) {
 // SetRequestedDeliveryDate sets the value of RequestedDeliveryDate.
 func (s *SalesOrderCreate) SetRequestedDeliveryDate(val OptDate) {
 	s.RequestedDeliveryDate = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SalesOrderCreate) SetPlantID(val OptUUID) {
+	s.PlantID = val
 }
 
 // SetItems sets the value of Items.
@@ -110082,6 +111677,11 @@ type SalesOrderItem struct {
 	// ADR-0083 §4), in the item's unit: the item's quantity is not changed below what is delivered and in
 	// delivery, and the item is not removed nor its order cancelled while it is more than zero.
 	InDeliveryQuantity Quantity `json:"in_delivery_quantity"`
+	// What the availability check confirmed of the item (S2j, `confirmSalesOrder`), in the item's unit: at
+	// most `quantity`, and what its outbound deliveries take at most, with `delivered_quantity` and
+	// `in_delivery_quantity` never above it. Absent for an item not checked: one of an order without a
+	// plant or not yet confirmed, or one not of a material kept in stock.
+	ConfirmedQuantity OptQuantity `json:"confirmed_quantity"`
 	// The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's
 	// unit; at most `delivered_quantity`.
 	BilledQuantity Quantity `json:"billed_quantity"`
@@ -110177,6 +111777,11 @@ func (s *SalesOrderItem) GetDeliveredQuantity() Quantity {
 // GetInDeliveryQuantity returns the value of InDeliveryQuantity.
 func (s *SalesOrderItem) GetInDeliveryQuantity() Quantity {
 	return s.InDeliveryQuantity
+}
+
+// GetConfirmedQuantity returns the value of ConfirmedQuantity.
+func (s *SalesOrderItem) GetConfirmedQuantity() OptQuantity {
+	return s.ConfirmedQuantity
 }
 
 // GetBilledQuantity returns the value of BilledQuantity.
@@ -110277,6 +111882,11 @@ func (s *SalesOrderItem) SetDeliveredQuantity(val Quantity) {
 // SetInDeliveryQuantity sets the value of InDeliveryQuantity.
 func (s *SalesOrderItem) SetInDeliveryQuantity(val Quantity) {
 	s.InDeliveryQuantity = val
+}
+
+// SetConfirmedQuantity sets the value of ConfirmedQuantity.
+func (s *SalesOrderItem) SetConfirmedQuantity(val OptQuantity) {
+	s.ConfirmedQuantity = val
 }
 
 // SetBilledQuantity sets the value of BilledQuantity.
@@ -111792,6 +113402,26 @@ func (s *SegmentUpdate) SetDescription(val OptNilString) {
 	s.Description = val
 }
 
+type SendOutgoingEInvoiceBadRequest Problem
+
+func (*SendOutgoingEInvoiceBadRequest) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoiceForbidden Problem
+
+func (*SendOutgoingEInvoiceForbidden) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoiceNotFound Problem
+
+func (*SendOutgoingEInvoiceNotFound) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoicePreconditionRequired Problem
+
+func (*SendOutgoingEInvoicePreconditionRequired) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoiceUnprocessableEntity Problem
+
+func (*SendOutgoingEInvoiceUnprocessableEntity) sendOutgoingEInvoiceRes() {}
+
 // ServiceUnavailableHeaders wraps Problem with response headers.
 type ServiceUnavailableHeaders struct {
 	RetryAfter OptInt32
@@ -112019,6 +113649,7 @@ func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
 func (*ServiceUnavailableHeaders) runReportRes()                             {}
 func (*ServiceUnavailableHeaders) scheduleReportRes()                        {}
+func (*ServiceUnavailableHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*ServiceUnavailableHeaders) settleInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
@@ -115055,8 +116686,9 @@ type SupplierInvoice struct {
 	Status string `json:"status"`
 	// Why the invoice is on hold (status `on_hold`).
 	HoldReason OptString `json:"hold_reason"`
-	// How the invoice entered the system. Open enumeration: clients must accept and preserve values not
-	// listed here; values may be added within /v1.
+	// How the invoice entered the system: einvoice for one entered from a received e-invoice (ADR-0061
+	// §6, T65d; its document the e-invoice's XML). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Source string `json:"source"`
 	// Journal entry posted for the invoice (statuses `posted` and `reversed`).
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -118515,6 +120147,7 @@ func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()                   {}
 func (*TooManyRequestsHeaders) createAuditEvidenceExportRes()             {}
+func (*TooManyRequestsHeaders) createBatchRes()                           {}
 func (*TooManyRequestsHeaders) createBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()                 {}
 func (*TooManyRequestsHeaders) createCashExportRes()                      {}
@@ -118647,6 +120280,7 @@ func (*TooManyRequestsHeaders) getBankReconciliationRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementFileRes()                  {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                      {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()                 {}
+func (*TooManyRequestsHeaders) getBatchRes()                              {}
 func (*TooManyRequestsHeaders) getBillingDocumentRes()                    {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()                    {}
 func (*TooManyRequestsHeaders) getCashActualsRes()                        {}
@@ -118805,6 +120439,8 @@ func (*TooManyRequestsHeaders) listBankFilesRes()                         {}
 func (*TooManyRequestsHeaders) listBankStatementMatchesRes()              {}
 func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()             {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()                    {}
+func (*TooManyRequestsHeaders) listBatchStockRes()                        {}
+func (*TooManyRequestsHeaders) listBatchesRes()                           {}
 func (*TooManyRequestsHeaders) listBillingDocumentsRes()                  {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()                  {}
 func (*TooManyRequestsHeaders) listCashActualLinesRes()                   {}
@@ -118843,6 +120479,7 @@ func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
 func (*TooManyRequestsHeaders) listDunningBlocksRes()                     {}
 func (*TooManyRequestsHeaders) listDunningNoticesRes()                    {}
 func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
+func (*TooManyRequestsHeaders) listEInvoiceTransmissionDeadlinesRes()     {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
@@ -119028,6 +120665,7 @@ func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
+func (*TooManyRequestsHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*TooManyRequestsHeaders) reverseAllocationRunRes()                  {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
@@ -119045,6 +120683,7 @@ func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) runReportRes()                             {}
 func (*TooManyRequestsHeaders) scheduleReportRes()                        {}
+func (*TooManyRequestsHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*TooManyRequestsHeaders) settleInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
@@ -119101,6 +120740,7 @@ func (*TooManyRequestsHeaders) updateYearCloseTaskRes()                   {}
 func (*TooManyRequestsHeaders) uploadMemoRecordsRes()                     {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                      {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()                 {}
+func (*TooManyRequestsHeaders) withdrawOutgoingEInvoiceTaxDataRes()       {}
 func (*TooManyRequestsHeaders) withdrawTaxReturnRes()                     {}
 
 // A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id and, to a
@@ -119476,6 +121116,7 @@ func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
 func (*UnauthorizedHeaders) createAssetTransferRes()                   {}
 func (*UnauthorizedHeaders) createAuditEvidenceExportRes()             {}
+func (*UnauthorizedHeaders) createBatchRes()                           {}
 func (*UnauthorizedHeaders) createBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()                 {}
 func (*UnauthorizedHeaders) createCashExportRes()                      {}
@@ -119608,6 +121249,7 @@ func (*UnauthorizedHeaders) getBankReconciliationRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementFileRes()                  {}
 func (*UnauthorizedHeaders) getBankStatementRes()                      {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()                 {}
+func (*UnauthorizedHeaders) getBatchRes()                              {}
 func (*UnauthorizedHeaders) getBillingDocumentRes()                    {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()                    {}
 func (*UnauthorizedHeaders) getCashActualsRes()                        {}
@@ -119766,6 +121408,8 @@ func (*UnauthorizedHeaders) listBankFilesRes()                         {}
 func (*UnauthorizedHeaders) listBankStatementMatchesRes()              {}
 func (*UnauthorizedHeaders) listBankStatementPaymentsRes()             {}
 func (*UnauthorizedHeaders) listBankStatementsRes()                    {}
+func (*UnauthorizedHeaders) listBatchStockRes()                        {}
+func (*UnauthorizedHeaders) listBatchesRes()                           {}
 func (*UnauthorizedHeaders) listBillingDocumentsRes()                  {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()                  {}
 func (*UnauthorizedHeaders) listCashActualLinesRes()                   {}
@@ -119804,6 +121448,7 @@ func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
 func (*UnauthorizedHeaders) listDunningBlocksRes()                     {}
 func (*UnauthorizedHeaders) listDunningNoticesRes()                    {}
 func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
+func (*UnauthorizedHeaders) listEInvoiceTransmissionDeadlinesRes()     {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
@@ -119989,6 +121634,7 @@ func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
+func (*UnauthorizedHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*UnauthorizedHeaders) reverseAllocationRunRes()                  {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
@@ -120006,6 +121652,7 @@ func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) runReportRes()                             {}
 func (*UnauthorizedHeaders) scheduleReportRes()                        {}
+func (*UnauthorizedHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*UnauthorizedHeaders) settleInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
@@ -120062,6 +121709,7 @@ func (*UnauthorizedHeaders) updateYearCloseTaskRes()                   {}
 func (*UnauthorizedHeaders) uploadMemoRecordsRes()                     {}
 func (*UnauthorizedHeaders) verifyAuditChainRes()                      {}
 func (*UnauthorizedHeaders) withdrawChangeRequestRes()                 {}
+func (*UnauthorizedHeaders) withdrawOutgoingEInvoiceTaxDataRes()       {}
 func (*UnauthorizedHeaders) withdrawTaxReturnRes()                     {}
 
 type UnblockBusinessPartnerBadRequest Problem
@@ -124018,6 +125666,30 @@ func (*WithdrawChangeRequestPreconditionRequired) withdrawChangeRequestRes() {}
 type WithdrawChangeRequestUnprocessableEntity Problem
 
 func (*WithdrawChangeRequestUnprocessableEntity) withdrawChangeRequestRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataBadRequest Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataBadRequest) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataForbidden Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataForbidden) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataNotFound Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataNotFound) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataPreconditionFailed Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataPreconditionFailed) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataPreconditionRequired Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataPreconditionRequired) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataUnprocessableEntity Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataUnprocessableEntity) withdrawOutgoingEInvoiceTaxDataRes() {}
 
 type WithdrawTaxReturnBadRequest Problem
 

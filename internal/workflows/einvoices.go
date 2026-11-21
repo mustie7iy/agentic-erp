@@ -58,6 +58,8 @@ type EInvoiceCounts struct {
 	AlreadyRecorded int `json:"already_recorded"`
 	Changed         int `json:"changed"`
 	Refused         int `json:"refused"`
+	Entered         int `json:"entered"`
+	Held            int `json:"held"`
 	Waiting         int `json:"waiting"`
 }
 
@@ -87,9 +89,12 @@ type EInvoices interface {
 }
 
 // EInvoiceProcessed is what a fetch's processing found: the documents it
-// refused and the connector's documents still waiting to be processed.
+// refused, entered and held (T65d), and the connector's documents still
+// waiting to be processed.
 type EInvoiceProcessed struct {
 	Refused int `json:"refused"`
+	Entered int `json:"entered"`
+	Held    int `json:"held"`
 	Waiting int `json:"waiting"`
 }
 
@@ -211,7 +216,7 @@ func (s fetchSteps) run() error {
 	if err != nil {
 		return errors.Join(err, s.fail(unprocessed()))
 	}
-	counts.Refused, counts.Waiting = processed.Refused, processed.Waiting
+	counts.Refused, counts.Entered, counts.Held, counts.Waiting = processed.Refused, processed.Entered, processed.Held, processed.Waiting
 	if err := s.finish(counts, failed); err != nil {
 		return err
 	}
@@ -311,11 +316,15 @@ func (f *EInvoiceFetches) begin(ctx context.Context, s database.Scope) (pgx.Tx, 
 // within is the fetch's Within: a transaction of its tenant as the
 // fetcher.
 func (f *EInvoiceFetches) within(in EInvoiceFetchInput) Within {
+	return tenantWithin(uow.Job{Begin: f.begin, Scope: database.Scope{Role: f.AppRole, TenantID: in.TenantID}, Now: f.Now,
+		Name: "workflows: e-invoice fetch " + in.OperationID.String()}, f.Fetches.Fetcher(in.TenantID))
+}
+
+// tenantWithin is a Within of job's tenant as the principal p: each call
+// a transaction of its own, committed.
+func tenantWithin(job uow.Job, p reqctx.Principal) Within {
 	return func(ctx context.Context, fn func(ctx context.Context) error) error {
-		return uow.Job{Begin: f.begin, Scope: database.Scope{Role: f.AppRole, TenantID: in.TenantID}, Now: f.Now,
-			Name: "workflows: e-invoice fetch " + in.OperationID.String()}.As(ctx, func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) {
-			return f.Fetches.Fetcher(in.TenantID), true, nil
-		}, fn)
+		return job.As(ctx, func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) { return p, true, nil }, fn)
 	}
 }
 

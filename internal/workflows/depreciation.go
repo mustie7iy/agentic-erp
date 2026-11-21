@@ -249,12 +249,21 @@ type unfinishedRun struct{ tenant, run, operation uuid.UUID }
 // listed.
 func unfinishedRuns(ctx context.Context, begin func(context.Context, database.Scope) (pgx.Tx, error), appRole, workerRole, kind string,
 	list func(context.Context, pgx.Tx) (map[uuid.UUID]uuid.UUID, error)) ([]unfinishedRun, error) {
+	return unfinishedRunsOf(ctx, begin, appRole, workerRole, kind, func(ctx context.Context, tx pgx.Tx) ([]uuid.UUID, error) {
+		return operations.TenantsOf(ctx, tx, kind)
+	}, list)
+}
+
+// unfinishedRunsOf is unfinishedRuns of the tenants the worker role's
+// transaction lists (tenantsOf), kind naming them in errors.
+func unfinishedRunsOf(ctx context.Context, begin func(context.Context, database.Scope) (pgx.Tx, error), appRole, workerRole, kind string,
+	tenantsOf func(context.Context, pgx.Tx) ([]uuid.UUID, error), list func(context.Context, pgx.Tx) (map[uuid.UUID]uuid.UUID, error)) ([]unfinishedRun, error) {
 	tx, err := begin(ctx, database.Scope{Role: workerRole, ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	tenants, err := operations.TenantsOf(ctx, tx, kind)
+	tenants, err := tenantsOf(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("workflows: %w", err)
 	}

@@ -2797,10 +2797,24 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Received e-invoices entered as supplier invoices: payables.EInvoices.Enter sharing capture's code, source einvoice, the order from the order reference, the supplier's TRN checked by fingerprint, items by order line or position with the order item's unit and tax code, codes from each line's category and rate by capturedTax's rule (ambiguity holds the invoice), every problem of the entering a hold (held with its code) through a savepoint rolled back on the problem, tested with a constraint-raised refusal (supplier_invoice_no_duplicates), only infrastructure errors failing; the gauge erp_einvoices_held; credit notes left received until T65e; entered; the invoice's document the XML; no model call; walkthrough: the received e-invoice becomes a parked invoice of source einvoice on the next fetch, posts after the three-way match, its document is the XML; one without an order is held with payables.capture_needs_order; a document not in AED: the entered invoice keeps its tax in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax (UAE tax specialist, po:2026-11-09, C5)",
-        "r": "ADR-0061 §6 · T65d · ADR-0061 §5 (answered, C5)",
+        "r": "ADR-0061 §6 · T65d · ADR-0061 §5 (answered, C5) · db/migrations/000423-000427 · payables.EnterEInvoice · payables.einvoice_seller_unknown · einvoicing.Payables · einvoicing.tax_currency_not_entered · authz.ActingFor · partner.Payees.HasTaxNumber · erp_einvoices_held · walkthrough step_einvoice (einvoice_order, einvoice_entered), step_evatra_inbound · ADR-0061 As built T65d (a document not in AED held, its VAT in AED the leaf after)",
         "src": "adr:ADR-0061 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "fix: GET /v1/e-invoices?fetch_operation_id= also lists the documents a fetch refused that an earlier fetch recorded (processed_fetch_operation_id, with its index), as it lists those it entered or held (000427), so a fetch's refused count leads to its documents",
+        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d",
+        "src": "review:batch86",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "E-invoices not in AED entered with their VAT in AED as stated: a received tax invoice in another currency entered as a supplier invoice keeping its VAT in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax at the tax date's rate; T65d holds such a document with einvoicing.tax_currency_not_entered (UAE tax specialist, po:2026-11-09, C5; BTAE-08's and BTAE-10's UBL paths to confirm)",
+        "r": "ADR-0061 §5 (C5), §6 · ADR-0061 As built T65d · ADR-0049 §8",
+        "src": "split:T65d · po:2026-11-09",
         "c": []
        },
        {
@@ -2847,22 +2861,36 @@
          {
           "s": "D",
           "t": "UAE emirate on sales items and billing documents: a sales document's item carries the emirate of its supply, so a UAE billing document can bill the standard-rated code S5 (which levies each line's emirate) instead of being refused sales.tax_jurisdiction_not_supported, and E2 renders the billing document's customer invoice; until then E2 renders only customer invoices and credit memos entered in receivables (batch 85)",
-          "r": "migration 000420 (sales.quotation_item.tax_jurisdiction, sales.sales_order_item.tax_jurisdiction) · ledger.TaxCode.RefuseItemJurisdiction · sales.tax_jurisdiction_required, sales.tax_jurisdiction_not_levied · TestSalesItemJurisdiction · TestBillingJurisdictionRechecked · TestSalesItemJurisdictionRules · walkthrough step_einvoice_billing (step 147) · ADR-0067 As built (The emirate on a sales item) · ADR-0061 As built E2 (Gaps found, closed) · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built",
+          "r": "migration 000420 (sales.quotation_item.tax_jurisdiction, sales.sales_order_item.tax_jurisdiction) · ledger.TaxCode.RefuseItemJurisdiction · sales.tax_jurisdiction_required, sales.tax_jurisdiction_not_levied · TestSalesItemJurisdiction · TestBillingJurisdictionRechecked · TestSalesItemJurisdictionRules · walkthrough step_einvoice_billing (step 148) · ADR-0067 As built (The emirate on a sales item) · ADR-0061 As built E2 (Gaps found, closed) · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built",
           "src": "review:batch84",
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "E3 Sending: the outbox to a submission row written before the call, then Evatra's POST /invoice/send-document-async (base64Document, invoiceType UAE_PINT, businessType B2B or B2G, invoiceSource ERP); the port's Send and Status; status by polling GET /invoice/document-status/{trackingId} in a workflow per submission with backoff; after a lost answer the document looked up (document-process/search by filename) before any resend; resend of SENDING_FAILED, PERMANENT_FAILED to a worklist; a worklist of billing documents not transmitted within 14 business days of the UAE company's calendar; walkthrough step_einvoice_send",
-          "r": "ADR-0061 §3, §9 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
+          "r": "migration 000421 · einvoicing.outgoing_submission · sendOutgoingEInvoice · listEInvoiceTransmissionDeadlines · listOutgoingEInvoices transmission_status · OutgoingEInvoiceTransmissionChanged · einvoicing.AdvanceSubmission · einvoicing.Evatra Send, Status · workflow SendEInvoice · workflows.EInvoiceSender · receivables.IssuedInvoices · einvoicetest.Evatra send-document-async, document-status, document-process/search · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11 and As built E3 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "D",
+          "t": "E1's fetch resolved the connector's vault secret with its transaction open (each fetch step's connector read, and the fetch request): the connector is now read in the transaction and its credentials resolved after that commit (integration.EInvoiceProviders.Credentials, einvoicing.Connectors.Credentials); the fetch request no longer resolves them, its first step fails the Operation when they do not resolve. Done by E3's review round 1 fix, which had the same fault",
+          "r": "einvoicing.Connectors.Credentials · integration.EInvoiceProviders.Credentials · fetchEInvoices · ADR-0061 §2, As built E1 and E3",
+          "src": "review:batch85",
+          "c": []
+         },
+         {
+          "s": "D",
+          "t": "E4 Delivery status and FTA reporting: the Peppol message level responses (ACCEPTANCE, REJECTION, BUSINESS_RULE_FATAL and the others) and the tax data document's status shown on the invoice; a rejection or a fatal rule puts it on a worklist to correct by credit note; the tax data document's retry and withdrawal offered to a person only, never an agent; walkthrough step_einvoice_send extended",
+          "r": "migration 000422 · einvoicing.outgoing_submission delivery_status, tax_data_status, tax_data_request · retryOutgoingEInvoiceTaxData · withdrawOutgoingEInvoiceTaxData · listOutgoingEInvoices delivery_outcome · OutgoingEInvoiceTransmissionChanged delivery_status, tax_data_status · einvoicing.Evatra Delivery, TaxData · einvoicetest.Evatra invoice-mls-list, get-tdd, tdd/retry-failed, tdd/withdraw · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11, §13 and As built E4 · coordinator plan einvoicing-evatra E4, default 8",
           "src": "po:2026-11-19",
           "c": []
          },
          {
           "s": "T",
-          "t": "E4 Delivery status and FTA reporting: the Peppol message level responses (ACCEPTANCE, REJECTION, BUSINESS_RULE_FATAL and the others) and the tax data document's status shown on the invoice; a rejection or a fatal rule puts it on a worklist to correct by credit note; the tax data document's retry and withdrawal offered to a person only, never an agent; walkthrough step_einvoice_send extended",
-          "r": "ADR-0061 §9 · coordinator plan einvoicing-evatra E4, default 8",
-          "src": "po:2026-11-19",
+          "t": "fix: an outgoing e-invoice whose delivery_outcome is corrected names the credit note that corrected it (its id and number), so the correction worklist's consumer finds it without searching the credit notes by reference_invoice_number",
+          "r": "listOutgoingEInvoices delivery_outcome · ADR-0061 As built E4 (The worklist to correct by credit note) · REVIEW.md (an identifier without the name or reference its consumer needs)",
+          "src": "review:batch86",
           "c": []
          },
          {
@@ -5649,9 +5677,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A batch-managed material carries a batch, with manufacture and expiry dates, on every movement and stock row",
-      "r": "S2f · docs/design/plan-supply-chain.md §S2f · ADR-0082",
+      "r": "S2f · docs/design/plan-supply-chain.md §S2f · ADR-0082 As built S2f · db/migrations/000428, 000429 · materials.material.batch_managed · inventory.batch, .batch_stock · inventory.movement.batch_id · POST/GET /v1/batches · GET /v1/batches/{id} · GET /v1/batch-stock · batch_id on POST /v1/material-documents · inventory.batch.write · walkthrough step_batches",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5664,7 +5692,7 @@
      },
      {
       "s": "T",
-      "t": "later: batch variants: classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: batch variants: batches in the purchase order's goods receipt, the delivery's goods issue, stock transport orders, counts and the SAP stock take-over (refused for a batch-managed material until then), a batch created at goods receipt, internal batch numbers, batch dates changed, batch status, stock by batch as at a date, transfer to another batch (309), classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2f, Later",
       "src": "baseline",
       "c": []
@@ -5761,10 +5789,24 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "Confirming a sales order item checks the material's available quantity at the plant and confirms what is available on the requested date; two orders racing for the last quantity confirm it once",
-      "r": "S2j · docs/design/plan-supply-chain.md §S2j",
+      "r": "S2j · docs/design/plan-supply-chain.md §S2j · ADR-0082 As built S2j · db/migrations/000430 · sales.sales_order.plant_id · sales.sales_order_item.confirmed_quantity · sales.plant_invalid · shipping.plant_mismatch · inventory.Endpoints.PlantStock · TestTwoOrdersRaceForTheLastQuantity · TestSalesAvailabilityRules · walkthrough step_available_to_promise (step 150)",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "contract step: sales.delivery_assignment.plant_id NOT NULL, once every server writes it (S2j's expand step left it nullable; ShipInput.PlantID and GoodsIssue.PlantID required since), with its schema test",
+      "r": "db/migrations/000430_sales_availability · ADR-0082 As built S2j · 06 §6.4 (expand, migrate, contract)",
+      "src": "review:batch86",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: a goods issue reversal (602), once built, takes the availability check's lock of its materials at the plant (database.LockTenant sales.availability) or counts its stock before the demand, since it lowers a delivered quantity, which the check's read of the demand before the stock assumes only rises",
+      "r": "internal/sales/availability.go lockMaterials · ADR-0082 As built S2j (Two orders racing) · ADR-0083 (goods issue)",
+      "src": "review:batch86",
       "c": []
      },
      {
@@ -8990,6 +9032,20 @@
       "t": "The NOT VALID checks of migrations 000040 and 000041 validated (000044); a schema test names any check left unvalidated",
       "r": "db/migrations/000044 · T31",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "refactor: the transaction advisory locks taken in SQL by each context (pg_advisory_xact_lock with hashtextextended, some 27 production call sites: credit, configuration, payments, ledger, materials, identity, tenancy, cash, integration, partner, procurement, inventory, collections, numbering, directory) taken through database.LockTenant, or a sibling helper for the keys without a tenant and the shared locks, keeping each key's text so a moved caller still waits for one not yet moved",
+      "r": "internal/platform/database LockTenant · ADR-0008 · ADR-0082 As built S2j (the availability check's lock, the first caller)",
+      "src": "review:batch86",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing",
+      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4",
+      "src": "review:batch86",
       "c": []
      }
     ]

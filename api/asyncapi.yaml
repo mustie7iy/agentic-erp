@@ -567,6 +567,7 @@ channels:
     messages:
       EInvoiceChanged: {$ref: '#/components/messages/EInvoiceChanged'}
       OutgoingEInvoiceRendered: {$ref: '#/components/messages/OutgoingEInvoiceRendered'}
+      OutgoingEInvoiceTransmissionChanged: {$ref: '#/components/messages/OutgoingEInvoiceTransmissionChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -941,6 +942,7 @@ operations:
     messages:
       - $ref: '#/channels/einvoicing/messages/EInvoiceChanged'
       - $ref: '#/channels/einvoicing/messages/OutgoingEInvoiceRendered'
+      - $ref: '#/channels/einvoicing/messages/OutgoingEInvoiceTransmissionChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -4353,8 +4355,11 @@ components:
         the status), once per different bytes, and when a fetch's
         validation refuses it (T65c: `refused`, status_before `received`,
         with its `problem_code`); a valid document's validation moves no
-        status and publishes nothing. The later slices add its entering,
-        holding and dismissal (T65d-T65f). It
+        status and publishes nothing; when a fetch enters a valid tax
+        invoice as a supplier invoice (T65d: `entered`, status_before
+        `received`, with its `supplier_invoice_id`) or holds it on a
+        refusal of the entering (`held`, with its `problem_code`). The
+        later slices add its dismissal (T65f). It
         carries no document content. `GET /v1/e-invoices/{id}` returns the
         document at `version` or later: its acknowledgement to the
         provider, which sets `acknowledged_at`, moves the version without
@@ -4399,6 +4404,38 @@ components:
         - name: valid
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f01, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.outgoing_einvoice_rendered.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {outgoing_einvoice_id: 0192a000-0000-7000-8000-000000000f11, customer_invoice_id: 0192a000-0000-7000-8000-000000000f01, customer_invoice_number: '1800000007', legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '5000', customer_id: 0192a000-0000-7000-8000-000000000301, customer_number: '100045', kind: invoice, type_code: '380', status: valid, status_before: null, problem_rules: [], sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, version: 1}
+    OutgoingEInvoiceTransmissionChanged:
+      name: OutgoingEInvoiceTransmissionChanged
+      x-webhook: true
+      title: Outgoing e-invoice transmission changed
+      summary: An outgoing e-invoice's submission to the accredited provider changed.
+      description: |
+        Emitted when `sendOutgoingEInvoice` queues an e-invoice's
+        submission and whenever the send workflow moves it or reads
+        another status from the provider (ADR-0061 §9, §12, As built E3):
+        its status after the change (queued, sending, submitted,
+        completed, failed), the status before (null when first queued),
+        the provider's status and tracking id, the attempts and resends,
+        and, once failed, the problem code; once completed, whenever the
+        buyer's access point's message level response or the tax data
+        document's status read moves, and when a person asks for the tax
+        data document to be sent again or withdrawn and that request ends
+        (As built E4; the response's detail is not carried). A status read
+        that finds nothing new emits nothing. It carries no document content and no
+        TRN. `GET /v1/outgoing-e-invoices/{id}` returns the e-invoice with
+        its transmission at `version` or later. Subject is the outgoing
+        e-invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.einvoicing.outgoing_einvoice_transmission_changed.v1}
+      payload: {$ref: '#/components/schemas/OutgoingEInvoiceTransmissionChangedV1'}
+      examples:
+        - name: completed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.outgoing_einvoice_transmission_changed.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {outgoing_einvoice_id: 0192a000-0000-7000-8000-000000000f11, customer_invoice_number: '1800000007', legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '5000', connector_id: 0192a000-0000-7000-8000-000000000e01, operation_id: 0192a000-0000-7000-8000-000000000c01, business_type: B2B, status: completed, status_before: submitted, provider_status: COMPLETED, tracking_id: TRK-1001, attempts: 1, resends: 0, problem_code: null, delivery_status: null, tax_data_status: null, tax_data_request: null, tax_data_awaited: null, version: 4}
     CustomerInvoiceChanged:
       name: CustomerInvoiceChanged
       x-webhook: true
@@ -6130,8 +6167,9 @@ components:
         message_id: {type: string, description: "The provider's id of the document."}
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company it is addressed to; null when none."}
         legal_entity_code: {type: [string, 'null'], description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; null with it.'}
-        status: {type: string, description: "The document's status after the change. Open enum: received, refused (T65c)."}
-        problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`; an open enumeration); null unless refused. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
+        status: {type: string, description: "The document's status after the change. Open enum: received, refused (T65c), entered, held (T65d)."}
+        problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`) or held (T65d: the problem its entering met, such as `payables.capture_needs_order`, or `einvoicing.tax_currency_not_entered`); an open enumeration; null unless refused or held. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
+        supplier_invoice_id: {type: [string, 'null'], format: uuid, description: "The supplier invoice it was entered as (T65d); null unless entered. Added within v1, so not required (ADR-0041); every event carries it."}
         status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
         sha256: {type: string, description: "The SHA-256 of its bytes as received, hex."}
         changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`). Added within v1, so not required (ADR-0041); every event carries it."}
@@ -6159,6 +6197,29 @@ components:
           description: "The rules that failed (`einvoicing.pint_ae.*`); empty when valid."
         sha256: {type: [string, 'null'], description: "The SHA-256 of its XML, hex; null while invalid."}
         version: {type: integer, description: "The e-invoice's version after the change."}
+    OutgoingEInvoiceTransmissionChangedV1:
+      type: object
+      required: [outgoing_einvoice_id, customer_invoice_number, legal_entity_id, legal_entity_code, connector_id, operation_id, business_type, status, status_before, provider_status, tracking_id, attempts, resends, problem_code, version]
+      properties:
+        outgoing_einvoice_id: {$ref: '#/components/schemas/Uuid', description: '`einvoicing.outgoing_einvoice.id`.'}
+        customer_invoice_number: {type: string, description: "The e-invoice's number (IBT-001), the provider's filename."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issues it.}
+        legal_entity_code: {type: string, description: 'The company code, as LegalEntityCreated gives it.'}
+        connector_id: {$ref: '#/components/schemas/Uuid', description: The connector it is sent through.}
+        operation_id: {$ref: '#/components/schemas/Uuid', description: The Operation of the send asked for last.}
+        business_type: {type: string, description: "B2B or B2G."}
+        status: {type: string, description: "Its status after the change. Open enum: queued, sending, submitted, completed, failed."}
+        status_before: {type: [string, 'null'], description: "Its status before; null when first queued."}
+        provider_status: {type: [string, 'null'], description: "The provider's status as last reported; null before it was submitted. Open enum."}
+        tracking_id: {type: [string, 'null'], description: "The provider's id of the current submission; null before it was submitted."}
+        attempts: {type: integer, description: "Calls made for the current send."}
+        resends: {type: integer, description: "Sends again after SENDING_FAILED."}
+        problem_code: {type: [string, 'null'], description: "Why it failed; null unless failed."}
+        delivery_status: {type: [string, 'null'], description: "Once completed, the buyer's access point's message level response as last reported (As built E4); null for none. Open enum. Added within v1, so not required (ADR-0041); every event carries it."}
+        tax_data_status: {type: [string, 'null'], description: "Once completed, the tax data document's status as last reported (As built E4); null for none. Open enum. Added within v1, so not required; every event carries it."}
+        tax_data_request: {type: [string, 'null'], description: "A person's request of the tax data document not yet made (retry, withdraw); null for none. Open enum. Added within v1, so not required; every event carries it."}
+        tax_data_awaited: {type: [string, 'null'], description: "After a request was made, the tax data document's status the call found while its outcome is not reported yet; null otherwise. Added within v1, so not required; every event carries it."}
+        version: {type: integer, description: "The submission's version after the change."}
     CustomerInvoiceChangedV1:
       type: object
       required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, invoice_date, net_amount, tax_amount, gross_amount, status, status_before, version]
@@ -6758,6 +6819,7 @@ components:
         base_unit: {type: string, description: The base unit of measure.}
         material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
         material_group: {type: string, description: The material group.}
+        batch_managed: {type: boolean, description: 'Whether the material is managed in batches (S2f); it does not change. Not required (ADR-0041).'}
         status: {type: string, description: "The material's status after the change. Open enum: pending, active, blocked."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         plants:
@@ -6852,6 +6914,8 @@ components:
               amount: {$ref: '#/components/schemas/Money', description: "What the line moves in value, signed as its quantity is (S1d); not required (ADR-0041)."}
               price_difference: {$ref: '#/components/schemas/Money', description: "What it is valued at beyond that (S1d); not required (ADR-0041)."}
               in_transit: {type: boolean, description: "Whether the line moves stock in transit to its storage location (a stock transport order's, S2h) rather than the stock at that location; not required (ADR-0041)."}
+              batch_id: {type: [string, 'null'], format: uuid, description: "The batch the line moves, `inventory.batch.id`, of a batch-managed material (S2f); null on a line of another material; not required (ADR-0041)."}
+              batch_number: {type: [string, 'null'], description: "That batch's number; null with it; not required (ADR-0041)."}
     OutboundDeliveryChangedV1:
       type: object
       required: [outbound_delivery_id, number, legal_entity_id, legal_entity_code, sales_order_id, sales_order_number, customer_id, customer_number, plant_id, plant_code, storage_location_id, storage_location_code, status, picking_status, goods_issue_date, material_document_id, material_document_number, items, version]
@@ -7883,8 +7947,8 @@ components:
         purchase_order_id: {$ref: '#/components/schemas/NullableUuid'}
         kind: {type: string, description: 'Open enum: invoice, credit_memo, subsequent_debit, subsequent_credit. Absent from events of releases before it was kept: an invoice.'}
         reference_invoice_id: {$ref: '#/components/schemas/NullableUuid', description: 'The invoice a credit memo or subsequent debit/credit corrects.'}
-        source: {type: string, description: 'Open enum: manual, capture, edi, migration.'}
-        capture_sha256: {type: [string, 'null'], pattern: '^[0-9a-f]{64}$', description: Hash of the captured document when source is capture.}
+        source: {type: string, description: 'Open enum: manual, capture, edi, migration, einvoice (entered from a received e-invoice, ADR-0061 §6, T65d).'}
+        capture_sha256: {type: [string, 'null'], pattern: '^[0-9a-f]{64}$', description: "Hash of the captured document when source is capture, of the e-invoice's bytes when source is einvoice."}
         status: {type: string, description: 'Open enum: parked, or on_hold for a low-confidence capture.'}
     SupplierInvoiceMatchedV1:
       type: object

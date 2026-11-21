@@ -281,6 +281,10 @@ type CreateAuditEvidenceExportRes interface {
 	createAuditEvidenceExportRes()
 }
 
+type CreateBatchRes interface {
+	createBatchRes()
+}
+
 type CreateBillingDocumentRes interface {
 	createBillingDocumentRes()
 }
@@ -807,6 +811,10 @@ type GetBankStatementRes interface {
 
 type GetBankStatementRulesRes interface {
 	getBankStatementRulesRes()
+}
+
+type GetBatchRes interface {
+	getBatchRes()
 }
 
 type GetBillingDocumentRes interface {
@@ -1441,6 +1449,14 @@ type ListBankStatementsRes interface {
 	listBankStatementsRes()
 }
 
+type ListBatchStockRes interface {
+	listBatchStockRes()
+}
+
+type ListBatchesRes interface {
+	listBatchesRes()
+}
+
 type ListBillingDocumentsRes interface {
 	listBillingDocumentsRes()
 }
@@ -1591,6 +1607,10 @@ type ListDunningNoticesRes interface {
 
 type ListDunningRunsRes interface {
 	listDunningRunsRes()
+}
+
+type ListEInvoiceTransmissionDeadlinesRes interface {
+	listEInvoiceTransmissionDeadlinesRes()
 }
 
 type ListEInvoicesRes interface {
@@ -2333,6 +2353,10 @@ type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
 }
 
+type RetryOutgoingEInvoiceTaxDataRes interface {
+	retryOutgoingEInvoiceTaxDataRes()
+}
+
 type ReverseAllocationRunRes interface {
 	reverseAllocationRunRes()
 }
@@ -2399,6 +2423,10 @@ type RunReportRes interface {
 
 type ScheduleReportRes interface {
 	scheduleReportRes()
+}
+
+type SendOutgoingEInvoiceRes interface {
+	sendOutgoingEInvoiceRes()
 }
 
 type SettleInternalOrderRes interface {
@@ -2623,6 +2651,10 @@ type VerifyAuditChainRes interface {
 
 type WithdrawChangeRequestRes interface {
 	withdrawChangeRequestRes()
+}
+
+type WithdrawOutgoingEInvoiceTaxDataRes interface {
+	withdrawOutgoingEInvoiceTaxDataRes()
 }
 
 type WithdrawTaxReturnRes interface {

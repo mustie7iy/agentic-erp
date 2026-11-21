@@ -17,15 +17,34 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tax"
 )
 
+// printedTax is the tax a document's line states: its rate, a percent as
+// a decimal ("" when it prints none), and, on an e-invoice, its VAT
+// category (UN/CEFACT 5305, IBT-151; "" on a captured document, which
+// does not read one).
+type printedTax struct{ rate, category string }
+
+// printedRates are the rates a captured document's lines print, without
+// a category.
+func printedRates(ext *capture.Extraction) []printedTax {
+	out := make([]printedTax, len(ext.Lines))
+	for i, l := range ext.Lines {
+		out[i] = printedTax{rate: l.TaxRate}
+	}
+	return out
+}
+
 // capturedTax proposes the tax codes of a captured document and flags its
 // stated tax (ADR-0049 §6, T61d): a line printing a tax rate its order
 // item's code does not charge gets the one input code of the legal entity
 // that charges it on the tax date, a warning saying so, or, with none or
 // several, a reason to hold the invoice for a person to choose; and a
 // stated tax the codes' rates do not bear out within the tolerance is a
-// reason to hold it (payables.tax_mismatch's figures). It posts nothing:
-// the invoice is entered parked or held as ever (ADR-0036).
-func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, ext *capture.Extraction) ([]string, string, error) {
+// reason to hold it (payables.tax_mismatch's figures). A line stating its
+// category (an e-invoice's, ADR-0061 §6) is matched among the codes of
+// that category alone, so the order item's code stands only when it has
+// the line's category and charges its rate. It posts nothing: the invoice
+// is entered parked or held as ever (ADR-0036).
+func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, lines []printedTax) ([]string, string, error) {
 	taxDate, err := taxDateOf(ctx, tx, nil, in.InvoiceDate, in.ReferenceInvoiceID)
 	if err != nil {
 		return nil, "", err
@@ -42,7 +61,7 @@ func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, ext *
 		ReferenceInvoiceID: in.ReferenceInvoiceID}
 	var warnings, held []string
 	for i, it := range in.Items {
-		if printed := ext.Lines[i].TaxRate; printed != "" {
+		if printed := lines[i]; printed.rate != "" {
 			proposed, warning, reason := proposeCode(codes, it.TaxCode, printed, i+1)
 			if proposed != nil {
 				in.Items[i].TaxCode = proposed
@@ -66,17 +85,20 @@ func (e *Endpoints) capturedTax(ctx context.Context, tx pgx.Tx, in *Input, ext *
 
 // proposeCode is the code a line printing a tax rate gets: none when its
 // order item's code charges that rate; else the one input code that does,
-// with a warning; else a reason to hold the invoice. An adjustment code is
-// a manual entry's tax alone (ADR-0049 §11), never a document's line, so
+// with a warning; else a reason to hold the invoice. A line stating its
+// category considers the codes of that category only. An adjustment code
+// is a manual entry's tax alone (ADR-0049 §11), never a document's line, so
 // it is not proposed for a printed 0%.
-func proposeCode(codes []ledger.TaxCode, current *string, printed string, line int) (code *string, warning, reason string) {
+func proposeCode(codes []ledger.TaxCode, current *string, line printedTax, no int) (code *string, warning, reason string) {
+	printed := line.rate
 	rate := money.ParseRat(printed)
 	if rate == nil {
-		return nil, "", fmt.Sprintf("Line %d prints the tax rate %q, which is not a number; choose its tax code.", line, printed)
+		return nil, "", fmt.Sprintf("Line %d prints the tax rate %q, which is not a number; choose its tax code.", no, printed)
 	}
 	var matching []string
 	for _, c := range codes {
-		if c.Direction != config.TaxInput || c.Kind == config.TaxAdjustment || charged(c).Cmp(rate) != 0 {
+		if c.Direction != config.TaxInput || c.Kind == config.TaxAdjustment || (line.category != "" && c.Category != line.category) ||
+			charged(c).Cmp(rate) != 0 {
 			continue
 		}
 		if current != nil && c.Code == *current {
@@ -84,13 +106,17 @@ func proposeCode(codes []ledger.TaxCode, current *string, printed string, line i
 		}
 		matching = append(matching, c.Code)
 	}
+	rated := printed + "%"
+	if line.category != "" {
+		rated += " in VAT category " + line.category
+	}
 	switch len(matching) {
 	case 1:
-		return &matching[0], fmt.Sprintf("line %d: tax code %s proposed for the printed rate of %s%%", line, matching[0], printed), ""
+		return &matching[0], fmt.Sprintf("line %d: tax code %s proposed for the printed rate of %s", no, matching[0], rated), ""
 	case 0:
-		return nil, "", fmt.Sprintf("Line %d prints a tax rate of %s%%, which no input tax code charges; choose its tax code.", line, printed)
+		return nil, "", fmt.Sprintf("Line %d prints a tax rate of %s, which no input tax code charges; choose its tax code.", no, rated)
 	}
-	return nil, "", fmt.Sprintf("Line %d prints a tax rate of %s%%, which codes %s charge; choose its tax code.", line, printed, strings.Join(matching, ", "))
+	return nil, "", fmt.Sprintf("Line %d prints a tax rate of %s, which codes %s charge; choose its tax code.", no, rated, strings.Join(matching, ", "))
 }
 
 // charged is the rate a code charges: its components' rates but the

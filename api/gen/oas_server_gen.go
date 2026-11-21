@@ -700,10 +700,13 @@ type Handler interface {
 	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
 	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
 	// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
-	// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
-	// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
-	// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-	// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+	// release; a lower value leaves the block as it is. A confirmed order with a plant has the items the
+	// change adds, and those whose quantity it changes, checked for availability again as a confirmation
+	// checks them (`confirmSalesOrder`, S2j): an item keeps what it had confirmed, up to its new quantity,
+	// and has more confirmed as far as the plant has it available. The change is kept, numbered within the
+	// order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's
+	// `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with
+	// the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:change
 	ChangeSalesOrder(ctx context.Context, req *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
@@ -1010,10 +1013,19 @@ type Handler interface {
 	// date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
 	// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
 	// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
-	// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
-	// limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as
-	// SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers
-	// the confirmed order. Human-only (`x-agent: false`).
+	// amount holds is refused too (422 `credit.amount_too_large`). An order with a plant (`plant_id`) has
+	// the availability of its items of a material kept in stock checked there (S2j, available-to-promise):
+	// each item is confirmed as far as the plant has the material available, its stock at the plant's
+	// storage locations, in the base unit, less what the other confirmed orders of the plant confirmed and
+	// have not yet delivered, item after item in the order's item order. An item may be confirmed in full,
+	// in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a
+	// shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the
+	// requested delivery date as it is today. Its outbound deliveries take at most what is confirmed
+	// (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked
+	// one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
+	// limit and the exposure when the customer has a limit and each item's confirmed quantity, and
+	// published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
+	// with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
@@ -1294,6 +1306,18 @@ type Handler interface {
 	//
 	// POST /v1/audit-evidence-exports
 	CreateAuditEvidenceExport(ctx context.Context, req *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (CreateAuditEvidenceExportRes, error)
+	// CreateBatch implements createBatch operation.
+	//
+	// Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level
+	// material): its number, unique for the material (409 `inventory.batch_exists`), its manufacture date
+	// and its expiry date, not before it (422 `inventory.batch_dates`). The material is one of the
+	// tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`) and
+	// managed in batches (422 `inventory.material_not_batch_managed`). The batch is the tenant's, as its
+	// material is; its stock is moved by the material documents that name it (`batch_id`). Audited. A
+	// retry with the same `Idempotency-Key` answers the batch created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/batches
+	CreateBatch(ctx context.Context, req *BatchCreate, params CreateBatchParams) (CreateBatchRes, error)
 	// CreateBillingDocument implements createBillingDocument operation.
 	//
 	// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
@@ -2119,8 +2143,12 @@ type Handler interface {
 	// issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero
 	// or more, so items that move stock round a circle out of an empty location are refused though they
 	// change nothing in all. A material at a storage location an open physical inventory count document
-	// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is
-	// valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
+	// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). A
+	// batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
+	// `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
+	// receives the same batch, and a batch's stock at a location never goes below zero either (409
+	// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
+	// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
 	// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
 	// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
 	// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
@@ -2228,16 +2256,19 @@ type Handler interface {
 	// or free-text item, or a material of type `non_stock` or `service`, is confirmed by
 	// `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422
 	// `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the
-	// order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less
-	// what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`).
-	// Without `items` the delivery takes what is open of every order item of a material kept in stock at
-	// the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the
-	// delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed
-	// below them, removed or cancelled while the delivery holds them. The delivery is created `created`,
-	// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
-	// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
-	// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
-	// created. Human-only (`x-agent: false`).
+	// order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered (what
+	// is confirmed of it, for an item of an order with a plant, S2j) less what is delivered and what other
+	// deliveries not yet issued hold (422 `sales.exceeds_open_quantity`). An order that names a plant is
+	// delivered from that plant (422 `shipping.plant_mismatch`). Without `items` the delivery takes what
+	// is open of every order item of a material kept in stock at the location (422
+	// `sales.nothing_to_deliver` when that is nothing). The quantities are held for the delivery on the
+	// order (`in_delivery_quantity` of its items), so the order's items are not changed below them,
+	// removed or cancelled while the delivery holds them. The delivery is created `created`, `not_picked`,
+	// dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's
+	// date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
+	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
+	// Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, req *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
@@ -2341,7 +2372,8 @@ type Handler interface {
 	// posts it). The document is dated the company's date today in its time zone and numbered from its
 	// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
-	// answers the document created. Human-only (`x-agent: false`).
+	// answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
+	// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
 	//
 	// POST /v1/physical-inventory-documents
 	CreatePhysicalInventoryDocument(ctx context.Context, req *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error)
@@ -2429,26 +2461,27 @@ type Handler interface {
 	// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
 	// `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a
 	// `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422
-	// `request.reference_not_found` naming `items[i].material_id`) that is `active` (422
-	// `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused,
-	// 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's
-	// when it sends none; its quantity is in the material's base unit or one of its alternative units and
-	// converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming
-	// `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the
-	// reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit`
-	// naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when
-	// absent; sent without a unit price it is refused, 422 `request.validation_failed` naming
-	// `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the
-	// quotation's date in the item's unit and the quotation's currency, the customer's before its price
-	// group's (by its sales data in the company, `createCustomerSalesData`) before the general one and
-	// then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a
-	// price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
-	// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
-	// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code
-	// that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is
-	// levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or
-	// none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
+	// `request.reference_not_found` naming `items[i].material_id`) that is `active` and not managed in
+	// batches (422 `sales.material_not_usable`; a delivery carries no batch yet, S2f), whose number is
+	// then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming
+	// `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the
+	// material's base unit or one of its alternative units and converts to the base unit exactly in six
+	// decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a
+	// quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity`
+	// naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit
+	// price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is
+	// refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price
+	// recorded for its `item_key` that is valid on the quotation's date in the item's unit and the
+	// quotation's currency, the customer's before its price group's (by its sales data in the company,
+	// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+	// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+	// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+	// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+	// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+	// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code that
+	// levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is levied in,
+	// `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or none, 422
+	// `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
 	// `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's
 	// minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`,
 	// or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
@@ -2702,17 +2735,21 @@ type Handler interface {
 	// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
 	// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
 	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
-	// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date: an
-	// item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when
-	// there is none). Either way the order needs the customer's data in the company, as a receivables
-	// document does: a customer that is not active, has no customer role, has no data in the company or is
-	// blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or
-	// `customer_id`). The order's payment term is `payment_term_code`, a configured term (422
-	// `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the
-	// company's date today in its time zone, with a document number from the company's `sales_order`
-	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
-	// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+	// the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed
+	// material is refused, 422 `sales.material_not_usable`, S2f), on the order's date: an item without a
+	// `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when there is none).
+	// Either way the order needs the customer's data in the company, as a receivables document does: a
+	// customer that is not active, has no customer role, has no data in the company or is blocked for
+	// posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`).
+	// The order's payment term is `payment_term_code`, a configured term (422
+	// `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is the
+	// plant the order delivers from: an active plant of the order's company (422 `sales.plant_invalid`);
+	// its confirmation then checks the availability of its items of a material kept in stock there (S2j,
+	// `confirmSalesOrder`). It is created `draft`, dated the company's date today in its time zone, with a
+	// document number from the company's `sales_order` number range of that date's fiscal year; each item
+	// starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published
+	// as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
@@ -2853,7 +2890,8 @@ type Handler interface {
 	// takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
 	// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
-	// created. Human-only (`x-agent: false`).
+	// created. Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
 	//
 	// POST /v1/stock-transport-orders
 	CreateStockTransportOrder(ctx context.Context, req *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error)
@@ -3165,13 +3203,29 @@ type Handler interface {
 	// does not add up without any tax rule, or is not addressed to the company (its buyer's electronic
 	// address IBT-049 the company's participant, its buyer's TRN IBT-048 the company's FTA registration on
 	// its issue date); a valid one stays `received`, with what was read (number, kind, issue date,
-	// currency, gross, specification) and the release validated against, for entering (T65d). When the
-	// fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
-	// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
-	// refused; `waiting`: the connector's documents left unprocessed, waiting for the company's setup) and
-	// its `resource` the list of the documents it recorded or found changed
-	// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
-	// `changed_fetch_operation_id`); a message not recorded fails the Operation with
+	// currency, gross, specification) and the release validated against, and a valid tax invoice is then
+	// entered (T65d, ADR-0061 §6) as a supplier invoice of source `einvoice` by capture's rules without a
+	// model: the purchase order its order reference (IBT-013) names, whose supplier must hold the seller's
+	// TRN (IBT-031) as a tax identifier; its items by order line (IBT-132) or by position, each with its
+	// order item's unit and tax code where that code has the line's VAT category (IBT-151) and charges its
+	// rate (IBT-152), else the one input code that does, else the invoice on hold for a person to choose;
+	// parked, or on hold with capture's reasons; its document the e-invoice's bytes
+	// (`getSupplierInvoiceDocument`), published as SupplierInvoiceCaptured. The document becomes
+	// `entered`, naming the invoice, with an audit record and EInvoiceChanged. Any refusal of the entering
+	// (no order: `payables.capture_needs_order`; an unknown order or item, the seller's TRN not the
+	// supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`,
+	// `payables.already_captured`, a closed period and any other) holds the document instead, `held` with
+	// that problem's code and detail, nothing of the entering kept; a tax invoice not in AED is held with
+	// `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as it states it, which
+	// the entering does not do yet). A tax credit note stays `received` until T65e enters credit notes; a
+	// tax invoice validated by a fetch before T65d is entered by the next one. When the fetch is done its
+	// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
+	// message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`:
+	// the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed,
+	// waiting for the company's setup) and its `resource` the list of the documents it recorded, found
+	// changed, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as
+	// its `changed_fetch_operation_id`, one entered or held, also one an earlier fetch recorded, as its
+	// `entry_fetch_operation_id`); a message not recorded fails the Operation with
 	// `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 	// error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
 	// store or the database failed (after five tries in the workflow engine, one in process), which the
@@ -3182,22 +3236,24 @@ type Handler interface {
 	// `einvoicing.document_changed` naming it, the others processed. A document whose company the
 	// connector no longer names, or which is dated before the company's FTA registration, is left
 	// unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with
-	// `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with
-	// credentials that resolve is refused before anything is queued (404 `request.not_found`, 422
+	// `platform.unavailable`. A connector that is not an active `einvoice_provider` connector naming a
+	// `secret_ref` is refused before anything is queued (404 `request.not_found`, 422
 	// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
-	// `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so
-	// is, in production, the provider's stand-in or Evatra's `stage` sandbox (422
-	// `integration.adapter_not_certified`), and an Evatra connector whose credentials are not a JSON
-	// object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector
-	// (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each
-	// company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the
-	// acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra
-	// refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without
-	// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
-	// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
-	// every active `einvoice_provider` connector of an active tenant once per
-	// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
-	// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
+	// `integration.secret_required`, `integration.invalid_settings`); so is, in production, the provider's
+	// stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`). Its credentials are
+	// resolved from the vault by the fetch's first step, with no transaction open (ADR-0061 As built E3),
+	// not by this request: credentials that do not resolve, or an Evatra connector's that are not a JSON
+	// object with `apiKey` and `email`, fail the Operation with `integration.secret_unavailable`. An
+	// Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received
+	// for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no
+	// acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and
+	// acknowledged, and Evatra refusing the credentials fails the fetch with
+	// `integration.secret_unavailable`. A server without object storage refuses every fetch (503
+	// `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides
+	// fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider`
+	// connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch
+	// an Operation of the same kind created by the fetcher, carried out as the workflow
+	// `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 	//
 	// POST /v1/e-invoices:fetch
 	FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (FetchEInvoicesRes, error)
@@ -3612,6 +3668,13 @@ type Handler interface {
 	//
 	// GET /v1/bank-statements/{id}/rules
 	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
+	// GetBatch implements getBatch operation.
+	//
+	// One batch (ADR-0082 As built S2f) with its material by number and description, its number,
+	// manufacture date and expiry date. Its stock by location is `GET /v1/batch-stock?batch_id=`.
+	//
+	// GET /v1/batches/{id}
+	GetBatch(ctx context.Context, params GetBatchParams) (GetBatchRes, error)
 	// GetBillingDocument implements getBillingDocument operation.
 	//
 	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
@@ -5500,6 +5563,24 @@ type Handler interface {
 	//
 	// GET /v1/bank-statements
 	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
+	// ListBatchStock implements listBatchStock operation.
+	//
+	// The stock of batches by plant and storage location in the companies the caller may act in (ADR-0082
+	// As built S2f; SAP MCHB, MMBE's batch view), now, in the material's base unit: the batches of a
+	// batch-managed material at a location add up to its stock there (`listStock`). A batch with no stock
+	// at a location is left out. Filtered by material, plant, storage location and batch; in the order
+	// each batch's stock was first moved. Sortable by: `created_at`.
+	//
+	// GET /v1/batch-stock
+	ListBatchStock(ctx context.Context, params ListBatchStockParams) (ListBatchStockRes, error)
+	// ListBatches implements listBatches operation.
+	//
+	// The tenant's batches of batch-managed materials (ADR-0082 As built S2f; SAP MSC3N), each as
+	// `getBatch` gives it, the latest first. Filtered by material and by number. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/batches
+	ListBatches(ctx context.Context, params ListBatchesParams) (ListBatchesRes, error)
 	// ListBillingDocuments implements listBillingDocuments operation.
 	//
 	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
@@ -5898,6 +5979,28 @@ type Handler interface {
 	//
 	// GET /v1/dunning-runs
 	ListDunningRuns(ctx context.Context, params ListDunningRunsParams) (ListDunningRunsRes, error)
+	// ListEInvoiceTransmissionDeadlines implements listEInvoiceTransmissionDeadlines operation.
+	//
+	// The worklist of a UAE company's posted customer invoices and credit memos whose e-invoice is not yet
+	// transmitted (ADR-0061 §9, As built E3; the mandate's 14 business days to issue and transmit an
+	// e-invoice from the transaction date, coordinator plan default 9): every one issued from
+	// `issued_from` through `key_date` whose e-invoice is not rendered, invalid, or rendered and not
+	// `completed` at the provider, each with its deadline, the 14th business day of the company's calendar
+	// after its issue date (its weekend and holidays, ADR-0058 §3: in the UAE Saturday and Sunday unless
+	// the calendar names others), and whether it is overdue on the key date (the deadline before it) with
+	// the business days left to it (negative once overdue). Ordered by deadline, then customer document
+	// number, the overdue first; each row names its customer by number and name and carries its gross
+	// amount in its currency, its e-invoice's id and status and its transmission's status (null for none).
+	// `count` and `overdue_count` at the top are the totals of every row listed, not of the page. Computed
+	// at the read and stored nowhere; paged by cursor in the worklist's order, a page token bound to the
+	// company and dates. `issued_from` defaults to 90 days before the key date and may be at most 366 days
+	// before it (422 `einvoicing.invalid_period`, naming `issued_from`, as for one after it). A debit memo
+	// is not listed (PINT AE has no debit note type). A legal entity the caller cannot act in, or one that
+	// is not a UAE company in AED, is refused (422 `request.reference_not_found`,
+	// `einvoicing.not_a_uae_company`, naming `legal_entity_id`).
+	//
+	// GET /v1/e-invoice-transmission-deadlines
+	ListEInvoiceTransmissionDeadlines(ctx context.Context, params ListEInvoiceTransmissionDeadlinesParams) (ListEInvoiceTransmissionDeadlinesRes, error)
 	// ListEInvoices implements listEInvoices operation.
 	//
 	// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
@@ -5910,7 +6013,10 @@ type Handler interface {
 	// connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
 	// its `resource`) and when received. Once processed (T65c) each carries what was read of it (number,
 	// kind, issue date, currency, gross, specification), when, by which fetch and against which release,
-	// and, when refused, its problem code and detail; the supplier and the entered invoice come with T65d.
+	// and, when refused, its problem code and detail. Once entered (T65d) each carries the supplier
+	// invoice it was entered as, by id, number, supplier reference and status, with its supplier by id and
+	// name, and when and by which fetch it was entered; when held, the problem of its entering. Filter
+	// `supplier_id`: the entered invoices' supplier.
 	//
 	// GET /v1/e-invoices
 	ListEInvoices(ctx context.Context, params ListEInvoicesParams) (ListEInvoicesRes, error)
@@ -6335,8 +6441,11 @@ type Handler interface {
 	//
 	// The e-invoices rendered from the posted customer documents of the companies the caller may act in
 	// (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
-	// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
-	// correct are found.
+	// by company, by the customer document it renders (at most one), by status, so the invalid ones to
+	// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
+	// the failed submissions to correct and send again are found, and by the outcome of its delivery
+	// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found, and
+	// by its tax data document's status (`tax_data_status`), so the failed ones to send again are found.
 	//
 	// GET /v1/outgoing-e-invoices
 	ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error)
@@ -7356,7 +7465,8 @@ type Handler interface {
 	// with `reason`) of goods received on released or closed orders: never more than was received (409
 	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-	// are reversals.
+	// are reversals. A batch-managed material's stock item is refused (422
+	// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -7421,7 +7531,8 @@ type Handler interface {
 	// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
 	// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 	// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-	// Human-only (`x-agent: false`).
+	// Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries/{id}:postGoodsIssue
 	PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error)
@@ -8301,6 +8412,29 @@ type Handler interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// RetryOutgoingEInvoiceTaxData implements retryOutgoingEInvoiceTaxData operation.
+	//
+	// Asks the company's accredited provider to send again a tax data document the authority's corner
+	// failed to take (`transmission.tax_data_status` TDD_FAILED; ADR-0061 As built E4; at Evatra
+	// `POST /peppol/tdd/retry-failed`). The request is written on the e-invoice's `transmission`
+	// (`tax_data_request`) with the Operation that carries it out (kind `einvoicing.tax_data`, resource
+	// the e-invoice; it becomes the transmission's `operation_id`), audited
+	// (`einvoicing.outgoing.tax_data`) and published (OutgoingEInvoiceTransmissionChanged); the call is
+	// made after that commit by the workflow `SendEInvoice`, or in process without a workflow engine. The
+	// step reads the document's status first and calls only if the request does not show as made, so it
+	// asks once; a failed call is tried again after 1, 5, 15 and 60 minutes. The Operation succeeds once
+	// the provider takes the request; it fails on the provider's refusal (`einvoicing.tax_data_refused`),
+	// after five failed calls (`einvoicing.provider_unavailable`) or on the connector's refusal since
+	// (`integration.connector_disabled`, `integration.secret_unavailable`). After a call, the status found
+	// is shown as `tax_data_awaited` and read until it moves. Cancelling the Operation drops a request not
+	// yet made. Refused: a transmission not completed (409 `einvoicing.not_transmitted`); a request
+	// pending or awaited (409 `einvoicing.tax_data_request_pending`); another ETag (412); a connector that
+	// can no longer send, as `sendOutgoingEInvoice` refuses one. Not found (404) for a company the caller
+	// may not act in. Human-only (`x-agent: false`, ADR-0061 §13). Also refused: a document not failed
+	// (409 `einvoicing.tax_data_not_failed`).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:retryTaxData
+	RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (RetryOutgoingEInvoiceTaxDataRes, error)
 	// ReverseAllocationRun implements reverseAllocationRun operation.
 	//
 	// Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
@@ -8717,6 +8851,62 @@ type Handler interface {
 	//
 	// POST /v1/reports/{id}:schedule
 	ScheduleReport(ctx context.Context, req *ReportScheduleSet, params ScheduleReportParams) (ScheduleReportRes, error)
+	// SendOutgoingEInvoice implements sendOutgoingEInvoice operation.
+	//
+	// Sends a valid outgoing e-invoice through an `einvoice_provider` connector to the company's
+	// accredited e-invoicing provider (ADR-0061 §3, §9, As built E3; SAP Document and Reporting
+	// Compliance's submission of an e-document): its XML byte for byte as kept
+	// (`getOutgoingEInvoiceContent`), at Evatra by `POST /invoice/send-document-async` as `base64Document`
+	// with `invoiceType` UAE_PINT, the `business_type` asked for (B2B or B2G; B2C is outside the UAE
+	// mandate) and `invoiceSource` ERP. The request writes, in its transaction, the e-invoice's submission
+	// (`transmission`, `queued`) and the Operation that carries it out (kind `einvoicing.send`, its
+	// resource the e-invoice), audited in the caller's name (`einvoicing.outgoing.send`) with
+	// OutgoingEInvoiceTransmissionChanged: the submission is the outbox of the call, which is made only
+	// after that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow
+	// engine) as the einvoicing context's system principal. Each call is counted on the submission before
+	// it is made (`attempts`); Evatra has no idempotency key, so a send after one whose answer was lost
+	// (or after the provider failed to send, below) first looks the document up at the provider by its
+	// filename, the e-invoice's number (`document-process/search`), and takes the submission found instead
+	// of sending it twice. A call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+	// calls); a refusal by the provider, or the fifth failure, fails the submission. Once the provider
+	// gives its tracking id the submission is `submitted` and its status is read
+	// (`document-status/{trackingId}`) with backoff, from 30 seconds doubling to an hour, until the
+	// provider reports it COMPLETED (`completed`, the Operation succeeded with the e-invoice as its
+	// resource), FAILED or PERMANENT_FAILED (`failed` with `einvoicing.provider_failed` or
+	// `einvoicing.permanent_failure`, the Operation failed with it), or SENDING_FAILED: then it is sent
+	// again, up to three times (`resends`), and after the third `failed` with `einvoicing.sending_failed`.
+	// A submission whose status stays unfinished for 500 reads (about three weeks) is `failed` with
+	// `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is
+	// audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the
+	// failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person
+	// sends again with this operation once corrected (the row queued again, its attempts and resends
+	// counted afresh, a new Operation). A status read the provider or the connector refuses (the connector
+	// disabled since, the credentials refused) is a read that failed, read again after the backoff: the
+	// provider holds the document, so it is not failed for it. Cancelling the send's Operation
+	// (`cancelOperation`) ends it at its next step: the submission is `failed` with
+	// `einvoicing.send_cancelled`, keeping what the provider answered (a call under way is waited for),
+	// unless that answer is final (the provider refusing the document, COMPLETED, FAILED or
+	// PERMANENT_FAILED), which is recorded as it is; either way the Operation stays `cancelled`, and the
+	// e-invoice's `transmission` says how it ended. A send cancelled while the vault cannot be reached (or
+	// the store read fails) stays in progress until they answer, since its step prepares the call before
+	// it reads the Operation. A person may send it again, looked up at the provider first. The caller
+	// sends the e-invoice at the ETag it read (`If-Match`, the e-invoice's `etag`; the ETag moves with its
+	// transmission, so a send asked twice on one reading is refused 412). Refused: a business type other
+	// than B2B and B2G (422 `einvoicing.unknown_business_type`); an e-invoice that is invalid (409
+	// `einvoicing.document_invalid`); one queued, sending or submitted (409
+	// `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
+	// `connector_id` the tenant has no connector of (422 `request.reference_not_found`); a connector that
+	// is not an active `einvoice_provider` connector naming a `secret_ref`, as `fetchEInvoices` refuses
+	// one (its credentials are resolved by the send's first step, with no transaction open, which fails
+	// the submission with `integration.secret_unavailable` when its `secret_ref` names nothing; a vault
+	// that cannot be reached is tried again); one whose adapter does not send (the stand-in's own
+	// protocol: 422 `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's
+	// company (422 `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is
+	// not found (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents
+	// never send an e-invoice (ADR-0061 §13).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:send
+	SendOutgoingEInvoice(ctx context.Context, req *OutgoingEInvoiceSend, params SendOutgoingEInvoiceParams) (SendOutgoingEInvoiceRes, error)
 	// SettleInternalOrder implements settleInternalOrder operation.
 	//
 	// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
@@ -9466,6 +9656,31 @@ type Handler interface {
 	//
 	// POST /v1/change-requests/{id}:withdraw
 	WithdrawChangeRequest(ctx context.Context, req *ReasonInput, params WithdrawChangeRequestParams) (WithdrawChangeRequestRes, error)
+	// WithdrawOutgoingEInvoiceTaxData implements withdrawOutgoingEInvoiceTaxData operation.
+	//
+	// Asks the company's accredited provider to withdraw the tax data document reported for a transmitted
+	// e-invoice (`transmission.tax_data_status` TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED, or
+	// WITHDRAW_FAILED to ask again; ADR-0061 As built E4; at Evatra `POST /peppol/tdd/withdraw`); its
+	// status then becomes WITHDRAW_SEND. The e-invoice stays transmitted: a correction is a credit note.
+	// The request is written on the e-invoice's `transmission` (`tax_data_request`) with the Operation
+	// that carries it out (kind `einvoicing.tax_data`, resource the e-invoice; it becomes the
+	// transmission's `operation_id`), audited (`einvoicing.outgoing.tax_data`) and published
+	// (OutgoingEInvoiceTransmissionChanged); the call is made after that commit by the workflow
+	// `SendEInvoice`, or in process without a workflow engine. The step reads the document's status first
+	// and calls only if the request does not show as made, so it asks once; a failed call is tried again
+	// after 1, 5, 15 and 60 minutes. The Operation succeeds once the provider takes the request; it fails
+	// on the provider's refusal (`einvoicing.tax_data_refused`), after five failed calls
+	// (`einvoicing.provider_unavailable`) or on the connector's refusal since
+	// (`integration.connector_disabled`, `integration.secret_unavailable`). After a call, the status found
+	// is shown as `tax_data_awaited` and read until it moves. Cancelling the Operation drops a request not
+	// yet made. Refused: a transmission not completed (409 `einvoicing.not_transmitted`); a request
+	// pending or awaited (409 `einvoicing.tax_data_request_pending`); another ETag (412); a connector that
+	// can no longer send, as `sendOutgoingEInvoice` refuses one. Not found (404) for a company the caller
+	// may not act in. Human-only (`x-agent: false`, ADR-0061 §13). Also refused: a document not
+	// withdrawable (409 `einvoicing.tax_data_not_withdrawable`).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:withdrawTaxData
+	WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (WithdrawOutgoingEInvoiceTaxDataRes, error)
 	// WithdrawTaxReturn implements withdrawTaxReturn operation.
 	//
 	// Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval

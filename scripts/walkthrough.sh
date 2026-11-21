@@ -587,15 +587,17 @@ hook_stub() {
 # acknowledgement there; and it emulates Evatra's API under /evatra for the
 # account of provider/evatra.json over the documents of provider/evatra
 # (step_evatra_inbound, ADR-0061 As built E1), which erp-server reaches in
-# place of Evatra's hosts in the walkthrough alone.
+# place of Evatra's hosts in the walkthrough alone; what is sent to it is
+# kept in provider/evatra-sent, where each e-invoice's script of statuses
+# is written (step_einvoice_send, As built E3).
 provider_stub() {
   stub providerstub internal/einvoicing/einvoicetest/providerstub
   rm -rf "$WORK/provider"
-  mkdir -p "$WORK/provider/inbox" "$WORK/provider/evatra"
+  mkdir -p "$WORK/provider/inbox" "$WORK/provider/evatra" "$WORK/provider/evatra-sent"
   head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$WORK/provider/token"
   printf '{"apiKey": "%s", "email": "ap@maple-gulf.example", "companyId": "WALK-AE-5000"}\n' "$(head -c 24 /dev/urandom | base64 | tr -d '/+=')" >"$WORK/provider/evatra.json"
   "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" \
-    -evatra "$WORK/provider/evatra.json" -evatra-inbox "$WORK/provider/evatra" >"$WORK/provider.log" 2>&1 &
+    -evatra "$WORK/provider/evatra.json" -evatra-inbox "$WORK/provider/evatra" -evatra-outbox "$WORK/provider/evatra-sent" >"$WORK/provider.log" 2>&1 &
   PROVIDER_PID=$!
   wait_file "$WORK/provider/provider.pem" "$PROVIDER_PID" "the e-invoicing provider's stand-in" "$WORK/provider.log" "is $PROVIDER_ADDR free? set WALKTHROUGH_PROVIDER_ADDR"
   export ERP_WALKTHROUGH_PROVIDER="$PROVIDER_ADDR" ERP_WALKTHROUGH_PROVIDER_CA="$WORK/provider/provider.pem"
@@ -5297,7 +5299,7 @@ uae_return() {
 # malformed e-invoice and one whose buyer's TRN is not the company's are
 # refused with their reasons.
 step_einvoice() {
-  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, validated as PINT AE, downloaded as received, a redelivery with other bytes recorded as its change once; a malformed one and one addressed to another TRN refused with their reasons"
+  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, validated as PINT AE and entered as a supplier invoice on its order, posted after the three-way match, downloaded as received, a redelivery with other bytes recorded as its change once; a malformed one and one addressed to another TRN refused with their reasons, one naming no order held"
   local connector op doc sum changed
   as ada
   say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
@@ -5309,9 +5311,11 @@ step_einvoice() {
   api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), \(.settings.format), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
     createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf e-invoicing\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$PROVIDER_ADDR\", \"participants\": {\"$AE\": \"0235:$AE_TIN\"}, \"format\": \"pint_ae\"}}"
   connector=$(field .id)
+  einvoice_order
   say "Gulf Office Interiors sends its next invoice as a PINT AE e-invoice; the provider holds it for Maple Gulf Trading's"
-  say "participant, 0235: and its TIN (an illustrative document of one standard-rated line):"
-  pint_ae_invoice GOI-2001 "$AE_TRN" >"$WORK/provider/inbox/GOI-2001.xml"
+  say "participant, 0235: and its TIN (an illustrative document of one standard-rated line, four of the desks on order"
+  say "$AE_ORDER, its line 1):"
+  pint_ae_invoice GOI-2001 "$AE_TRN" "$AE_ORDER" 1 >"$WORK/provider/inbox/GOI-2001.xml"
   printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/inbox/GOI-2001.receiver"
   sum=$(shasum -a 256 "$WORK/provider/inbox/GOI-2001.xml" | cut -d' ' -f1)
   say "  message GOI-2001 for walkthrough:$AE, SHA-256 ${sum:0:16}…"
@@ -5322,18 +5326,22 @@ step_einvoice() {
   wait_op
   op=$(field .id)
   excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded); its documents at \(.resource)"'
-  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
+  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded) \(.result.entered)"')" "1 0 1"
   api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name): \(.status), \(.size) bytes, received through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
     listEInvoices -p "fetch_operation_id=$op"
-  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.status)"] | join(", ")')" "GOI-2001 $AE received"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.status)"] | join(", ")')" "GOI-2001 $AE entered"
   say "The fetch validated it (T65c): read as PINT AE, its fields present, its amounts of two decimals adding up, its buyer"
-  say "the company's participant and FTA registration; it stays received, for entering, with what was read:"
-  excerpt '.items[0] | "  \(.document_number), \(.document_kind) of \(.issue_date), \(.gross_amount.amount) \(.gross_amount.currency), \(.specification), validated against \(.validated_against)"'
+  say "the company's participant and FTA registration; and entered it (T65d) as a supplier invoice, by capture's rules"
+  say "without a model: the order its order reference names, whose supplier holds the seller's TRN, its line on the"
+  say "order's line 1 with that item's unit and tax code V5, category S at 5% as the line states:"
+  excerpt '.items[0] | "  \(.document_number), \(.document_kind) of \(.issue_date), \(.gross_amount.amount) \(.gross_amount.currency), \(.specification), validated against \(.validated_against)",
+    "  entered as supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status)) of \(.supplier_name), reference \(.supplier_reference)"'
   expect "what the validation read" "$(field '.items[0] | "\(.status) \(.document_number) \(.document_kind) \(.gross_amount.amount) \(.gross_amount.currency) \(.problem_code // "-")"')" \
-    "received GOI-2001 invoice 1050.00 AED -"
+    "entered GOI-2001 invoice 1050.00 AED -"
   expect "its bytes, the stand-in's" "$(field '.items[0].sha256')" "$sum"
   expect "acknowledged to the provider" "$(field '.items[0].acknowledged_at != null')" true
   doc=$(field '.items[0].id')
+  einvoice_entered "$(field '.items[0].supplier_invoice_id')" "$sum"
   [ -s "$WORK/provider/inbox/GOI-2001.acknowledged" ] || fail "the stand-in recorded no acknowledgement of GOI-2001"
   say "The provider loses the acknowledgement and lists GOI-2001 again; the next fetch does not record it twice, and"
   say "acknowledges it again:"
@@ -5357,20 +5365,24 @@ step_einvoice() {
 # provider after 0235: (ADR-0061 §5 C6).
 AE_TRN=100123456789003
 AE_TIN=${AE_TRN:0:10}
+# AE_ORDER is the UAE company's purchase order of Gulf Office Interiors'
+# desks (einvoice_order, step 43), which its e-invoices name (IBT-013).
+AE_ORDER=''
 
 # pint_ae_invoice writes Gulf Office Interiors' PINT AE tax invoice NUMBER
 # to the buyer TRN (an illustrative document, dated today): one line of
 # four desks, 1,000.00 AED with 50.00 VAT at 5%, the buyer's electronic
-# address 0235: and the UAE company's TIN.
+# address 0235: and the UAE company's TIN; naming the purchase order ORDER
+# (IBT-013) and its line LINE (IBT-132) when given.
 pint_ae_invoice() {
-  local number=$1 trn=$2
+  local number=$1 trn=$2 order=${3:-} line=${4:-}
   printf '<?xml version="1.0" encoding="UTF-8"?>\n'
   printf '<!-- Illustrative only: a supplier'"'"'s PINT AE tax invoice. -->\n'
   printf '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">'
   printf '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID><cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>'
   printf '<cbc:ProfileExecutionID>00000000</cbc:ProfileExecutionID><cbc:ID>%s</cbc:ID><cbc:IssueDate>%s</cbc:IssueDate>' "$number" "$TODAY"
   printf '<cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>'
-  printf '<cac:OrderReference><cbc:ID>4500000001</cbc:ID></cac:OrderReference>'
+  [ -z "$order" ] || printf '<cac:OrderReference><cbc:ID>%s</cbc:ID></cac:OrderReference>' "$order"
   printf '<cac:AccountingSupplierParty><cac:Party><cbc:EndpointID schemeID="0235">1005555555</cbc:EndpointID>'
   printf '<cac:PostalAddress><cbc:StreetName>Sheikh Zayed Road</cbc:StreetName><cbc:CityName>Dubai</cbc:CityName><cbc:CountrySubentity>DXB</cbc:CountrySubentity><cac:Country><cbc:IdentificationCode>AE</cbc:IdentificationCode></cac:Country></cac:PostalAddress>'
   printf '<cac:PartyTaxScheme><cbc:CompanyID>100555555500003</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>'
@@ -5385,7 +5397,7 @@ pint_ae_invoice() {
   printf '<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="AED">1000.00</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="AED">1000.00</cbc:TaxExclusiveAmount>'
   printf '<cbc:TaxInclusiveAmount currencyID="AED">1050.00</cbc:TaxInclusiveAmount><cbc:PayableAmount currencyID="AED">1050.00</cbc:PayableAmount></cac:LegalMonetaryTotal>'
   printf '<cac:InvoiceLine><cbc:ID>1</cbc:ID><cbc:InvoicedQuantity unitCode="C62">4</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="AED">1000.00</cbc:LineExtensionAmount>'
-  printf '<cac:OrderLineReference><cbc:LineID>10</cbc:LineID></cac:OrderLineReference>'
+  [ -z "$line" ] || printf '<cac:OrderLineReference><cbc:LineID>%s</cbc:LineID></cac:OrderLineReference>' "$line"
   printf '<cac:Item><cbc:Description>Oak desk, 160 cm</cbc:Description><cbc:Name>Desk</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item>'
   printf '<cac:Price><cbc:PriceAmount currencyID="AED">250.00</cbc:PriceAmount></cac:Price></cac:InvoiceLine></Invoice>\n'
 }
@@ -5394,7 +5406,8 @@ pint_ae_invoice() {
 # provider delivers a malformed e-invoice and one whose buyer's TRN is not
 # the company's FTA registration; a fetch refuses both with their reasons
 # (einvoicing.unreadable, einvoicing.not_addressed_to_company), counts
-# them, and leaves the valid GOI-2001 received.
+# them, and leaves GOI-2001 as entered. T65d's: a valid one naming no
+# purchase order, GOI-2005, is held with payables.capture_needs_order.
 einvoice_refusals() {
   local connector=$1 doc=$2 op
   say "The provider delivers two more for the company: GOI-2003, cut off in transit (not well-formed XML), and GOI-2004,"
@@ -5403,18 +5416,84 @@ einvoice_refusals() {
   pint_ae_invoice GOI-2003 "$AE_TRN" >"$WORK/provider/GOI-2003.whole.xml"
   head -c 900 "$WORK/provider/GOI-2003.whole.xml" >"$WORK/provider/inbox/GOI-2003.xml"
   pint_ae_invoice GOI-2004 100999999900003 >"$WORK/provider/inbox/GOI-2004.xml"
-  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/inbox/GOI-2003.receiver" >"$WORK/provider/inbox/GOI-2004.receiver"
+  say "A third, GOI-2005, is valid but names no purchase order (IBT-013): entering it as capture would is refused, so it is"
+  say "held for a person, with the reason (a person enters it by hand or links it, T65f), and nothing of it is entered:"
+  pint_ae_invoice GOI-2005 "$AE_TRN" >"$WORK/provider/inbox/GOI-2005.xml"
+  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/inbox/GOI-2003.receiver" "$WORK/provider/inbox/GOI-2004.receiver" >"$WORK/provider/inbox/GOI-2005.receiver"
   api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
   wait_op
   op=$(field .id)
-  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), refused \(.result.refused)"'
-  expect "the refusing fetch's counts" "$(field '"\(.result.recorded) \(.result.refused)"')" "2 2"
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), refused \(.result.refused), entered \(.result.entered), held \(.result.held)"'
+  expect "the refusing fetch's counts" "$(field '"\(.result.recorded) \(.result.refused) \(.result.entered) \(.result.held)"')" "3 2 0 1"
   api 200 '.items[] | "  \(.message_id): \(.status) \(.problem_code): \(.problem_detail)"' listEInvoices -p "fetch_operation_id=$op" -p "status=refused"
   expect "the refusals" "$(field '[.items[] | "\(.message_id) \(.problem_code)"] | sort | join(", ")')" \
     "GOI-2003 einvoicing.unreadable, GOI-2004 einvoicing.not_addressed_to_company"
   expect "no TRN in the reason" "$(field '[.items[].problem_detail | contains("100999999900003") or contains("'"$AE_TRN"'")] | any')" false
+  api 200 '.items[] | "  \(.message_id): \(.status) \(.problem_code): \(.problem_detail)"' listEInvoices -p "connector_id=$connector" -p "status=held"
+  expect "the held one" "$(field '[.items[] | "\(.message_id) \(.problem_code) \(.supplier_invoice_id // "-")"] | join(", ")')" \
+    "GOI-2005 payables.capture_needs_order -"
   QUIET=1 api 200 '' getEInvoice -p "id=$doc"
-  expect "GOI-2001 still received" "$(field '"\(.status) \(.problem_code // "-")"')" "received -"
+  expect "GOI-2001 still entered" "$(field '"\(.status) \(.problem_code // "-")"')" "entered -"
+}
+
+# einvoice_order is T65d's setup in step_einvoice: Alex records Gulf Office
+# Interiors' TRN, its tax identifier (AE_TRN), approved by Carla, so an
+# e-invoice's seller (IBT-031) is found as the order's supplier; Ben orders
+# eight desks at 250.00 AED with V5 (category S at 5%) for the UAE company,
+# released, and receives them. AE_ORDER is the order's number, which the
+# supplier's e-invoices name (IBT-013).
+einvoice_order() {
+  local ae supplier expense po
+  as alex
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Gulf Office Interiors" -p role=supplier
+  supplier=$(field '.items[0].id')
+  say "Gulf Office Interiors' TRN is on its e-invoices; Alex records it as the supplier's tax identifier, and Carla"
+  say "approves the change, so the supplier of an order is checked against the seller an e-invoice names:"
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange \
+    -body "{\"partner_id\": \"$supplier\", \"kind\": \"update\", \"reason\": \"TRN confirmed on the supplier's tax registration certificate\", \"payload\": {\"tax_identifiers\": [{\"scheme\": \"AE_TRN\", \"value\": \"100555555500003\"}]}}"
+  approve carla "$(field .workflow_request_id)" "TRN checked against the FTA's register"
+  as ben
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  expense=$(field '.items[] | select(.number == "6000") | .id')
+  say "Ben orders eight oak desks from Gulf Office Interiors for $AE, standard-rated input VAT V5, and receives them:"
+  api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), \(.tax_code)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"currency\": \"AED\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Oak desk, 160 cm\", \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"AED\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
+  po=$(field .id)
+  AE_ORDER=$(field .document_number)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Office fit-out budgeted"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "the UAE order's status" "$(field .status)" released
+  api 201 '"goods receipt \(.document_number // .id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$ae\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}}]}"
+  as ada
+}
+
+# einvoice_entered INVOICE SUM is T65d's evidence in step_einvoice: the
+# supplier invoice GOI-2001 was entered as, parked with source einvoice on
+# the order's item with its code V5, its document the e-invoice's bytes
+# (SHA-256 SUM); Alex runs the three-way match and posts it.
+einvoice_entered() {
+  local invoice=$1 sum=$2
+  as alex
+  api 200 '"\(.document_number) \(.supplier_reference): \(.status), source \(.source), \(.gross_amount.amount) \(.gross_amount.currency)", (.items[] | "  item \(.item_no): \(.quantity) \(.unit), \(.amount.amount), \(.tax_code)")' \
+    getSupplierInvoice -p "id=$invoice"
+  expect "the entered invoice" "$(field '"\(.supplier_reference) \(.status) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \([.items[].tax_code] | join(","))"')" \
+    "GOI-2001 parked einvoice 1050.00 50.00 V5"
+  show curl -s -H "Authorization: Bearer …" "\$ERP_API_URL/v1/supplier-invoices/$invoice/document" "| shasum -a 256"
+  expect "the invoice's document, the e-invoice as received" \
+    "$(curl -s -H "Authorization: Bearer $ERP_TOKEN" "$ERP_API_URL/v1/supplier-invoices/$invoice/document" | shasum -a 256 | cut -d' ' -f1)" "$sum"
+  say "The desks were received; the three-way match is clean, and Alex posts the invoice as any other:"
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the e-invoice's invoice posted" "$(field .status)" posted
+  as alex
 }
 
 # einvoice_original is T65b's part of step_einvoice: the e-invoice
@@ -15095,7 +15174,7 @@ goods_issue_margin() {
 # keeps no acknowledgement); its download is the document; a second fetch
 # leaves it out, recorded and acknowledged.
 step_evatra_inbound() {
-  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, downloaded as received; a second fetch leaves it out"
+  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, entered as a draft supplier invoice, downloaded as received; a second fetch leaves it out"
   local connector op doc sum tin
   tin=1001234567
   as ada
@@ -15109,9 +15188,9 @@ step_evatra_inbound() {
   api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter) \(.settings.environment), Evatra company \(.settings.company_id), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
     createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf on Evatra\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"evatra\", \"environment\": \"stage\", \"company_id\": \"WALK-AE-5000\", \"participants\": {\"$AE\": \"0235:$tin\"}, \"format\": \"pint_ae\"}}"
   connector=$(field .id)
-  say "Gulf Office Interiors sends its invoice GOI-2002 as a PINT AE e-invoice; Evatra receives it for 0235:$tin (an"
-  say "illustrative document; entering it as a supplier invoice is T65d):"
-  pint_ae_invoice GOI-2002 "$AE_TRN" >"$WORK/provider/evatra/EVA-77001.xml"
+  say "Gulf Office Interiors sends its invoice GOI-2002, the other four desks of order $AE_ORDER, as a PINT AE e-invoice;"
+  say "Evatra receives it for 0235:$tin (an illustrative document):"
+  pint_ae_invoice GOI-2002 "$AE_TRN" "$AE_ORDER" 1 >"$WORK/provider/evatra/EVA-77001.xml"
   printf '0235:%s\n' "$tin" >"$WORK/provider/evatra/EVA-77001.receiver"
   sum=$(shasum -a 256 "$WORK/provider/evatra/EVA-77001.xml" | cut -d' ' -f1)
   say "  Evatra's document EVA-77001 for 0235:$tin, SHA-256 ${sum:0:16}…"
@@ -15126,8 +15205,15 @@ step_evatra_inbound() {
   expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
   api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name) (\(.receiver)): \(.status), \(.size) bytes, through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
     listEInvoices -p "fetch_operation_id=$op"
-  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.receiver) \(.status)"] | join(", ")')" "EVA-77001 $AE 0235:$tin received"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.receiver) \(.status)"] | join(", ")')" "EVA-77001 $AE 0235:$tin entered"
   expect "validated through the same path (T65c)" "$(field '.items[0] | "\(.document_number) \(.validated_against != null) \(.problem_code // "-")"')" "GOI-2002 true -"
+  say "and entered through the same path (T65d), a draft supplier invoice on the order's other four desks, for Alex to"
+  say "match and post:"
+  excerpt '.items[0] | "  entered as supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status)) of \(.supplier_name), reference \(.supplier_reference)"'
+  expect "the draft invoice" "$(field '.items[0] | "\(.supplier_reference) \(.supplier_invoice_status) \(.supplier_name)"')" "GOI-2002 parked Gulf Office Interiors"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$(field '.items[0].supplier_invoice_id')"
+  expect "its source" "$(field '"\(.source) \(.gross_amount.amount) \([.items[].tax_code] | join(","))"')" "einvoice 1050.00 V5"
+  QUIET=1 api 200 '' listEInvoices -p "fetch_operation_id=$op"
   expect "its bytes, Evatra's decoded" "$(field '.items[0].sha256')" "$sum"
   expect "acknowledged locally" "$(field '.items[0].acknowledged_at != null')" true
   doc=$(field '.items[0].id')
@@ -15240,6 +15326,139 @@ step_einvoice_render() {
   passed
 }
 
+# step_einvoice_send is E3 (ADR-0061 §9, As built E3; plan
+# einvoicing-evatra.md): Maple Gulf Trading's e-invoices are sent to
+# Evatra from the ERP. Ruth sends the valid tax invoice of step 145 through
+# the Evatra connector of step 144 (B2B): its submission is written before
+# any call, the in-process sender gives Evatra the XML as kept
+# (send-document-async, UAE_PINT, ERP) and reads its status until Evatra
+# reports it COMPLETED; the document Evatra holds is the e-invoice's bytes.
+# Evatra fails to send the credit note (SENDING_FAILED): it is sent again,
+# looked up first by its number, and its second submission is
+# PERMANENT_FAILED, which fails it and puts it on the worklist of failed
+# submissions. The worklist of documents not transmitted within 14
+# business days lists the credit note, not the invoice. E4 (As built E4):
+# once completed, the sender reads what Peppol and the authority report of
+# the invoice: the buyer's access point refuses it on a fatal rule, which
+# puts it on the worklist of rejected e-invoices to correct by credit note
+# (the credit note naming it failed, so it stays there), and its tax data
+# document fails at the authority's corner. A withdrawal of the failed one
+# is refused; Ruth has it sent again, approved, and then withdraws it.
+# People only: agents never send, retry or withdraw (x-agent: false).
+step_einvoice_send() {
+  heading "Step 146 — PINT AE e-invoices sent through Evatra: the tax invoice submitted and COMPLETED, the credit note sent again after SENDING_FAILED and PERMANENT_FAILED on the worklist; the documents not transmitted within 14 business days; the invoice rejected on a fatal rule, its tax data document failed, sent again and withdrawn"
+  local ae connector invoice note number notenum sent sum op
+  as ruth
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listConnectors -p kind=einvoice_provider -p page_size=100
+  connector=$(field '.items[] | select(.name == "Maple Gulf on Evatra") | .id')
+  QUIET=1 api 200 '' listOutgoingEInvoices -p "legal_entity_id=$ae"
+  invoice=$(field '.items[] | select(.type_code == "380") | .id')
+  number=$(field '.items[] | select(.type_code == "380") | .customer_invoice_number')
+  sum=$(field '.items[] | select(.type_code == "380") | .sha256')
+  note=$(field '.items[] | select(.type_code == "381") | .id')
+  notenum=$(field '.items[] | select(.type_code == "381") | .customer_invoice_number')
+  say "Evatra will fail to send the credit note $notenum once (SENDING_FAILED) and then report its second submission"
+  say "PERMANENT_FAILED (the stand-in's script for it):"
+  printf 'SENDING_FAILED\nPERMANENT_FAILED\n' >"$WORK/provider/evatra-sent/$notenum.statuses"
+  say "Once Evatra delivers the invoice $number, the buyer's access point will refuse it on a fatal business rule (the"
+  say "stand-in's illustrative detail) and the authority's corner will fail its tax data document, then take it when sent"
+  say "again, and take a withdrawal:"
+  jq -n '{responses: [{status: "ACKNOWLEDGING"}, {status: "BUSINESS_RULE_FATAL", description: "The buyer'"'"'s access point refused the document on a fatal business rule (illustrative)."}],
+    tax_data: {report: ["TDD_FAILED"], retry: ["TDD_SEND", "TDD_APPROVED"], withdraw: ["WITHDRAW_SEND"]}}' >"$WORK/provider/evatra-sent/$number.delivery"
+  say "Ruth sends the tax invoice $number to Evatra as a B2B e-invoice: the request writes its submission, queued, with the"
+  say "Operation that carries it out, before any call; the sender then gives Evatra the XML as kept, and reads its status:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status), for \(.resource)"' sendOutgoingEInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"connector_id\": \"$connector\", \"business_type\": \"B2B\"}"
+  expect "the send's Operation" "$(field '"\(.kind) \(.resource)"')" "einvoicing.send /v1/outgoing-e-invoices/$invoice"
+  say "She sends the credit note $notenum too:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$note"
+  api 202 '"operation \(.kind): \(.status)"' sendOutgoingEInvoice -p "id=$note" -if-match "$ETAG" -body "{\"connector_id\": \"$connector\", \"business_type\": \"B2B\"}"
+  local shown='"e-invoice \(.customer_invoice_number): \(.transmission.status), Evatra \(.transmission.provider_status // "-"), \(.transmission.attempts) calls, \(.transmission.resends) resends\(if .transmission.problem then ", \(.transmission.problem.code)" else "" end)"'
+  wait_transmission "$invoice" completed
+  api 200 "$shown" getOutgoingEInvoice -p "id=$invoice"
+  expect "the invoice's transmission" "$(field '"\(.transmission.status) \(.transmission.provider_status) \(.transmission.attempts) \(.transmission.connector_name)"')" "completed COMPLETED 1 Maple Gulf on Evatra"
+  sent=$(field .transmission.tracking_id)
+  say "Evatra holds it as tracking id $sent, the e-invoice's bytes, as UAE_PINT from the ERP:"
+  expect "the document Evatra holds" "$(shasum -a 256 "$WORK/provider/evatra-sent/$sent.xml" | cut -d' ' -f1)" "$sum"
+  expect "what came with it" "$(jq -r '"\(.filename) \(.invoiceType) \(.businessType) \(.invoiceSource) \(.companyId)"' "$WORK/provider/evatra-sent/$sent.json")" "$number UAE_PINT B2B ERP WALK-AE-5000"
+  wait_transmission "$note" failed
+  api 200 "$shown" getOutgoingEInvoice -p "id=$note"
+  expect "the credit note's transmission" "$(field '"\(.transmission.status) \(.transmission.provider_status) \(.transmission.resends) \(.transmission.problem.code)"')" "failed PERMANENT_FAILED 1 einvoicing.permanent_failure"
+  expect "sent twice, each Evatra's own submission" "$(jq -r --arg n "$notenum" 'select(.filename == $n) | .send' "$WORK"/provider/evatra-sent/*.json | sort | tr '\n' ' ')" "0 1 "
+  QUIET=1 api 200 '' getOperation -p "id=$(field .transmission.operation_id)"
+  expect "its Operation" "$(field '"\(.status) \(.error.code)"')" "failed einvoicing.permanent_failure"
+  say "The failed submissions are a worklist, to correct and send again:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.status), \(.transmission.problem.code)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p transmission_status=failed
+  expect "the worklist of failed submissions" "$(field '[.items[].id] | join(" ")')" "$note"
+  say "The mandate gives 14 business days from the transaction date to issue and transmit an e-invoice. The worklist of"
+  say "$AE's posted documents not yet transmitted, by deadline (its calendar's business days), lists the credit note, not"
+  say "the invoice:"
+  api 200 '"\(.company_code): \(.count) not transmitted, \(.overdue_count) overdue on \(.key_date)", (.items[] | "  \(.kind) \(.customer_invoice_number) of \(.issue_date): deadline \(.deadline), \(.business_days_left) business days left, e-invoice \(.einvoice_status // "none"), transmission \(.transmission_status // "none")")' \
+    listEInvoiceTransmissionDeadlines -p "legal_entity_id=$ae" -p "key_date=$TODAY"
+  expect "the credit note listed" "$(jq -r --arg n "$notenum" '[.items[] | select(.customer_invoice_number == $n) | "\(.transmission_status) \(.overdue)"] | join(" ")' "$WORK/last.json")" "failed false"
+  expect "the invoice not listed" "$(jq -r --arg n "$number" '[.items[] | select(.customer_invoice_number == $n)] | length' "$WORK/last.json")" "0"
+  local delivered='"e-invoice \(.customer_invoice_number): delivery \(.transmission.delivery_status // "-") (\(.transmission.delivery_outcome // "-")), tax data document \(.transmission.tax_data_status // "-")\(if .transmission.tax_data_request then ", \(.transmission.tax_data_request) asked" else "" end)"'
+  say "Completed, the invoice's delivery is read from 30 seconds on: the buyer's access point refused it on a fatal rule,"
+  say "and the authority's corner failed its tax data document:"
+  wait_einvoice "$invoice" '.transmission.tax_data_status' TDD_FAILED
+  api 200 "$delivered"', "  \(.transmission.delivery_detail)"' getOutgoingEInvoice -p "id=$invoice"
+  expect "the invoice's delivery" "$(field '"\(.transmission.delivery_status) \(.transmission.delivery_outcome) \(.transmission.tax_data_status)"')" "BUSINESS_RULE_FATAL rejected TDD_FAILED"
+  say "Rejected, it is on the worklist to correct by a credit note; the credit note $notenum naming it is not transmitted,"
+  say "so it stays there:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.delivery_status), \(.transmission.delivery_outcome)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p delivery_outcome=rejected
+  expect "the worklist of rejected e-invoices" "$(field '[.items[].id] | join(" ")')" "$invoice"
+  say "The tax data documents the authority's corner failed, to send again:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.tax_data_status)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p tax_data_status=TDD_FAILED
+  expect "the failed tax data documents" "$(field '[.items[].id] | join(" ")')" "$invoice"
+  say "A failed tax data document is not withdrawn; Ruth has it sent again, a request the sender makes after it commits:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  refused 409 einvoicing.tax_data_not_withdrawable withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status), for \(.resource)"' retryOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  op=$(field .id)
+  expect "the request's Operation" "$(field .kind)" einvoicing.tax_data
+  wait_einvoice "$invoice" '.transmission.tax_data_status' TDD_APPROVED
+  api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  QUIET=1 api 200 '' getOperation -p "id=$op"
+  expect "its Operation" "$(field .status)" succeeded
+  say "She then withdraws it:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status)"' withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  wait_einvoice "$invoice" '.transmission.tax_data_status' WITHDRAW_SEND
+  api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  passed
+}
+
+# wait_einvoice EINVOICE PATH VALUE waits, up to three minutes, until the
+# e-invoice's field at PATH is VALUE (the sender reads the delivery from
+# 30 seconds after completion, doubling, and at once after a request).
+wait_einvoice() {
+  local i got
+  for i in $(seq 1 720); do
+    QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$1"
+    got=$(field "$2 // \"none\"")
+    if [ "$got" = "$3" ]; then return 0; fi
+    sleep 0.25
+  done
+  fail "e-invoice $1's $2 still $got after three minutes (attempt $i), not $3"
+}
+
+# wait_transmission EINVOICE STATUS waits, up to two minutes, until the
+# e-invoice's transmission is STATUS (the sender reads Evatra's status
+# from 30 seconds after the submission, doubling).
+wait_transmission() {
+  local i got
+  for i in $(seq 1 480); do
+    QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$1"
+    got=$(field '.transmission.status // "none"')
+    if [ "$got" = "$2" ]; then return 0; fi
+    sleep 0.25
+  done
+  fail "e-invoice $1's transmission still $got after two minutes (attempt $i), not $2"
+}
+
 # step_stock_transport is S2h (ADR-0082 As built S2h, plan-supply-chain.md):
 # Pablo, the planner, orders washers from Toronto's main store to the
 # Montreal store, another plant of Maple, as a stock transport order
@@ -15251,7 +15470,7 @@ step_einvoice_render() {
 # the issue. The goods receipt (101) takes them out of transit into the
 # Montreal store and posts nothing; the order is received.
 step_stock_transport() {
-  heading "Step 146 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue and a reversal refused"
+  heading "Step 147 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue and a reversal refused"
   local montreal store washer order tag doc
   [ -n "$PLANT" ] || fail "step 122's plant is not there"
   accounts
@@ -15338,7 +15557,7 @@ step_stock_transport() {
 # entry's revenue and tax lines carry it, so the VAT 201 reads the sale
 # in Dubai. The invoice renders as a valid PINT AE tax invoice 380 (E2).
 step_einvoice_billing() {
-  heading "Step 147 — A UAE sales order billed under S5: each item names its emirate, the billing document posts a customer invoice whose item and entry lines carry it, rendered as a valid PINT AE tax invoice 380"
+  heading "Step 148 — A UAE sales order billed under S5: each item names its emirate, the billing document posts a customer invoice whose item and entry lines carry it, rendered as a valid PINT AE tax invoice 380"
   local ae day customer sales order doc invoice entry rendered number
   as sally
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
@@ -15399,6 +15618,166 @@ step_einvoice_billing() {
     grep -qF "$want" "$WORK/einvoice-billing.xml" || fail "the billing document's e-invoice lacks $want"
     say "  $want"
   done
+  passed
+}
+
+# step_batches is S2f (ADR-0082 As built S2f, plan-supply-chain.md): Mira
+# creates a thread sealant managed in batches, which Priya approves and
+# Ines values. Wade creates two of its supplier's lots as batches, with
+# their manufacture and expiry dates (one expiring before it was made is
+# refused), and receives both into the main store (501), each item naming
+# its batch; an item without one is refused. An issue of more than a
+# batch holds is refused though the store holds more; a transfer to the
+# spares store keeps its batch. The stock by batch adds up to each
+# store's stock; a count of the sealant, which counts no batches yet, is
+# refused.
+step_batches() {
+  heading "Step 149 — Batches: a sealant managed in batches, two supplier lots created with their manufacture and expiry dates and received each in its batch; an item without a batch refused, an issue beyond a batch refused though the store holds more, a transfer keeping its batch; the stock by batch adds up to each store's"
+  local sealant early late cc
+  [ -n "$PLANT" ] || fail "step 122's plant is not there"
+  as mira
+  say "Mira creates the thread sealant, a raw material managed in batches, kept in Toronto's main and spares stores; Priya approves it:"
+  api 201 '"material \(.number) \(.description): batch-managed \(.batch_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Thread sealant 50 ml\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"SEALANTS\", \"batch_managed\": true,
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\", \"$SPARES_STORE\"]}]}"
+  sealant=$(field .id)
+  approve priya "$(material_request "$sealant")" "Sealant for the assembly line."
+  as ines
+  say "Ines values it in Toronto at a moving price of 4.00 CAD:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"4.00\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade creates the supplier's two lots as batches, each with its manufacture and expiry dates:"
+  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
+      \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\", \"expiry_date\": \"2027-05-01\"}"
+  early=$(field .id)
+  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
+      \"number\": \"L2611B\", \"manufacture_date\": \"2026-11-10\", \"expiry_date\": \"2027-05-10\"}"
+  late=$(field .id)
+  say "A lot expiring before it was made, and the same lot number twice, are refused:"
+  refused 422 inventory.batch_dates createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611C\", \"manufacture_date\": \"2026-11-10\",
+      \"expiry_date\": \"2026-11-09\"}"
+  refused 409 inventory.batch_exists createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\"}"
+  say "Both lots arrive without an order (501), 30 tubes of L2611A worth 120.00 CAD and 20 of L2611B worth 80.00, each item naming its batch:"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit), worth \(.amount.amount)")' \
+    createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"120.00\", \"currency\": \"CAD\"}},
+      {\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\",
+      \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"80.00\", \"currency\": \"CAD\"}}]}"
+  expect "the receipt's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:30 L2611B:20"
+  say "A receipt of the sealant without its batch is refused, naming the field:"
+  refused 422 inventory.batch_required createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "Maintenance asks for 25 tubes of L2611B: the store holds 50, but the batch only 20, so the issue is refused:"
+  refused 409 inventory.insufficient_stock createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$sealant\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\", \"quantity\": {\"value\": \"25\", \"unit\": \"EA\"},
+      \"cost_center_id\": \"$cc\"}]}"
+  say "Wade moves 10 tubes of L2611A to the spares store (311); the batch goes with them:"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit)")' \
+    createMaterialDocument -body "{\"movement_type\": \"311\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"to_storage_location_id\": \"$SPARES_STORE\"}]}"
+  expect "the transfer's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:-10 L2611A:10"
+  say "The stock by batch adds up to each store's stock:"
+  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number) (expires \(.expiry_date)): \(.quantity.value) \(.quantity.unit)"' \
+    listBatchStock -p "material_id=$sealant"
+  expect "the stock by batch" "$(field '[.items[] | "\(.storage_location_code) \(.batch_number) \(.quantity.value)"] | sort | join(", ")')" \
+    "SL01 L2611A 20, SL01 L2611B 20, SL02 L2611A 10"
+  QUIET=1 api 200 '' listStock -p "material_id=$sealant"
+  expect "the stock by store" "$(field '[.items[] | "\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" "SL01 40, SL02 10"
+  say "A count of the sealant is refused: counts by batch are not built yet:"
+  refused 422 inventory.batch_not_supported createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$SPARES_STORE\",
+      \"items\": [{\"material_id\": \"$sealant\"}]}"
+  passed
+}
+
+# step_available_to_promise is S2j (ADR-0082 As built S2j,
+# plan-supply-chain.md): Mira creates the H20 hinge, kept in Toronto's
+# main store, and Wade enters 100 of them. Sally orders 60 for Northwind
+# delivered from the Toronto plant: confirming it confirms all 60. A
+# second order of 60 is confirmed for the 40 left, a third of 5 for none:
+# a shortage refuses nothing. Wade's delivery of the second takes its 40
+# confirmed hinges; more is refused naming what is confirmed, and so is a
+# delivery from the Montreal plant. Wade enters 50 more; Sally raises the
+# third order to 6, and its change confirms all 6.
+step_available_to_promise() {
+  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives"
+  local hinge sales montreal store first second third
+  [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
+  accounts
+  sales=$(account 4000)
+  as mira
+  QUIET=1 api 200 '' listOrgUnits -p page_size=100
+  montreal=$(field '.items[] | select(.kind == "plant" and .code == "P200") | .id')
+  store=$(field '.items[] | select(.kind == "storage_location" and .code == "SL03" and .parent_id == "'"$montreal"'") | .id')
+  say "Mira creates the H20 hinge, kept in Toronto's main store and the Montreal store; Priya approves it:"
+  api 201 '"material \(.number) \(.description)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Hinge H20\",
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"FASTENERS\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}, {\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  hinge=$(field .id)
+  approve priya "$(material_request "$hinge")" "Standard hinge."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"1.50\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade enters 100 hinges on the main store's shelves (561):"
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  as sally
+  hinge_order() { # quantity: a draft order of Northwind's for the hinges, delivered from the Toronto plant
+    api 201 '"sales order \(.document_number) from plant \(.plant_code) \(.plant_name): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
+      createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
+        {\"material_id\": \"$hinge\", \"quantity\": {\"value\": \"$1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"4.00\", \"currency\": \"CAD\"},
+         \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  }
+  hinge_confirm() { # order: confirmed, its credit block released when Northwind is over its limit
+    QUIET=1 api 200 '' getSalesOrder -p "id=$1"
+    api 200 '"sales order \(.document_number): \(.status), \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) \(.items[0].confirmed_quantity.unit) confirmed"' \
+      confirmSalesOrder -p "id=$1" -if-match "$ETAG"
+    if [ "$(field .credit_block)" = blocked ]; then
+      local tag=$ETAG confirmed
+      confirmed=$(field '.items[0].confirmed_quantity.value')
+      as ruth
+      say "  Northwind is over its credit limit; Ruth releases the block:"
+      QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$1" -if-match "$tag"
+      as sally
+      QUIET=1 api 200 '' getSalesOrder -p "id=$1"
+      expect "the confirmed quantity after the release" "$(field '.items[0].confirmed_quantity.value')" "$confirmed"
+    fi
+  }
+  say "Sally orders 60 hinges for Northwind, delivered from the Toronto plant; confirming the order checks what the plant"
+  say "has available (SAP's availability check, ATP): its 100 in stock, of which no order has promised any:"
+  hinge_order 60
+  first=$(field .id)
+  hinge_confirm "$first"
+  expect "the first order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 60
+  say "A second order of 60 has the 40 left confirmed; a third of 5 has none. A shortage refuses nothing:"
+  hinge_order 60
+  second=$(field .id)
+  hinge_confirm "$second"
+  expect "the second order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 40
+  hinge_order 5
+  third=$(field .id)
+  hinge_confirm "$third"
+  expect "the third order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 0
+  as wade
+  say "Wade's delivery of the second order takes at most what is confirmed, 40 hinges, and only from the order's plant:"
+  refused 422 sales.exceeds_open_quantity createOutboundDelivery -body "{\"sales_order_id\": \"$second\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}}]}"
+  refused 422 shipping.plant_mismatch createOutboundDelivery -body "{\"sales_order_id\": \"$second\", \"plant_id\": \"$montreal\", \"storage_location_id\": \"$store\"}"
+  expect "the field refused" "$(field '.errors[0].field')" plant_id
+  api 201 '"outbound delivery \(.number) of \(.sales_order_number): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$second\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  expect "the delivery's quantity" "$(field '.items[0].quantity.value')" 40
+  say "Wade enters 50 more hinges; Sally raises the third order to 6, and its change confirms all 6 of the 50 now free:"
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}}]}"
+  as sally
+  QUIET=1 api 200 '' getSalesOrder -p "id=$third"
+  api 200 '"sales order \(.document_number): \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) confirmed"' \
+    changeSalesOrder -p "id=$third" -if-match "$ETAG" -body '{"reason": "Northwind takes 6", "items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
+  expect "the third order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 6
   passed
 }
 
@@ -17432,7 +17811,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_stock_transport step_einvoice_billing step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_close'
 
 main() {
   stop_unseen

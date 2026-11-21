@@ -1612,7 +1612,9 @@ func (s *deadlineScenario) dispatcherFailures(t *testing.T) {
 	d, pool := s.d, pgtest.Pool(t)
 	defer func() { d.Begin = nil }()
 	approvalPending(t) // only its request is needed: the round below watches it
-	for n := 1; n < 10; n++ {
+	// Up to the round's last statement, which ends the loop: the round reads every queue of operations waiting for a
+	// workflow (E3 and E4 added the sends' and the tax data requests'), so its watch's statements come later than nine.
+	for n := 1; n < 30; n++ {
 		count := 0
 		d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 			tx, err := pool.Begin(ctx, scope)

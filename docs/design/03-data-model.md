@@ -2239,7 +2239,7 @@ erDiagram
     text kind "invoice | credit_memo | subsequent_debit | subsequent_credit"
     uuid reference_invoice_id
     uuid purchase_order_id
-    text source "manual | capture | edi | migration"
+    text source "manual | capture | edi | migration | einvoice"
     uuid journal_entry_id
     uuid reversal_entry_id
     uuid workflow_request_id
@@ -4598,8 +4598,22 @@ before receipt (`einvoice_processed`); the status `refused` (from
 (`einvoice_read`, `einvoice_read_lengths`), fixed with the problem once
 processed (the trigger); the partial index `einvoice_unprocessed` the
 fetch lists by. A document above 10 MiB is not recorded (T65c As built),
-so `sha256` and `size` stay required. The other columns below arrive
-with the slices that write them (T65d-T65f).
+so `sha256` and `size` stay required. T65d (migrations 000423-000427)
+adds the entering: the statuses `entered` and `held` (from a processed
+`received` only, final until T65f, the trigger), `entry_at` and
+`entry_fetch_operation_id` set together exactly then, never before the
+processing (`einvoice_entry`), `supplier_invoice_id` and `supplier_id`
+(payables' and partner's, no foreign key) exactly when entered
+(`einvoice_entered`), the problem exactly when refused or held
+(`einvoice_problem` widened), what the entering decided fixed (the
+trigger); the partial index `einvoice_to_enter` (processed tax invoices
+still received) and the cell-wide `einvoice_held` the gauge
+`erp_einvoices_held` counts, `einvoice_by_entry_fetch` for the list's fetch filter, the worker role reading `status`. The
+supplier invoice it enters has the source `einvoice` and keeps the
+document's hash and key as a captured one does
+(`supplier_invoice_document_hash`, `supplier_invoice_source_check`). The
+other columns below arrive with the slices that write them (T65e, T65f;
+the lines and totals read are not stored, the bytes being kept).
 E2 (migration 000415; ADR-0061 As built E2) adds
 `einvoicing.outgoing_einvoice`: a posted customer invoice or credit memo
 of a UAE company rendered as a PINT AE e-invoice, once per customer
@@ -4607,11 +4621,23 @@ document (`outgoing_einvoice_once`), valid with its XML kept write-once
 (hash, size and object key) or invalid with the problems of its last
 render and no XML (`outgoing_einvoice_content`), a valid one final and an
 invalid one's customer document fixed (`outgoing_einvoice_transition`).
+E3 (migration 000421; ADR-0061 As built E3) adds
+`einvoicing.outgoing_submission`: a valid e-invoice's submission to its
+accredited provider, once per e-invoice (`outgoing_submission_once`), the
+outbox of the send written with its Operation, moved only as the send
+workflow moves it (`outgoing_submission_transition`). E4 (migration
+000422; ADR-0061 As built E4) adds to it, once completed, what Peppol and
+the authority report (the message level response and the tax data
+document's status) and a person's request of the tax data document, the
+outbox of that call (`outgoing_submission_followed`,
+`outgoing_submission_request_due`), a completed one keeping its
+transmission (`outgoing_submission_completed_fixed`).
 
 | Table | Purpose |
 |---|---|
 | `einvoicing.einvoice` | A document received from the tenant's accredited provider (and, in phase 3, one sent): its company and connector, the provider's message id (unique per tenant and connector), the fetch operation that recorded it, direction, format (`pint_ae`), kind (invoice or credit note), the hash and size of the bytes kept write-once in object storage (a document too large is not recorded, T65c), `received_at` and `acknowledged_at`, `changed_hash` when the provider redelivered other bytes under the id, when, by which fetch and against which PINT AE release it was processed, the fields read (number, kind, issue date, currency, gross and specification from T65c; totals, lines, the seller's TRN fingerprint and last four characters and the supplier once found with T65d), its status (`received` → `entered`, `held` or `refused`; `held` → `entered`, `held` again on a retry with the new problem, or `dismissed`) with the problem code and detail exactly when held or refused and the reason exactly when dismissed, the supplier invoice once entered or linked (at most one document per invoice, a partial unique index), and its version |
 | `einvoicing.outgoing_einvoice` | A posted customer document rendered as a PINT AE e-invoice (E2): its company, customer and customer invoice by id and number (unique per tenant), the billing document it posted from, if any, by id and number, its kind (`invoice` 380 or `credit_note` 381, `outgoing_einvoice_type`), issue date, currency and net, tax and gross amounts, the invoice a credit note credits by number, a credit note's reason (code and text, together and on a credit note only, `outgoing_einvoice_reason`), the specification (CustomizationID), its status (`valid` with the SHA-256, size and object key of its XML and no problem, or `invalid` with the problems of its last render and no XML, `outgoing_einvoice_content`), when it was last rendered and its version; a valid row is final and an invalid one keeps its customer document (trigger); the list's index by `rendered_at` |
+| `einvoicing.outgoing_submission` | A valid outgoing e-invoice's submission to the company's accredited provider (E3): its e-invoice (foreign key, one submission each), company, connector and the Operation of the send asked for last, its filename (the e-invoice's number) and business type (`B2B` or `B2G`), its status (`queued`, `sending`, `submitted`, `completed`, `failed`; the moves the send makes, `outgoing_submission_transition`, and what names the e-invoice fixed), the provider's status and tracking id (required once submitted, `outgoing_submission_tracked`) and the tracking ids it failed to send, the calls made (`attempts`), the sends again after SENDING_FAILED (`resends`), the status reads (`polls`), whether a call was made before (`look_up`, the duplicate guard), its next check (exactly while in progress, `outgoing_submission_due`), its problem (exactly when failed, `outgoing_submission_problem`), when it was submitted and completed (exactly when completed, `outgoing_submission_completed`), who asked and its version; the list's filter index by status. Once completed (E4): the buyer's access point's message level response with its detail and time (`outgoing_submission_delivery`), the tax data document's status and time (`outgoing_submission_tax_data`), a person's request of it (`retry` or `withdraw`, only while due, `outgoing_submission_request_due`) with its calls (`tax_data_attempts`) and, once made, the status it found, read on until it moves (`tax_data_awaited`), the delivery reads (`follow_polls`) and the next one (`follow_check_at`, only once completed, `outgoing_submission_followed`, indexed while set; the worker role reads it and `tenant_id` across tenants); a completed one's connector, business type, provider status, tracking id and times fixed (trigger). A credit note's reference number is indexed by company (`outgoing_einvoice_by_reference`), which the rejected worklist reads |
 
 ## 3.26 Accounts receivable (`receivables`)
 
@@ -5396,6 +5422,7 @@ erDiagram
     bigint net_amount "sum of the items'"
     text status "draft, confirmed, cancelled"
     date requested_delivery_date "optional, on order_date or later (T78d)"
+    uuid plant_id "tenancy, optional, fixed: the plant it delivers from (S2j)"
     int changes "the changes kept (T78d)"
     text cancellation_reason "when cancelled (T78d)"
     int version
@@ -5415,6 +5442,7 @@ erDiagram
     numeric delivered_quantity "at most quantity"
     numeric billed_quantity "at most delivered_quantity"
     numeric returned_quantity "at most billed_quantity (T85a)"
+    numeric confirmed_quantity "optional, the availability check's (S2j)"
   }
   sales_order ||--o{ delivery : "is delivered by"
   delivery ||--|{ delivery_item : "has"
@@ -5615,7 +5643,11 @@ erDiagram
   (`sales_order_payment_term_kept`) and while no billing document of the
   order stands that is not cancelled (`sales_order_payment_term_billed`),
   for the tables' owner too; `net_amount` is the sum of the items that
-  are not removed.
+  are not removed. S2j (migration 000430; ADR-0082 As built S2j) adds
+  `plant_id`, the tenancy plant the order delivers from, optional,
+  written with the order and never changed (the application's grants
+  leave it out); `sales_order_by_plant` finds a plant's confirmed orders
+  for the availability check.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5643,7 +5675,23 @@ erDiagram
   (`sales_order_item_added_kept`), numbered after the order's highest
   (`sales_order_item_added_after`), never to a cancelled order. A removed
   item stays, out of the order's value, its credit exposure and the
-  sales lines.
+  sales lines. S2j (migration 000430; ADR-0082 As built S2j) adds
+  `confirmed_quantity`, what the availability check confirmed of the
+  item in its unit, null until then and for an item it does not check:
+  never entered with the item, set only on an item of a material of a
+  confirmed order with a plant, at most the item's `quantity` when set
+  (a change lowering the quantity sets it again), never
+  cleared (`sales_order_item_confirmed_by_check`, for the tables' owner
+  too), not below zero nor below what is delivered and in delivery of it
+  (`sales_order_item_confirmed`); the application may update it.
+  `sales_order_item_promised` indexes the items that promised more than
+  is delivered, by material. The same migration adds
+  `sales.delivery_assignment.plant_id`, the plant the delivery ships
+  from (null for an assignment written without it; the existing ones
+  take their delivery's), indexed by `delivery_assignment_by_plant`: what
+  deliveries of orders without a plant hold there counts in its
+  availability, read from the items something is in delivery of
+  (`sales_order_item_in_delivery_held`).
 - `sales.sales_order_change` (T78d, migration 000355): a change of an
   order, numbered from 1 within it (`sales_order_change_no_positive`,
   `sales_order_change_once`), with the order's version after it
@@ -6790,12 +6838,34 @@ erDiagram
   every line, so stock in transit is the receiving plant's valuated stock
   and no location's. No count blocks a line in transit
   (`count_posting_block` fires only on the others).
+- S2f (migrations 000428, 000429): `materials.material.batch_managed`
+  (SAP MARA's XCHPF, from memory), fixed once created (`material_fixed`).
+  `inventory.batch` (SAP MCH1, batch level material): a batch of a
+  material, its `number` 1 to 10 capitals, digits, `-` or `_`
+  (`batch_number_check`) once per material (`batch_number_once`), its
+  `manufacture_date` and its `expiry_date`, never before it
+  (`batch_dates`); insert-only. `inventory.movement.batch_id`: the batch a
+  line moves, one of its material (`movement_batch_fkey`, NOT VALID and
+  validated by 000429), never on a line in transit
+  (`movement_batch_not_in_transit`). `inventory.stock.batch_managed` and
+  `inventory.transit_stock.batch_managed`: whether the row's material is
+  batch-managed, written with the row and not updated by the application.
+  `inventory.batch_stock` (SAP MCHB): a batch's stock at a storage
+  location, written empty (`stock_from_movements`), once per material,
+  plant, storage location and batch (`batch_stock_once`), of a batch of
+  its material (`batch_stock_batch_fkey`), never below zero
+  (`batch_stock_not_negative`, 409 `inventory.insufficient_stock`).
+  `movement_stock` refuses a movement at a location that names a batch
+  where its stock row is not batch-managed, or none where it is, and one
+  in transit of a batch-managed material (`movement_batch`), and adds a
+  batch's line to its batch stock row, which must exist
+  (`movement_batch_stock`): the batches at a location add up to its stock.
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
   `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
   `inventory.count.post` and the approval permission
-  `inventory.difference.approve` (S2d).
+  `inventory.difference.approve` (S2d), `inventory.batch.write` (S2f).
 
 ## 3.36 Shipping (`shipping`)
 

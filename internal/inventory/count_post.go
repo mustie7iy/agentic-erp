@@ -208,7 +208,7 @@ func lockCount(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in countPost)
 		keys = append(keys, keyOf(l))
 	}
 	slices.SortFunc(keys, stockKey.compare)
-	if _, err := lockStock(ctx, tx, p, in.c.le.ID, keys); err != nil {
+	if _, err := lockStock(ctx, tx, p, in.c.le.ID, keys, in.r); err != nil {
 		return nil, err
 	}
 	return vals, nil

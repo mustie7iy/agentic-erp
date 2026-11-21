@@ -222,14 +222,17 @@ func TestEvatraSessions(t *testing.T) {
 			}
 		})
 	}
-	t.Run("a fetch with a secret not Evatra's", func(t *testing.T) {
+	t.Run("a fetch with a secret not Evatra's", func(t *testing.T) { // queued: the request resolves no secret, the first step refuses it (above)
 		plain := s.evatraConn(t, "Plain again", "prod", "plain")
 		err := apitest.Committed(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) error {
 			_, err := s.e.FetchEInvoices(ctx, &gen.EInvoiceFetch{ConnectorID: plain}, gen.FetchEInvoicesParams{})
 			return err
 		})
-		if problem.From(err).Code != "integration.secret_unavailable" {
-			t.Errorf("got %v, want integration.secret_unavailable", err)
+		if err != nil {
+			t.Errorf("got %v, want it queued", err)
+		}
+		if err := pending(plain); problem.From(err).Code != "integration.secret_unavailable" {
+			t.Errorf("its first step: got %v, want integration.secret_unavailable", err)
 		}
 	})
 	t.Run("an environment without a host", func(t *testing.T) {

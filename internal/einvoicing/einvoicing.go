@@ -37,8 +37,13 @@
 // its connector's documents not processed yet (ProcessEInvoices), reading
 // each as PINT AE (Received: no DTD, no entity) and refusing it with its
 // problem, or leaving it received with what it read for entering.
-// Entering, credit notes and people's resolution of held documents follow
-// in T65d-T65f, sending in E3-E4.
+//
+// T65d enters (ADR-0061 §6): a valid tax invoice in AED is entered as a
+// supplier invoice through the Payables port, sharing capture's rules
+// without a model, in a savepoint, so any refusal of the entering holds
+// the document with its problem and only the machinery failing fails the
+// step. Credit notes and people's resolution of held documents follow in
+// T65e-T65f, sending in E3-E4.
 package einvoicing
 
 import (
@@ -57,8 +62,9 @@ import (
 // KindFetch is the kind of a fetch's Operation (ADR-0061 §4).
 const KindFetch = "einvoicing.fetch"
 
-// Statuses of an e-invoice (ADR-0061 §7): received, and refused
-// (StatusRefused, T65c).
+// Statuses of an e-invoice (ADR-0061 §7): received, refused
+// (StatusRefused, T65c), entered and held (StatusEntered, StatusHeld,
+// T65d).
 const (
 	StatusReceived = "received"
 )
@@ -80,12 +86,14 @@ func Fetcher(tenant uuid.UUID) reqctx.Principal {
 	return reqctx.Principal{ID: FetcherActor, Kind: reqctx.KindSystem, TenantID: tenant}
 }
 
-// Connector is an einvoice_provider connector resolved for use (ADR-0061
-// §3): the adapter, the stand-in's base URL or Evatra's environment and
-// company id, each company's participant identifier by company code, the
-// format and the credentials.
+// Connector is an einvoice_provider connector read for use (ADR-0061 §3):
+// its tenant, the adapter, the stand-in's base URL or Evatra's environment
+// and company id, each company's participant identifier by company code,
+// the format, the secret_ref and, once resolved (Connectors.Credentials),
+// the credentials.
 type Connector struct {
 	ID           uuid.UUID
+	Tenant       uuid.UUID
 	Name         string
 	Adapter      string
 	BaseURL      string            // the stand-in's
@@ -93,16 +101,21 @@ type Connector struct {
 	CompanyID    string            // the company's id at Evatra
 	Participants map[string]string // company code -> participant identifier
 	Format       string
+	SecretRef    string
 	Secret       string
 }
 
 // Connectors reads the einvoice_provider connectors (integration context,
-// ADR-0061 §2): Provider resolves one, failing closed (one that is not
-// an active einvoice_provider with credentials that resolve, or the
-// stand-in in production, is refused with the integration context's
-// problem); Names gives connectors' names by id.
+// ADR-0061 §2): Provider reads one in the caller's transaction, failing
+// closed (one that is not an active einvoice_provider with a secret_ref,
+// or the stand-in in production, is refused with the integration
+// context's problem); Credentials resolves its credentials from the vault
+// with no transaction open, so it is called after the transaction that
+// read the connector committed (As built E3); Names gives connectors'
+// names by id.
 type Connectors interface {
 	Provider(ctx context.Context, id uuid.UUID) (Connector, error)
+	Credentials(ctx context.Context, c Connector) (string, error)
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
@@ -120,12 +133,15 @@ type Companies interface {
 	Named(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Company, error)
 }
 
-// Runs keeps a fetch's Operation (operations, 04 §4.8): Start queues one
-// for the dispatcher; Queue records, once, one with the id a scheduled
-// fetch's workflow chose, naming that workflow.
+// Runs keeps a fetch's or a send's Operation (operations, 04 §4.8): Start
+// queues one for the dispatcher; Queue records, once, one with the id a
+// scheduled fetch's workflow chose, naming that workflow; Cancelled says
+// whether one was cancelled, under its row lock with lock (a send's steps
+// end its submission then, As built E3).
 type Runs interface {
 	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
 	Queue(ctx context.Context, id uuid.UUID, resource string, request any, workflowID string) error
+	Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error)
 	Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error
 	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
 }
@@ -145,6 +161,17 @@ type Endpoints struct {
 	// Sales reads the posted customer documents that outgoing e-invoices
 	// render (ADR-0061 §9, As built E2).
 	Sales Sales
+	// Sends keeps a send's Operation (As built E3), as Runs a fetch's.
+	Sends Runs
+	// TaxData keeps the Operation of a person's request of a tax data
+	// document (As built E4).
+	TaxData Runs
+	// Settings reads the companies' calendars, which the deadlines of the
+	// worklist of documents not transmitted count business days in.
+	Settings Settings
+	// Payables enters valid tax invoices as supplier invoices and names
+	// them (ADR-0061 §6, T65d).
+	Payables Payables
 }
 
 // Within runs fn in a transaction of the fetch's tenant, as Fetcher: the

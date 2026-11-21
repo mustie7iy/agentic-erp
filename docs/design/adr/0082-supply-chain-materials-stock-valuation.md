@@ -1139,7 +1139,181 @@ reads a location's stock without a lock for shipping's picking.
   transit (`in_transit_quantity`), and a material document's lines which
   are in transit. A document's `reference` finds its order through
   `GET /v1/stock-transport-orders?number=` (review round 1).
-- Walkthrough step 146, `step_stock_transport`.
+- Walkthrough step 147, `step_stock_transport`.
 - **Not built** (Later, plan §S2h): partial issues and receipts,
   reversals (352, 102), cancelling an open order, a delivery between the
   plants, a list of stock in transit, intercompany transfers (S2i).
+
+### S2f (2026-11-20)
+
+- Migrations 000428 and 000429 (03 §3.35, S2f): `materials.material.batch_managed`,
+  `inventory.batch`, `inventory.batch_stock`, `inventory.movement.batch_id`
+  and the stock rows' `batch_managed`, under schema tests
+  (`db/batch_test.go`, the batch's trigger also as the owner, the down's
+  refusal); the permission `inventory.batch.write` (reads under
+  `inventory.stock.read`).
+- **Batch management is the material's, fixed once created**
+  (`batch_managed` on `POST /v1/materials`, SAP MARA's XCHPF, from
+  memory), as its base unit is (§7): SAP refuses changing it once stock
+  exists; here it never changes, the safer default. Only a material kept
+  in stock is batch-managed (422 `materials.batch_managed_not_stocked`).
+  It is on the material's create change for the approver and in
+  `MaterialChanged` (not required, ADR-0041). Plant-level batch
+  management (MARC's XCHAR) is Later. Decided by default.
+- **A batch is unique per material** (SAP's batch level "material", from
+  memory, rather than its default "plant"), so a transfer between plants
+  keeps its batch. `POST /v1/batches` (SAP MSC1N, human-only): its number
+  given by the request (a supplier's lot or the plant's; internal
+  numbering from a range is Later), 1 to 10 characters (CHARG, from
+  memory), its manufacture date, its expiry date optional (a lot that
+  does not expire) and never before it (422 `inventory.batch_dates`); the
+  material not pending (422 `inventory.material_not_usable`) and
+  batch-managed (422 `inventory.material_not_batch_managed`); a number
+  again 409 `inventory.batch_exists`. A batch is the tenant's, as its
+  material is, and does not change (dates and batch status Later).
+  Audited (`inventory.batch.create`); no event, as a batch moves no stock.
+  `GET /v1/batches` (material, number) and `/{id}`.
+- **Every movement of a batch-managed material names a batch of it**:
+  `POST /v1/material-documents` items take `batch_id` (422
+  `inventory.batch_required`, `inventory.batch_invalid`, and
+  `inventory.batch_not_allowed` for another material); a transfer (311,
+  301) receives the same batch (a transfer to another batch, SAP's 309,
+  is Later); a reversal moves its original's batches. The lines and
+  `MaterialDocumentPosted` (not required) name the batch by id and number.
+  **The flows that carry no batch yet refuse a batch-managed material**
+  at the flow's first step, so no document is created that cannot
+  complete (review round 1): a purchase order's stock item (422
+  `procurement.invalid_stock_item`, as it is created or changed), a new
+  quotation or sales order item (422 `sales.material_not_usable`; review
+  round 2) and, beneath it, an outbound delivery's item (422
+  `shipping.material_not_usable`), a stock
+  transport order (at its creation, `TransportQuantities`) and a count
+  document (at its creation; both 422 `inventory.batch_not_supported`,
+  which the goods receipt and goods issue also answer beneath), and the
+  SAP stock take-over (561 without a batch, `inventory.batch_required`),
+  each Later; a batch-managed material is created once no pre-S2f
+  version serves (a stock row an earlier version writes is not
+  batch-managed); the plan's slice names the
+  batch on movements and stock, which the person's goods movements
+  carry. Decided by default.
+- **Stock by batch beside the location's**, not a wider stock key:
+  `inventory.batch_stock` (SAP MCHB beside MARD), rather than the plan's
+  "stock key extended, expand-migrate-contract", so `inventory.stock` and
+  every reader of it (`GET /v1/stock`, `Held`, the counts, ATP's read)
+  stay as they are. The database adds a batch's movement to both rows
+  and refuses a movement whose batch does not match its stock row's
+  `batch_managed`, so the batches at a location add up to its stock
+  (`movement_batch`). The stock row carries the flag, written from the
+  material by the application as it writes the row, so the database
+  needs no read of the materials schema (02 §2.1).
+- **Locks:** a posting locks the valuations, then the locations' stock
+  rows, then the batch stock rows it moves (material, plant, storage
+  location, batch, as PostgreSQL orders uuids), writing an empty row for
+  a batch's first movement there, then checks each batch never goes below
+  zero in line order (409 `inventory.insufficient_stock` naming the
+  batch; `batch_stock_not_negative` beneath). The location's lock comes
+  first, so two postings of one location serialize as before
+  (`TestBatchIssuesAtOnce`).
+- `GET /v1/batch-stock` (material, plant, storage location, batch): each
+  batch's stock at a location now, with its dates; as at a date is Later.
+- Walkthrough step 149, `step_batches`.
+- **Not built** (Later, plan §S2f): batches in the purchase order's
+  goods receipt, the delivery's goods issue, stock transport orders,
+  counts and the SAP take-over; a batch created at goods receipt; internal
+  batch numbers; changing a batch's dates; batch status (restricted
+  stock); stock by batch as at a date; transfer to another batch (309);
+  expiry checks and batch determination (FEFO), classification,
+  where-used and recall.
+
+### S2j (2026-11-20)
+
+- Migration 000430: `sales.sales_order.plant_id`,
+  `sales.sales_order_item.confirmed_quantity` with their rules and
+  `sales.delivery_assignment.plant_id` (the existing assignments take
+  their delivery's) (03
+  §3.16; schema tests in `db/sales_availability_test.go`, the trigger
+  also as the owner).
+- **The plant is the order's, optional** (decided by default): a sales
+  order names the plant it delivers from (`plant_id` of
+  `createSalesOrder`, an active plant of its company, 422
+  `sales.plant_invalid`), with or without a quotation, kept as entered.
+  SAP determines a delivering plant per item (VBAP-WERKS, from the
+  customer-material info, the customer or the material, from memory);
+  one plant per order is enough for the pilot's one plant per stock site,
+  and per-item plants and their determination are Later. An order
+  without a plant is not checked and is delivered as before, so
+  existing orders, quotations and order capture are unchanged. What its
+  outbound deliveries hold at a plant counts in that plant's
+  availability (review round 1): each delivery assignment names the
+  plant its delivery ships from (`ShipInput.PlantID`,
+  `GoodsIssue.PlantID`, required; the column stays nullable until a
+  contract step), and the check counts the held quantities of orders
+  without a plant there, read from the items something is in delivery of
+  (`sales_order_item_in_delivery_held`). Their confirmed but undelivered
+  quantities are not counted, having no plant (for the product owner:
+  whether a plant should be required for orders of stock materials).
+- **What is available** at confirmation (`confirmSalesOrder`), for each
+  item of a material kept in stock: the plant's stock at its storage
+  locations in the base unit (`inventory.Endpoints.PlantStock`, a read
+  published for this; stock in transit is not counted) less what the
+  plant's other confirmed orders confirmed and have not delivered
+  (`confirmed_quantity − delivered_quantity` of their standing items, at
+  the material's factor now) and what deliveries from the plant hold of
+  orders without a plant, read in one statement. What an order with a
+  plant has in delivery is inside its confirmed quantity. Cancelled orders
+  and removed items promise nothing. The items are confirmed in item
+  order, each as far as is left, rounded down to six decimals in the
+  item's unit: in full, in part or not at all; a shortage refuses
+  nothing (SAP's one-time delivery confirms what is there, from memory).
+  The check is of stock on hand, so it confirms the same for the
+  requested delivery date as for today; nothing stores a confirmed date
+  (checking rules with replenishment lead time are Later). An order
+  blocked for credit keeps its confirmation, which counts.
+- **Two orders racing for the last quantity confirm it once**: the check
+  takes a transaction advisory lock per material and plant
+  (`sales.availability:<tenant>:<plant>:<material>`, through
+  `database.LockTenant`, the platform's helper since batch 86's
+  integration), in the materials'
+  uuid order, after the order's row lock and the credit check's customer
+  lock, which every caller takes in that order; a goods issue takes none
+  of them, so no cycle (`TestChangeAndConfirmationRace` proves a change
+  takes the same lock). It reads the demand before the stock: a goods
+  issue committed between the two reads counts out of the stock but
+  still in the demand, so it promises less, never more
+  (`TestTwoOrdersRaceForTheLastQuantity`, through
+  `apitest.Serialized`). The reasoning holds while delivered quantities
+  only rise: a goods issue reversal (602, Later) that lowers one must
+  take the check's lock or count its stock first.
+- **Deliveries take at most what is confirmed** (`OrderItem.open`): an
+  item with a confirmed quantity has that, not its ordered quantity,
+  open for delivery, less what is delivered and in delivery (422
+  `sales.exceeds_open_quantity` names what is confirmed); the database
+  keeps delivered and in delivery within it. A delivery of an order with
+  a plant ships from that plant (422 `shipping.plant_mismatch`), so its
+  goods issue takes the stock the check counted.
+- **A change of a confirmed order checks again** the items it adds and
+  those whose quantity it changes, in the same way: an item keeps what it
+  had confirmed, up to its new quantity, and has more confirmed as far as
+  the plant has it available, so a lowered quantity frees stock and a
+  raised one is confirmed as stock arrives (decided by default; SAP
+  rechecks a changed item, from memory). Re-confirming items no change
+  touched is back-order processing, Later: until then an item confirmed
+  short is confirmed again only by a change of its quantity (a change to
+  the same quantity is `sales.nothing_changed`), for the product owner.
+  A change that touches no stock item's quantity takes no lock and reads
+  nothing. Confirmed quantities are rounded down to six decimals in the
+  item's unit (`money.FloorQuantity`), so a part of a pack can be
+  confirmed.
+- **Not valued, nothing more promised**: a promise whose unit the
+  material no longer has (a unit removed since) cannot be put in the
+  base unit; the material then has nothing more available at the plant,
+  and an item in such a unit keeps what it had (`unvalued` in its audit
+  detail).
+- Audited in the confirmation's and the change's records (`availability`:
+  the plant and each item checked, with its material, quantity, unit and
+  confirmed quantity before and after); no new event or permission:
+  confirming stays `sales.order.confirm`, human-only.
+- Walkthrough step 150, `step_available_to_promise`.
+- **Not built** (Later, plan §S2j): checking rules with replenishment
+  lead time and planned receipts, back-order processing, product
+  allocation, global ATP across plants, per-item plants.
