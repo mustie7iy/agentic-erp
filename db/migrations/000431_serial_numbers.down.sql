@@ -1,6 +1,7 @@
 -- Serial numbers and serial-managed materials the previous version cannot
 -- hold are refused rather than dropped (06 §6.4: a down migration loses
--- no data).
+-- no data). The guard reads every tenant's rows.
+SET LOCAL row_security = off;
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM inventory.serial) OR EXISTS (SELECT FROM materials.material WHERE serial_managed) THEN
@@ -8,8 +9,9 @@ BEGIN
   END IF;
 END $$;
 DROP TRIGGER movement_serials ON inventory.movement;
-DROP FUNCTION inventory.movement_serials();
 DROP TABLE inventory.movement_serial;
+DROP FUNCTION inventory.movement_serials();
+DROP FUNCTION inventory.check_movement_serials(uuid, uuid, smallint);
 DROP FUNCTION inventory.movement_serial_moves();
 DROP TABLE inventory.serial;
 DROP FUNCTION inventory.serial_out_of_stock();

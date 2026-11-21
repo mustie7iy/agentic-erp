@@ -1267,7 +1267,10 @@ reads a location's stock without a lock for shipping's picking.
   (`movement_serial_moves`: a receipt of one in stock is refused,
   `serial_in_stock_once`; an issue of one not at the line's location,
   `serial_issued_from_stock`); at commit a line of a serial-managed stock
-  row names one per unit and any other line none (`movement_serials`).
+  row names one per unit and any other line none (`movement_serials` on
+  the line, `movement_serial_counted` on each serial number added to a
+  line, so one added later to a committed line is refused too; review
+  round 1).
   The posting checks both first and answers 409
   `inventory.serial_in_stock` (naming the serial number and where to read
   it) and `inventory.serial_not_in_stock` (naming the location).
@@ -1277,9 +1280,9 @@ reads a location's stock without a lock for shipping's picking.
   in (material, number) order, bytewise as PostgreSQL's C collation orders
   them; every write precedes every lock, and `FOR UPDATE` does not wait on
   a row not yet committed, so two postings never wait on each other in a
-  cycle (`TestSerialMovementsAtOnce`: two receipts of one new serial number
-  at once post one, as two issues of one do, and transfers either way
-  round at once all post).
+  cycle (`TestSerialMovementsAtOnce`: receipts at two locations, so under
+  no common stock row, of the same serial numbers named in opposite
+  order, issued ones and new ones, post one each time; review round 1).
 - **The flows that carry no serial numbers yet refuse a serial-managed
   material** where they refuse a batch-managed one: a purchase order's
   stock item (422 `procurement.invalid_stock_item`), an outbound

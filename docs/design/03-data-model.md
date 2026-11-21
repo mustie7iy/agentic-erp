@@ -6880,9 +6880,10 @@ erDiagram
   so a serial number is in stock at most once, an issue only from where
   it is (`serial_issued_from_stock`, 409 `inventory.serial_not_in_stock`).
   At commit, a line of a serial-managed stock row names one serial number
-  for each unit it moves and any other line none (`movement_serials`, a
-  deferred constraint trigger, as the serial numbers are written after
-  their lines).
+  for each unit it moves and any other line none (`movement_serials` on
+  the line and `movement_serial_counted` on each serial number added to
+  one, deferred constraint triggers, as the serial numbers are written
+  after their lines; one added to a committed line is refused too).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,

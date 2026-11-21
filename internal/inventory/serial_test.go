@@ -223,6 +223,14 @@ func TestSerialRefusals(t *testing.T) {
 			}
 		})
 	}
+	for name, number := range map[string]string{"a number in lower case": "g1", "a number of 19": strings.Repeat("G", 19)} {
+		t.Run(name, func(t *testing.T) {
+			status, p, _ := e.Do("POST", docs, body(t, "501", e.of(nil, number)), "")
+			if status != 400 || p["code"] != "request.invalid_body" {
+				t.Errorf("got %d %v, want 400 request.invalid_body", status, p["code"])
+			}
+		})
+	}
 	if got := e.places(t, ""); got != "" {
 		t.Errorf("after the refusals: got serial numbers %s, want none", got)
 	}
@@ -261,9 +269,11 @@ func TestSerialRefusals(t *testing.T) {
 }
 
 // TestSerialMovementsAtOnce: two receipts of one new serial number at
-// once at two locations post one, as do two issues of one; transfers of
-// serial numbers either way round between two locations at once all
-// post, none waiting on another for good.
+// once at two locations post one, as do two issues of one; receipts at
+// two locations, so under no common stock row, of the same serial
+// numbers named in opposite order, known or new, post one each time,
+// none waiting on another for good; transfers either way round between
+// two locations at once all post.
 func TestSerialMovementsAtOnce(t *testing.T) {
 	e := serialSetup(t)
 	var wg sync.WaitGroup
@@ -291,6 +301,23 @@ func TestSerialMovementsAtOnce(t *testing.T) {
 	wg.Wait()
 	if fmt.Sprint(statuses) != "[201 409]" && fmt.Sprint(statuses) != "[409 201]" {
 		t.Errorf("two issues of N1: got %v, want one 201 and one 409", statuses)
+	}
+	e.post(t, "501", e.of(nil, "K1", "K2"))
+	e.post(t, "551", e.of(map[string]any{"cost_center_id": e.c1}, "K1", "K2"))
+	for round, pair := range [][2]string{{"K1", "K2"}, {"M1", "M2"}} {
+		for i, at := range []uuid.UUID{e.s1, e.s2} {
+			numbers := []string{pair[0], pair[1]}
+			if i == 1 {
+				numbers = []string{pair[1], pair[0]}
+			}
+			wg.Go(func() {
+				statuses[i], _, _ = e.Do("POST", docs, body(t, "501", e.of(map[string]any{"storage_location_id": at}, numbers...)), "")
+			})
+		}
+		wg.Wait()
+		if fmt.Sprint(statuses) != "[201 409]" && fmt.Sprint(statuses) != "[409 201]" {
+			t.Errorf("round %d, receipts of %v in opposite order: got %v, want one 201 and one 409", round, pair, statuses)
+		}
 	}
 	transfers := make([]int, 5)
 	for i := range transfers {

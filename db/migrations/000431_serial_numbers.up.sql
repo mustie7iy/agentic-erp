@@ -145,28 +145,43 @@ CREATE TRIGGER movement_serial_moves AFTER INSERT ON inventory.movement_serial F
 
 -- At commit, a movement of a serial-managed stock row names as many
 -- serial numbers as its quantity is units, and any other movement none
--- (a movement in transit is of a material not serial-managed).
-CREATE FUNCTION inventory.movement_serials() RETURNS trigger
+-- (a movement in transit is of a material not serial-managed). Checked
+-- for each movement written and for each movement a serial number is
+-- added to, so a serial number added later to a committed line is
+-- refused too.
+CREATE FUNCTION inventory.check_movement_serials(tenant uuid, document uuid, line smallint) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
+  mv record;
   managed boolean;
   named bigint;
 BEGIN
-  IF NEW.in_transit THEN
+  SELECT material_id, plant_id, storage_location_id, quantity, in_transit INTO mv FROM inventory.movement
+  WHERE tenant_id = tenant AND material_document_id = document AND line_no = line;
+  IF mv.in_transit THEN
     SELECT serial_managed INTO managed FROM inventory.transit_stock
-    WHERE tenant_id = NEW.tenant_id AND material_id = NEW.material_id AND plant_id = NEW.plant_id AND storage_location_id = NEW.storage_location_id;
+    WHERE tenant_id = tenant AND material_id = mv.material_id AND plant_id = mv.plant_id AND storage_location_id = mv.storage_location_id;
   ELSE
     SELECT serial_managed INTO managed FROM inventory.stock
-    WHERE tenant_id = NEW.tenant_id AND material_id = NEW.material_id AND plant_id = NEW.plant_id AND storage_location_id = NEW.storage_location_id;
+    WHERE tenant_id = tenant AND material_id = mv.material_id AND plant_id = mv.plant_id AND storage_location_id = mv.storage_location_id;
   END IF;
   SELECT count(*) INTO named FROM inventory.movement_serial
-  WHERE tenant_id = NEW.tenant_id AND material_document_id = NEW.material_document_id AND line_no = NEW.line_no;
-  IF (managed AND (NEW.in_transit OR named <> abs(NEW.quantity))) OR (NOT managed AND named <> 0) THEN
+  WHERE tenant_id = tenant AND material_document_id = document AND line_no = line;
+  IF (managed AND (mv.in_transit OR named <> abs(mv.quantity))) OR (NOT managed AND named <> 0) THEN
     RAISE EXCEPTION 'a movement of a serial-managed material names a serial number for each unit it moves, and no other movement names one'
       USING ERRCODE = 'check_violation', CONSTRAINT = 'movement_serials';
   END IF;
+END $$;
+ALTER FUNCTION inventory.check_movement_serials(uuid, uuid, smallint) OWNER TO erp_owner;
+REVOKE EXECUTE ON FUNCTION inventory.check_movement_serials(uuid, uuid, smallint) FROM PUBLIC;
+CREATE FUNCTION inventory.movement_serials() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  PERFORM inventory.check_movement_serials(NEW.tenant_id, NEW.material_document_id, NEW.line_no);
   RETURN NULL;
 END $$;
 ALTER FUNCTION inventory.movement_serials() OWNER TO erp_owner;
 CREATE CONSTRAINT TRIGGER movement_serials AFTER INSERT ON inventory.movement
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION inventory.movement_serials();
+CREATE CONSTRAINT TRIGGER movement_serial_counted AFTER INSERT ON inventory.movement_serial
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION inventory.movement_serials();

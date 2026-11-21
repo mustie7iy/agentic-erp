@@ -230,15 +230,12 @@ func writeSerials(ctx context.Context, tx pgx.Tx, p reqctx.Principal, document u
 	if len(numbers) == 0 {
 		return nil
 	}
-	tag, err := tx.Exec(ctx, `INSERT INTO inventory.movement_serial (tenant_id, material_document_id, line_no, serial_id, material_id)
+	// takeSerials locked every one, so the join misses none; should it,
+	// movement_serials refuses the line at commit.
+	if _, err := tx.Exec(ctx, `INSERT INTO inventory.movement_serial (tenant_id, material_document_id, line_no, serial_id, material_id)
 		SELECT $1, $2, x.l, s.id, s.material_id FROM unnest($3::smallint[], $4::uuid[], $5::text[]) WITH ORDINALITY AS x (l, m, n, o)
-		JOIN inventory.serial s ON s.tenant_id = $1 AND s.material_id = x.m AND s.number = x.n ORDER BY x.o`, p.TenantID, document, lineNo, ms, numbers)
-	if err != nil {
+		JOIN inventory.serial s ON s.tenant_id = $1 AND s.material_id = x.m AND s.number = x.n ORDER BY x.o`, p.TenantID, document, lineNo, ms, numbers); err != nil {
 		return fmt.Errorf("inventory: serial numbers of material document %s: %w", document, err)
-	}
-	if tag.RowsAffected() != int64(len(numbers)) {
-		// takeSerials locked every one, so none is missing.
-		return fmt.Errorf("inventory: serial numbers of material document %s: wrote %d of %d", document, tag.RowsAffected(), len(numbers))
 	}
 	return nil
 }

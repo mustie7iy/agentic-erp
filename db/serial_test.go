@@ -59,7 +59,7 @@ func (s serialScene) received() []stmt {
 // a receipt only when it is in no stock (so it is in stock at most
 // once), an issue only from where it is; a movement of a serial-managed
 // stock row names one serial number per unit at commit, and any other
-// movement none; the application changes neither where a serial number
+// movement none, also when a serial number is added to a line later; the application changes neither where a serial number
 // is nor a stock row's serial number profile.
 func TestSerialRules(t *testing.T) {
 	need(t)
@@ -78,8 +78,7 @@ func TestSerialRules(t *testing.T) {
 		{"a serial number received twice", func(s serialScene) []stmt { return append(s.received(), s.moveAt(2, "1", s.other), s.moves(2, s.a1)) },
 			"serial_in_stock_once"},
 		{"an issue of one not in stock", func(s serialScene) []stmt {
-			return append(s.received(), s.serial(id(), s.material, "A3"), s.moveAt(2, "-1", s.location), s.moves(2, s.a1), s.moveAt(3, "-1", s.location),
-				s.moves(3, s.a1))
+			return append(s.received(), s.moveAt(2, "-1", s.location), s.moves(2, s.a1), s.moveAt(3, "-1", s.location), s.moves(3, s.a1))
 		}, "serial_issued_from_stock"},
 		{"an issue from another location", func(s serialScene) []stmt {
 			return append(s.received(), s.moveAt(2, "-1", s.location), s.moves(2, s.a1), s.moveAt(3, "1", s.other), s.moves(3, s.a1),
@@ -173,6 +172,12 @@ func TestSerialRules(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a serial number added to a committed line", func(t *testing.T) {
+		s := newSerialScene()
+		mustApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, s.received()...) })
+		a3 := id()
+		failsOn(t, asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, s.serial(a3, s.material, "A3"), s.moves(1, a3)) }), "movement_serials")
+	})
 	t.Run("a serial number is where its last movement left it", func(t *testing.T) {
 		s := newSerialScene()
 		var got string
