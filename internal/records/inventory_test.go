@@ -81,6 +81,7 @@ var notPersonal = map[string]string{
 	"tenancy.org_unit.name":                                   "an organisational unit's name",
 	"tenancy.tenant.name":                                     "the tenant's name: an organisation",
 	"tenancy.tenant.region":                                   "the cloud region the tenant runs in",
+	"tenancy.org_unit.region":                                 "a plant's country subdivision (an emirate's ISO code), a company's site",
 	"public.erp_schema_migration.name":                        "a migration's name",
 	"ref.country.iban_length":                                 "reference data",
 	"ref.country.name":                                        "reference data",
