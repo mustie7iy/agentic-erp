@@ -87,11 +87,14 @@ func TestMaterialItemRefusals(t *testing.T) {
 	e := setup(t)
 	bracket := e.material(t, "100000001", "active")
 	blocked, pending := e.material(t, "100000002", "blocked"), e.material(t, "100000003", "pending")
+	batched := e.material(t, "100000004", "active")
+	pgtest.Unguarded(t, `UPDATE materials.material SET material_type = 'raw_material', batch_managed = true WHERE id = $1`, batched) // fixed once created
 	priced := `, "unit_price": {"amount": "1.00", "currency": "EUR"}`
 	for _, c := range []struct{ name, item, code, field string }{
 		{"an unknown material", e.ofMaterial(uuid.Must(uuid.NewV7()), "1 EA", priced), "request.reference_not_found", "items[0].material_id"},
 		{"a blocked material", e.ofMaterial(blocked, "1 EA", priced), "sales.material_not_usable", "items[0].material_id"},
 		{"a pending material", e.ofMaterial(pending, "1 EA", priced), "sales.material_not_usable", "items[0].material_id"},
+		{"a batch-managed material", e.ofMaterial(batched, "1 EA", priced), "sales.material_not_usable", "items[0].material_id"},
 		{"another key", e.ofMaterial(bracket, "1 EA", priced+`, "item_key": "BRACKET-M8"`), "sales.item_key_not_material", "items[0].item_key"},
 		{"a unit not the material's", e.ofMaterial(bracket, "1 M", priced), "sales.invalid_material_quantity", "items[0].quantity.unit"},
 		{"a quantity not exact in the base unit", e.ofMaterial(bracket, "1 KG", priced), "sales.invalid_material_quantity", "items[0].quantity.unit"},

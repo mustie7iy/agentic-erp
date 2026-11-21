@@ -11348,7 +11348,7 @@ paths:
               $ref: "#/components/schemas/PurchaseOrderCreate"
       responses:
         "201":
-          description: "Created; the new purchase order."
+          description: "Created; the new purchase order. A stock item of a batch-managed material is refused (422 `procurement.invalid_stock_item`): a goods receipt carries no batch yet (S2f)."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -13677,13 +13677,17 @@ paths:
       tags:
         - procurement
       summary: Post a goods receipt
-      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals."
+      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A batch-managed material's stock item is refused (422 `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f)."
       x-permission: procurement.receipt.post
       x-problem-codes:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
         - inventory.inexact_quantity
@@ -13855,6 +13859,10 @@ paths:
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
         - inventory.inexact_quantity
@@ -22053,7 +22061,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422 `request.reference_not_found` naming `items[i].material_id`) that is `active` (422 `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the material's base unit or one of its alternative units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422 `request.reference_not_found` naming `items[i].material_id`) that is `active` (422 `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the material's base unit or one of its alternative units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet (S2f)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -22333,7 +22341,7 @@ paths:
       tags:
         - sales
       summary: Create a sales order
-      description: "Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With `quotation_id`, the order copies the quotation's company, customer, currency and items as they were offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the field given). The quotation is one of a company the caller may act in (422 `request.reference_not_found` naming `quotation_id`) that the customer accepted (409 `sales.quotation_not_accepted`), and it gives one order: a second is refused (409 `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`, `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and the items are checked and priced as a quotation's are (`createQuotation`), on the order's date: an item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when there is none). Either way the order needs the customer's data in the company, as a receivables document does: a customer that is not active, has no customer role, has no data in the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the company's date today in its time zone, with a document number from the company's `sales_order` number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
+      description: "Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With `quotation_id`, the order copies the quotation's company, customer, currency and items as they were offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the field given). The quotation is one of a company the caller may act in (422 `request.reference_not_found` naming `quotation_id`) that the customer accepted (409 `sales.quotation_not_accepted`), and it gives one order: a second is refused (409 `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`, `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and the items are checked and priced as a quotation's are (`createQuotation`), on the order's date: an item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when there is none). Either way the order needs the customer's data in the company, as a receivables document does: a customer that is not active, has no customer role, has no data in the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the company's date today in its time zone, with a document number from the company's `sales_order` number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet (S2f)."
       x-permission: sales.order.write
       x-agent: false
       x-problem-codes:
@@ -24395,6 +24403,7 @@ paths:
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - materials.base_unit_conversion
+        - materials.batch_managed_not_stocked
         - materials.change_pending
         - materials.duplicate_description
         - materials.duplicate_plant
@@ -24707,7 +24716,7 @@ paths:
       tags:
         - inventory
       summary: Post a goods movement
-      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`) by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. A material at a storage location an open physical inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
+      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`) by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. A material at a storage location an open physical inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). A batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`, `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer receives the same batch, and a batch's stock at a location never goes below zero either (409 `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock. Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -24716,6 +24725,10 @@ paths:
         - config.number_range_exhausted
         - inventory.amount_not_allowed
         - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
         - inventory.cost_center_invalid
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
@@ -25348,13 +25361,14 @@ paths:
       tags:
         - inventory
       summary: Create a physical inventory count document
-      description: "Creates a count document (ADR-0082 As built S2c; SAP MI01) for materials of one storage location of a plant, freezing each one's book quantity: the stock there as the document is created, in the material's base unit. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`), the storage location an active one under it (422 `inventory.storage_location_invalid`); each material one of the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`; a blocked material's stock is still counted), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`) and kept at the storage location (422 `inventory.storage_location_not_extended`), valued in the plant so its difference can be posted (422 `inventory.no_valuation`), and named once (422 `inventory.duplicate_material`). A material has one open count per storage location (409 `inventory.count_open`, naming the open document). The posting block is set: until the document is posted, rejected or withdrawn no goods movement moves its materials at that storage location (409 `inventory.posting_blocked` on every movement, whatever posts it). The document is dated the company's date today in its time zone and numbered from its `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`, `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`)."
+      description: "Creates a count document (ADR-0082 As built S2c; SAP MI01) for materials of one storage location of a plant, freezing each one's book quantity: the stock there as the document is created, in the material's base unit. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`), the storage location an active one under it (422 `inventory.storage_location_invalid`); each material one of the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`; a blocked material's stock is still counted), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`) and kept at the storage location (422 `inventory.storage_location_not_extended`), valued in the plant so its difference can be posted (422 `inventory.no_valuation`), and named once (422 `inventory.duplicate_material`). A material has one open count per storage location (409 `inventory.count_open`, naming the open document). The posting block is set: until the document is posted, rejected or withdrawn no goods movement moves its materials at that storage location (409 `inventory.posting_blocked` on every movement, whatever posts it). The document is dated the company's date today in its time zone and numbered from its `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`, `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f)."
       x-permission: inventory.count.write
       x-agent: false
       x-problem-codes:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.batch_not_supported
         - inventory.count_open
         - inventory.duplicate_material
         - inventory.material_invalid
@@ -25674,6 +25688,198 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/batches:
+    get:
+      operationId: listBatches
+      tags:
+        - inventory
+      summary: List batches
+      description: "The tenant's batches of batch-managed materials (ADR-0082 As built S2f; SAP MSC3N), each as `getBatch` gives it, the latest first. Filtered by material and by number. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: material_id
+          in: query
+          required: false
+          description: "Only the batches of this material (`GET /v1/materials/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - name: number
+          in: query
+          required: false
+          description: Only the batches with this number (one per material).
+          schema:
+            type: string
+            maxLength: 10
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of batches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createBatch
+      tags:
+        - inventory
+      summary: Create a batch
+      description: "Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level material): its number, unique for the material (409 `inventory.batch_exists`), its manufacture date and its expiry date, not before it (422 `inventory.batch_dates`). The material is one of the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`) and managed in batches (422 `inventory.material_not_batch_managed`). The batch is the tenant's, as its material is; its stock is moved by the material documents that name it (`batch_id`). Audited. A retry with the same `Idempotency-Key` answers the batch created. Human-only (`x-agent: false`)."
+      x-permission: inventory.batch.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.batch_dates
+        - inventory.batch_exists
+        - inventory.material_invalid
+        - inventory.material_not_batch_managed
+        - inventory.material_not_usable
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The batch to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchCreate"
+            examples:
+              batch:
+                summary: A supplier's lot of sealant
+                value:
+                  material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  number: L2026-1101
+                  manufacture_date: "2026-11-01"
+                  expiry_date: "2027-05-01"
+      responses:
+        "201":
+          description: "Created; the batch."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Batch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/batches/{id}":
+    get:
+      operationId: getBatch
+      tags:
+        - inventory
+      summary: Get a batch
+      description: "One batch (ADR-0082 As built S2f) with its material by number and description, its number, manufacture date and expiry date. Its stock by location is `GET /v1/batch-stock?batch_id=`."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The batch.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Batch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/batch-stock:
+    get:
+      operationId: listBatchStock
+      tags:
+        - inventory
+      summary: List stock by batch
+      description: "The stock of batches by plant and storage location in the companies the caller may act in (ADR-0082 As built S2f; SAP MCHB, MMBE's batch view), now, in the material's base unit: the batches of a batch-managed material at a location add up to its stock there (`listStock`). A batch with no stock at a location is left out. Filtered by material, plant, storage location and batch; in the order each batch's stock was first moved. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: material_id
+          in: query
+          required: false
+          description: Only the stock of this material.
+          schema:
+            type: string
+            format: uuid
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the stock at this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: storage_location_id
+          in: query
+          required: false
+          description: Only the stock at this storage location.
+          schema:
+            type: string
+            format: uuid
+        - name: batch_id
+          in: query
+          required: false
+          description: "Only the stock of this batch (`GET /v1/batches/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of stock by batch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchStockPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/outbound-deliveries:
     get:
       operationId: listOutboundDeliveries
@@ -25727,7 +25933,7 @@ paths:
       tags:
         - shipping
       summary: Create an outbound delivery for a sales order
-      description: "Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant and a storage location. The order is one of a company the caller may act in (422 `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`) and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422 `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422 `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422 `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service or free-text item, or a material of type `non_stock` or `service`, is confirmed by `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422 `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`). Without `items` the delivery takes what is open of every order item of a material kept in stock at the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed below them, removed or cancelled while the delivery holds them. The delivery is created `created`, `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created. Human-only (`x-agent: false`)."
+      description: "Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant and a storage location. The order is one of a company the caller may act in (422 `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`) and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422 `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422 `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422 `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service or free-text item, or a material of type `non_stock` or `service`, is confirmed by `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422 `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`). Without `items` the delivery takes what is open of every order item of a material kept in stock at the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed below them, removed or cancelled while the delivery holds them. The delivery is created `created`, `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422 `shipping.material_not_usable`): a delivery carries no batch yet (S2f)."
       x-permission: shipping.delivery.write
       x-agent: false
       x-problem-codes:
@@ -25892,7 +26098,7 @@ paths:
       tags:
         - shipping
       summary: Post the goods issue of an outbound delivery
-      description: "Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is refused (409 `shipping.goods_issued`), as is one with nothing picked (409 `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as one material document of movement type `601` (`material_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical inventory count document counting the material there (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound delivery and the material document, each item with its cost, the order item's `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open again on the order. An order blocked for credit since the delivery was made is refused until its block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
+      description: "Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is refused (409 `shipping.goods_issued`), as is one with nothing picked (409 `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as one material document of movement type `601` (`material_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical inventory count document counting the material there (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound delivery and the material document, each item with its cost, the order item's `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open again on the order. An order blocked for credit since the delivery was made is refused until its block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422 `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f)."
       x-permission: shipping.goods_issue.post
       x-agent: false
       x-problem-codes:
@@ -25901,6 +26107,10 @@ paths:
         - config.number_range_exhausted
         - inventory.amount_not_allowed
         - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
         - inventory.currency_mismatch
@@ -26074,13 +26284,17 @@ paths:
       tags:
         - procurement
       summary: Order stock from one plant to another of the company
-      description: "Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from memory): a planner orders materials from a storage location of the supplying plant to one of the receiving plant, another plant of the same company. Each item is checked as its goods issue will be: the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`, `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`, `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and kept at both storage locations, each active under its plant (422 `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422 `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
+      description: "Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from memory): a planner orders materials from a storage location of the supplying plant to one of the receiving plant, another plant of the same company. Each item is checked as its goods issue will be: the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`, `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`, `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and kept at both storage locations, each active under its plant (422 `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422 `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). A batch-managed material is refused (422 `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f)."
       x-permission: procurement.stock_transport.write
       x-agent: false
       x-problem-codes:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
         - inventory.inexact_quantity
@@ -26191,6 +26405,10 @@ paths:
         - config.number_range_exhausted
         - inventory.amount_not_allowed
         - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
         - inventory.currency_mismatch
@@ -37868,6 +38086,10 @@ paths:
         - integration.secret_unavailable
         - inventory.amount_not_allowed
         - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
         - inventory.currency_mismatch
@@ -37973,6 +38195,7 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - materials.base_unit_conversion
+        - materials.batch_managed_not_stocked
         - materials.change_pending
         - materials.duplicate_plant
         - materials.duplicate_storage_location
@@ -64490,6 +64713,7 @@ components:
           description: "Its alternative units of measure, each once; none when absent."
         reason: {type: string, maxLength: 500, description: "Why the material is created, kept on its create change for the approver."}
         confirm_duplicate: {type: boolean, default: false, description: "Create it though materials with its description exist: it is another material, and its approver sees them."}
+        batch_managed: {type: boolean, default: false, description: "Manage the material in batches (ADR-0082 As built S2f; SAP's batch management requirement): every goods movement of it names a batch of it (`POST /v1/batches`), and its stock is kept by batch (`GET /v1/batch-stock`). Only a material kept in stock is (422 `materials.batch_managed_not_stocked` for `non_stock` and `service`). It does not change."}
     MaterialUpdate:
       type: object
       description: "Merge patch of a material: its description, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
@@ -64552,7 +64776,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [number, legal_entity_id, company_code, description, base_unit, base_unit_name, material_type, material_group, status, plants, alternative_units]
+          required: [number, legal_entity_id, company_code, description, base_unit, base_unit_name, material_type, material_group, status, batch_managed, plants, alternative_units]
           properties:
             number: {type: string, description: "The material's number, unique in the tenant, from the `material` number range of the company that created it.", readOnly: true}
             legal_entity_id: {type: string, format: uuid, description: "The company whose range numbered the material.", readOnly: true}
@@ -64571,6 +64795,7 @@ components:
               x-extensible-enum: [pending, active, blocked]
               description: "`pending`: created, its create change not yet approved, or rejected or withdrawn; used nowhere. `active`: usable. `blocked`: kept, but not to be used in new documents. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
+            batch_managed: {type: boolean, description: "Whether the material is managed in batches (S2f): every goods movement of it names a batch of it. It does not change.", readOnly: true}
             pending_change_id: {type: string, format: uuid, description: "Its pending material change (`GET /v1/material-changes/{id}`); absent when none is pending.", readOnly: true}
             pending_change_number: {type: string, description: "That change's number; absent when none is pending.", readOnly: true}
             plants:
@@ -64648,6 +64873,7 @@ components:
         description: {type: string, description: "The description.", readOnly: true}
         base_unit: {type: string, description: "The base unit (a create's only).", readOnly: true}
         material_type: {type: string, description: "The material type (a create's only).", readOnly: true}
+        batch_managed: {type: boolean, description: "Whether the material is managed in batches (a create's only).", readOnly: true}
         material_group: {type: string, description: "The material group.", readOnly: true}
         status: {type: string, description: "The status, `active` or `blocked`.", readOnly: true}
         plants:
@@ -64733,6 +64959,7 @@ components:
         to_plant_id: {type: string, format: uuid, description: "The plant a `301` receives at, another of the company's."}
         to_storage_location_id: {type: string, format: uuid, description: "The storage location a `311` or `301` receives at: under the plant of a `311`, under `to_plant_id` of a `301`."}
         amount: {$ref: "#/components/schemas/Money", description: "What a `501` or `561` receipt is worth, in the company's local currency (S1d); absent: its quantity at the material's price. No other movement type names one."}
+        batch_id: {type: string, format: uuid, description: "The batch moved (`GET /v1/batches/{id}`), one of the item's material (422 `inventory.batch_invalid`): named for a batch-managed material (422 `inventory.batch_required`) and for no other (422 `inventory.batch_not_allowed`; S2f). A transfer receives the same batch."}
     MaterialDocumentCreate:
       type: object
       description: "A goods movement to post: one movement type and its items."
@@ -64771,6 +64998,8 @@ components:
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The item's quantity as it was entered, positive, in the unit it was entered in.", readOnly: true}
         cost_center_id: {type: string, format: uuid, description: "The cost center of an issue to a cost center or a scrapping; absent on other lines.", readOnly: true}
         cost_center_code: {type: string, description: "The cost center's code; absent with it.", readOnly: true}
+        batch_id: {type: string, format: uuid, description: "The batch the line moves, of a batch-managed material (`GET /v1/batches/{id}`, S2f); absent on a line of another material.", readOnly: true}
+        batch_number: {type: string, description: "That batch's number; absent with it.", readOnly: true}
         in_transit: {type: boolean, description: "Whether the line moves stock in transit to its storage location of its plant (a stock transport order's, S2h: into transit on its goods issue, 351, out of it on its goods receipt, 101) rather than the stock at that location; stock in transit is in the plant's valuation but in no location's stock (`listStock`).", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the line moves in value on the material's valuation in the plant, signed as its quantity is (S1d); absent on a document posted before materials were valued.", readOnly: true}
         price_difference: {$ref: "#/components/schemas/Money", description: "What the line is valued at beyond `amount`: a standard-priced receipt's or transfer's price difference, or what a reversal gives back beyond the stock's value (S1d); absent with `amount`.", readOnly: true}
@@ -65318,6 +65547,81 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/Stock"}
+          description: The stock on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    BatchCreate:
+      type: object
+      description: "A batch to create (ADR-0082 As built S2f): a lot of a batch-managed material."
+      required: [material_id, number, manufacture_date]
+      additionalProperties: false
+      properties:
+        material_id: {type: string, format: uuid, description: "The batch-managed material (`GET /v1/materials/{id}`, `batch_managed`)."}
+        number: {type: string, pattern: "^[A-Z0-9_-]{1,10}$", description: "The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier or the plant gives it."}
+        manufacture_date: {type: string, format: date, description: "The day the batch was made."}
+        expiry_date: {type: string, format: date, description: "The day it is to be used by, not before its manufacture date; absent when it does not expire."}
+    Batch:
+      type: object
+      description: "A batch (SAP MCH1): a lot of a batch-managed material, with its manufacture and expiry dates. It does not change."
+      required: [id, material_id, material_number, material_description, number, manufacture_date, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, readOnly: true, description: "The batch's id, which material documents name (`batch_id`)."}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        material_number: {type: string, description: "The material's number.", readOnly: true}
+        material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+        number: {type: string, description: "The batch's number, unique for its material.", readOnly: true}
+        manufacture_date: {type: string, format: date, description: "The day it was made.", readOnly: true}
+        expiry_date: {type: string, format: date, description: "The day it is to be used by; absent when it does not expire.", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true, description: "When it was created."}
+        created_by: {type: string, format: uuid, readOnly: true, description: "Who created it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          material_number: MA000007
+          material_description: Thread sealant 50 ml
+          number: L2026-1101
+          manufacture_date: "2026-11-01"
+          expiry_date: "2027-05-01"
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    BatchPage:
+      type: object
+      description: One page of batches.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Batch"}
+          description: The batches on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    BatchStock:
+      type: object
+      description: "The stock of a batch at a storage location of a plant (SAP MCHB's unrestricted stock), in its material's base unit."
+      required: [material_id, material_number, material_description, batch_id, batch_number, manufacture_date, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, legal_entity_id, company_code, quantity]
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        material_number: {type: string, description: "The material's number.", readOnly: true}
+        material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+        batch_id: {type: string, format: uuid, description: "The batch (`GET /v1/batches/{id}`).", readOnly: true}
+        batch_number: {type: string, description: "The batch's number.", readOnly: true}
+        manufacture_date: {type: string, format: date, description: "The day the batch was made.", readOnly: true}
+        expiry_date: {type: string, format: date, description: "The day it is to be used by; absent when it does not expire.", readOnly: true}
+        plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+        storage_location_id: {type: string, format: uuid, description: "The storage location.", readOnly: true}
+        storage_location_code: {type: string, description: "The storage location's code.", readOnly: true}
+        storage_location_name: {type: string, description: "The storage location's name, as it is now.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The batch's quantity in stock there, in the material's base unit.", readOnly: true}
+    BatchStockPage:
+      type: object
+      description: One page of stock by batch.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BatchStock"}
           description: The stock on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ReceivablesAgingBucket:

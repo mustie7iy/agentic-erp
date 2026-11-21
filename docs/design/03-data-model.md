@@ -6816,12 +6816,34 @@ erDiagram
   every line, so stock in transit is the receiving plant's valuated stock
   and no location's. No count blocks a line in transit
   (`count_posting_block` fires only on the others).
+- S2f (migrations 000421, 000422): `materials.material.batch_managed`
+  (SAP MARA's XCHPF, from memory), fixed once created (`material_fixed`).
+  `inventory.batch` (SAP MCH1, batch level material): a batch of a
+  material, its `number` 1 to 10 capitals, digits, `-` or `_`
+  (`batch_number_check`) once per material (`batch_number_once`), its
+  `manufacture_date` and its `expiry_date`, never before it
+  (`batch_dates`); insert-only. `inventory.movement.batch_id`: the batch a
+  line moves, one of its material (`movement_batch_fkey`, NOT VALID and
+  validated by 000422), never on a line in transit
+  (`movement_batch_not_in_transit`). `inventory.stock.batch_managed` and
+  `inventory.transit_stock.batch_managed`: whether the row's material is
+  batch-managed, written with the row and not updated by the application.
+  `inventory.batch_stock` (SAP MCHB): a batch's stock at a storage
+  location, written empty (`stock_from_movements`), once per material,
+  plant, storage location and batch (`batch_stock_once`), of a batch of
+  its material (`batch_stock_batch_fkey`), never below zero
+  (`batch_stock_not_negative`, 409 `inventory.insufficient_stock`).
+  `movement_stock` refuses a movement at a location that names a batch
+  where its stock row is not batch-managed, or none where it is, and one
+  in transit of a batch-managed material (`movement_batch`), and adds a
+  batch's line to its batch stock row, which must exist
+  (`movement_batch_stock`): the batches at a location add up to its stock.
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
   `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
   `inventory.count.post` and the approval permission
-  `inventory.difference.approve` (S2d).
+  `inventory.difference.approve` (S2d), `inventory.batch.write` (S2f).
 
 ## 3.36 Shipping (`shipping`)
 

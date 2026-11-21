@@ -21,7 +21,8 @@ const documentSelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number,
 		d.reference, (SELECT json_agg(json_build_object('line_no', m.line_no, 'item_no', m.item_no, 'material_id', m.material_id, 'plant_id', m.plant_id,
 				'storage_location_id', m.storage_location_id, 'quantity', trim_scale(m.quantity)::text,
 				'entry_quantity', trim_scale(m.entry_quantity)::text, 'entry_unit', m.entry_uom_code, 'cost_center_id', m.cost_center_id,
-				'amount', m.amount, 'difference', m.difference, 'in_transit', m.in_transit) ORDER BY m.line_no)
+				'amount', m.amount, 'difference', m.difference, 'in_transit', m.in_transit, 'batch_id', m.batch_id,
+				'batch_number', (SELECT b.number FROM inventory.batch b WHERE b.tenant_id = m.tenant_id AND b.id = m.batch_id)) ORDER BY m.line_no)
 			FROM inventory.movement m WHERE m.tenant_id = d.tenant_id AND m.material_document_id = d.id) AS lines
 	FROM inventory.material_document d
 	LEFT JOIN inventory.material_document o ON o.tenant_id = d.tenant_id AND o.id = d.reversal_of_id

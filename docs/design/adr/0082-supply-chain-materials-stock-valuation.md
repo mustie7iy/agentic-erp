@@ -1143,3 +1143,84 @@ reads a location's stock without a lock for shipping's picking.
 - **Not built** (Later, plan §S2h): partial issues and receipts,
   reversals (352, 102), cancelling an open order, a delivery between the
   plants, a list of stock in transit, intercompany transfers (S2i).
+
+### S2f (2026-11-20)
+
+- Migrations 000421 and 000422 (03 §3.35, S2f): `materials.material.batch_managed`,
+  `inventory.batch`, `inventory.batch_stock`, `inventory.movement.batch_id`
+  and the stock rows' `batch_managed`, under schema tests
+  (`db/batch_test.go`, the batch's trigger also as the owner, the down's
+  refusal); the permission `inventory.batch.write` (reads under
+  `inventory.stock.read`).
+- **Batch management is the material's, fixed once created**
+  (`batch_managed` on `POST /v1/materials`, SAP MARA's XCHPF, from
+  memory), as its base unit is (§7): SAP refuses changing it once stock
+  exists; here it never changes, the safer default. Only a material kept
+  in stock is batch-managed (422 `materials.batch_managed_not_stocked`).
+  It is on the material's create change for the approver and in
+  `MaterialChanged` (not required, ADR-0041). Plant-level batch
+  management (MARC's XCHAR) is Later. Decided by default.
+- **A batch is unique per material** (SAP's batch level "material", from
+  memory, rather than its default "plant"), so a transfer between plants
+  keeps its batch. `POST /v1/batches` (SAP MSC1N, human-only): its number
+  given by the request (a supplier's lot or the plant's; internal
+  numbering from a range is Later), 1 to 10 characters (CHARG, from
+  memory), its manufacture date, its expiry date optional (a lot that
+  does not expire) and never before it (422 `inventory.batch_dates`); the
+  material not pending (422 `inventory.material_not_usable`) and
+  batch-managed (422 `inventory.material_not_batch_managed`); a number
+  again 409 `inventory.batch_exists`. A batch is the tenant's, as its
+  material is, and does not change (dates and batch status Later).
+  Audited (`inventory.batch.create`); no event, as a batch moves no stock.
+  `GET /v1/batches` (material, number) and `/{id}`.
+- **Every movement of a batch-managed material names a batch of it**:
+  `POST /v1/material-documents` items take `batch_id` (422
+  `inventory.batch_required`, `inventory.batch_invalid`, and
+  `inventory.batch_not_allowed` for another material); a transfer (311,
+  301) receives the same batch (a transfer to another batch, SAP's 309,
+  is Later); a reversal moves its original's batches. The lines and
+  `MaterialDocumentPosted` (not required) name the batch by id and number.
+  **The flows that carry no batch yet refuse a batch-managed material**
+  at the flow's first step, so no document is created that cannot
+  complete (review round 1): a purchase order's stock item (422
+  `procurement.invalid_stock_item`, as it is created or changed), a new
+  quotation or sales order item (422 `sales.material_not_usable`; review
+  round 2) and, beneath it, an outbound delivery's item (422
+  `shipping.material_not_usable`), a stock
+  transport order (at its creation, `TransportQuantities`) and a count
+  document (at its creation; both 422 `inventory.batch_not_supported`,
+  which the goods receipt and goods issue also answer beneath), and the
+  SAP stock take-over (561 without a batch, `inventory.batch_required`),
+  each Later; a batch-managed material is created once no pre-S2f
+  version serves (a stock row an earlier version writes is not
+  batch-managed); the plan's slice names the
+  batch on movements and stock, which the person's goods movements
+  carry. Decided by default.
+- **Stock by batch beside the location's**, not a wider stock key:
+  `inventory.batch_stock` (SAP MCHB beside MARD), rather than the plan's
+  "stock key extended, expand-migrate-contract", so `inventory.stock` and
+  every reader of it (`GET /v1/stock`, `Held`, the counts, ATP's read)
+  stay as they are. The database adds a batch's movement to both rows
+  and refuses a movement whose batch does not match its stock row's
+  `batch_managed`, so the batches at a location add up to its stock
+  (`movement_batch`). The stock row carries the flag, written from the
+  material by the application as it writes the row, so the database
+  needs no read of the materials schema (02 §2.1).
+- **Locks:** a posting locks the valuations, then the locations' stock
+  rows, then the batch stock rows it moves (material, plant, storage
+  location, batch, as PostgreSQL orders uuids), writing an empty row for
+  a batch's first movement there, then checks each batch never goes below
+  zero in line order (409 `inventory.insufficient_stock` naming the
+  batch; `batch_stock_not_negative` beneath). The location's lock comes
+  first, so two postings of one location serialize as before
+  (`TestBatchIssuesAtOnce`).
+- `GET /v1/batch-stock` (material, plant, storage location, batch): each
+  batch's stock at a location now, with its dates; as at a date is Later.
+- Walkthrough step 148, `step_batches`.
+- **Not built** (Later, plan §S2f): batches in the purchase order's
+  goods receipt, the delivery's goods issue, stock transport orders,
+  counts and the SAP take-over; a batch created at goods receipt; internal
+  batch numbers; changing a batch's dates; batch status (restricted
+  stock); stock by batch as at a date; transfer to another batch (309);
+  expiry checks and batch determination (FEFO), classification,
+  where-used and recall.

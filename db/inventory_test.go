@@ -22,7 +22,7 @@ func TestInventoryPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "inventory.count.post inventory.count.write inventory.movement.post inventory.stock.read inventory.valuation.read inventory.valuation.write"; got != want {
+	if got, want := strings.Join(codes, " "), "inventory.batch.write inventory.count.post inventory.count.write inventory.movement.post inventory.stock.read inventory.valuation.read inventory.valuation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

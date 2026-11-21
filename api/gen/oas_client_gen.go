@@ -1315,6 +1315,18 @@ type Invoker interface {
 	//
 	// POST /v1/audit-evidence-exports
 	CreateAuditEvidenceExport(ctx context.Context, request *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (CreateAuditEvidenceExportRes, error)
+	// CreateBatch invokes createBatch operation.
+	//
+	// Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level
+	// material): its number, unique for the material (409 `inventory.batch_exists`), its manufacture date
+	// and its expiry date, not before it (422 `inventory.batch_dates`). The material is one of the
+	// tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`) and
+	// managed in batches (422 `inventory.material_not_batch_managed`). The batch is the tenant's, as its
+	// material is; its stock is moved by the material documents that name it (`batch_id`). Audited. A
+	// retry with the same `Idempotency-Key` answers the batch created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/batches
+	CreateBatch(ctx context.Context, request *BatchCreate, params CreateBatchParams) (CreateBatchRes, error)
 	// CreateBillingDocument invokes createBillingDocument operation.
 	//
 	// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
@@ -2140,8 +2152,12 @@ type Invoker interface {
 	// issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero
 	// or more, so items that move stock round a circle out of an empty location are refused though they
 	// change nothing in all. A material at a storage location an open physical inventory count document
-	// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is
-	// valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
+	// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). A
+	// batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
+	// `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
+	// receives the same batch, and a batch's stock at a location never goes below zero either (409
+	// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
+	// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
 	// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
 	// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
 	// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
@@ -2258,7 +2274,8 @@ type Invoker interface {
 	// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
 	// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
 	// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
-	// created. Human-only (`x-agent: false`).
+	// created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
@@ -2362,7 +2379,8 @@ type Invoker interface {
 	// posts it). The document is dated the company's date today in its time zone and numbered from its
 	// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
-	// answers the document created. Human-only (`x-agent: false`).
+	// answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
+	// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
 	//
 	// POST /v1/physical-inventory-documents
 	CreatePhysicalInventoryDocument(ctx context.Context, request *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error)
@@ -2483,7 +2501,8 @@ type Invoker interface {
 	// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
 	// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
 	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-	// (`x-agent: false`).
+	// (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -2733,7 +2752,9 @@ type Invoker interface {
 	// company's date today in its time zone, with a document number from the company's `sales_order`
 	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
 	// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a
+	// batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet
+	// (S2f).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
@@ -2874,7 +2895,8 @@ type Invoker interface {
 	// takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
 	// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
-	// created. Human-only (`x-agent: false`).
+	// created. Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
 	//
 	// POST /v1/stock-transport-orders
 	CreateStockTransportOrder(ctx context.Context, request *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error)
@@ -3651,6 +3673,13 @@ type Invoker interface {
 	//
 	// GET /v1/bank-statements/{id}/rules
 	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
+	// GetBatch invokes getBatch operation.
+	//
+	// One batch (ADR-0082 As built S2f) with its material by number and description, its number,
+	// manufacture date and expiry date. Its stock by location is `GET /v1/batch-stock?batch_id=`.
+	//
+	// GET /v1/batches/{id}
+	GetBatch(ctx context.Context, params GetBatchParams) (GetBatchRes, error)
 	// GetBillingDocument invokes getBillingDocument operation.
 	//
 	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
@@ -5539,6 +5568,24 @@ type Invoker interface {
 	//
 	// GET /v1/bank-statements
 	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
+	// ListBatchStock invokes listBatchStock operation.
+	//
+	// The stock of batches by plant and storage location in the companies the caller may act in (ADR-0082
+	// As built S2f; SAP MCHB, MMBE's batch view), now, in the material's base unit: the batches of a
+	// batch-managed material at a location add up to its stock there (`listStock`). A batch with no stock
+	// at a location is left out. Filtered by material, plant, storage location and batch; in the order
+	// each batch's stock was first moved. Sortable by: `created_at`.
+	//
+	// GET /v1/batch-stock
+	ListBatchStock(ctx context.Context, params ListBatchStockParams) (ListBatchStockRes, error)
+	// ListBatches invokes listBatches operation.
+	//
+	// The tenant's batches of batch-managed materials (ADR-0082 As built S2f; SAP MSC3N), each as
+	// `getBatch` gives it, the latest first. Filtered by material and by number. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/batches
+	ListBatches(ctx context.Context, params ListBatchesParams) (ListBatchesRes, error)
 	// ListBillingDocuments invokes listBillingDocuments operation.
 	//
 	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
@@ -7423,7 +7470,8 @@ type Invoker interface {
 	// with `reason`) of goods received on released or closed orders: never more than was received (409
 	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-	// are reversals.
+	// are reversals. A batch-managed material's stock item is refused (422
+	// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -7488,7 +7536,8 @@ type Invoker interface {
 	// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
 	// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 	// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-	// Human-only (`x-agent: false`).
+	// Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries/{id}:postGoodsIssue
 	PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error)
@@ -21499,6 +21548,142 @@ func (c *Client) sendCreateAuditEvidenceExport(ctx context.Context, request *Aud
 	return result, nil
 }
 
+// CreateBatch invokes createBatch operation.
+//
+// Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level
+// material): its number, unique for the material (409 `inventory.batch_exists`), its manufacture date
+// and its expiry date, not before it (422 `inventory.batch_dates`). The material is one of the
+// tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`) and
+// managed in batches (422 `inventory.material_not_batch_managed`). The batch is the tenant's, as its
+// material is; its stock is moved by the material documents that name it (`batch_id`). Audited. A
+// retry with the same `Idempotency-Key` answers the batch created. Human-only (`x-agent: false`).
+//
+// POST /v1/batches
+func (c *Client) CreateBatch(ctx context.Context, request *BatchCreate, params CreateBatchParams) (CreateBatchRes, error) {
+	res, err := c.sendCreateBatch(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateBatch(ctx context.Context, request *BatchCreate, params CreateBatchParams) (res CreateBatchRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createBatch"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/batches"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateBatchOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/batches"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateBatchRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateBatchOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateBatchResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateBillingDocument invokes createBillingDocument operation.
 //
 // Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
@@ -26894,8 +27079,12 @@ func (c *Client) sendCreateMaterial(ctx context.Context, request *MaterialCreate
 // issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero
 // or more, so items that move stock round a circle out of an empty location are refused though they
 // change nothing in all. A material at a storage location an open physical inventory count document
-// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is
-// valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
+// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). A
+// batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
+// `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
+// receives the same batch, and a batch's stock at a location never goes below zero either (409
+// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
+// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
 // `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
 // is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
 // stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
@@ -27756,7 +27945,8 @@ func (c *Client) sendCreateOrgUnit(ctx context.Context, request *OrgUnitCreate, 
 // `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
 // the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
 // published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
-// created. Human-only (`x-agent: false`).
+// created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
+// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
 //
 // POST /v1/outbound-deliveries
 func (c *Client) CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error) {
@@ -28480,7 +28670,8 @@ func (c *Client) sendCreatePersonalDataDeletionRun(ctx context.Context, request 
 // posts it). The document is dated the company's date today in its time zone and numbered from its
 // `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
-// answers the document created. Human-only (`x-agent: false`).
+// answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
+// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
 //
 // POST /v1/physical-inventory-documents
 func (c *Client) CreatePhysicalInventoryDocument(ctx context.Context, request *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error) {
@@ -29488,7 +29679,8 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 // §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
 // its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
 // the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-// (`x-agent: false`).
+// (`x-agent: false`). An item of a batch-managed material is refused (422
+// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
 //
 // POST /v1/quotations
 func (c *Client) CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error) {
@@ -31512,7 +31704,9 @@ func (c *Client) sendCreateRoleAssignment(ctx context.Context, request *RoleAssi
 // company's date today in its time zone, with a document number from the company's `sales_order`
 // number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
 // are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a
+// batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet
+// (S2f).
 //
 // POST /v1/sales-orders
 func (c *Client) CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error) {
@@ -32683,7 +32877,8 @@ func (c *Client) sendCreateStatisticalKeyFigurePosting(ctx context.Context, requ
 // takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
 // of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
-// created. Human-only (`x-agent: false`).
+// created. Human-only (`x-agent: false`). A batch-managed material is refused (422
+// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
 //
 // POST /v1/stock-transport-orders
 func (c *Client) CreateStockTransportOrder(ctx context.Context, request *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error) {
@@ -41396,6 +41591,138 @@ func (c *Client) sendGetBankStatementRules(ctx context.Context, params GetBankSt
 
 	stage = "DecodeResponse"
 	result, err := decodeGetBankStatementRulesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBatch invokes getBatch operation.
+//
+// One batch (ADR-0082 As built S2f) with its material by number and description, its number,
+// manufacture date and expiry date. Its stock by location is `GET /v1/batch-stock?batch_id=`.
+//
+// GET /v1/batches/{id}
+func (c *Client) GetBatch(ctx context.Context, params GetBatchParams) (GetBatchRes, error) {
+	res, err := c.sendGetBatch(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBatch(ctx context.Context, params GetBatchParams) (res GetBatchRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBatch"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/batches/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBatchOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/batches/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBatchOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBatchResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -66957,6 +67284,450 @@ func (c *Client) sendListBankStatements(ctx context.Context, params ListBankStat
 
 	stage = "DecodeResponse"
 	result, err := decodeListBankStatementsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBatchStock invokes listBatchStock operation.
+//
+// The stock of batches by plant and storage location in the companies the caller may act in (ADR-0082
+// As built S2f; SAP MCHB, MMBE's batch view), now, in the material's base unit: the batches of a
+// batch-managed material at a location add up to its stock there (`listStock`). A batch with no stock
+// at a location is left out. Filtered by material, plant, storage location and batch; in the order
+// each batch's stock was first moved. Sortable by: `created_at`.
+//
+// GET /v1/batch-stock
+func (c *Client) ListBatchStock(ctx context.Context, params ListBatchStockParams) (ListBatchStockRes, error) {
+	res, err := c.sendListBatchStock(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBatchStock(ctx context.Context, params ListBatchStockParams) (res ListBatchStockRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBatchStock"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/batch-stock"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBatchStockOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/batch-stock"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "storage_location_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "storage_location_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.StorageLocationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "batch_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "batch_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.BatchID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBatchStockOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBatchStockResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBatches invokes listBatches operation.
+//
+// The tenant's batches of batch-managed materials (ADR-0082 As built S2f; SAP MSC3N), each as
+// `getBatch` gives it, the latest first. Filtered by material and by number. Sortable by:
+// `created_at`.
+//
+// GET /v1/batches
+func (c *Client) ListBatches(ctx context.Context, params ListBatchesParams) (ListBatchesRes, error) {
+	res, err := c.sendListBatches(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBatches(ctx context.Context, params ListBatchesParams) (res ListBatchesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBatches"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/batches"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBatchesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/batches"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Number.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBatchesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBatchesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -104402,7 +105173,8 @@ func (c *Client) sendPostExpenseReport(ctx context.Context, request OptExpenseRe
 // with `reason`) of goods received on released or closed orders: never more than was received (409
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-// are reversals.
+// are reversals. A batch-managed material's stock item is refused (422
+// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
 //
 // POST /v1/goods-receipts
 func (c *Client) PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error) {
@@ -104715,7 +105487,8 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 // block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
 // more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 // SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-// Human-only (`x-agent: false`).
+// Human-only (`x-agent: false`). A batch-managed material is refused (422
+// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
 //
 // POST /v1/outbound-deliveries/{id}:postGoodsIssue
 func (c *Client) PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error) {

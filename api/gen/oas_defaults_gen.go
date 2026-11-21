@@ -136,6 +136,10 @@ func (s *MaterialCreate) setDefaults() {
 		val := bool(false)
 		s.ConfirmDuplicate.SetTo(val)
 	}
+	{
+		val := bool(false)
+		s.BatchManaged.SetTo(val)
+	}
 }
 
 // setDefaults set default value of fields.

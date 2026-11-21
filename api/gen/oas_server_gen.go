@@ -1294,6 +1294,18 @@ type Handler interface {
 	//
 	// POST /v1/audit-evidence-exports
 	CreateAuditEvidenceExport(ctx context.Context, req *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (CreateAuditEvidenceExportRes, error)
+	// CreateBatch implements createBatch operation.
+	//
+	// Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level
+	// material): its number, unique for the material (409 `inventory.batch_exists`), its manufacture date
+	// and its expiry date, not before it (422 `inventory.batch_dates`). The material is one of the
+	// tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`) and
+	// managed in batches (422 `inventory.material_not_batch_managed`). The batch is the tenant's, as its
+	// material is; its stock is moved by the material documents that name it (`batch_id`). Audited. A
+	// retry with the same `Idempotency-Key` answers the batch created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/batches
+	CreateBatch(ctx context.Context, req *BatchCreate, params CreateBatchParams) (CreateBatchRes, error)
 	// CreateBillingDocument implements createBillingDocument operation.
 	//
 	// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
@@ -2119,8 +2131,12 @@ type Handler interface {
 	// issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero
 	// or more, so items that move stock round a circle out of an empty location are refused though they
 	// change nothing in all. A material at a storage location an open physical inventory count document
-	// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is
-	// valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
+	// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). A
+	// batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
+	// `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
+	// receives the same batch, and a batch's stock at a location never goes below zero either (409
+	// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
+	// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
 	// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
 	// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
 	// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
@@ -2237,7 +2253,8 @@ type Handler interface {
 	// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
 	// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
 	// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
-	// created. Human-only (`x-agent: false`).
+	// created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, req *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
@@ -2341,7 +2358,8 @@ type Handler interface {
 	// posts it). The document is dated the company's date today in its time zone and numbered from its
 	// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
-	// answers the document created. Human-only (`x-agent: false`).
+	// answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
+	// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
 	//
 	// POST /v1/physical-inventory-documents
 	CreatePhysicalInventoryDocument(ctx context.Context, req *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error)
@@ -2462,7 +2480,8 @@ type Handler interface {
 	// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
 	// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
 	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-	// (`x-agent: false`).
+	// (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, req *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -2712,7 +2731,9 @@ type Handler interface {
 	// company's date today in its time zone, with a document number from the company's `sales_order`
 	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
 	// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a
+	// batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet
+	// (S2f).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
@@ -2853,7 +2874,8 @@ type Handler interface {
 	// takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
 	// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 	// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
-	// created. Human-only (`x-agent: false`).
+	// created. Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
 	//
 	// POST /v1/stock-transport-orders
 	CreateStockTransportOrder(ctx context.Context, req *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error)
@@ -3630,6 +3652,13 @@ type Handler interface {
 	//
 	// GET /v1/bank-statements/{id}/rules
 	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
+	// GetBatch implements getBatch operation.
+	//
+	// One batch (ADR-0082 As built S2f) with its material by number and description, its number,
+	// manufacture date and expiry date. Its stock by location is `GET /v1/batch-stock?batch_id=`.
+	//
+	// GET /v1/batches/{id}
+	GetBatch(ctx context.Context, params GetBatchParams) (GetBatchRes, error)
 	// GetBillingDocument implements getBillingDocument operation.
 	//
 	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
@@ -5518,6 +5547,24 @@ type Handler interface {
 	//
 	// GET /v1/bank-statements
 	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
+	// ListBatchStock implements listBatchStock operation.
+	//
+	// The stock of batches by plant and storage location in the companies the caller may act in (ADR-0082
+	// As built S2f; SAP MCHB, MMBE's batch view), now, in the material's base unit: the batches of a
+	// batch-managed material at a location add up to its stock there (`listStock`). A batch with no stock
+	// at a location is left out. Filtered by material, plant, storage location and batch; in the order
+	// each batch's stock was first moved. Sortable by: `created_at`.
+	//
+	// GET /v1/batch-stock
+	ListBatchStock(ctx context.Context, params ListBatchStockParams) (ListBatchStockRes, error)
+	// ListBatches implements listBatches operation.
+	//
+	// The tenant's batches of batch-managed materials (ADR-0082 As built S2f; SAP MSC3N), each as
+	// `getBatch` gives it, the latest first. Filtered by material and by number. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/batches
+	ListBatches(ctx context.Context, params ListBatchesParams) (ListBatchesRes, error)
 	// ListBillingDocuments implements listBillingDocuments operation.
 	//
 	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
@@ -7402,7 +7449,8 @@ type Handler interface {
 	// with `reason`) of goods received on released or closed orders: never more than was received (409
 	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-	// are reversals.
+	// are reversals. A batch-managed material's stock item is refused (422
+	// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -7467,7 +7515,8 @@ type Handler interface {
 	// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
 	// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 	// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-	// Human-only (`x-agent: false`).
+	// Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries/{id}:postGoodsIssue
 	PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error)

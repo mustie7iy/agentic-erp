@@ -93,6 +93,9 @@ func changeAPI(c MaterialChange, refs changeRefs) gen.MaterialChange {
 			req.AlternativeUnits[i] = gen.MaterialUnitInput{Unit: u.Code, Numerator: u.Numerator, Denominator: u.Denominator}
 		}
 	}
+	if r.BatchManaged != nil {
+		req.BatchManaged = gen.NewOptBool(*r.BatchManaged)
+	}
 	dups := make([]gen.MaterialDuplicate, len(c.PossibleDuplicates))
 	for i, d := range c.PossibleDuplicates {
 		dups[i] = gen.MaterialDuplicate{MaterialID: d.MaterialID, Number: d.Number, Description: d.Description}

@@ -16640,6 +16640,484 @@ func (s *BankStatusReport) SetReason(val OptString) {
 	s.Reason = val
 }
 
+// A batch (SAP MCH1): a lot of a batch-managed material, with its manufacture and expiry dates. It
+// does not change.
+// Ref: #/components/schemas/Batch
+type Batch struct {
+	// The batch's id, which material documents name (`batch_id`).
+	ID uuid.UUID `json:"id"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The batch's number, unique for its material.
+	Number string `json:"number"`
+	// The day it was made.
+	ManufactureDate time.Time `json:"manufacture_date"`
+	// The day it is to be used by; absent when it does not expire.
+	ExpiryDate OptDate `json:"expiry_date"`
+	// When it was created.
+	CreatedAt time.Time `json:"created_at"`
+	// Who created it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *Batch) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *Batch) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *Batch) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *Batch) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetNumber returns the value of Number.
+func (s *Batch) GetNumber() string {
+	return s.Number
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *Batch) GetManufactureDate() time.Time {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *Batch) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Batch) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Batch) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *Batch) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *Batch) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *Batch) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *Batch) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetNumber sets the value of Number.
+func (s *Batch) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *Batch) SetManufactureDate(val time.Time) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *Batch) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Batch) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Batch) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// A batch to create (ADR-0082 As built S2f): a lot of a batch-managed material.
+// Ref: #/components/schemas/BatchCreate
+type BatchCreate struct {
+	// The batch-managed material (`GET /v1/materials/{id}`, `batch_managed`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier
+	// or the plant gives it.
+	Number string `json:"number"`
+	// The day the batch was made.
+	ManufactureDate time.Time `json:"manufacture_date"`
+	// The day it is to be used by, not before its manufacture date; absent when it does not expire.
+	ExpiryDate OptDate `json:"expiry_date"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *BatchCreate) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetNumber returns the value of Number.
+func (s *BatchCreate) GetNumber() string {
+	return s.Number
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *BatchCreate) GetManufactureDate() time.Time {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *BatchCreate) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *BatchCreate) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *BatchCreate) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *BatchCreate) SetManufactureDate(val time.Time) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *BatchCreate) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
+// BatchHeaders wraps Batch with response headers.
+type BatchHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Batch
+}
+
+// GetETag returns the value of ETag.
+func (s *BatchHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BatchHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *BatchHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *BatchHeaders) GetResponse() Batch {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *BatchHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BatchHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *BatchHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BatchHeaders) SetResponse(val Batch) {
+	s.Response = val
+}
+
+func (*BatchHeaders) createBatchRes() {}
+
+// One page of batches.
+// Ref: #/components/schemas/BatchPage
+type BatchPage struct {
+	// The batches on this page.
+	Items []Batch `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BatchPage) GetItems() []Batch {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BatchPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BatchPage) SetItems(val []Batch) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BatchPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BatchPage) listBatchesRes() {}
+
+// The stock of a batch at a storage location of a plant (SAP MCHB's unrestricted stock), in its
+// material's base unit.
+// Ref: #/components/schemas/BatchStock
+type BatchStock struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The batch (`GET /v1/batches/{id}`).
+	BatchID uuid.UUID `json:"batch_id"`
+	// The batch's number.
+	BatchNumber string `json:"batch_number"`
+	// The day the batch was made.
+	ManufactureDate time.Time `json:"manufacture_date"`
+	// The day it is to be used by; absent when it does not expire.
+	ExpiryDate OptDate `json:"expiry_date"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The storage location.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The storage location's code.
+	StorageLocationCode string `json:"storage_location_code"`
+	// The storage location's name, as it is now.
+	StorageLocationName string `json:"storage_location_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The batch's quantity in stock there, in the material's base unit.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *BatchStock) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *BatchStock) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *BatchStock) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetBatchID returns the value of BatchID.
+func (s *BatchStock) GetBatchID() uuid.UUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *BatchStock) GetBatchNumber() string {
+	return s.BatchNumber
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *BatchStock) GetManufactureDate() time.Time {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *BatchStock) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *BatchStock) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *BatchStock) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *BatchStock) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *BatchStock) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *BatchStock) GetStorageLocationCode() string {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *BatchStock) GetStorageLocationName() string {
+	return s.StorageLocationName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BatchStock) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *BatchStock) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *BatchStock) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *BatchStock) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *BatchStock) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *BatchStock) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetBatchID sets the value of BatchID.
+func (s *BatchStock) SetBatchID(val uuid.UUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *BatchStock) SetBatchNumber(val string) {
+	s.BatchNumber = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *BatchStock) SetManufactureDate(val time.Time) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *BatchStock) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *BatchStock) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *BatchStock) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *BatchStock) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *BatchStock) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *BatchStock) SetStorageLocationCode(val string) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *BatchStock) SetStorageLocationName(val string) {
+	s.StorageLocationName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BatchStock) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *BatchStock) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *BatchStock) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of stock by batch.
+// Ref: #/components/schemas/BatchStockPage
+type BatchStockPage struct {
+	// The stock on this page.
+	Items []BatchStock `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BatchStockPage) GetItems() []BatchStock {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BatchStockPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BatchStockPage) SetItems(val []BatchStock) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BatchStockPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BatchStockPage) listBatchStockRes() {}
+
 // The cancellation of a billing document (ADR-0067, As built T79c): a document of its own, with the
 // customer credit memo that reversed a posted document's invoice.
 // Ref: #/components/schemas/BillingCancellation
@@ -27835,6 +28313,7 @@ func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
 func (*ConflictHeaders) createAssetTransferRes()                   {}
 func (*ConflictHeaders) createAuditEvidenceExportRes()             {}
+func (*ConflictHeaders) createBatchRes()                           {}
 func (*ConflictHeaders) createBillingDocumentRes()                 {}
 func (*ConflictHeaders) createBusinessPartnerRes()                 {}
 func (*ConflictHeaders) createCashExportRes()                      {}
@@ -34615,6 +35094,18 @@ func (*CreateAuditEvidenceExportPreconditionRequired) createAuditEvidenceExportR
 type CreateAuditEvidenceExportUnprocessableEntity Problem
 
 func (*CreateAuditEvidenceExportUnprocessableEntity) createAuditEvidenceExportRes() {}
+
+type CreateBatchBadRequest Problem
+
+func (*CreateBatchBadRequest) createBatchRes() {}
+
+type CreateBatchForbidden Problem
+
+func (*CreateBatchForbidden) createBatchRes() {}
+
+type CreateBatchUnprocessableEntity Problem
+
+func (*CreateBatchUnprocessableEntity) createBatchRes() {}
 
 type CreateBillingDocumentBadRequest Problem
 
@@ -50627,6 +51118,46 @@ func (*GetBankStatementRulesForbidden) getBankStatementRulesRes() {}
 type GetBankStatementRulesNotFound Problem
 
 func (*GetBankStatementRulesNotFound) getBankStatementRulesRes() {}
+
+type GetBatchBadRequest Problem
+
+func (*GetBatchBadRequest) getBatchRes() {}
+
+type GetBatchForbidden Problem
+
+func (*GetBatchForbidden) getBatchRes() {}
+
+type GetBatchNotFound Problem
+
+func (*GetBatchNotFound) getBatchRes() {}
+
+// GetBatchOKHeaders wraps Batch with response headers.
+type GetBatchOKHeaders struct {
+	ETag     OptString
+	Response Batch
+}
+
+// GetETag returns the value of ETag.
+func (s *GetBatchOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetBatchOKHeaders) GetResponse() Batch {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetBatchOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetBatchOKHeaders) SetResponse(val Batch) {
+	s.Response = val
+}
+
+func (*GetBatchOKHeaders) getBatchRes() {}
 
 type GetBillingDocumentBadRequest Problem
 
@@ -66870,6 +67401,22 @@ type ListBankStatementsForbidden Problem
 
 func (*ListBankStatementsForbidden) listBankStatementsRes() {}
 
+type ListBatchStockBadRequest Problem
+
+func (*ListBatchStockBadRequest) listBatchStockRes() {}
+
+type ListBatchStockForbidden Problem
+
+func (*ListBatchStockForbidden) listBatchStockRes() {}
+
+type ListBatchesBadRequest Problem
+
+func (*ListBatchesBadRequest) listBatchesRes() {}
+
+type ListBatchesForbidden Problem
+
+func (*ListBatchesForbidden) listBatchesRes() {}
+
 type ListBillingDocumentsBadRequest Problem
 
 func (*ListBillingDocumentsBadRequest) listBillingDocumentsRes() {}
@@ -69060,6 +69607,9 @@ type Material struct {
 	// `active`: usable. `blocked`: kept, but not to be used in new documents. Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// Whether the material is managed in batches (S2f): every goods movement of it names a batch of it. It
+	// does not change.
+	BatchManaged bool `json:"batch_managed"`
 	// Its pending material change (`GET /v1/material-changes/{id}`); absent when none is pending.
 	PendingChangeID OptUUID `json:"pending_change_id"`
 	// That change's number; absent when none is pending.
@@ -69143,6 +69693,11 @@ func (s *Material) GetMaterialGroup() string {
 // GetStatus returns the value of Status.
 func (s *Material) GetStatus() string {
 	return s.Status
+}
+
+// GetBatchManaged returns the value of BatchManaged.
+func (s *Material) GetBatchManaged() bool {
+	return s.BatchManaged
 }
 
 // GetPendingChangeID returns the value of PendingChangeID.
@@ -69238,6 +69793,11 @@ func (s *Material) SetMaterialGroup(val string) {
 // SetStatus sets the value of Status.
 func (s *Material) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetBatchManaged sets the value of BatchManaged.
+func (s *Material) SetBatchManaged(val bool) {
+	s.BatchManaged = val
 }
 
 // SetPendingChangeID sets the value of PendingChangeID.
@@ -69620,6 +70180,8 @@ type MaterialChangeRequested struct {
 	BaseUnit OptString `json:"base_unit"`
 	// The material type (a create's only).
 	MaterialType OptString `json:"material_type"`
+	// Whether the material is managed in batches (a create's only).
+	BatchManaged OptBool `json:"batch_managed"`
 	// The material group.
 	MaterialGroup OptString `json:"material_group"`
 	// The status, `active` or `blocked`.
@@ -69645,6 +70207,11 @@ func (s *MaterialChangeRequested) GetBaseUnit() OptString {
 // GetMaterialType returns the value of MaterialType.
 func (s *MaterialChangeRequested) GetMaterialType() OptString {
 	return s.MaterialType
+}
+
+// GetBatchManaged returns the value of BatchManaged.
+func (s *MaterialChangeRequested) GetBatchManaged() OptBool {
+	return s.BatchManaged
 }
 
 // GetMaterialGroup returns the value of MaterialGroup.
@@ -69680,6 +70247,11 @@ func (s *MaterialChangeRequested) SetBaseUnit(val OptString) {
 // SetMaterialType sets the value of MaterialType.
 func (s *MaterialChangeRequested) SetMaterialType(val OptString) {
 	s.MaterialType = val
+}
+
+// SetBatchManaged sets the value of BatchManaged.
+func (s *MaterialChangeRequested) SetBatchManaged(val OptBool) {
+	s.BatchManaged = val
 }
 
 // SetMaterialGroup sets the value of MaterialGroup.
@@ -69726,6 +70298,11 @@ type MaterialCreate struct {
 	// Create it though materials with its description exist: it is another material, and its approver sees
 	// them.
 	ConfirmDuplicate OptBool `json:"confirm_duplicate"`
+	// Manage the material in batches (ADR-0082 As built S2f; SAP's batch management requirement): every
+	// goods movement of it names a batch of it (`POST /v1/batches`), and its stock is kept by batch
+	// (`GET /v1/batch-stock`). Only a material kept in stock is (422 `materials.batch_managed_not_stocked`
+	// for `non_stock` and `service`). It does not change.
+	BatchManaged OptBool `json:"batch_managed"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -69773,6 +70350,11 @@ func (s *MaterialCreate) GetConfirmDuplicate() OptBool {
 	return s.ConfirmDuplicate
 }
 
+// GetBatchManaged returns the value of BatchManaged.
+func (s *MaterialCreate) GetBatchManaged() OptBool {
+	return s.BatchManaged
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *MaterialCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -69816,6 +70398,11 @@ func (s *MaterialCreate) SetReason(val OptString) {
 // SetConfirmDuplicate sets the value of ConfirmDuplicate.
 func (s *MaterialCreate) SetConfirmDuplicate(val OptBool) {
 	s.ConfirmDuplicate = val
+}
+
+// SetBatchManaged sets the value of BatchManaged.
+func (s *MaterialCreate) SetBatchManaged(val OptBool) {
+	s.BatchManaged = val
 }
 
 // A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted
@@ -70188,6 +70775,10 @@ type MaterialDocumentItemInput struct {
 	// What a `501` or `561` receipt is worth, in the company's local currency (S1d); absent: its quantity
 	// at the material's price. No other movement type names one.
 	Amount OptMoney `json:"amount"`
+	// The batch moved (`GET /v1/batches/{id}`), one of the item's material (422
+	// `inventory.batch_invalid`): named for a batch-managed material (422 `inventory.batch_required`) and
+	// for no other (422 `inventory.batch_not_allowed`; S2f). A transfer receives the same batch.
+	BatchID OptUUID `json:"batch_id"`
 }
 
 // GetMaterialID returns the value of MaterialID.
@@ -70230,6 +70821,11 @@ func (s *MaterialDocumentItemInput) GetAmount() OptMoney {
 	return s.Amount
 }
 
+// GetBatchID returns the value of BatchID.
+func (s *MaterialDocumentItemInput) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
 // SetMaterialID sets the value of MaterialID.
 func (s *MaterialDocumentItemInput) SetMaterialID(val uuid.UUID) {
 	s.MaterialID = val
@@ -70270,6 +70866,11 @@ func (s *MaterialDocumentItemInput) SetAmount(val OptMoney) {
 	s.Amount = val
 }
 
+// SetBatchID sets the value of BatchID.
+func (s *MaterialDocumentItemInput) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
 // A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the
 // material's base unit, signed (a receipt positive, an issue negative).
 // Ref: #/components/schemas/MaterialDocumentLine
@@ -70306,6 +70907,11 @@ type MaterialDocumentLine struct {
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// The cost center's code; absent with it.
 	CostCenterCode OptString `json:"cost_center_code"`
+	// The batch the line moves, of a batch-managed material (`GET /v1/batches/{id}`, S2f); absent on a
+	// line of another material.
+	BatchID OptUUID `json:"batch_id"`
+	// That batch's number; absent with it.
+	BatchNumber OptString `json:"batch_number"`
 	// Whether the line moves stock in transit to its storage location of its plant (a stock transport
 	// order's, S2h: into transit on its goods issue, 351, out of it on its goods receipt, 101) rather than
 	// the stock at that location; stock in transit is in the plant's valuation but in no location's stock
@@ -70392,6 +70998,16 @@ func (s *MaterialDocumentLine) GetCostCenterID() OptUUID {
 // GetCostCenterCode returns the value of CostCenterCode.
 func (s *MaterialDocumentLine) GetCostCenterCode() OptString {
 	return s.CostCenterCode
+}
+
+// GetBatchID returns the value of BatchID.
+func (s *MaterialDocumentLine) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *MaterialDocumentLine) GetBatchNumber() OptString {
+	return s.BatchNumber
 }
 
 // GetInTransit returns the value of InTransit.
@@ -70482,6 +71098,16 @@ func (s *MaterialDocumentLine) SetCostCenterID(val OptUUID) {
 // SetCostCenterCode sets the value of CostCenterCode.
 func (s *MaterialDocumentLine) SetCostCenterCode(val OptString) {
 	s.CostCenterCode = val
+}
+
+// SetBatchID sets the value of BatchID.
+func (s *MaterialDocumentLine) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *MaterialDocumentLine) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
 }
 
 // SetInTransit sets the value of InTransit.
@@ -119453,6 +120079,7 @@ func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()                   {}
 func (*TooManyRequestsHeaders) createAuditEvidenceExportRes()             {}
+func (*TooManyRequestsHeaders) createBatchRes()                           {}
 func (*TooManyRequestsHeaders) createBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()                 {}
 func (*TooManyRequestsHeaders) createCashExportRes()                      {}
@@ -119585,6 +120212,7 @@ func (*TooManyRequestsHeaders) getBankReconciliationRes()                 {}
 func (*TooManyRequestsHeaders) getBankStatementFileRes()                  {}
 func (*TooManyRequestsHeaders) getBankStatementRes()                      {}
 func (*TooManyRequestsHeaders) getBankStatementRulesRes()                 {}
+func (*TooManyRequestsHeaders) getBatchRes()                              {}
 func (*TooManyRequestsHeaders) getBillingDocumentRes()                    {}
 func (*TooManyRequestsHeaders) getBusinessPartnerRes()                    {}
 func (*TooManyRequestsHeaders) getCashActualsRes()                        {}
@@ -119743,6 +120371,8 @@ func (*TooManyRequestsHeaders) listBankFilesRes()                         {}
 func (*TooManyRequestsHeaders) listBankStatementMatchesRes()              {}
 func (*TooManyRequestsHeaders) listBankStatementPaymentsRes()             {}
 func (*TooManyRequestsHeaders) listBankStatementsRes()                    {}
+func (*TooManyRequestsHeaders) listBatchStockRes()                        {}
+func (*TooManyRequestsHeaders) listBatchesRes()                           {}
 func (*TooManyRequestsHeaders) listBillingDocumentsRes()                  {}
 func (*TooManyRequestsHeaders) listBusinessPartnersRes()                  {}
 func (*TooManyRequestsHeaders) listCashActualLinesRes()                   {}
@@ -120418,6 +121048,7 @@ func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
 func (*UnauthorizedHeaders) createAssetTransferRes()                   {}
 func (*UnauthorizedHeaders) createAuditEvidenceExportRes()             {}
+func (*UnauthorizedHeaders) createBatchRes()                           {}
 func (*UnauthorizedHeaders) createBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()                 {}
 func (*UnauthorizedHeaders) createCashExportRes()                      {}
@@ -120550,6 +121181,7 @@ func (*UnauthorizedHeaders) getBankReconciliationRes()                 {}
 func (*UnauthorizedHeaders) getBankStatementFileRes()                  {}
 func (*UnauthorizedHeaders) getBankStatementRes()                      {}
 func (*UnauthorizedHeaders) getBankStatementRulesRes()                 {}
+func (*UnauthorizedHeaders) getBatchRes()                              {}
 func (*UnauthorizedHeaders) getBillingDocumentRes()                    {}
 func (*UnauthorizedHeaders) getBusinessPartnerRes()                    {}
 func (*UnauthorizedHeaders) getCashActualsRes()                        {}
@@ -120708,6 +121340,8 @@ func (*UnauthorizedHeaders) listBankFilesRes()                         {}
 func (*UnauthorizedHeaders) listBankStatementMatchesRes()              {}
 func (*UnauthorizedHeaders) listBankStatementPaymentsRes()             {}
 func (*UnauthorizedHeaders) listBankStatementsRes()                    {}
+func (*UnauthorizedHeaders) listBatchStockRes()                        {}
+func (*UnauthorizedHeaders) listBatchesRes()                           {}
 func (*UnauthorizedHeaders) listBillingDocumentsRes()                  {}
 func (*UnauthorizedHeaders) listBusinessPartnersRes()                  {}
 func (*UnauthorizedHeaders) listCashActualLinesRes()                   {}

@@ -32,7 +32,8 @@ func documentAPI(d Document, r refs) gen.MaterialDocument {
 		line := gen.MaterialDocumentLine{LineNo: int32(l.LineNo), ItemNo: int32(l.ItemNo), MaterialID: l.MaterialID, MaterialNumber: m.Number,
 			MaterialDescription: m.Description, PlantID: l.PlantID, PlantCode: plant.Code, PlantName: plant.Name, StorageLocationID: l.StorageLocationID,
 			StorageLocationCode: loc.Code, StorageLocationName: loc.Name, Quantity: gen.Quantity{Value: l.Quantity, Unit: m.BaseUnit},
-			EntryQuantity: gen.Quantity{Value: l.EntryQuantity, Unit: l.EntryUnit}, CostCenterID: apitypes.OptUUID(l.CostCenterID), InTransit: l.InTransit}
+			EntryQuantity: gen.Quantity{Value: l.EntryQuantity, Unit: l.EntryUnit}, CostCenterID: apitypes.OptUUID(l.CostCenterID), InTransit: l.InTransit,
+			BatchID: apitypes.OptUUID(l.BatchID), BatchNumber: apitypes.OptString(l.BatchNumber)}
 		if l.CostCenterID != nil {
 			line.CostCenterCode = gen.NewOptString(r.centers[*l.CostCenterID].Code)
 		}
@@ -67,7 +68,7 @@ func (e *Endpoints) CreateMaterialDocument(ctx context.Context, req *gen.Materia
 	for i, it := range req.Items {
 		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity.Value,
 			Unit: it.Quantity.Unit, CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID), ToPlantID: apitypes.Ptr[uuid.UUID](it.ToPlantID),
-			ToStorageLocationID: apitypes.Ptr[uuid.UUID](it.ToStorageLocationID)}
+			ToStorageLocationID: apitypes.Ptr[uuid.UUID](it.ToStorageLocationID), BatchID: apitypes.Ptr[uuid.UUID](it.BatchID)}
 		if a, ok := it.Amount.Get(); ok {
 			items[i].Amount = &Amount{Value: a.Amount, Currency: a.Currency}
 		}

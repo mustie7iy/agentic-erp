@@ -15205,6 +15205,214 @@ func (s *Server) handleCreateAuditEvidenceExportRequest(args [0]string, argsEsca
 	}
 }
 
+// handleCreateBatchRequest handles createBatch operation.
+//
+// Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level
+// material): its number, unique for the material (409 `inventory.batch_exists`), its manufacture date
+// and its expiry date, not before it (422 `inventory.batch_dates`). The material is one of the
+// tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`) and
+// managed in batches (422 `inventory.material_not_batch_managed`). The batch is the tenant's, as its
+// material is; its stock is moved by the material documents that name it (`batch_id`). Audited. A
+// retry with the same `Idempotency-Key` answers the batch created. Human-only (`x-agent: false`).
+//
+// POST /v1/batches
+func (s *Server) handleCreateBatchRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createBatch"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/batches"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateBatchOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateBatchOperation,
+			ID:   "createBatch",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateBatchOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateBatchParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateBatchRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateBatchRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateBatchOperation,
+			OperationSummary: "Create a batch",
+			OperationID:      "createBatch",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *BatchCreate
+			Params   = CreateBatchParams
+			Response = CreateBatchRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateBatchParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateBatch(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateBatch(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateBatchResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateBillingDocumentRequest handles createBillingDocument operation.
 //
 // Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
@@ -23110,8 +23318,12 @@ func (s *Server) handleCreateMaterialRequest(args [0]string, argsEscaped bool, w
 // issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero
 // or more, so items that move stock round a circle out of an empty location are refused though they
 // change nothing in all. A material at a storage location an open physical inventory count document
-// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is
-// valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
+// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). A
+// batch-managed material's item names a batch of it (`batch_id`, S2f; 422 `inventory.batch_required`,
+// `inventory.batch_invalid`), another material's none (422 `inventory.batch_not_allowed`); a transfer
+// receives the same batch, and a batch's stock at a location never goes below zero either (409
+// `inventory.insufficient_stock`, naming the batch), so a location's batches add up to its stock.
+// Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
 // `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
 // is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
 // stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
@@ -24404,7 +24616,8 @@ func (s *Server) handleCreateOrgUnitRequest(args [0]string, argsEscaped bool, w 
 // `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
 // the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
 // published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
-// created. Human-only (`x-agent: false`).
+// created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
+// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
 //
 // POST /v1/outbound-deliveries
 func (s *Server) handleCreateOutboundDeliveryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -25488,7 +25701,8 @@ func (s *Server) handleCreatePersonalDataDeletionRunRequest(args [0]string, args
 // posts it). The document is dated the company's date today in its time zone and numbered from its
 // `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
-// answers the document created. Human-only (`x-agent: false`).
+// answers the document created. Human-only (`x-agent: false`). A batch-managed material is refused
+// (422 `inventory.batch_not_supported`): a count by batch is not built yet (S2f).
 //
 // POST /v1/physical-inventory-documents
 func (s *Server) handleCreatePhysicalInventoryDocumentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -26985,7 +27199,8 @@ func (s *Server) handleCreatePurchaseOrderChangeRequest(args [1]string, argsEsca
 // §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
 // its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
 // the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-// (`x-agent: false`).
+// (`x-agent: false`). An item of a batch-managed material is refused (422
+// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
 //
 // POST /v1/quotations
 func (s *Server) handleCreateQuotationRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -29987,7 +30202,9 @@ func (s *Server) handleCreateRoleAssignmentRequest(args [0]string, argsEscaped b
 // company's date today in its time zone, with a document number from the company's `sales_order`
 // number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
 // are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a
+// batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet
+// (S2f).
 //
 // POST /v1/sales-orders
 func (s *Server) handleCreateSalesOrderRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -31704,7 +31921,8 @@ func (s *Server) handleCreateStatisticalKeyFigurePostingRequest(args [1]string, 
 // takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
 // of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
 // `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
-// created. Human-only (`x-agent: false`).
+// created. Human-only (`x-agent: false`). A batch-managed material is refused (422
+// `inventory.batch_not_supported`): a stock transport order carries no batch yet (S2f).
 //
 // POST /v1/stock-transport-orders
 func (s *Server) handleCreateStockTransportOrderRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -43142,6 +43360,194 @@ func (s *Server) handleGetBankStatementRulesRequest(args [1]string, argsEscaped 
 	}
 
 	if err := encodeGetBankStatementRulesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetBatchRequest handles getBatch operation.
+//
+// One batch (ADR-0082 As built S2f) with its material by number and description, its number,
+// manufacture date and expiry date. Its stock by location is `GET /v1/batch-stock?batch_id=`.
+//
+// GET /v1/batches/{id}
+func (s *Server) handleGetBatchRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBatch"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/batches/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetBatchOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetBatchOperation,
+			ID:   "getBatch",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetBatchOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetBatchParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetBatchRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetBatchOperation,
+			OperationSummary: "Get a batch",
+			OperationID:      "getBatch",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetBatchParams
+			Response = GetBatchRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetBatchParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetBatch(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetBatch(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetBatchResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -74543,6 +74949,426 @@ func (s *Server) handleListBankStatementsRequest(args [0]string, argsEscaped boo
 	}
 
 	if err := encodeListBankStatementsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListBatchStockRequest handles listBatchStock operation.
+//
+// The stock of batches by plant and storage location in the companies the caller may act in (ADR-0082
+// As built S2f; SAP MCHB, MMBE's batch view), now, in the material's base unit: the batches of a
+// batch-managed material at a location add up to its stock there (`listStock`). A batch with no stock
+// at a location is left out. Filtered by material, plant, storage location and batch; in the order
+// each batch's stock was first moved. Sortable by: `created_at`.
+//
+// GET /v1/batch-stock
+func (s *Server) handleListBatchStockRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBatchStock"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/batch-stock"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListBatchStockOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListBatchStockOperation,
+			ID:   "listBatchStock",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListBatchStockOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListBatchStockParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListBatchStockRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListBatchStockOperation,
+			OperationSummary: "List stock by batch",
+			OperationID:      "listBatchStock",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
+				{
+					Name: "plant_id",
+					In:   "query",
+				}: params.PlantID,
+				{
+					Name: "storage_location_id",
+					In:   "query",
+				}: params.StorageLocationID,
+				{
+					Name: "batch_id",
+					In:   "query",
+				}: params.BatchID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListBatchStockParams
+			Response = ListBatchStockRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListBatchStockParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListBatchStock(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListBatchStock(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListBatchStockResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListBatchesRequest handles listBatches operation.
+//
+// The tenant's batches of batch-managed materials (ADR-0082 As built S2f; SAP MSC3N), each as
+// `getBatch` gives it, the latest first. Filtered by material and by number. Sortable by:
+// `created_at`.
+//
+// GET /v1/batches
+func (s *Server) handleListBatchesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBatches"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/batches"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListBatchesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListBatchesOperation,
+			ID:   "listBatches",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListBatchesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListBatchesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListBatchesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListBatchesOperation,
+			OperationSummary: "List batches",
+			OperationID:      "listBatches",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
+				{
+					Name: "number",
+					In:   "query",
+				}: params.Number,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListBatchesParams
+			Response = ListBatchesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListBatchesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListBatches(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListBatches(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListBatchesResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -109984,7 +110810,8 @@ func (s *Server) handlePostExpenseReportRequest(args [1]string, argsEscaped bool
 // with `reason`) of goods received on released or closed orders: never more than was received (409
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-// are reversals.
+// are reversals. A batch-managed material's stock item is refused (422
+// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f).
 //
 // POST /v1/goods-receipts
 func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -110441,7 +111268,8 @@ func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool,
 // block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
 // more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
 // SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-// Human-only (`x-agent: false`).
+// Human-only (`x-agent: false`). A batch-managed material is refused (422
+// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f).
 //
 // POST /v1/outbound-deliveries/{id}:postGoodsIssue
 func (s *Server) handlePostOutboundDeliveryGoodsIssueRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

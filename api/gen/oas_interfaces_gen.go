@@ -281,6 +281,10 @@ type CreateAuditEvidenceExportRes interface {
 	createAuditEvidenceExportRes()
 }
 
+type CreateBatchRes interface {
+	createBatchRes()
+}
+
 type CreateBillingDocumentRes interface {
 	createBillingDocumentRes()
 }
@@ -807,6 +811,10 @@ type GetBankStatementRes interface {
 
 type GetBankStatementRulesRes interface {
 	getBankStatementRulesRes()
+}
+
+type GetBatchRes interface {
+	getBatchRes()
 }
 
 type GetBillingDocumentRes interface {
@@ -1439,6 +1447,14 @@ type ListBankStatementPaymentsRes interface {
 
 type ListBankStatementsRes interface {
 	listBankStatementsRes()
+}
+
+type ListBatchStockRes interface {
+	listBatchStockRes()
+}
+
+type ListBatchesRes interface {
+	listBatchesRes()
 }
 
 type ListBillingDocumentsRes interface {
