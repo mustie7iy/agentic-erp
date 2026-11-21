@@ -326,11 +326,9 @@ func (s stockLeft) confirm(it OrderItem, m materials.Material) promise {
 	return p
 }
 
-// writePromises writes the checked items' confirmed quantities.
+// writePromises writes the checked items' confirmed quantities, of which
+// availability has at least one.
 func writePromises(ctx context.Context, tx pgx.Tx, o Order, ps []promise) error {
-	if len(ps) == 0 {
-		return nil
-	}
 	nos, quantities := make([]int32, len(ps)), make([]string, len(ps))
 	for i, p := range ps {
 		nos[i], quantities[i] = p.item.ItemNo, p.confirmed

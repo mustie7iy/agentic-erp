@@ -272,7 +272,13 @@ func TestChangeAndConfirmationRace(t *testing.T) {
 	e := setup(t)
 	changed, _ := e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "2 BOX"))
 	_, tag := e.confirmedNow(t, changed)
-	other := e.placedAt(t, e.p1, e.ofMaterial(e.bracket, "10 BOX"))
+	// Another customer's order, so the credit check's lock on a customer does not serialize the two.
+	contoso := e.Customer(t, "BP70000003", "Contoso")
+	pgtest.Exec(t, `INSERT INTO partner.customer_company (tenant_id, partner_id, legal_entity_id, reconciliation_account_id, payment_term_code, created_by,
+		updated_by) VALUES ($1, $2, $3, $4, 'NT30', $5, $5)`, e.Tenant.ID, contoso, e.DE, e.Account(t, "2000", "120000"), e.Tenant.Human.ID)
+	o, _ := e.Must(201, "POST", "/v1/sales-orders", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "currency": "EUR", "plant_id": %q,
+		"items": [%s]}`, e.DE, contoso, e.p1, e.ofMaterial(e.bracket, "10 BOX")), "")
+	other := o["id"].(string)
 	h := salesEndpoints(t)
 	var raised, second string
 	errA, errB := apitest.Serialized(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
@@ -302,13 +308,16 @@ func TestChangeAndConfirmationRace(t *testing.T) {
 // is confirmed; a removed item's promise is free for the next order.
 func TestAvailabilityOfAnOrdersOwnItems(t *testing.T) {
 	e := setup(t)
-	id, got := e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "6 BOX"), e.ofMaterial(e.bracket, "6 BOX"))
-	if c := confirmedOf(t, got); c != "6 BOX, 4 BOX" {
-		t.Errorf("two items of the bracket: got %s, want 6 BOX and the 4 left", c)
+	hinge := e.material(t, "Hinge H20", "trading_good")
+	e.value(t, hinge, "3000", "moving_average", "2.00")
+	e.receiveOf(t, hinge, "5")
+	id, got := e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "6 BOX"), e.ofMaterial(hinge, "8 EA"), e.ofMaterial(e.bracket, "6 BOX"))
+	if c := confirmedOf(t, got); c != "6 BOX, 5 EA, 4 BOX" {
+		t.Errorf("two items of the bracket and one of the hinge: got %s, want 6 BOX, the 5 hinges there and the 4 BOX left", c)
 	}
 	_, tag := e.confirmedNow(t, id)
-	got, _ = e.Must(200, "POST", "/v1/sales-orders/"+id+":change", `{"items": [{"item_no": 2, "unit_price": {"amount": "2.00", "currency": "EUR"}}]}`, tag)
-	if c := confirmedOf(t, got); c != "6 BOX, 4 BOX" {
+	got, _ = e.Must(200, "POST", "/v1/sales-orders/"+id+":change", `{"items": [{"item_no": 3, "unit_price": {"amount": "2.00", "currency": "EUR"}}]}`, tag)
+	if c := confirmedOf(t, got); c != "6 BOX, 5 EA, 4 BOX" {
 		t.Errorf("a change of price: got %s, want what was confirmed", c)
 	}
 	_, tag = e.confirmedNow(t, id)

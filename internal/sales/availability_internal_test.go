@@ -1,13 +1,17 @@
 package sales
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // TestConfirm: an item is confirmed as far as its material is available,
@@ -57,5 +61,15 @@ func TestConfirm(t *testing.T) {
 				t.Errorf("unknown: got %v, want %v", s.unknown[m.ID], c.wantUnknownAfterTake)
 			}
 		})
+	}
+}
+
+// TestConfirmedRuleAnswered: the database's refusal of a delivery beyond
+// what an item confirmed (sales_order_item_confirmed) is answered as the
+// application's own refusal, 409 sales.exceeds_open_quantity.
+func TestConfirmedRuleAnswered(t *testing.T) {
+	p := problem.From(fmt.Errorf("insert: %w", &pgconn.PgError{Code: "23514", ConstraintName: "sales_order_item_confirmed"}))
+	if p == nil || p.Status != 409 || p.Code != "sales.exceeds_open_quantity" {
+		t.Errorf("got %+v, want 409 sales.exceeds_open_quantity", p)
 	}
 }
