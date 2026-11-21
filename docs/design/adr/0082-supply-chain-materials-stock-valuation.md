@@ -1271,7 +1271,9 @@ reads a location's stock without a lock for shipping's picking.
   blocked for credit keeps its confirmation, which counts.
 - **Two orders racing for the last quantity confirm it once**: the check
   takes a transaction advisory lock per material and plant
-  (`sales.availability:<tenant>:<plant>:<material>`), in the materials'
+  (`sales.availability:<tenant>:<plant>:<material>`, through
+  `database.LockTenant`, the platform's helper since batch 86's
+  integration), in the materials'
   uuid order, after the order's row lock and the credit check's customer
   lock, which every caller takes in that order; a goods issue takes none
   of them, so no cycle (`TestChangeAndConfirmationRace` proves a change

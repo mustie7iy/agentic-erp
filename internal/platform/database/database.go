@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -251,6 +252,30 @@ func ms(d time.Duration) string { return fmt.Sprintf("%dms", d.Milliseconds()) }
 func SetActor(ctx context.Context, tx pgx.Tx, actor uuid.UUID) error {
 	if _, err := tx.Exec(ctx, "SELECT set_config('app.actor_id', $1, true)", actor.String()); err != nil {
 		return fmt.Errorf("database: actor: %w", err)
+	}
+	return nil
+}
+
+// LockTenant takes the transaction's advisory lock named by name and
+// parts within the transaction's tenant, and holds it to commit or
+// rollback (ADR-0008): a check that no row lock can guard, such as what
+// is left to promise of a material at a plant, serializes on it. The key
+// is "<name>:<tenant>:<part>:<part>…", hashed by hashtextextended, as the
+// call sites that build it in SQL write it, so a caller moved to this
+// helper keeps waiting for the ones that have not moved. The tenant is
+// the transaction's (platform.require_tenant(), which refuses a
+// transaction without one), never the caller's input, so two tenants
+// never wait for each other (ADR-0003). A caller that takes several
+// takes them in one fixed order, so two transactions never wait on each
+// other in a cycle.
+func LockTenant(ctx context.Context, tx pgx.Tx, name string, parts ...string) error {
+	var suffix strings.Builder
+	for _, part := range parts {
+		suffix.WriteString(":" + part)
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || platform.require_tenant() || $2::text, 0))`,
+		name, suffix.String()); err != nil {
+		return fmt.Errorf("database: advisory lock %s%s: %w", name, suffix.String(), err)
 	}
 	return nil
 }

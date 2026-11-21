@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -168,8 +169,7 @@ func (e *Endpoints) checkPlan(ctx context.Context, items []OrderItem, check func
 // them waits for an order or a customer.
 func lockMaterials(ctx context.Context, tx pgx.Tx, plant uuid.UUID, ids []uuid.UUID) error {
 	for _, m := range ids {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('sales.availability:' || platform.require_tenant() || ':'
-				|| $1::text || ':' || $2::text, 0))`, plant, m); err != nil {
+		if err := database.LockTenant(ctx, tx, "sales.availability", plant.String(), m.String()); err != nil {
 			return fmt.Errorf("sales: lock material %s at plant %s: %w", m, plant, err)
 		}
 	}
