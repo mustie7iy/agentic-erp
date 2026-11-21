@@ -110,6 +110,9 @@ func start(w operations.Waiting, queue string) workflow.Start {
 	case ConsolidateKind:
 		return workflow.Start{ID: ConsolidationWorkflowID(w.TenantID, w.Resource), Queue: queue, Name: ConsolidationWorkflow,
 			Args: []any{ConsolidationInput{TenantID: w.TenantID, RunID: w.Resource, OperationID: w.ID}}}
+	case MrpKind:
+		return workflow.Start{ID: MrpWorkflowID(w.TenantID, w.Resource), Queue: queue, Name: MrpWorkflow,
+			Args: []any{MrpInput{TenantID: w.TenantID, RunID: w.Resource, OperationID: w.ID}}}
 	case EInvoiceFetchKind:
 		return workflow.Start{ID: EInvoiceFetchWorkflowID(w.TenantID, w.ID), Queue: queue, Name: EInvoiceFetchWorkflow,
 			Args: []any{EInvoiceFetchInput{TenantID: w.TenantID, ConnectorID: w.Resource, OperationID: w.ID}}}
@@ -277,11 +280,11 @@ func (d *Dispatcher) startPeriodic(ctx context.Context, p periodic, done *time.T
 
 // queued reads the operations waiting for a workflow: payment proposals
 // and releases, configuration simulations, migrations and reconciliations,
-// each listed by the context that owns its resource, and depreciation and
-// consolidation runs and e-invoice fetches, sends and tax data requests,
-// whose leaf contexts' tables the dispatcher may not read, from their
-// operations alone (ADR-0057 §7, ADR-0059 §6, ADR-0061 §4 and As built E3,
-// E4), in the order they were queued (operation ids are UUIDv7, and PostgreSQL orders uuids by
+// each listed by the context that owns its resource, and depreciation,
+// consolidation and planning runs and e-invoice fetches, sends and tax
+// data requests, whose leaf contexts' tables the dispatcher may not read,
+// from their operations alone (ADR-0057 §7, ADR-0059 §6, ADR-0061 §4 and
+// As built E3, E4, ADR-0084 §3), in the order they were queued (operation ids are UUIDv7, and PostgreSQL orders uuids by
 // their bytes, as bytes.Compare does).
 func queued(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 	var jobs []operations.Waiting
@@ -300,8 +303,11 @@ func queued(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 	requests := func(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 		return operations.QueuedOf(ctx, tx, EInvoiceTaxDataKind)
 	}
+	plans := func(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
+		return operations.QueuedOf(ctx, tx, MrpKind)
+	}
 	for _, list := range []func(context.Context, pgx.Tx) ([]operations.Waiting, error){payments.Queued, configuration.QueuedSimulations, integration.QueuedRuns,
-		depreciations, consolidations, fetches, sends, requests} {
+		depreciations, consolidations, fetches, sends, requests, plans} {
 		more, err := list(ctx, tx)
 		if err != nil {
 			return nil, fmt.Errorf("dispatcher: reading queued operations: %w", err)
@@ -496,7 +502,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 // activities' pool, role and Begin (a test's failures injected there
 // reach it too, as intended: it is the same database).
 func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements, rc *Recurrences, sn *Snapshots, d *Depreciations,
-	c *Consolidations, e *EInvoiceFetches, es *EInvoiceSenders) {
+	c *Consolidations, e *EInvoiceFetches, es *EInvoiceSenders, mr *Mrps) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
 	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
 	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
@@ -525,4 +531,6 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterActivity(e)
 	r.RegisterWorkflowWithOptions(SendEInvoice, sdkworkflow.RegisterOptions{Name: EInvoiceSendWorkflow})
 	r.RegisterActivity(es)
+	r.RegisterWorkflowWithOptions(MrpRun, sdkworkflow.RegisterOptions{Name: MrpWorkflow})
+	r.RegisterActivity(mr)
 }

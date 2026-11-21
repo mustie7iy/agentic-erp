@@ -28350,6 +28350,7 @@ func (*ConflictHeaders) createLeaseContractRes()                   {}
 func (*ConflictHeaders) createLeaseRunRes()                        {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMaterialDocumentRes()                {}
+func (*ConflictHeaders) createMaterialPlanRes()                    {}
 func (*ConflictHeaders) createMaterialRes()                        {}
 func (*ConflictHeaders) createMaterialValuationRes()               {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
@@ -28563,6 +28564,7 @@ func (*ConflictHeaders) simulateChangeRequestRes()                 {}
 func (*ConflictHeaders) startAgentSessionRes()                     {}
 func (*ConflictHeaders) startDepreciationRunRes()                  {}
 func (*ConflictHeaders) startMigrationRunRes()                     {}
+func (*ConflictHeaders) startMrpRunRes()                           {}
 func (*ConflictHeaders) submitChangeRequestRes()                   {}
 func (*ConflictHeaders) submitPaymentRunRes()                      {}
 func (*ConflictHeaders) submitPurchaseOrderChangeRes()             {}
@@ -35803,6 +35805,18 @@ func (*CreateMaterialDocumentUnprocessableEntity) createMaterialDocumentRes() {}
 type CreateMaterialForbidden Problem
 
 func (*CreateMaterialForbidden) createMaterialRes() {}
+
+type CreateMaterialPlanBadRequest Problem
+
+func (*CreateMaterialPlanBadRequest) createMaterialPlanRes() {}
+
+type CreateMaterialPlanForbidden Problem
+
+func (*CreateMaterialPlanForbidden) createMaterialPlanRes() {}
+
+type CreateMaterialPlanUnprocessableEntity Problem
+
+func (*CreateMaterialPlanUnprocessableEntity) createMaterialPlanRes() {}
 
 type CreateMaterialPreconditionRequired Problem
 
@@ -52835,6 +52849,47 @@ func (s *GetMaterialOKHeaders) SetResponse(val Material) {
 
 func (*GetMaterialOKHeaders) getMaterialRes() {}
 
+type GetMaterialPlanBadRequest Problem
+
+func (*GetMaterialPlanBadRequest) getMaterialPlanRes() {}
+
+type GetMaterialPlanForbidden Problem
+
+func (*GetMaterialPlanForbidden) getMaterialPlanRes() {}
+
+type GetMaterialPlanNotFound Problem
+
+func (*GetMaterialPlanNotFound) getMaterialPlanRes() {}
+
+// GetMaterialPlanOKHeaders wraps MaterialPlan with response headers.
+type GetMaterialPlanOKHeaders struct {
+	ETag     OptString
+	Response MaterialPlan
+}
+
+// GetETag returns the value of ETag.
+func (s *GetMaterialPlanOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetMaterialPlanOKHeaders) GetResponse() MaterialPlan {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetMaterialPlanOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetMaterialPlanOKHeaders) SetResponse(val MaterialPlan) {
+	s.Response = val
+}
+
+func (*GetMaterialPlanOKHeaders) getMaterialPlanRes()    {}
+func (*GetMaterialPlanOKHeaders) updateMaterialPlanRes() {}
+
 type GetMaterialValuationBadRequest Problem
 
 func (*GetMaterialValuationBadRequest) getMaterialValuationRes() {}
@@ -53011,6 +53066,18 @@ func (s *GetMigrationRunOKHeaders) SetResponse(val MigrationRun) {
 }
 
 func (*GetMigrationRunOKHeaders) getMigrationRunRes() {}
+
+type GetMrpRunBadRequest Problem
+
+func (*GetMrpRunBadRequest) getMrpRunRes() {}
+
+type GetMrpRunForbidden Problem
+
+func (*GetMrpRunForbidden) getMrpRunRes() {}
+
+type GetMrpRunNotFound Problem
+
+func (*GetMrpRunNotFound) getMrpRunRes() {}
 
 type GetNumberRangeBadRequest Problem
 
@@ -68080,6 +68147,14 @@ type ListMaterialDocumentsForbidden Problem
 
 func (*ListMaterialDocumentsForbidden) listMaterialDocumentsRes() {}
 
+type ListMaterialPlansBadRequest Problem
+
+func (*ListMaterialPlansBadRequest) listMaterialPlansRes() {}
+
+type ListMaterialPlansForbidden Problem
+
+func (*ListMaterialPlansForbidden) listMaterialPlansRes() {}
+
 type ListMaterialValuationsBadRequest Problem
 
 func (*ListMaterialValuationsBadRequest) listMaterialValuationsRes() {}
@@ -68127,6 +68202,14 @@ func (*ListMigrationRunsBadRequest) listMigrationRunsRes() {}
 type ListMigrationRunsForbidden Problem
 
 func (*ListMigrationRunsForbidden) listMigrationRunsRes() {}
+
+type ListMrpRunsBadRequest Problem
+
+func (*ListMrpRunsBadRequest) listMrpRunsRes() {}
+
+type ListMrpRunsForbidden Problem
+
+func (*ListMrpRunsForbidden) listMrpRunsRes() {}
 
 type ListNumberRangesBadRequest Problem
 
@@ -71376,6 +71459,418 @@ func (s *MaterialPage) SetNextPageToken(val OptString) {
 }
 
 func (*MaterialPage) listMaterialsRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/MaterialPlan
+type MaterialPlan struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The material.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// `reorder_point` or `no_planning`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	MrpType string `json:"mrp_type"`
+	// The reorder point, in the material's base unit.
+	ReorderPoint Quantity `json:"reorder_point"`
+	// The account its proposals name.
+	AccountID uuid.UUID `json:"account_id"`
+	// That account's number.
+	AccountNumber string `json:"account_number"`
+}
+
+// GetID returns the value of ID.
+func (s *MaterialPlan) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MaterialPlan) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MaterialPlan) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MaterialPlan) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *MaterialPlan) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *MaterialPlan) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MaterialPlan) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *MaterialPlan) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *MaterialPlan) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MaterialPlan) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MaterialPlan) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MaterialPlan) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *MaterialPlan) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *MaterialPlan) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetMrpType returns the value of MrpType.
+func (s *MaterialPlan) GetMrpType() string {
+	return s.MrpType
+}
+
+// GetReorderPoint returns the value of ReorderPoint.
+func (s *MaterialPlan) GetReorderPoint() Quantity {
+	return s.ReorderPoint
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *MaterialPlan) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *MaterialPlan) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// SetID sets the value of ID.
+func (s *MaterialPlan) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MaterialPlan) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MaterialPlan) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MaterialPlan) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *MaterialPlan) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *MaterialPlan) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MaterialPlan) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *MaterialPlan) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *MaterialPlan) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MaterialPlan) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MaterialPlan) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MaterialPlan) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *MaterialPlan) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *MaterialPlan) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetMrpType sets the value of MrpType.
+func (s *MaterialPlan) SetMrpType(val string) {
+	s.MrpType = val
+}
+
+// SetReorderPoint sets the value of ReorderPoint.
+func (s *MaterialPlan) SetReorderPoint(val Quantity) {
+	s.ReorderPoint = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *MaterialPlan) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *MaterialPlan) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// A material's planning data at a plant to create.
+// Ref: #/components/schemas/MaterialPlanCreate
+type MaterialPlanCreate struct {
+	// The plant (an org unit of kind `plant`).
+	PlantID uuid.UUID `json:"plant_id"`
+	// The material (`GET /v1/materials/{id}`), kept in stock and extended to the plant.
+	MaterialID uuid.UUID `json:"material_id"`
+	// `reorder_point` (SAP's VB): runs propose what brings the plant's available quantity back to the
+	// reorder point; `no_planning` (ND): runs leave it out. Open enumeration: values may be added within
+	// /v1.
+	MrpType string `json:"mrp_type"`
+	// The reorder point in the material's base unit, zero or more.
+	ReorderPoint string `json:"reorder_point"`
+	// The account the requisitions runs propose name, one the plant's company may post to; a stock item's
+	// receipt posts its valuation class's accounts.
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MaterialPlanCreate) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MaterialPlanCreate) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMrpType returns the value of MrpType.
+func (s *MaterialPlanCreate) GetMrpType() string {
+	return s.MrpType
+}
+
+// GetReorderPoint returns the value of ReorderPoint.
+func (s *MaterialPlanCreate) GetReorderPoint() string {
+	return s.ReorderPoint
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *MaterialPlanCreate) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MaterialPlanCreate) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MaterialPlanCreate) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMrpType sets the value of MrpType.
+func (s *MaterialPlanCreate) SetMrpType(val string) {
+	s.MrpType = val
+}
+
+// SetReorderPoint sets the value of ReorderPoint.
+func (s *MaterialPlanCreate) SetReorderPoint(val string) {
+	s.ReorderPoint = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *MaterialPlanCreate) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// MaterialPlanHeaders wraps MaterialPlan with response headers.
+type MaterialPlanHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           MaterialPlan
+}
+
+// GetETag returns the value of ETag.
+func (s *MaterialPlanHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MaterialPlanHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *MaterialPlanHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *MaterialPlanHeaders) GetResponse() MaterialPlan {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MaterialPlanHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MaterialPlanHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *MaterialPlanHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MaterialPlanHeaders) SetResponse(val MaterialPlan) {
+	s.Response = val
+}
+
+func (*MaterialPlanHeaders) createMaterialPlanRes() {}
+
+// One page of materials' planning data.
+// Ref: #/components/schemas/MaterialPlanPage
+type MaterialPlanPage struct {
+	// The planning data on this page.
+	Items []MaterialPlan `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *MaterialPlanPage) GetItems() []MaterialPlan {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MaterialPlanPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *MaterialPlanPage) SetItems(val []MaterialPlan) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MaterialPlanPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*MaterialPlanPage) listMaterialPlansRes() {}
+
+// Merge patch of a material's planning data.
+// Ref: #/components/schemas/MaterialPlanUpdate
+type MaterialPlanUpdate struct {
+	// The MRP type. Open enumeration: values may be added within /v1.
+	MrpType OptString `json:"mrp_type"`
+	// The reorder point in the material's base unit.
+	ReorderPoint OptString `json:"reorder_point"`
+	// The account its proposals name.
+	AccountID OptUUID `json:"account_id"`
+}
+
+// GetMrpType returns the value of MrpType.
+func (s *MaterialPlanUpdate) GetMrpType() OptString {
+	return s.MrpType
+}
+
+// GetReorderPoint returns the value of ReorderPoint.
+func (s *MaterialPlanUpdate) GetReorderPoint() OptString {
+	return s.ReorderPoint
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *MaterialPlanUpdate) GetAccountID() OptUUID {
+	return s.AccountID
+}
+
+// SetMrpType sets the value of MrpType.
+func (s *MaterialPlanUpdate) SetMrpType(val OptString) {
+	s.MrpType = val
+}
+
+// SetReorderPoint sets the value of ReorderPoint.
+func (s *MaterialPlanUpdate) SetReorderPoint(val OptString) {
+	s.ReorderPoint = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *MaterialPlanUpdate) SetAccountID(val OptUUID) {
+	s.AccountID = val
+}
 
 // A plant a material is extended to (SAP MARC), with its storage locations (MARD).
 // Ref: #/components/schemas/MaterialPlant
@@ -76108,6 +76603,543 @@ type MoveProfitCenterUnprocessableEntity Problem
 
 func (*MoveProfitCenterUnprocessableEntity) moveProfitCenterRes() {}
 
+// Merged schema.
+// Ref: #/components/schemas/MrpRun
+type MrpRun struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// `queued` until it is carried out, then `completed` or `failed`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Its Operation (`GET /v1/operations/{id}`).
+	OperationID uuid.UUID `json:"operation_id"`
+	// The company's day it planned on; absent until it completed.
+	RunDate OptDate `json:"run_date"`
+	// The materials it planned; absent until it completed.
+	MaterialsPlanned OptInt32 `json:"materials_planned"`
+	// The requisitions it proposed; absent until it completed.
+	ProposalsCreated OptInt32 `json:"proposals_created"`
+	// The earlier runs' proposals it cancelled; absent until it completed.
+	ProposalsReplaced OptInt32 `json:"proposals_replaced"`
+	// The problem that failed it; absent unless it failed.
+	Error OptMrpRunError `json:"error"`
+	// Per material planned, by material number; empty until it completed.
+	Lines []MrpRunLine `json:"lines"`
+	// The earlier runs' proposals it cancelled, by requisition number.
+	Replaced []MrpRunReplaced `json:"replaced"`
+}
+
+// GetID returns the value of ID.
+func (s *MrpRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MrpRun) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MrpRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MrpRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *MrpRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *MrpRun) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MrpRun) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *MrpRun) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *MrpRun) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MrpRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MrpRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetStatus returns the value of Status.
+func (s *MrpRun) GetStatus() string {
+	return s.Status
+}
+
+// GetOperationID returns the value of OperationID.
+func (s *MrpRun) GetOperationID() uuid.UUID {
+	return s.OperationID
+}
+
+// GetRunDate returns the value of RunDate.
+func (s *MrpRun) GetRunDate() OptDate {
+	return s.RunDate
+}
+
+// GetMaterialsPlanned returns the value of MaterialsPlanned.
+func (s *MrpRun) GetMaterialsPlanned() OptInt32 {
+	return s.MaterialsPlanned
+}
+
+// GetProposalsCreated returns the value of ProposalsCreated.
+func (s *MrpRun) GetProposalsCreated() OptInt32 {
+	return s.ProposalsCreated
+}
+
+// GetProposalsReplaced returns the value of ProposalsReplaced.
+func (s *MrpRun) GetProposalsReplaced() OptInt32 {
+	return s.ProposalsReplaced
+}
+
+// GetError returns the value of Error.
+func (s *MrpRun) GetError() OptMrpRunError {
+	return s.Error
+}
+
+// GetLines returns the value of Lines.
+func (s *MrpRun) GetLines() []MrpRunLine {
+	return s.Lines
+}
+
+// GetReplaced returns the value of Replaced.
+func (s *MrpRun) GetReplaced() []MrpRunReplaced {
+	return s.Replaced
+}
+
+// SetID sets the value of ID.
+func (s *MrpRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MrpRun) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MrpRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MrpRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *MrpRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *MrpRun) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MrpRun) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *MrpRun) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *MrpRun) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MrpRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MrpRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetStatus sets the value of Status.
+func (s *MrpRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetOperationID sets the value of OperationID.
+func (s *MrpRun) SetOperationID(val uuid.UUID) {
+	s.OperationID = val
+}
+
+// SetRunDate sets the value of RunDate.
+func (s *MrpRun) SetRunDate(val OptDate) {
+	s.RunDate = val
+}
+
+// SetMaterialsPlanned sets the value of MaterialsPlanned.
+func (s *MrpRun) SetMaterialsPlanned(val OptInt32) {
+	s.MaterialsPlanned = val
+}
+
+// SetProposalsCreated sets the value of ProposalsCreated.
+func (s *MrpRun) SetProposalsCreated(val OptInt32) {
+	s.ProposalsCreated = val
+}
+
+// SetProposalsReplaced sets the value of ProposalsReplaced.
+func (s *MrpRun) SetProposalsReplaced(val OptInt32) {
+	s.ProposalsReplaced = val
+}
+
+// SetError sets the value of Error.
+func (s *MrpRun) SetError(val OptMrpRunError) {
+	s.Error = val
+}
+
+// SetLines sets the value of Lines.
+func (s *MrpRun) SetLines(val []MrpRunLine) {
+	s.Lines = val
+}
+
+// SetReplaced sets the value of Replaced.
+func (s *MrpRun) SetReplaced(val []MrpRunReplaced) {
+	s.Replaced = val
+}
+
+// The problem that failed a run: `mrp.run_cancelled` (its Operation cancelled before it was carried
+// out), `mrp.unit_not_convertible` (an open quantity in a unit the material no longer has),
+// `identity.principal_blocked` (who started it is no longer active), `platform.internal` (an error
+// outlasting its retries), or a problem a proposed requisition was refused with
+// (`procurement.account_not_postable`, `procurement.invalid_quantity`,
+// `procurement.material_not_usable`, `config.no_number_range`, `config.number_range_exhausted`,
+// `config.not_bootstrapped`). Open list: values may be added within /v1.
+// Ref: #/components/schemas/MrpRunError
+type MrpRunError struct {
+	// The problem's code.
+	Code string `json:"code"`
+	// The problem's detail.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *MrpRunError) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *MrpRunError) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *MrpRunError) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *MrpRunError) SetDetail(val string) {
+	s.Detail = val
+}
+
+// MrpRunHeaders wraps MrpRun with response headers.
+type MrpRunHeaders struct {
+	ETag     OptString
+	Response MrpRun
+}
+
+// GetETag returns the value of ETag.
+func (s *MrpRunHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *MrpRunHeaders) GetResponse() MrpRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MrpRunHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MrpRunHeaders) SetResponse(val MrpRun) {
+	s.Response = val
+}
+
+func (*MrpRunHeaders) getMrpRunRes() {}
+
+// What a run counted and proposed of one material, in its base unit.
+// Ref: #/components/schemas/MrpRunLine
+type MrpRunLine struct {
+	// The material.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The reorder point the run planned by.
+	ReorderPoint Quantity `json:"reorder_point"`
+	// What the plant's confirmed sales orders ordered and have not delivered.
+	Demand Quantity `json:"demand"`
+	// The plant's stock at its storage locations.
+	Stock Quantity `json:"stock"`
+	// The plant's open receipts: purchase orders' open quantities and the proposals a person took over.
+	Receipts Quantity `json:"receipts"`
+	// What brings the stock and receipts less the demand back to the reorder point; zero when they are not
+	// below it.
+	Shortage Quantity `json:"shortage"`
+	// The draft requisition proposed for the shortage (`GET /v1/requisitions/{id}`); absent without a
+	// shortage.
+	RequisitionID OptUUID `json:"requisition_id"`
+	// That requisition's number.
+	RequisitionNumber OptString `json:"requisition_number"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MrpRunLine) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *MrpRunLine) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *MrpRunLine) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetReorderPoint returns the value of ReorderPoint.
+func (s *MrpRunLine) GetReorderPoint() Quantity {
+	return s.ReorderPoint
+}
+
+// GetDemand returns the value of Demand.
+func (s *MrpRunLine) GetDemand() Quantity {
+	return s.Demand
+}
+
+// GetStock returns the value of Stock.
+func (s *MrpRunLine) GetStock() Quantity {
+	return s.Stock
+}
+
+// GetReceipts returns the value of Receipts.
+func (s *MrpRunLine) GetReceipts() Quantity {
+	return s.Receipts
+}
+
+// GetShortage returns the value of Shortage.
+func (s *MrpRunLine) GetShortage() Quantity {
+	return s.Shortage
+}
+
+// GetRequisitionID returns the value of RequisitionID.
+func (s *MrpRunLine) GetRequisitionID() OptUUID {
+	return s.RequisitionID
+}
+
+// GetRequisitionNumber returns the value of RequisitionNumber.
+func (s *MrpRunLine) GetRequisitionNumber() OptString {
+	return s.RequisitionNumber
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MrpRunLine) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *MrpRunLine) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *MrpRunLine) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetReorderPoint sets the value of ReorderPoint.
+func (s *MrpRunLine) SetReorderPoint(val Quantity) {
+	s.ReorderPoint = val
+}
+
+// SetDemand sets the value of Demand.
+func (s *MrpRunLine) SetDemand(val Quantity) {
+	s.Demand = val
+}
+
+// SetStock sets the value of Stock.
+func (s *MrpRunLine) SetStock(val Quantity) {
+	s.Stock = val
+}
+
+// SetReceipts sets the value of Receipts.
+func (s *MrpRunLine) SetReceipts(val Quantity) {
+	s.Receipts = val
+}
+
+// SetShortage sets the value of Shortage.
+func (s *MrpRunLine) SetShortage(val Quantity) {
+	s.Shortage = val
+}
+
+// SetRequisitionID sets the value of RequisitionID.
+func (s *MrpRunLine) SetRequisitionID(val OptUUID) {
+	s.RequisitionID = val
+}
+
+// SetRequisitionNumber sets the value of RequisitionNumber.
+func (s *MrpRunLine) SetRequisitionNumber(val OptString) {
+	s.RequisitionNumber = val
+}
+
+// One page of planning runs.
+// Ref: #/components/schemas/MrpRunPage
+type MrpRunPage struct {
+	// The runs on this page.
+	Items []MrpRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *MrpRunPage) GetItems() []MrpRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MrpRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *MrpRunPage) SetItems(val []MrpRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MrpRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*MrpRunPage) listMrpRunsRes() {}
+
+// A requisition an earlier run proposed that this run cancelled.
+// Ref: #/components/schemas/MrpRunReplaced
+type MrpRunReplaced struct {
+	// The requisition, now cancelled.
+	RequisitionID uuid.UUID `json:"requisition_id"`
+	// Its number.
+	RequisitionNumber string `json:"requisition_number"`
+	// Its material.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+}
+
+// GetRequisitionID returns the value of RequisitionID.
+func (s *MrpRunReplaced) GetRequisitionID() uuid.UUID {
+	return s.RequisitionID
+}
+
+// GetRequisitionNumber returns the value of RequisitionNumber.
+func (s *MrpRunReplaced) GetRequisitionNumber() string {
+	return s.RequisitionNumber
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MrpRunReplaced) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *MrpRunReplaced) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// SetRequisitionID sets the value of RequisitionID.
+func (s *MrpRunReplaced) SetRequisitionID(val uuid.UUID) {
+	s.RequisitionID = val
+}
+
+// SetRequisitionNumber sets the value of RequisitionNumber.
+func (s *MrpRunReplaced) SetRequisitionNumber(val string) {
+	s.RequisitionNumber = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MrpRunReplaced) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *MrpRunReplaced) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// The planning run to start: one plant.
+// Ref: #/components/schemas/MrpRunStart
+type MrpRunStart struct {
+	// The plant to plan.
+	PlantID uuid.UUID `json:"plant_id"`
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MrpRunStart) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MrpRunStart) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
 // NewNilDateTime returns new NilDateTime with value set to v.
 func NewNilDateTime(v time.Time) NilDateTime {
 	return NilDateTime{
@@ -77260,6 +78292,7 @@ func (*OperationHeaders) sendOutgoingEInvoiceRes()            {}
 func (*OperationHeaders) simulateChangeRequestRes()           {}
 func (*OperationHeaders) startDepreciationRunRes()            {}
 func (*OperationHeaders) startMigrationRunRes()               {}
+func (*OperationHeaders) startMrpRunRes()                     {}
 func (*OperationHeaders) transmitBankFileRes()                {}
 func (*OperationHeaders) verifyAuditChainRes()                {}
 func (*OperationHeaders) withdrawOutgoingEInvoiceTaxDataRes() {}
@@ -81345,6 +82378,52 @@ func (o OptMoney) Get() (v Money, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMoney) Or(d Money) Money {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMrpRunError returns new OptMrpRunError with value set to v.
+func NewOptMrpRunError(v MrpRunError) OptMrpRunError {
+	return OptMrpRunError{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMrpRunError is optional MrpRunError.
+type OptMrpRunError struct {
+	Value MrpRunError
+	Set   bool
+}
+
+// IsSet returns true if OptMrpRunError was set.
+func (o OptMrpRunError) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMrpRunError) Reset() {
+	var v MrpRunError
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMrpRunError) SetTo(v MrpRunError) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMrpRunError) Get() (v MrpRunError, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMrpRunError) Or(d MrpRunError) MrpRunError {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -114834,6 +115913,18 @@ type StartMigrationRunUnprocessableEntity Problem
 
 func (*StartMigrationRunUnprocessableEntity) startMigrationRunRes() {}
 
+type StartMrpRunBadRequest Problem
+
+func (*StartMrpRunBadRequest) startMrpRunRes() {}
+
+type StartMrpRunForbidden Problem
+
+func (*StartMrpRunForbidden) startMrpRunRes() {}
+
+type StartMrpRunUnprocessableEntity Problem
+
+func (*StartMrpRunUnprocessableEntity) startMrpRunRes() {}
+
 // A person's match of a line: the payments it clears, a posting rule, or the house bank's incoming
 // payments clearing account (one of them), and why.
 // Ref: #/components/schemas/StatementLineMatchInput
@@ -120755,6 +121846,7 @@ func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseRunRes()                        {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMaterialDocumentRes()                {}
+func (*TooManyRequestsHeaders) createMaterialPlanRes()                    {}
 func (*TooManyRequestsHeaders) createMaterialRes()                        {}
 func (*TooManyRequestsHeaders) createMaterialValuationRes()               {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
@@ -120915,12 +122007,14 @@ func (*TooManyRequestsHeaders) getMarginReportRes()                       {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMaterialChangeRes()                     {}
 func (*TooManyRequestsHeaders) getMaterialDocumentRes()                   {}
+func (*TooManyRequestsHeaders) getMaterialPlanRes()                       {}
 func (*TooManyRequestsHeaders) getMaterialRes()                           {}
 func (*TooManyRequestsHeaders) getMaterialValuationRes()                  {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
 func (*TooManyRequestsHeaders) getMetricAlertRes()                        {}
 func (*TooManyRequestsHeaders) getMetricWatcherRes()                      {}
 func (*TooManyRequestsHeaders) getMigrationRunRes()                       {}
+func (*TooManyRequestsHeaders) getMrpRunRes()                             {}
 func (*TooManyRequestsHeaders) getNumberRangeRes()                        {}
 func (*TooManyRequestsHeaders) getOperationRes()                          {}
 func (*TooManyRequestsHeaders) getOrgUnitRes()                            {}
@@ -121083,12 +122177,14 @@ func (*TooManyRequestsHeaders) listLiquidityForecastFlowsRes()            {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                      {}
 func (*TooManyRequestsHeaders) listMaterialChangesRes()                   {}
 func (*TooManyRequestsHeaders) listMaterialDocumentsRes()                 {}
+func (*TooManyRequestsHeaders) listMaterialPlansRes()                     {}
 func (*TooManyRequestsHeaders) listMaterialValuationsRes()                {}
 func (*TooManyRequestsHeaders) listMaterialsRes()                         {}
 func (*TooManyRequestsHeaders) listMemoRecordsRes()                       {}
 func (*TooManyRequestsHeaders) listMetricAlertsRes()                      {}
 func (*TooManyRequestsHeaders) listMetricWatchersRes()                    {}
 func (*TooManyRequestsHeaders) listMigrationRunsRes()                     {}
+func (*TooManyRequestsHeaders) listMrpRunsRes()                           {}
 func (*TooManyRequestsHeaders) listNumberRangesRes()                      {}
 func (*TooManyRequestsHeaders) listOpenItemsRes()                         {}
 func (*TooManyRequestsHeaders) listOperationsRes()                        {}
@@ -121264,6 +122360,7 @@ func (*TooManyRequestsHeaders) simulateChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                     {}
 func (*TooManyRequestsHeaders) startDepreciationRunRes()                  {}
 func (*TooManyRequestsHeaders) startMigrationRunRes()                     {}
+func (*TooManyRequestsHeaders) startMrpRunRes()                           {}
 func (*TooManyRequestsHeaders) submitChangeRequestRes()                   {}
 func (*TooManyRequestsHeaders) submitPaymentRunRes()                      {}
 func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()             {}
@@ -121293,6 +122390,7 @@ func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
 func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                     {}
+func (*TooManyRequestsHeaders) updateMaterialPlanRes()                    {}
 func (*TooManyRequestsHeaders) updateMaterialRes()                        {}
 func (*TooManyRequestsHeaders) updateMaterialValuationRes()               {}
 func (*TooManyRequestsHeaders) updateMemoRecordRes()                      {}
@@ -121726,6 +122824,7 @@ func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
 func (*UnauthorizedHeaders) createLeaseRunRes()                        {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMaterialDocumentRes()                {}
+func (*UnauthorizedHeaders) createMaterialPlanRes()                    {}
 func (*UnauthorizedHeaders) createMaterialRes()                        {}
 func (*UnauthorizedHeaders) createMaterialValuationRes()               {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
@@ -121886,12 +122985,14 @@ func (*UnauthorizedHeaders) getMarginReportRes()                       {}
 func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMaterialChangeRes()                     {}
 func (*UnauthorizedHeaders) getMaterialDocumentRes()                   {}
+func (*UnauthorizedHeaders) getMaterialPlanRes()                       {}
 func (*UnauthorizedHeaders) getMaterialRes()                           {}
 func (*UnauthorizedHeaders) getMaterialValuationRes()                  {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
 func (*UnauthorizedHeaders) getMetricAlertRes()                        {}
 func (*UnauthorizedHeaders) getMetricWatcherRes()                      {}
 func (*UnauthorizedHeaders) getMigrationRunRes()                       {}
+func (*UnauthorizedHeaders) getMrpRunRes()                             {}
 func (*UnauthorizedHeaders) getNumberRangeRes()                        {}
 func (*UnauthorizedHeaders) getOperationRes()                          {}
 func (*UnauthorizedHeaders) getOrgUnitRes()                            {}
@@ -122054,12 +123155,14 @@ func (*UnauthorizedHeaders) listLiquidityForecastFlowsRes()            {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                      {}
 func (*UnauthorizedHeaders) listMaterialChangesRes()                   {}
 func (*UnauthorizedHeaders) listMaterialDocumentsRes()                 {}
+func (*UnauthorizedHeaders) listMaterialPlansRes()                     {}
 func (*UnauthorizedHeaders) listMaterialValuationsRes()                {}
 func (*UnauthorizedHeaders) listMaterialsRes()                         {}
 func (*UnauthorizedHeaders) listMemoRecordsRes()                       {}
 func (*UnauthorizedHeaders) listMetricAlertsRes()                      {}
 func (*UnauthorizedHeaders) listMetricWatchersRes()                    {}
 func (*UnauthorizedHeaders) listMigrationRunsRes()                     {}
+func (*UnauthorizedHeaders) listMrpRunsRes()                           {}
 func (*UnauthorizedHeaders) listNumberRangesRes()                      {}
 func (*UnauthorizedHeaders) listOpenItemsRes()                         {}
 func (*UnauthorizedHeaders) listOperationsRes()                        {}
@@ -122235,6 +123338,7 @@ func (*UnauthorizedHeaders) simulateChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                     {}
 func (*UnauthorizedHeaders) startDepreciationRunRes()                  {}
 func (*UnauthorizedHeaders) startMigrationRunRes()                     {}
+func (*UnauthorizedHeaders) startMrpRunRes()                           {}
 func (*UnauthorizedHeaders) submitChangeRequestRes()                   {}
 func (*UnauthorizedHeaders) submitPaymentRunRes()                      {}
 func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()             {}
@@ -122264,6 +123368,7 @@ func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
 func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                     {}
+func (*UnauthorizedHeaders) updateMaterialPlanRes()                    {}
 func (*UnauthorizedHeaders) updateMaterialRes()                        {}
 func (*UnauthorizedHeaders) updateMaterialValuationRes()               {}
 func (*UnauthorizedHeaders) updateMemoRecordRes()                      {}
@@ -123416,6 +124521,30 @@ func (s *UpdateMaterialOKHeaders) SetResponse(val Material) {
 }
 
 func (*UpdateMaterialOKHeaders) updateMaterialRes() {}
+
+type UpdateMaterialPlanBadRequest Problem
+
+func (*UpdateMaterialPlanBadRequest) updateMaterialPlanRes() {}
+
+type UpdateMaterialPlanForbidden Problem
+
+func (*UpdateMaterialPlanForbidden) updateMaterialPlanRes() {}
+
+type UpdateMaterialPlanNotFound Problem
+
+func (*UpdateMaterialPlanNotFound) updateMaterialPlanRes() {}
+
+type UpdateMaterialPlanPreconditionFailed Problem
+
+func (*UpdateMaterialPlanPreconditionFailed) updateMaterialPlanRes() {}
+
+type UpdateMaterialPlanPreconditionRequired Problem
+
+func (*UpdateMaterialPlanPreconditionRequired) updateMaterialPlanRes() {}
+
+type UpdateMaterialPlanUnprocessableEntity Problem
+
+func (*UpdateMaterialPlanUnprocessableEntity) updateMaterialPlanRes() {}
 
 type UpdateMaterialPreconditionFailed Problem
 

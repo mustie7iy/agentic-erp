@@ -865,11 +865,10 @@ func (s *server) startProjections(runCtx context.Context) {
 	}
 }
 
-// startOperations starts what runs queued operations: the bank file
-// transmitter, and the in-process payment workers or the workflow worker
-// and the dispatcher that hands it the queued operations.
-func (s *server) startOperations(runCtx context.Context) {
-	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
+// startReplicaWorkers starts the workers every replica runs, with or
+// without the workflow engine.
+func (s *server) startReplicaWorkers(runCtx context.Context) {
+	cfg, pool, log, apiCfg := s.cfg, s.pool, s.log, s.apiCfg
 	// Bank files are sent by a worker of every replica, with or without the
 	// workflow engine: the outbox of their transmission (T44e, ADR-0038).
 	transmitter := &payments.Transmitter{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
@@ -895,6 +894,14 @@ func (s *server) startOperations(runCtx context.Context) {
 	deleter := &records.Deleter{Endpoints: app.Records(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
 		WorkerRole: cfg.WorkerRole, Log: log}
 	s.spawn("records deleter", func() { deleter.Run(runCtx) })
+}
+
+// startOperations starts what runs queued operations: the bank file
+// transmitter, and the in-process payment workers or the workflow worker
+// and the dispatcher that hands it the queued operations.
+func (s *server) startOperations(runCtx context.Context) {
+	s.startReplicaWorkers(runCtx)
+	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	// The cash context is a leaf (ADR-0051 §2): its endpoints are the
 	// snapshot workflow's port, wired here.
@@ -909,6 +916,8 @@ func (s *server) startOperations(runCtx context.Context) {
 	fetches := &workflows.EInvoiceFetches{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Fetches: app.EInvoiceFetches(apiCfg)}
 	// E-invoice sends (ADR-0061 As built E3) act as its sender.
 	senders := &workflows.EInvoiceSenders{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Sends: app.EInvoiceSends(apiCfg)}
+	// Planning runs (ADR-0084 §3) act as the person who started them.
+	plans := &workflows.Mrps{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Runs: app.MRP(apiCfg), Actors: identity.Actors{}}
 	if engine == nil {
 		recurrer := &workflows.Recurrer{Recurrences: recurrences, Log: log}
 		s.spawn("recurring entries", func() { recurrer.Run(runCtx) })
@@ -926,6 +935,8 @@ func (s *server) startOperations(runCtx context.Context) {
 		s.spawn("e-invoice fetcher", func() { fetcher.Run(runCtx) })
 		sender := &workflows.EInvoiceSender{Senders: senders, Log: log}
 		s.spawn("e-invoice sender", func() { sender.Run(runCtx) })
+		planner := &workflows.Planner{Mrps: plans, Log: log}
+		s.spawn("planner", func() { planner.Run(runCtx) })
 		return
 	}
 	activities := &workflows.Payments{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)}
@@ -935,7 +946,7 @@ func (s *server) startOperations(runCtx context.Context) {
 		return engine.Worker(runCtx, cfg.Temporal.TaskQueue, func(r workflow.Registry) {
 			workflows.Register(r, activities, &workflows.Simulations{Worker: s.simulator}, &workflows.Migrations{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Integration(apiCfg), Actors: identity.Actors{}},
 				&workflows.Approvals{Pool: pool, AppRole: cfg.AppRole}, &workflows.Statements{Pool: pool, AppRole: cfg.AppRole, Endpoints: app.Payments(apiCfg)},
-				recurrences, snapshots, depreciations, consolidations, fetches, senders)
+				recurrences, snapshots, depreciations, consolidations, fetches, senders, plans)
 		})
 	})
 	dispatcher := &workflows.Dispatcher{Deadline: cfg.Temporal.EscalateAfter, Escalations: cfg.Temporal.Escalations, Pool: pool, WorkerRole: cfg.WorkerRole, Client: engine, Queue: cfg.Temporal.TaskQueue, Interval: dispatchInterval, Statements: cfg.Temporal.StatementFetch, EInvoices: cfg.Temporal.EInvoiceFetch, Recurring: recurrences, Snapshots: snapshots, Log: log}

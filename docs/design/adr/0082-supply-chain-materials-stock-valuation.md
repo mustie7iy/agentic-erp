@@ -1444,3 +1444,9 @@ The product owner's answer of 2026-11-21 to S2j's question above
   there; step 150 (`step_available_to_promise`) has an order of the hinge
   without a plant refused on confirm in the Canadian company, which has
   two, and a UAE order without one delivering from its only plant.
+
+### Planning (2026-11-21)
+
+Material requirements planning (S2k onward) is the leaf context `mrp`,
+decided by ADR-0084; it reads inventory's `PlantStock` and a new
+`PlantPrices` and adds no direction to this ADR's §3.

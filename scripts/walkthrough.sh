@@ -15971,6 +15971,107 @@ step_serial_numbers() {
   passed
 }
 
+# step_mrp is S2k (ADR-0084, plan-supply-chain.md §S2k): Mira creates the
+# H30 hinge, kept in Toronto's main store, Ines values it and Wade enters
+# 40. Sally's order of 50 for Northwind from the Toronto plant is
+# confirmed for the 40 there; Ben asks for 10 himself. Mira plans the
+# hinge at Toronto by a reorder point of 30. Ben's run of the plant counts
+# the order's 50 against the 40 in stock and proposes a draft requisition
+# of 40, back up to the reorder point, at the hinge's valuation price; his
+# own requisition, which names no plant, is not counted. A rerun replaces
+# the proposal with a new one. Ben takes the new one over by changing it:
+# the next run counts it as a receipt, proposes nothing and leaves it, and
+# his own requisition, alone.
+step_mrp() {
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone"
+  local hinge sales own own_version run first second
+  [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
+  accounts
+  sales=$(account 4000)
+  as mira
+  say "Mira creates the H30 hinge, kept in Toronto's main store; Priya approves it:"
+  api 201 '"material \(.number) \(.description)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Hinge H30\",
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"FASTENERS\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  hinge=$(field .id)
+  approve priya "$(material_request "$hinge")" "Heavy hinge."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"1.20\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade enters 40 hinges on the main store's shelves (561):"
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}}]}"
+  as sally
+  say "Sally's order of 50 hinges for Northwind from the Toronto plant is confirmed for the 40 there:"
+  QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\",
+      \"items\": [{\"material_id\": \"$hinge\", \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"5.00\", \"currency\": \"CAD\"},
+      \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  local order
+  order=$(field .id)
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status), \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) confirmed"' \
+    confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    local tag=$ETAG
+    as ruth
+    say "  Northwind is over its credit limit; Ruth releases the block:"
+    QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  as ben
+  say "Ben asks for 10 hinges himself; his requisition names no plant:"
+  api 201 '"requisition \(.document_number): \(.status), \(.items[0].quantity.value) \(.items[0].quantity.unit)"' createRequisition -body "{\"legal_entity_id\": \"$LE\",
+      \"currency\": \"CAD\", \"items\": [{\"material_id\": \"$hinge\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"},
+      \"unit_price\": {\"amount\": \"1.20\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}]}"
+  own=$(field .id)
+  own_version=$(field .version)
+  as mira
+  say "Mira plans the hinge at the Toronto plant by a reorder point of 30 (SAP's MRP type VB); a second plan is refused:"
+  api 201 '"\(.material_number) at \(.plant_code): \(.mrp_type), reorder point \(.reorder_point.value) \(.reorder_point.unit), account \(.account_number)"' \
+    createMaterialPlan -body "{\"plant_id\": \"$PLANT\", \"material_id\": \"$hinge\", \"mrp_type\": \"reorder_point\", \"reorder_point\": \"30\",
+      \"account_id\": \"$(account 6000)\"}"
+  refused 409 mrp.material_plan_exists createMaterialPlan -body "{\"plant_id\": \"$PLANT\", \"material_id\": \"$hinge\", \"mrp_type\": \"no_planning\",
+      \"reorder_point\": \"0\", \"account_id\": \"$(account 6000)\"}"
+  as ben
+  mrp_run() { # a run of the Toronto plant, carried out; the run is left in last.json, its hinge line printed
+    api 202 '"\(.kind) \(.status): \(.resource)"' startMrpRun -body "{\"plant_id\": \"$PLANT\"}"
+    run=$(field .resource)
+    run=${run##*/}
+    wait_op
+    api 200 '"run of \(.plant_code) on \(.run_date): \(.status), \(.materials_planned) planned, \(.proposals_created) proposed, \(.proposals_replaced) replaced",
+      (.lines[] | select(.material_id == "'"$hinge"'") | "  \(.material_number): demand \(.demand.value), stock \(.stock.value), receipts \(.receipts.value), reorder point \(.reorder_point.value), shortage \(.shortage.value) \(.shortage.unit) \(.requisition_number // "")")' \
+      getMrpRun -p "id=$run"
+  }
+  say "Ben runs material requirements planning for the Toronto plant: the order's 50 against the 40 in stock is 10"
+  say "short, and 30 more bring it back to the reorder point. The run proposes a draft requisition of 40 at the hinge's"
+  say "price; his own requisition names no plant, so it is not counted:"
+  mrp_run
+  expect "the first run's hinge" "$(field '.lines[] | select(.material_id == "'"$hinge"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value)"')" "50 40 0 40"
+  first=$(field '.lines[] | select(.material_id == "'"$hinge"'") | .requisition_id')
+  api 200 '"proposal \(.document_number): \(.status), \(.items[0].quantity.value) \(.items[0].quantity.unit) at \(.items[0].unit_price.amount), needed by \(.needed_by)"' \
+    getRequisition -p "id=$first"
+  expect "the proposal" "$(field '"\(.status) \(.items[0].quantity.value) \(.items[0].unit_price.amount)"')" "draft 40 1.20"
+  say "A rerun replaces its own open proposal: the first is cancelled and a new one proposed:"
+  mrp_run
+  expect "the rerun's replaced proposal" "$(field '[.replaced[] | select(.material_id == "'"$hinge"'") | .requisition_id] | join(" ")')" "$first"
+  second=$(field '.lines[] | select(.material_id == "'"$hinge"'") | .requisition_id')
+  QUIET=1 api 200 '' getRequisition -p "id=$first"
+  expect "the first proposal" "$(field .status)" cancelled
+  say "Ben takes the new proposal over by changing its date; the next run counts it as a receipt, proposes nothing for"
+  say "the hinge and leaves it, and his own requisition, alone:"
+  QUIET=1 api 200 '' getRequisition -p "id=$second"
+  api 200 '"requisition \(.document_number): \(.status), needed by \(.needed_by)"' updateRequisition -p "id=$second" -if-match "$ETAG" \
+    -body "{\"needed_by\": \"$TODAY\"}"
+  mrp_run
+  expect "the third run's hinge" "$(field '.lines[] | select(.material_id == "'"$hinge"'") | "\(.receipts.value) \(.shortage.value) \(.requisition_id // "none")"')" "40 0 none"
+  expect "proposals the third run replaced" "$(field '[.replaced[] | select(.material_id == "'"$hinge"'")] | length')" 0
+  QUIET=1 api 200 '' getRequisition -p "id=$second"
+  expect "the proposal taken over" "$(field .status)" draft
+  QUIET=1 api 200 '' getRequisition -p "id=$own"
+  expect "Ben's own requisition" "$(field '"\(.status) \(.version)"')" "draft $own_version"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -18001,7 +18102,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_close'
 
 main() {
   stop_unseen

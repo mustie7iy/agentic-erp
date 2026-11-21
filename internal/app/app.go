@@ -51,6 +51,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/mrp"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
@@ -108,6 +109,7 @@ type (
 	materialsAPI   = materials.Endpoints
 	inventoryAPI   = inventory.Endpoints
 	shippingAPI    = shipping.Endpoints
+	mrpAPI         = mrp.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -148,6 +150,7 @@ type handler struct {
 	*materialsAPI
 	*inventoryAPI
 	*shippingAPI
+	*mrpAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -440,7 +443,7 @@ func Payments(cfg Config) *payments.Endpoints {
 
 // laterContexts sets the handler's contexts of the later phases, each wired
 // from the configuration alone (receivables, revenue, collections, GRC,
-// records, process mining, leases, materials, inventory, shipping), so New lists only those it
+// records, process mining, leases, materials, inventory, shipping, mrp), so New lists only those it
 // builds from what it has set up.
 func (h *handler) laterContexts(cfg Config) {
 	h.receivablesAPI = Receivables(cfg)
@@ -453,6 +456,7 @@ func (h *handler) laterContexts(cfg Config) {
 	h.materialsAPI = Materials(cfg)
 	h.inventoryAPI = Inventory(cfg)
 	h.shippingAPI = Shipping(cfg)
+	h.mrpAPI = MRP(cfg)
 }
 
 // approvalHandlers are the contexts that own each approval object type:

@@ -429,6 +429,10 @@ type CreateMaterialDocumentRes interface {
 	createMaterialDocumentRes()
 }
 
+type CreateMaterialPlanRes interface {
+	createMaterialPlanRes()
+}
+
 type CreateMaterialRes interface {
 	createMaterialRes()
 }
@@ -1069,6 +1073,10 @@ type GetMaterialDocumentRes interface {
 	getMaterialDocumentRes()
 }
 
+type GetMaterialPlanRes interface {
+	getMaterialPlanRes()
+}
+
 type GetMaterialRes interface {
 	getMaterialRes()
 }
@@ -1091,6 +1099,10 @@ type GetMetricWatcherRes interface {
 
 type GetMigrationRunRes interface {
 	getMigrationRunRes()
+}
+
+type GetMrpRunRes interface {
+	getMrpRunRes()
 }
 
 type GetNumberRangeRes interface {
@@ -1741,6 +1753,10 @@ type ListMaterialDocumentsRes interface {
 	listMaterialDocumentsRes()
 }
 
+type ListMaterialPlansRes interface {
+	listMaterialPlansRes()
+}
+
 type ListMaterialValuationsRes interface {
 	listMaterialValuationsRes()
 }
@@ -1763,6 +1779,10 @@ type ListMetricWatchersRes interface {
 
 type ListMigrationRunsRes interface {
 	listMigrationRunsRes()
+}
+
+type ListMrpRunsRes interface {
+	listMrpRunsRes()
 }
 
 type ListNumberRangesRes interface {
@@ -2465,6 +2485,10 @@ type StartMigrationRunRes interface {
 	startMigrationRunRes()
 }
 
+type StartMrpRunRes interface {
+	startMrpRunRes()
+}
+
 type SubmitChangeRequestRes interface {
 	submitChangeRequestRes()
 }
@@ -2579,6 +2603,10 @@ type UpdateInternalOrderSettlementRuleRes interface {
 
 type UpdateLegalEntityRes interface {
 	updateLegalEntityRes()
+}
+
+type UpdateMaterialPlanRes interface {
+	updateMaterialPlanRes()
 }
 
 type UpdateMaterialRes interface {
