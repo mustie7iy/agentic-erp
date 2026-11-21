@@ -1466,7 +1466,9 @@ emulation answers the four calls below, scripted per filename
   no longer followed, and fails nothing: the transmission is done). The
   send's Operation succeeds at completion as in E3. A read that fails, or
   that the connector or the provider refuses, records nothing but the
-  count. Each change of either status is audited
+  count. Each change of either status, of the request or of the status
+  awaited after one (also when the 500th read clears it; review round 4)
+  is audited
   (`einvoicing.outgoing.transmission`) and published; a read that finds
   nothing new writes neither. In a cell without a workflow engine the
   in-process sender finds the tenants to follow through

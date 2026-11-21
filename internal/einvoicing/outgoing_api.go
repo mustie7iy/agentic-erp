@@ -351,15 +351,22 @@ func submissions(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]submission
 // rendered after it, is transmitted, then corrected; undelivered,
 // accepted, or pending while no response is final.
 const deliveryOutcome = `CASE WHEN s.status <> 'completed' THEN NULL
-	WHEN s.delivery_status IN ('REJECTION', 'BUSINESS_RULE_FATAL', 'SYNTAX_VIOLATION') OR s.tax_data_status = 'TDD_REJECTED' THEN
-	  CASE WHEN EXISTS (SELECT FROM einvoicing.outgoing_einvoice c
-	    JOIN einvoicing.outgoing_submission cs ON cs.tenant_id = c.tenant_id AND cs.outgoing_einvoice_id = c.id AND cs.status = 'completed'
-	    WHERE c.tenant_id = x.tenant_id AND c.legal_entity_id = x.legal_entity_id AND c.type_code = '381' AND c.id <> x.id
-	      AND c.reference_invoice_number = coalesce(x.reference_invoice_number, x.customer_invoice_number) AND c.rendered_at > x.rendered_at)
-	  THEN 'corrected' ELSE 'rejected' END
+	WHEN ` + deliveryRejected + ` THEN CASE WHEN ` + deliveryCorrected + ` THEN 'corrected' ELSE 'rejected' END
 	WHEN s.delivery_status = 'DELIVERY_FAILURE' THEN 'undelivered'
 	WHEN s.delivery_status IN ('ACCEPTANCE', 'BUSINESS_RULE_WARNING') THEN 'accepted'
 	ELSE 'pending' END`
+
+// deliveryRejected holds when the buyer's access point or the authority
+// rejected the e-invoice of submission s.
+const deliveryRejected = `(s.delivery_status IN ('REJECTION', 'BUSINESS_RULE_FATAL', 'SYNTAX_VIOLATION') OR s.tax_data_status = 'TDD_REJECTED')`
+
+// deliveryCorrected holds when a credit note c of x's company naming x's
+// invoice (IBT-025; a credit note's own reference for a credit note),
+// rendered after x, is transmitted.
+const deliveryCorrected = `EXISTS (SELECT FROM einvoicing.outgoing_einvoice c
+	JOIN einvoicing.outgoing_submission cs ON cs.tenant_id = c.tenant_id AND cs.outgoing_einvoice_id = c.id AND cs.status = 'completed'
+	WHERE c.tenant_id = x.tenant_id AND c.legal_entity_id = x.legal_entity_id AND c.type_code = '381' AND c.id <> x.id
+	  AND c.reference_invoice_number = coalesce(x.reference_invoice_number, x.customer_invoice_number) AND c.rendered_at > x.rendered_at)`
 
 // transmissionAPI is a submission as the e-invoice shows it.
 func (n outgoingNames) transmissionAPI(s submission) gen.OutgoingEInvoiceTransmission {

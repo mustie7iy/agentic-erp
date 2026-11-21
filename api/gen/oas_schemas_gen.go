@@ -84040,13 +84040,11 @@ type OutgoingEInvoiceTransmission struct {
 	DeliveryDetail NilString `json:"delivery_detail"`
 	// When that response was recorded.
 	DeliveredAt NilDateTime `json:"delivered_at"`
-	// What the responses mean for the e-invoice, null until completed: pending (none final yet: no
-	// response, ACKNOWLEDGING), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION,
-	// BUSINESS_RULE_FATAL, SYNTAX_VIOLATION, or the tax data document TDD_REJECTED: on the worklist to
-	// correct by a credit note), corrected (rejected, and a credit note of the company naming it, IBT-025,
-	// rendered after it, transmitted), undelivered (DELIVERY_FAILURE: the buyer's access point could not
-	// deliver it). Open enumeration: clients must accept and preserve values not listed here; values may
-	// be added within /v1.
+	// What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE,
+	// BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED:
+	// to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025,
+	// transmitted), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	DeliveryOutcome NilString `json:"delivery_outcome"`
 	// The tax data document's status at the authority's corner, as the provider last reported it once
 	// completed (As built E4; Evatra: TDD_SEND, TDD_FAILED, TDD_APPROVED, TDD_ACKNOWLEDGED, TDD_REJECTED,
@@ -84060,16 +84058,12 @@ type OutgoingEInvoiceTransmission struct {
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	TaxDataRequest NilString `json:"tax_data_request"`
-	// After a person's request was made at the provider, the tax data document's status the call found
-	// while the provider has not shown the outcome yet: it is read until the status moves, and another
-	// request is refused meanwhile (409 `einvoicing.tax_data_request_pending`); null otherwise, and once
-	// no longer followed.
+	// After a request was made, the status the call found, until the provider shows another; meanwhile a
+	// new request is refused (409 `einvoicing.tax_data_request_pending`). Null otherwise.
 	TaxDataAwaited NilString `json:"tax_data_awaited"`
-	// When what Peppol and the authority report of it is next read once completed (from 30 seconds after
-	// completion, doubling to an hour; after a request made, until the tax data document's status moves
-	// from the one the call found); null before completion and once both statuses are final or 500 reads
-	// were made. Each read moves the transmission's `version`, and so the e-invoice's ETag, whether or not
-	// it found something new.
+	// When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to
+	// an hour); null before completion and once both are final, nothing is awaited, or 500 reads were
+	// made. Each read moves `version`, and so the ETag.
 	FollowCheckAt NilDateTime `json:"follow_check_at"`
 	// The submission's version.
 	Version int32 `json:"version"`

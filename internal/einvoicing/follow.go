@@ -143,16 +143,33 @@ func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co C
 	if callErr == nil && d.TaxData != "" {
 		taxData = &d.TaxData
 	}
-	var next *time.Time
+	deliveredAt := s.DeliveredAt
+	if !samePtr(response, s.DeliveryStatus) || !samePtr(detail, s.DeliveryDetail) {
+		deliveredAt = &now
+	}
 	awaiting := s.TaxDataAwaited != nil && deref(taxData) == *s.TaxDataAwaited
+	var next *time.Time
 	if final := responseFinal(deref(response)) && taxDataFinal(deref(taxData)) && !awaiting; !final && s.FollowPolls+1 < maxPolls {
 		at := now.Add(pollWait(s.FollowPolls + 1))
 		next = &at
 	}
-	return e.move(ctx, tx, s, co, `delivery_status = $3, delivery_detail = $4,
-		delivered_at = CASE WHEN (delivery_status, delivery_detail) IS DISTINCT FROM ($3, $4) THEN $5 ELSE delivered_at END, tax_data_status = $6,
-		tax_data_at = CASE WHEN tax_data_status IS DISTINCT FROM $6 THEN $5 ELSE tax_data_at END, follow_polls = follow_polls + 1, follow_check_at = $7,
-		tax_data_awaited = CASE WHEN $8 AND $7::timestamptz IS NOT NULL THEN tax_data_awaited END`, response, detail, now, taxData, next, awaiting)
+	awaited := s.TaxDataAwaited
+	if !awaiting || next == nil { // moved, or no longer followed
+		awaited = nil
+	}
+	return e.move(ctx, tx, s, co, `delivery_status = $3, delivery_detail = $4, delivered_at = $5, tax_data_status = $6, tax_data_at = $7,
+		tax_data_awaited = $8, follow_polls = follow_polls + 1, follow_check_at = $9`,
+		response, detail, deliveredAt, taxData, s.taxDataAt(taxData, now), awaited, next)
+}
+
+// taxDataAt is when the tax data document's status was recorded once it
+// is status: now if it moves, else as recorded. The row is the locked one
+// the step read, so the values are computed here, not in the statement.
+func (s submission) taxDataAt(status *string, now time.Time) *time.Time {
+	if samePtr(status, s.TaxDataStatus) {
+		return s.TaxDataAt
+	}
+	return &now
 }
 
 // endRequest ends a person's request of the tax data document: cleared,
@@ -162,9 +179,16 @@ func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co C
 // request this step made (acted) awaits a move of the status it found.
 func (e *Endpoints) endRequest(ctx context.Context, tx pgx.Tx, s submission, co Company, now time.Time, taxData string, acted bool, why *problem.Problem) (
 	Step, error) {
+	status := s.TaxDataStatus
+	if taxData != "" {
+		status = &taxData
+	}
+	var awaited *string
+	if acted {
+		awaited = status
+	}
 	step, err := e.move(ctx, tx, s, co, `tax_data_request = NULL, tax_data_attempts = 0, follow_polls = 0, follow_check_at = $3,
-		tax_data_status = coalesce($4, tax_data_status), tax_data_at = CASE WHEN tax_data_status IS DISTINCT FROM coalesce($4, tax_data_status) THEN $3
-		ELSE tax_data_at END, tax_data_awaited = CASE WHEN $5 THEN coalesce($4, tax_data_status) END`, now, nonEmpty(taxData), acted)
+		tax_data_status = $4, tax_data_at = $5, tax_data_awaited = $6`, now, status, s.taxDataAt(status, now), awaited)
 	if err != nil {
 		return Step{}, err
 	}

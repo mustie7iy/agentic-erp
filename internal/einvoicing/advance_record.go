@@ -173,17 +173,16 @@ func clipBytes(text string, n int) string {
 }
 
 // move updates the submission by set (whose own arguments start at $3),
-// moving its version, and audits and publishes the change when its status
-// or the provider's moved. It answers the step: done once finished, or the
-// wait until its next check.
+// moving its version, and audits and publishes the change when anything a
+// consumer is shown of its state moved (changed). It answers the step:
+// done once finished, or the wait until its next check.
 func (e *Endpoints) move(ctx context.Context, tx pgx.Tx, s submission, co Company, set string, args ...any) (Step, error) {
 	var after submission
 	if err := tx.QueryRow(ctx, `UPDATE einvoicing.outgoing_submission s SET `+set+`, version = version + 1, updated_by = $2 WHERE id = $1
 		RETURNING `+submissionColumns, append([]any{s.ID, SenderActor}, args...)...).Scan(after.fields()...); err != nil {
 		return Step{}, fmt.Errorf("einvoicing: record the submission of outgoing e-invoice %s: %w", s.Filename, err)
 	}
-	if after.Status != s.Status || !samePtr(after.ProviderStatus, s.ProviderStatus) || !samePtr(after.DeliveryStatus, s.DeliveryStatus) ||
-		!samePtr(after.TaxDataStatus, s.TaxDataStatus) || !samePtr(after.TaxDataRequest, s.TaxDataRequest) {
+	if after.changed(s) {
 		if err := after.record(ctx, "einvoicing.outgoing.transmission", co, &s.Status); err != nil {
 			return Step{}, err
 		}
@@ -203,6 +202,16 @@ func (s submission) step(now time.Time) Step {
 		return Step{Done: true}
 	}
 	return Step{Wait: max(next.Sub(now), 0)}
+}
+
+// changed reports whether the state the e-invoice's transmission shows
+// moved from before (ADR-0011: every state change is audited): its status,
+// the provider's, the delivery and tax data statuses, the request and the
+// status awaited after one; not the counters and times of its reads.
+func (s submission) changed(before submission) bool {
+	return s.Status != before.Status || !samePtr(s.ProviderStatus, before.ProviderStatus) || !samePtr(s.DeliveryStatus, before.DeliveryStatus) ||
+		!samePtr(s.TaxDataStatus, before.TaxDataStatus) || !samePtr(s.TaxDataRequest, before.TaxDataRequest) ||
+		!samePtr(s.TaxDataAwaited, before.TaxDataAwaited)
 }
 
 func samePtr(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }

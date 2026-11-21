@@ -202,8 +202,18 @@ func TestDeliveryReadFailures(t *testing.T) {
 		version = version + 1
 		WHERE outgoing_einvoice_id = $1`, id)
 	s.later(2 * time.Minute)
+	recorded := func() (audits, events int) {
+		t.Helper()
+		pgtest.Scan(t, `SELECT (SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'einvoicing.outgoing.transmission' AND object_id = $2),
+			(SELECT count(*) FROM einvoicing.outbox WHERE tenant_id = $1 AND aggregate_id = $2)`, []any{s.f.Tenant.ID, id}, &audits, &events)
+		return audits, events
+	}
+	audits, events := recorded()
 	if step := s.advance(t, id, send); !step.Done {
 		t.Errorf("the 500th read: got %+v, want done", step)
+	}
+	if a, e := recorded(); a != audits+1 || e != events+1 {
+		t.Errorf("no longer awaited, audited and published: got %d audit records and %d events more, want 1 and 1", a-audits, e-events)
 	}
 	got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
 	tr := got["transmission"].(map[string]any)
