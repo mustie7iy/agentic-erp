@@ -693,6 +693,14 @@ func TestFailures(t *testing.T) {
 			_, err := e.UpdateOrgUnit(ctx, &gen.OrgUnitUpdate{Name: name, ParentID: gen.NewOptNilUUID(parentID)}, gen.UpdateOrgUnitParams{ID: ouID, IfMatch: "*"})
 			return err
 		},
+		"update a plant's region": func(ctx context.Context) error {
+			_, err := e.UpdateOrgUnit(ctx, &gen.OrgUnitUpdate{Region: gen.NewOptNilString("DE-BY")}, gen.UpdateOrgUnitParams{ID: ouID, IfMatch: "*"})
+			return err
+		},
+		"the only plant": func(ctx context.Context) error {
+			_, _, err := tenancy.Directory{}.OnlyPlant(ctx, leID)
+			return err
+		},
 		"activate org unit": func(ctx context.Context) error {
 			_, err := e.ActivateOrgUnit(ctx, gen.ActivateOrgUnitParams{ID: ouID, IfMatch: "*"})
 			return err

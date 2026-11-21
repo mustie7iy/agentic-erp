@@ -205470,12 +205470,18 @@ func (s *OrgUnit) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Region.Set {
+			e.FieldStart("region")
+			s.Region.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("status")
 		e.Str(s.Status)
 	}
 }
 
-var jsonFieldsNameOfOrgUnit = [12]string{
+var jsonFieldsNameOfOrgUnit = [13]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -205487,7 +205493,8 @@ var jsonFieldsNameOfOrgUnit = [12]string{
 	8:  "code",
 	9:  "name",
 	10: "parent_id",
-	11: "status",
+	11: "region",
+	12: "status",
 }
 
 // Decode decodes OrgUnit from json.
@@ -205627,8 +205634,18 @@ func (s *OrgUnit) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"parent_id\"")
 			}
+		case "region":
+			if err := func() error {
+				s.Region.Reset()
+				if err := s.Region.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"region\"")
+			}
 		case "status":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -205650,7 +205667,7 @@ func (s *OrgUnit) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11011111,
-		0b00001011,
+		0b00010011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -205727,14 +205744,21 @@ func (s *OrgUnitCreate) encodeFields(e *jx.Encoder) {
 			s.ParentID.Encode(e)
 		}
 	}
+	{
+		if s.Region.Set {
+			e.FieldStart("region")
+			s.Region.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfOrgUnitCreate = [5]string{
+var jsonFieldsNameOfOrgUnitCreate = [6]string{
 	0: "legal_entity_id",
 	1: "kind",
 	2: "code",
 	3: "name",
 	4: "parent_id",
+	5: "region",
 }
 
 // Decode decodes OrgUnitCreate from json.
@@ -205803,6 +205827,16 @@ func (s *OrgUnitCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"parent_id\"")
+			}
+		case "region":
+			if err := func() error {
+				s.Region.Reset()
+				if err := s.Region.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"region\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -206021,11 +206055,18 @@ func (s *OrgUnitUpdate) encodeFields(e *jx.Encoder) {
 			s.ParentID.Encode(e)
 		}
 	}
+	{
+		if s.Region.Set {
+			e.FieldStart("region")
+			s.Region.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfOrgUnitUpdate = [2]string{
+var jsonFieldsNameOfOrgUnitUpdate = [3]string{
 	0: "name",
 	1: "parent_id",
+	2: "region",
 }
 
 // Decode decodes OrgUnitUpdate from json.
@@ -206055,6 +206096,16 @@ func (s *OrgUnitUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"parent_id\"")
+			}
+		case "region":
+			if err := func() error {
+				s.Region.Reset()
+				if err := s.Region.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"region\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

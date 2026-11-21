@@ -75,6 +75,10 @@ type Item struct {
 	// with a code that levies its lines' subdivision (ADR-0067 As built,
 	// the emirate on a sales item).
 	TaxJurisdiction *string `json:"tax_jurisdiction"`
+	// jurisdictionDefault is the jurisdiction the item defaulted to when it
+	// was entered (defaultJurisdiction), nil for none: not stored, the
+	// document's audit record keeps it (jurisdictionDefaults).
+	jurisdictionDefault *string
 }
 
 // document is what a sales document's items are checked and priced
@@ -94,6 +98,12 @@ type document struct {
 	exp            int
 	date           time.Time
 	zone           *time.Location
+	// establishment is the company's region, the subdivision of its postal
+	// address in the configuration (AE-DU), nil for none; plant is the plant
+	// an order delivers from, nil for none and for a quotation: what an
+	// item's jurisdiction defaults from (defaultJurisdiction).
+	establishment *string
+	plant         *tenancy.Unit
 }
 
 // errTooLarge refuses a document whose amounts are out of range.
@@ -189,12 +199,13 @@ func (c itemCheck) item(ctx context.Context, i int, it ItemInput) (Item, error) 
 	if err := c.account(ctx, i, it.AccountID); err != nil {
 		return Item{}, err
 	}
-	if err := c.tax(ctx, i, it); err != nil {
+	jurisdiction, byDefault, err := c.tax(ctx, i, it)
+	if err != nil {
 		return Item{}, err
 	}
 	return Item{ItemNo: int32(i + 1), ItemKey: it.ItemKey, MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, PriceSource: p.Source, Conditions: p.Conditions, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode,
-		TaxJurisdiction: it.TaxJurisdiction}, nil
+		TaxJurisdiction: jurisdiction, jurisdictionDefault: byDefault}, nil
 }
 
 // namesWhatIsSold refuses an item whose description, or whose item key
@@ -241,22 +252,27 @@ func (c itemCheck) account(ctx context.Context, i int, id uuid.UUID) error {
 // a subdivision of the component's country and, where the component lists
 // those it accepts, one of them; an item of any other code, or of none,
 // names none (422 sales.tax_jurisdiction_not_levied). Each names
-// items[i].tax_jurisdiction. The jurisdiction is the one entered: nothing
-// in the configuration says which establishment makes a sale, which the
-// VAT 201 reads it by (ADR-0063 As built, decided by default 2).
-func (c itemCheck) tax(ctx context.Context, i int, it ItemInput) error {
+// items[i].tax_jurisdiction. A UAE item that names none takes its default,
+// the seller's emirate (defaultJurisdiction; product owner 2026-11-21);
+// one entered is kept. It returns the item's jurisdiction and its
+// default, nil for none.
+func (c itemCheck) tax(ctx context.Context, i int, it ItemInput) (*string, *string, error) {
 	var code ledger.TaxCode // the zero code: an item without one
 	if it.TaxCode != nil {
 		var err error
 		if code, err = c.outputCode(ctx, i, *it.TaxCode); err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
-	if err := code.RefuseItemJurisdiction(it.TaxJurisdiction, fmt.Sprintf("items[%d].tax_jurisdiction", i),
-		"sales.tax_jurisdiction_required", "sales.tax_jurisdiction_not_levied"); err != nil {
-		return fmt.Errorf("sales: jurisdiction of item %d: %w", i+1, err)
+	byDefault, jurisdiction := c.defaultJurisdiction(it, code), it.TaxJurisdiction
+	if jurisdiction == nil {
+		jurisdiction = byDefault
 	}
-	return nil
+	if err := code.RefuseItemJurisdiction(jurisdiction, fmt.Sprintf("items[%d].tax_jurisdiction", i),
+		"sales.tax_jurisdiction_required", "sales.tax_jurisdiction_not_levied"); err != nil {
+		return nil, nil, fmt.Errorf("sales: jurisdiction of item %d: %w", i+1, err)
+	}
+	return jurisdiction, byDefault, nil
 }
 
 // outputCode requires item i's tax code to be an output tax code of the

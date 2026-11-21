@@ -1251,7 +1251,8 @@ reads a location's stock without a lock for shipping's picking.
   without a plant there, read from the items something is in delivery of
   (`sales_order_item_in_delivery_held`). Their confirmed but undelivered
   quantities are not counted, having no plant (for the product owner:
-  whether a plant should be required for orders of stock materials).
+  whether a plant should be required for orders of stock materials;
+  answered 2026-11-21, "S2j: the plant required" below).
 - **What is available** at confirmation (`confirmSalesOrder`), for each
   item of a material kept in stock: the plant's stock at its storage
   locations in the base unit (`inventory.Endpoints.PlantStock`, a read
@@ -1317,3 +1318,45 @@ reads a location's stock without a lock for shipping's picking.
 - **Not built** (Later, plan §S2j): checking rules with replenishment
   lead time and planned receipts, back-order processing, product
   allocation, global ATP across plants, per-item plants.
+
+### S2j: the plant required, and the emirate from it (2026-11-21)
+
+The product owner's answer of 2026-11-21 to S2j's question above
+(src `po:2026-11-21`): an order of stock materials names its plant.
+- **The only plant by default**: an order created without `plant_id`
+  delivers from its company's only active plant when the company has
+  exactly one (`tenancy.Directory.OnlyPlant`; `plant_defaulted` in its
+  audit record), whatever its items, so an item a change adds later has
+  its plant too; with none or several it has none. Decided by default:
+  the default does not wait for a stock item, since the plant of a
+  one-plant company is not in doubt and an order of services alone is
+  checked for nothing; an order from a quotation takes it as one entered
+  directly does.
+- **Confirming needs it**: `confirmSalesOrder` refuses an order without a
+  plant that has a standing item of a material kept in stock (422
+  `sales.plant_required` naming `plant_id`, the item and its material in
+  the message), before the credit check and without a lock: its
+  availability could not be checked. Service and non-stock items need
+  none. Decided by default: the plant stays as entered (the column has no
+  update grant, 000430), so such a draft is cancelled and created again
+  with its plant; a plant set on a draft by a change is Later, with
+  per-item plants and their determination from customer and material
+  data (SAP's VBAP-WERKS, from memory; product owner: Later). A
+  confirmed order without a plant (of services alone, or one confirmed
+  before this step) takes no stock item unchecked: `changeSalesOrder`
+  refuses one that adds a stock item or changes a stock item's quantity
+  (422 `sales.plant_required`, review round 1).
+- **A plant's region** (migration 000431, `tenancy.org_unit.region`;
+  `org_unit_region`, `TestOrgUnitRegion`): the country subdivision of the
+  plant's address (ISO 3166-2, a UAE plant's emirate), on
+  `createOrgUnit`/`updateOrgUnit` for a plant only and of its company's
+  country (422 `tenancy.invalid_region`), as SAP keeps a plant's region
+  on its address (from memory). Nothing else had one: a plant had no
+  address. A UAE sales item of a material kept in stock defaults its
+  emirate to its order's plant's (ADR-0063 As built, the emirate's
+  default); a change of the region changes no item entered before it.
+- Walkthrough: step 148 (`step_einvoice_billing`) creates the UAE
+  company's one plant, Sharjah's, and its stock item defaults its emirate
+  there; step 150 (`step_available_to_promise`) has an order of the hinge
+  without a plant refused on confirm in the Canadian company, which has
+  two, and a UAE order without one delivering from its only plant.

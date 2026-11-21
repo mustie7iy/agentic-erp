@@ -316,9 +316,6 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 	if err := deliveryDateFrom(in.DeliveryDate, src.doc.date); err != nil {
 		return Order{}, err
 	}
-	if err := e.orderPlant(ctx, in.PlantID, src.doc.le); err != nil {
-		return Order{}, err
-	}
 	number, err := e.number(ctx, src.doc.le.ID, OrderRange, src.doc.date)
 	if err != nil {
 		return Order{}, err
@@ -332,7 +329,7 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 			currency, payment_term_code, net_amount, status, capture_upload_id, capture, created_by, updated_by, requested_delivery_date, plant_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $16)`,
 		p.TenantID, id, number, src.doc.le.ID, src.customer, src.quotation, src.doc.date, src.doc.currency, term, src.net, Draft, upload, captured,
-		p.ID, in.DeliveryDate, in.PlantID); err != nil {
+		p.ID, in.DeliveryDate, unitID(src.doc.plant)); err != nil {
 		return Order{}, fmt.Errorf("sales: insert sales order %s: %w", id, err)
 	}
 	if err := insertItems(ctx, tx, "sales_order_item", "sales_order_id", p.TenantID, id, src.items); err != nil {
@@ -342,7 +339,18 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 	if err != nil {
 		return Order{}, err
 	}
-	return o, recordOrder(ctx, "sales.sales_order.create", o, src.doc.le, customer.Number, nil, nil, nil)
+	return o, recordOrder(ctx, "sales.sales_order.create", o, src.doc.le, customer.Number, nil, nil, created(in, src))
+}
+
+// created is the audit detail an order's creation adds: the plant it
+// delivers from and whether it defaulted to the company's only plant, and
+// its items' default jurisdictions (jurisdictionDefaults).
+func created(in OrderInput, src ordered) map[string]any {
+	extra := map[string]any{"plant_id": unitID(src.doc.plant), "plant_defaulted": in.PlantID == nil && src.doc.plant != nil}
+	if defaults := jurisdictionDefaults(src.items); defaults != nil {
+		extra["tax_jurisdiction_defaults"] = defaults
+	}
+	return extra
 }
 
 // source resolves what the order is made of: its quotation's, or the
@@ -364,7 +372,12 @@ func (e *Endpoints) source(ctx context.Context, tx pgx.Tx, in OrderInput) (order
 		}
 	}
 	if in.QuotationID != nil {
-		return e.fromQuotation(ctx, tx, *in.QuotationID)
+		src, err := e.fromQuotation(ctx, tx, *in.QuotationID)
+		if err != nil {
+			return ordered{}, err
+		}
+		src.doc.plant, err = e.orderPlant(ctx, in.PlantID, src.doc.le)
+		return src, err
 	}
 	le, err := e.company(ctx, *in.LegalEntityID)
 	if err != nil {
@@ -372,6 +385,9 @@ func (e *Endpoints) source(ctx context.Context, tx pgx.Tx, in OrderInput) (order
 	}
 	doc, err := e.document(ctx, tx, le, *in.CustomerID, *in.Currency)
 	if err != nil {
+		return ordered{}, err
+	}
+	if doc.plant, err = e.orderPlant(ctx, in.PlantID, le); err != nil {
 		return ordered{}, err
 	}
 	items, net, err := e.items(ctx, tx, doc, in.Items)
@@ -480,6 +496,9 @@ func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	}
 	if o.Status != Draft {
 		return Order{}, problem.Conflict("sales.invalid_status", "Sales order "+o.DocumentNumber+" is "+o.Status+"; only a draft is confirmed.")
+	}
+	if err := e.plantRequired(ctx, o); err != nil {
+		return Order{}, err
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, o.LegalEntityID) // a stored order's legal entity exists
 	if err != nil {

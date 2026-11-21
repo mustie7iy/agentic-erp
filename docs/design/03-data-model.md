@@ -124,8 +124,14 @@ erDiagram
     uuid legal_entity_id
     text kind "purchasing_org | plant | storage_location | sales_org"
     text code "unique per legal entity and kind; a storage location's under its plant"
+    text region "a plant's, ISO 3166-2 subdivision of its company's country"
   }
 ```
+
+A plant may name its `region`, the country subdivision of its address
+(ISO 3166-2, a UAE plant's emirate; `org_unit_region`, migration 000431),
+which a UAE sales item of a stock material defaults its emirate to
+(ADR-0063 As built, the emirate's default on a sales item).
 
 An org unit's code is unique in its legal entity and kind
 (`org_unit_code_once`), a storage location's under its plant, its parent

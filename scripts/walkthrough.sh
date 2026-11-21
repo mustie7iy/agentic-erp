@@ -14449,7 +14449,7 @@ step_material_items() {
   say "Sally orders 5 boxes of the bracket for Northwind by its material alone: the item takes its description and"
   say "number, and the price recorded for that number (S1f1):"
   api 201 '"sales order \(.document_number): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) (\(.price_source)) = \(.net_amount.amount)")' \
-    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"items\": [{\"material_id\": \"$material\", $item}]}"
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [{\"material_id\": \"$material\", $item}]}"
   order=$(field .id)
   expect "the material's item" "$(field '.items[0] | "\(.material_id) \(.item_key) \(.price_source) \(.net_amount.amount)"')" "$material $number price_list 240.00"
   say "A pending material, a key other than its number and a unit that is none of the bracket's are refused:"
@@ -15028,9 +15028,10 @@ step_outbound_delivery() {
   as sally
   accounts
   sales=$(account 4000)
-  say "Sally sells Northwind 6 boxes of the bracket by its material and a day's installation, and confirms the order:"
+  say "Sally sells Northwind 6 boxes of the bracket by its material and a day's installation, delivered from the Toronto"
+  say "plant, and confirms the order:"
   api 201 '"sales order \(.document_number)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit)")' \
-    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"items\": [
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
       {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"6\", \"unit\": \"BOX\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"},
       {\"description\": \"Installation, one day\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"CAD\"},
        \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
@@ -15550,33 +15551,68 @@ step_stock_transport() {
 # step_einvoice_billing is the emirate on a sales item (ADR-0067 As built,
 # the emirate on a sales item; review:batch84): the UAE company sells
 # through sales orders and bills them, its standard-rated code S5 levying
-# each item's emirate. Sally orders desks for step 145's Dubai customer;
-# an S5 item without its emirate is refused naming the field, with
-# AE-DU it is ordered. She confirms the delivery, Ruth bills it and posts
-# the billing document: its customer invoice's item names AE-DU and the
-# entry's revenue and tax lines carry it, so the VAT 201 reads the sale
-# in Dubai. The invoice renders as a valid PINT AE tax invoice 380 (E2).
+# each item's emirate. Ada sets up the UAE company's one plant, its
+# Sharjah warehouse (region AE-SH), and Mira an office chair kept there.
+# An S5 item that names no emirate takes the seller's (product owner
+# 2026-11-21): Sally orders the chair and a desk delivery service for
+# step 145's Dubai customer, the order delivering from the company's only
+# plant; the chair, kept in stock, takes the plant's AE-SH, the service the
+# company's establishment's AE-DU, and an item naming Abu Dhabi keeps it.
+# She orders desks, which take AE-DU, and confirms their delivery; Ruth
+# bills it and posts the billing document: its customer invoice's item
+# names AE-DU and the entry's revenue and tax lines carry it, so the VAT
+# 201 reads the sale in Dubai. The invoice renders as a valid PINT AE tax
+# invoice 380 (E2).
 step_einvoice_billing() {
-  heading "Step 148 — A UAE sales order billed under S5: each item names its emirate, the billing document posts a customer invoice whose item and entry lines carry it, rendered as a valid PINT AE tax invoice 380"
-  local ae day customer sales order doc invoice entry rendered number
-  as sally
+  heading "Step 148 — A UAE sales order billed under S5: each item takes the seller's emirate, its plant's for a stock item, else the company's, or keeps the one it names; the billing document posts a customer invoice whose item and entry lines carry it, rendered as a valid PINT AE tax invoice 380"
+  local ae day customer sales order doc invoice entry rendered number warehouse store chair
+  as ada
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  say "Ada sets up $AE's one plant, its Sharjah warehouse, whose region is the emirate it is in; a region of another"
+  say "country is refused:"
+  refused 422 tenancy.invalid_region createOrgUnit -body "{\"legal_entity_id\": \"$ae\", \"kind\": \"plant\", \"code\": \"P300\", \"name\": \"Sharjah warehouse\", \"region\": \"CA-ON\"}"
+  api 201 '"\(.kind) \(.code) \(.name) in \(.region): \(.status)"' createOrgUnit \
+    -body "{\"legal_entity_id\": \"$ae\", \"kind\": \"plant\", \"code\": \"P300\", \"name\": \"Sharjah warehouse\", \"region\": \"AE-SH\"}"
+  warehouse=$(field .id)
+  QUIET=1 api 200 '' activateOrgUnit -p "id=$warehouse" -if-match "$ETAG"
+  QUIET=1 api 201 '' createOrgUnit -body "{\"legal_entity_id\": \"$ae\", \"kind\": \"storage_location\", \"code\": \"SL01\", \"name\": \"Sharjah store\", \"parent_id\": \"$warehouse\"}"
+  store=$(field .id)
+  QUIET=1 api 200 '' activateOrgUnit -p "id=$store" -if-match "$ETAG"
+  as mira
+  say "Mira creates an office chair kept in the Sharjah store; Priya approves it:"
+  api 201 '"material \(.number) \(.description)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Office chair OC-1\",
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"FURNITURE\",
+      \"plants\": [{\"plant_id\": \"$warehouse\", \"storage_location_ids\": [\"$store\"]}]}"
+  chair=$(field .id)
+  approve priya "$(material_request "$chair")" "Chairs for the UAE range."
+  as sally
   day=$(ZONE=Asia/Dubai company_day)
   QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Desert Rose"
   customer=$(field '.items[0].id')
   [ -n "$customer" ] || fail "step 145's customer Desert Rose Retail is not there"
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   sales=$(field '.items[] | select(.number == "4000") | .id')
-  say "Desert Rose Retail orders twenty desks from $AE. The UAE's standard-rated code S5 levies the tax of the emirate"
-  say "each item names (one code for every emirate, the VAT 201's boxes 1a-1g), so an item without one is refused:"
-  local item="{\"item_key\": \"DESK-160\", \"description\": \"Office desk 160 cm\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1500.00\", \"currency\": \"AED\"}, \"account_id\": \"$sales\", \"tax_code\": \"S5\""
-  refused 422 sales.tax_jurisdiction_required createSalesOrder \
-    -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"currency\": \"AED\", \"items\": [$item}]}"
-  expect "the refused field" "$(field '.errors[0].field')" "items[0].tax_jurisdiction"
-  say "Sally names Dubai, the emirate the sale is reported in, which the order item keeps:"
+  local priced="\"account_id\": \"$sales\", \"tax_code\": \"S5\""
+  say "The UAE's standard-rated code S5 levies the tax of the emirate each item names (one code for every emirate, the"
+  say "VAT 201's boxes 1a-1g, which report a sale by the emirate of the seller's establishment). Desert Rose Retail orders"
+  say "two chairs, their delivery and a second delivery from Abu Dhabi, the items naming no emirate but the last. The"
+  say "order delivers from $AE's only plant; the chair, kept in stock, takes the plant's emirate, the service the"
+  say "company's, and the last keeps the one it names:"
+  api 201 '"sales order \(.document_number) from plant \(.plant_code) \(.plant_name)", (.items[] | "  item \(.item_no) \(.description): \(.tax_code) in \(.tax_jurisdiction)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"currency\": \"AED\", \"items\": [
+      {\"material_id\": \"$chair\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"AED\"}, $priced},
+      {\"description\": \"Delivery and assembly\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"150.00\", \"currency\": \"AED\"}, $priced},
+      {\"description\": \"Delivery from Abu Dhabi\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"90.00\", \"currency\": \"AED\"}, $priced,
+       \"tax_jurisdiction\": \"AE-AZ\"}]}"
+  expect "the order's plant" "$(field .plant_code)" P300
+  expect "the items' emirates" "$(field '[.items[] | .tax_jurisdiction] | join(" ")')" "AE-SH AE-DU AE-AZ"
+  CHAIR=$chair
+  say "Desert Rose orders twenty desks; the item, of no material, takes the company's Dubai, the emirate the sale is"
+  say "reported in, which the order item keeps:"
+  local item="{\"item_key\": \"DESK-160\", \"description\": \"Office desk 160 cm\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1500.00\", \"currency\": \"AED\"}, $priced"
   api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.tax_code) in \(.tax_jurisdiction)")' \
-    createSalesOrder -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"currency\": \"AED\", \"items\": [$item, \"tax_jurisdiction\": \"AE-DU\"}]}"
+    createSalesOrder -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"currency\": \"AED\", \"items\": [$item}]}"
   order=$(field .id)
   expect "the order item's emirate" "$(field '.items[0].tax_jurisdiction')" AE-DU
   api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
@@ -15700,10 +15736,13 @@ step_batches() {
 # a shortage refuses nothing. Wade's delivery of the second takes its 40
 # confirmed hinges; more is refused naming what is confirmed, and so is a
 # delivery from the Montreal plant. Wade enters 50 more; Sally raises the
-# third order to 6, and its change confirms all 6.
+# third order to 6, and its change confirms all 6. An order of the hinges
+# that names no plant, of Maple, which has two, is not confirmed (product
+# owner 2026-11-21); a UAE order of step 148's chair naming none delivers
+# from that company's only plant.
 step_available_to_promise() {
-  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives"
-  local hinge sales montreal store first second third
+  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives; an order of stock items without a plant refused on confirm, the company's only plant defaulted"
+  local hinge sales montreal store first second third plantless ae desert
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -15778,6 +15817,27 @@ step_available_to_promise() {
   api 200 '"sales order \(.document_number): \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) confirmed"' \
     changeSalesOrder -p "id=$third" -if-match "$ETAG" -body '{"reason": "Northwind takes 6", "items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
   expect "the third order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 6
+  say "An order of hinges that names no plant delivers from none: Maple has two plants. Confirming it is refused, as"
+  say "its availability cannot be checked:"
+  api 201 '"sales order \(.document_number): plant \(.plant_code // "none")"' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\",
+      \"currency\": \"CAD\", \"items\": [{\"material_id\": \"$hinge\", \"quantity\": {\"value\": \"3\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"4.00\", \"currency\": \"CAD\"},
+      \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  plantless=$(field .id)
+  expect "the order's plant" "$(field '.plant_id // "none"')" none
+  refused 422 sales.plant_required confirmSalesOrder -p "id=$plantless" -if-match '"1"'
+  expect "the field refused" "$(field '.errors[0].field')" plant_id
+  [ -n "$CHAIR" ] || fail "step 148's chair is not there"
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Desert Rose"
+  desert=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  say "A UAE order of step 148's chair names no plant either: it delivers from $AE's only plant, the Sharjah warehouse:"
+  api 201 '"sales order \(.document_number) from plant \(.plant_code) \(.plant_name)"' createSalesOrder -body "{\"legal_entity_id\": \"$ae\",
+      \"customer_id\": \"$desert\", \"currency\": \"AED\", \"items\": [{\"material_id\": \"$CHAIR\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"},
+      \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"AED\"}, \"account_id\": \"$sales\", \"tax_code\": \"S5\"}]}"
+  expect "the order's plant" "$(field '"\(.plant_code) \(.items[0].tax_jurisdiction)"')" "P300 AE-SH"
   passed
 }
 

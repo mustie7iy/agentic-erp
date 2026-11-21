@@ -162,7 +162,7 @@ func (e *Endpoints) MakeQuotation(ctx context.Context, in QuotationInput) (Quota
 	if err != nil {
 		return Quotation{}, err
 	}
-	return q, recordQuotation(ctx, "sales.quotation.create", q, le, customer, nil)
+	return q, recordQuotation(ctx, "sales.quotation.create", q, le, customer, nil, jurisdictionDefaults(items))
 }
 
 // parties resolves the legal entity, which the caller must be allowed to
@@ -220,8 +220,9 @@ func (e *Endpoints) customer(ctx context.Context, le tenancy.Entity, customer uu
 // document is what a new document of the company to the customer in the
 // currency is checked and priced against: the currency's minor-unit
 // digits (422 sales.unknown_currency naming currency), the company's
-// date today, the customer's price group there and the tenant's pricing
-// procedure.
+// date today, the customer's price group there, the tenant's pricing
+// procedure and the company's establishment, the region of its postal
+// address, which a UAE item's emirate defaults to (defaultJurisdiction).
 func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, customer uuid.UUID, code string) (document, error) {
 	exp, err := currency.Exponent(ctx, tx, code, problem.Invalid("sales.unknown_currency", "currency", "The currency is not known."))
 	if err != nil {
@@ -240,6 +241,10 @@ func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, 
 		return document{}, err
 	}
 	doc := document{le: le, customer: customer, priceGroup: group, procedure: cfg.Pricing.Steps(), currency: code, exp: exp, date: day.Date, zone: day.Zone}
+	if co := cfg.Company(le.Code); co != nil && co.PostalAddress != nil && co.PostalAddress.Region != "" {
+		region := co.PostalAddress.Region // a copy: the configuration is shared
+		doc.establishment = &region
+	}
 	if group != nil {
 		g, _ := cfg.Pricing.PriceGroup(*group) // a group is never removed once activated: a stored one is configured
 		doc.priceGroupName = &g.Name
@@ -319,7 +324,7 @@ func (e *Endpoints) answer(ctx context.Context, tx pgx.Tx, p reqctx.Principal, q
 		return Quotation{}, err
 	}
 	before := Open
-	return answered, recordQuotation(ctx, action, answered, le, names[q.CustomerID], &before)
+	return answered, recordQuotation(ctx, action, answered, le, names[q.CustomerID], &before, nil)
 }
 
 // stillValid refuses to accept a quotation whose validity ended before
@@ -343,8 +348,10 @@ func (e *Endpoints) stillValid(ctx context.Context, q Quotation) error {
 // publishes QuotationChanged in the same transaction (ADR-0007,
 // ADR-0011); before is its status before, nil when it had none. The event
 // names the customer by id and number, never by name (product owner,
-// 2026-11-05), and carries the net value, not the items.
-func recordQuotation(ctx context.Context, action string, q Quotation, le tenancy.Entity, customer partner.Named, before *string) error {
+// 2026-11-05), and carries the net value, not the items. defaults are the
+// items' default jurisdictions (jurisdictionDefaults), nil for none.
+func recordQuotation(ctx context.Context, action string, q Quotation, le tenancy.Entity, customer partner.Named, before *string,
+	defaults []map[string]any) error {
 	net := money.EventAmount(q.Net, q.Currency, q.Exponent)
 	payload := map[string]any{"quotation_id": q.ID, "document_number": q.DocumentNumber, "legal_entity_id": q.LegalEntityID,
 		"legal_entity_code": le.Code, "customer_id": q.CustomerID, "customer_number": customer.Number,
@@ -352,5 +359,8 @@ func recordQuotation(ctx context.Context, action string, q Quotation, le tenancy
 		"status": q.Status, "status_before": before, "version": q.Version}
 	detail := map[string]any{"document_number": q.DocumentNumber, "customer_id": q.CustomerID, "status": q.Status, "status_before": before,
 		"valid_until": q.ValidUntil.Format(time.DateOnly), "net_amount": net, "items": len(q.Items)}
+	if defaults != nil {
+		detail["tax_jurisdiction_defaults"] = defaults
+	}
 	return record(ctx, action, "quotation", "quotation_changed", q.ID, detail, payload)
 }
