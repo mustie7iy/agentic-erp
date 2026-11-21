@@ -124,8 +124,14 @@ erDiagram
     uuid legal_entity_id
     text kind "purchasing_org | plant | storage_location | sales_org"
     text code "unique per legal entity and kind; a storage location's under its plant"
+    text region "a plant's, ISO 3166-2 subdivision of its company's country"
   }
 ```
+
+A plant may name its `region`, the country subdivision of its address
+(ISO 3166-2, a UAE plant's emirate; `org_unit_region`, migration 000431),
+which a UAE sales item of a stock material defaults its emirate to
+(ADR-0063 As built, the emirate's default on a sales item).
 
 An org unit's code is unique in its legal entity and kind
 (`org_unit_code_once`), a storage location's under its plant, its parent
@@ -4607,12 +4613,18 @@ processing (`einvoice_entry`), `supplier_invoice_id` and `supplier_id`
 (`einvoice_entered`), the problem exactly when refused or held
 (`einvoice_problem` widened), what the entering decided fixed (the
 trigger); the partial index `einvoice_to_enter` (processed tax invoices
-still received) and the cell-wide `einvoice_held` the gauge
-`erp_einvoices_held` counts, `einvoice_by_entry_fetch` for the list's fetch filter, the worker role reading `status`. The
+still received; dropped by 000434, T65e) and the cell-wide
+`einvoice_held` the gauge `erp_einvoices_held` counts,
+`einvoice_by_entry_fetch` for the list's fetch filter, the worker role
+reading `status`; `einvoice_by_processed_fetch` (migration 000432,
+review:batch86) lets the filter match the processing fetch too. The
 supplier invoice it enters has the source `einvoice` and keeps the
 document's hash and key as a captured one does
-(`supplier_invoice_document_hash`, `supplier_invoice_source_check`). The
-other columns below arrive with the slices that write them (T65e, T65f;
+(`supplier_invoice_document_hash`, `supplier_invoice_source_check`). T65e
+(migrations 000433, 000434) enters tax credit notes too, as credit memos:
+a fetch lists every `received` document by `einvoice_to_process` (the
+status alone), which replaces `einvoice_to_enter`; no column changes. The
+other columns below arrive with the slices that write them (T65f;
 the lines and totals read are not stored, the bytes being kept).
 E2 (migration 000415; ADR-0061 As built E2) adds
 `einvoicing.outgoing_einvoice`: a posted customer invoice or credit memo
@@ -6860,6 +6872,30 @@ erDiagram
   in transit of a batch-managed material (`movement_batch`), and adds a
   batch's line to its batch stock row, which must exist
   (`movement_batch_stock`): the batches at a location add up to its stock.
+- S2g (migration 000435): `materials.material.serial_managed` (a serial
+  number profile, SAP MARC's SERNP kept on the material, from memory),
+  fixed once created (`material_fixed`). `inventory.stock.serial_managed`
+  and `inventory.transit_stock.serial_managed`: whether the row's material
+  is serial-managed, written with the row and not updated by the
+  application. `inventory.serial` (SAP's serial number master, from
+  memory): a serial number of a material, its `number` 1 to 18 capitals,
+  digits, `-` or `_` (`serial_number_check`) once per material
+  (`serial_number_once`), where it is in stock now (`plant_id` and
+  `storage_location_id`, both or neither, `serial_location`), written out
+  of stock (`serial_from_movements`) and never deleted, and the company of
+  its last movement; the application changes only `updated_at`.
+  `inventory.movement_serial` (SAP SER03, from memory): a serial number a
+  line moves, of its material (`movement_serial_serial_fkey`), on a line
+  at a location (`movement_serial_of_movement`); insert-only. Each moves
+  its serial number (`movement_serial_moves`): a receipt only when it is
+  in no stock (`serial_in_stock_once`, 409 `inventory.serial_in_stock`),
+  so a serial number is in stock at most once, an issue only from where
+  it is (`serial_issued_from_stock`, 409 `inventory.serial_not_in_stock`).
+  At commit, a line of a serial-managed stock row names one serial number
+  for each unit it moves and any other line none (`movement_serials` on
+  the line and `movement_serial_counted` on each serial number added to
+  one, deferred constraint triggers, as the serial numbers are written
+  after their lines; one added to a committed line is refused too).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
@@ -6969,3 +7005,93 @@ erDiagram
   (`delivery_item_cost`, `delivery_item_cost_currency_fkey`).
 - Permissions `shipping.delivery.read`, `.write` and
   `shipping.goods_issue.post`.
+
+## 3.37 Material requirements planning (`mrp`)
+
+ADR-0084, S2k (migration 000436). Materials' planning data at plants and
+planning runs per plant: the context reads tenancy's plants, materials,
+the ledger's accounts, sales' demand, inventory's stock and prices and
+procurement's receipts and requisitions through ports, writes
+requisitions through procurement's published API, and keeps no foreign
+key out of its schema but `ref`'s (02 §2.1). It has no outbox: it
+publishes no event (the requisitions it proposes and cancels are
+procurement's, audited there). Nothing is deleted.
+
+```mermaid
+erDiagram
+  run ||--o{ run_line : "lines"
+  run ||--o{ proposal : "proposed"
+  run |o--o{ proposal : "replaced"
+  material_plan { uuid id PK
+    uuid legal_entity_id "tenancy: the plant's company"
+    uuid plant_id "tenancy"
+    uuid material_id "materials; once per plant"
+    text mrp_type "reorder_point, no_planning"
+    numeric reorder_point "0 or more, base unit"
+    uuid account_id "ledger: its proposals'"
+    integer version }
+  run { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid plant_id "tenancy; one queued at a time"
+    uuid operation_id "operations"
+    text status "queued, completed, failed"
+    date run_date "once completed"
+    integer materials_planned "once completed"
+    integer proposals_created "once completed"
+    integer proposals_replaced "once completed"
+    jsonb error "once failed"
+    integer version }
+  run_line { uuid run_id PK
+    uuid material_id PK "materials"
+    text uom_code "ref: the base unit"
+    numeric reorder_point
+    numeric demand
+    numeric stock
+    numeric receipts
+    numeric shortage "above 0 exactly with a requisition"
+    uuid requisition_id "procurement"
+    text requisition_number }
+  proposal { uuid requisition_id PK "procurement"
+    text requisition_number
+    integer requisition_version "as proposed"
+    uuid run_id
+    uuid plant_id "tenancy"
+    uuid material_id "materials"
+    text status "open, replaced, taken_over, closed"
+    uuid replaced_by_run_id "once replaced" }
+```
+
+- `mrp.material_plan`: a material's planning data at a plant (SAP MARC's
+  MRP view), once per plant and material (`material_plan_once`), of MRP
+  type `reorder_point` or `no_planning` (`material_plan_mrp_type_check`)
+  and a reorder point of zero or more (`material_plan_reorder_point_check`);
+  its company, plant and material do not change (`material_plan_fixed`,
+  a trigger). Its version moves with every change (`material_plan_touch`).
+  The list reads by `material_plan_by_created_at`; a run reads the
+  plant's plans under a share lock.
+- `mrp.run`: a planning run of a plant with its Operation, `queued`,
+  `completed` or `failed` (`run_status_check`), one queued per plant
+  (`run_one_at_a_time`); a completed run names its day and counts, not
+  below zero, and a failed one its problem (`run_outcome`,
+  `run_*_check`). Once it ended it changes no more, and its company,
+  plant and Operation never (`run_ended_fixed`, a trigger). Lists read by
+  `run_by_created_at`.
+- `mrp.run_line`: a completed run's line per material planned
+  (`run_line_run_fkey`), in its base unit (`run_line_uom_fkey`): the
+  reorder point, demand, stock, receipts and shortage, none below zero
+  (`run_line_*_check`), naming the requisition proposed exactly when the
+  shortage is above zero, with its number of 1 to 40 characters
+  (`run_line_proposed`, `run_line_requisition_number_check`).
+  Insert-only (`run_line_immutable`).
+- `mrp.proposal`: a requisition a run proposed (`proposal_run_fkey`), with
+  its number (`proposal_requisition_number_check`) and the version it was
+  created in (`proposal_requisition_version_check`), `open`, `replaced`
+  (naming the run that replaced it, `proposal_replaced`,
+  `proposal_replaced_by_fkey`), `taken_over` or `closed`
+  (`proposal_status_check`); it moves only from `open`, or from
+  `taken_over` to `closed`, and nothing else of it changes
+  (`proposal_moves`, a trigger); not deleted (`proposal_no_delete`). The
+  application updates its status and `replaced_by_run_id` alone. A plant's
+  run reads its open and taken-over proposals by `proposal_by_plant`, a
+  run's replaced ones by `proposal_by_replacing_run`.
+- Permissions `mrp.plan.read`, `mrp.plan.write` and `mrp.run.start`.

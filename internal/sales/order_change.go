@@ -183,6 +183,11 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Order{}, err
 	}
+	if o.Status == Confirmed { // a confirmed order without a plant takes no stock item unchecked (product owner 2026-11-21)
+		if err := e.plantRequiredFor(ctx, o, c.items, quantityChanged(c.changes)); err != nil {
+			return Order{}, err
+		}
+	}
 	block := o.CreditBlock
 	if c.check != nil && c.check.block == Blocked {
 		block = Blocked
@@ -208,6 +213,13 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	extra := map[string]any{"change_no": no, "reason": in.Reason, "items_changed": len(c.changes), "net_amount_before": money.EventAmount(o.Net, o.Currency, o.Exponent)}
 	if checked := promised(promises, o.PlantID); checked != nil {
 		extra["availability"] = checked
+	}
+	added := make([]Item, len(c.items))
+	for i, it := range c.items {
+		added[i] = it.Item // only an added item has a default jurisdiction
+	}
+	if defaults := jurisdictionDefaults(added); defaults != nil {
+		extra["tax_jurisdiction_defaults"] = defaults
 	}
 	return after, recordOrder(ctx, "sales.sales_order.change", after, le, names[o.CustomerID].Number, &o.Status, c.check, extra)
 }

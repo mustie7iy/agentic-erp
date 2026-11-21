@@ -133,8 +133,12 @@ type Material struct {
 	// BatchManaged says every movement of the material names a batch of
 	// it (SAP MARA's XCHPF, from memory; As built S2f); fixed once created.
 	BatchManaged bool
-	Plants       []Plant
-	Units        []Unit
+	// SerialManaged says the material has a serial number profile: every
+	// unit of it moved names its serial number (SAP MARC's SERNP, from
+	// memory, kept on the material; As built S2g); fixed once created.
+	SerialManaged bool
+	Plants        []Plant
+	Units         []Unit
 	// PendingChangeID and PendingChangeNumber are its pending change, nil
 	// when none is pending (ADR-0082 §9).
 	PendingChangeID     *uuid.UUID
@@ -150,7 +154,7 @@ type Material struct {
 // alternative units, each in a stated order, and the one change pending
 // (material_change_one_pending).
 const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description, m.base_uom_code, b.name, m.material_type, m.material_group,
-		m.status, m.batch_managed, m.version, m.created_at, m.created_by, m.updated_at, m.updated_by,
+		m.status, m.batch_managed, m.serial_managed, m.version, m.created_at, m.created_by, m.updated_at, m.updated_by,
 		coalesce((SELECT json_agg(json_build_object('plant_id', d.plant_id, 'legal_entity_id', d.legal_entity_id,
 				'storage_location_ids', coalesce((SELECT json_agg(s.storage_location_id ORDER BY s.storage_location_id)
 					FROM materials.storage_location_data s WHERE s.tenant_id = d.tenant_id AND s.material_id = d.material_id
@@ -166,7 +170,7 @@ const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description,
 
 func scanMaterial(row pgx.Row) (Material, error) {
 	var m Material
-	err := row.Scan(&m.ID, &m.Number, &m.LegalEntityID, &m.Description, &m.BaseUnit, &m.BaseUnitName, &m.Type, &m.Group, &m.Status, &m.BatchManaged, &m.Version,
+	err := row.Scan(&m.ID, &m.Number, &m.LegalEntityID, &m.Description, &m.BaseUnit, &m.BaseUnitName, &m.Type, &m.Group, &m.Status, &m.BatchManaged, &m.SerialManaged, &m.Version,
 		&m.CreatedAt, &m.CreatedBy, &m.UpdatedAt, &m.UpdatedBy, &m.Plants, &m.Units, &m.PendingChangeID, &m.PendingChangeNumber)
 	return m, errs.Wrapf(err, "scan material")
 }
@@ -217,7 +221,7 @@ func (e *Endpoints) record(ctx context.Context, m Material, ch change, before *s
 	}
 	payload := map[string]any{"material_id": m.ID, "number": m.Number, "legal_entity_id": m.LegalEntityID, "legal_entity_code": codes[m.LegalEntityID],
 		"description": m.Description, "base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status,
-		"batch_managed": m.BatchManaged,
+		"batch_managed": m.BatchManaged, "serial_managed": m.SerialManaged,
 		"status_before": before, "plants": plants, "alternative_units": alternatives, "change": ch.name, "version": m.Version}
 	if err := audit.Record(ctx, "materials.material."+ch.action, "materials.material", m.ID, ch.detail,
 		outbox.Event{Context: "materials", Name: "material_changed", AggregateType: "materials.material", AggregateID: m.ID, Payload: payload}); err != nil {

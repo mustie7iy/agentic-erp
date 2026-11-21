@@ -66,8 +66,9 @@ func (e env) confirmedNow(t *testing.T, id string) (string, string) {
 // items of a material kept in stock confirmed as far as the plant has
 // them available, its stock less what other confirmed orders promised:
 // in full, in part or not at all, and a shortage refuses nothing; a
-// service or free-text item, and every item of an order without a plant,
-// is not checked. The order names its plant; the audit record says what
+// service or free-text item is not checked. An order naming no plant
+// delivers from the company's only plant, P1, and is checked there
+// (product owner 2026-11-21). The order names its plant; the audit record says what
 // was confirmed; deliveries take at most what is confirmed and ship from
 // the order's plant.
 func TestConfirmationPromisesWhatIsAvailable(t *testing.T) {
@@ -89,9 +90,9 @@ func TestConfirmationPromisesWhatIsAvailable(t *testing.T) {
 	}
 	free, freeTag := e.Must(201, "POST", "/v1/sales-orders", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "currency": "EUR", "items": [%s]}`,
 		e.DE, e.customer, e.ofMaterial(e.bracket, "10 BOX")), "")
-	if confirmed, _ := e.Must(200, "POST", "/v1/sales-orders/"+free["id"].(string)+":confirm", "", freeTag); confirmedOf(t, confirmed) != "-" ||
-		confirmed["plant_id"] != nil {
-		t.Errorf("an order without a plant: got %s, plant %v; want nothing checked", confirmedOf(t, confirmed), confirmed["plant_id"])
+	if confirmed, _ := e.Must(200, "POST", "/v1/sales-orders/"+free["id"].(string)+":confirm", "", freeTag); confirmedOf(t, confirmed) != "0 BOX" ||
+		confirmed["plant_id"] != e.p1.String() {
+		t.Errorf("an order naming no plant: got %s, plant %v; want the company's only plant P1, checked there", confirmedOf(t, confirmed), confirmed["plant_id"])
 	}
 	if a := e.audits(t, b, "sales.sales_order.confirm"); len(a) != 1 || fmt.Sprint(a[0]["availability"]) != fmt.Sprintf(
 		"map[items:[map[confirmed_before:<nil> confirmed_quantity:2 item_no:1 material_id:%s quantity:5 unit:BOX unvalued:false]] plant_id:%s]", e.bracket, e.p1) {

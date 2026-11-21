@@ -55,8 +55,9 @@ var Reads = []string{"listPlanCategories", "listPlanLines", "listCostCenterPlanA
 // Never are the operations the agent never calls (ADR-0072): applying a
 // plan batch, copying a category's plan (T93a), locking or unlocking a
 // category and creating one, every write of planning, which its tools
-// hold none of.
-var Never = []string{"applyPlanBatch", "copyPlanCategory", "lockPlanCategory", "unlockPlanCategory", "createPlanCategory"}
+// hold none of; and materials' planning data at plants (S2k, ADR-0084),
+// which a person keeps.
+var Never = []string{"applyPlanBatch", "copyPlanCategory", "lockPlanCategory", "unlockPlanCategory", "createPlanCategory", "createMaterialPlan", "updateMaterialPlan"}
 
 const system = `You propose the plan of a fiscal year for a plan category of a company, for a controller to decide and apply.
 

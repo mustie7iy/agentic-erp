@@ -205,6 +205,21 @@ func TestFloorQuantity(t *testing.T) {
 	}
 }
 
+// TestCeilQuantity: a quotient is rounded up to six decimals, never
+// down; an exact one stays.
+func TestCeilQuantity(t *testing.T) {
+	for name, c := range map[string]struct {
+		num, den int64
+		want     string
+	}{"a third": {1, 3, "0.333334"}, "two thirds": {2, 3, "0.666667"}, "exact": {5, 4, "1.25"}, "nothing": {0, 7, "0"}} {
+		t.Run(name, func(t *testing.T) {
+			if got := PlainQuantity(CeilQuantity(big.NewRat(c.num, c.den))); got != c.want {
+				t.Errorf("CeilQuantity(%d/%d): got %s, want %s", c.num, c.den, got, c.want)
+			}
+		})
+	}
+}
+
 // TestMinMaxRat: the lesser and the greater of two rationals.
 func TestMinMaxRat(t *testing.T) {
 	one, two := big.NewRat(1, 1), big.NewRat(2, 1)

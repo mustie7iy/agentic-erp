@@ -92,8 +92,13 @@ material type is not built.
   ADR-0083): outbound deliveries, their picking and goods issue. A leaf:
   it reads sales' orders and writes their deliveries through sales'
   published API and posts the goods issue through inventory's.
-- Planning (S2k–S2n) and the connectors (S2q–S2s) are decided by their
-  own ADRs when they are built.
+- **`mrp`** (schema `mrp`, `internal/mrp`, from S2k; ADR-0084): materials'
+  planning data at plants and planning runs. A leaf: it reads sales'
+  demand, inventory's stock and prices and procurement's receipts and
+  requisitions through ports and proposes requisitions through
+  procurement's published API.
+- The rest of planning (S2l–S2n) and the connectors (S2q–S2s) are decided
+  by their own ADRs when they are built.
 
 ## S1 Foundation
 
@@ -671,6 +676,22 @@ storage location's.
 unit's serial number on receipt and issue. **Adds:** `inventory.serial`
 and its history. **Acceptance:** a serial number is in stock at most once.
 
+- **Detailed** (lane serial, 2026-11-21; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2g): a material has a
+  serial number profile from its creation (`serial_managed` on `POST
+  /v1/materials`, fixed once created; SAP MARC's SERNP, from memory).
+  Every goods movement of it (`POST /v1/material-documents`) names the
+  serial number of each unit it moves (`serial_numbers`, a whole number
+  of base units), unique per material; the first receipt naming one
+  creates it. `inventory.serial` holds where each is in stock now and
+  `inventory.movement_serial` its history; the database refuses a
+  receipt of one in stock and an issue of one not at the line's location,
+  so a serial number is in stock at most once. `GET /v1/serial-numbers`
+  and `/{id}` with its history. The flows that carry no serial numbers
+  yet refuse a serial-managed material where they refuse a batch-managed
+  one (S2f). **Later:** serial numbers in those flows, profiles per plant
+  and other serial number usages.
+
 **Later for Batch and serial number management:** batch classification
 and determination (FEFO), where-used lists, recall, serial numbers in
 maintenance (phase 6).
@@ -748,6 +769,19 @@ plants.
 (demand from open sales orders and a reorder point against stock and open
 receipts) and proposes purchase requisitions. **Acceptance:** a rerun
 replaces its own open proposals and never a person's requisition.
+
+- **Detailed and as built** (lane mrp, 2026-11-21; ADR-0084, decided by
+  default): a planner gives a material its planning data at a plant
+  (`POST /v1/material-plans`: MRP type `reorder_point` or `no_planning`,
+  a reorder point in the base unit, the account its proposals name); a
+  run of a plant (`POST /v1/mrp-runs`, an Operation, one transaction)
+  counts per planned material the plant's confirmed orders' ordered and
+  undelivered quantities, its stock and its open receipts (purchase
+  orders' stock items and the proposals a person took over) and proposes
+  the shortage below the reorder point as a draft requisition at the
+  valuation price; a rerun cancels the earlier runs' proposals still
+  unchanged drafts and never touches one a person changed or raised.
+  Migration 000436, walkthrough step 152 (`step_mrp`).
 
 ### S2l Replenishment agent
 

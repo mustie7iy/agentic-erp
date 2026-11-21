@@ -28,34 +28,36 @@ const StatusRefused = "refused"
 type Processed struct{ Refused, Entered, Held, Waiting int }
 
 // unprocessed is a document of the connector to process, as the process
-// step reads it before its own transaction: one not yet processed, or a
-// tax invoice processed and not yet entered (validated before T65d, or
-// left for a later fetch when its entering failed on the machinery).
+// step reads it before its own transaction: one not yet processed, or one
+// processed and not yet entered (a tax invoice validated before T65d, a
+// tax credit note validated before T65e, or one left for a later fetch
+// when its entering failed on the machinery).
 type unprocessed struct {
 	id  uuid.UUID
 	ref string
 	sum []byte
 }
 
-// ProcessEInvoices processes the connector's received documents not yet
-// processed, oldest first (ADR-0061 §4 Process, §5, §6; T65c, T65d): each
-// one's bytes are read from the store with no transaction open, then, in a
-// transaction of its own, the document is read FOR UPDATE where it is
-// still received and unprocessed, validated (Received, then addressed) and
-// either refused, with its problem, the audit record
-// einvoicing.einvoice.refused and EInvoiceChanged, or recorded valid with
-// what it read and the audit record einvoicing.einvoice.validated (no
-// event: its status does not move), and a valid tax invoice then entered
-// as a supplier invoice or held (enter), in the same transaction. A tax
-// invoice validated before (by a fetch before T65d) is entered the same
-// way by the next fetch; credit notes stay received for T65e. A document
-// already processed and entered, held or refused is skipped, so the step
-// runs any number of times; it answers how many documents this fetch
-// refused, entered and held, counted from the rows, so a step run again
-// after a commit still counts them, and how many of the connector's
-// documents are still waiting (left unprocessed until the company's setup
-// is completed), so a person sees the gap in the fetch's result; a
-// document whose bytes are gone fails the step instead.
+// ProcessEInvoices processes the connector's received documents, oldest
+// first (ADR-0061 §4 Process, §5, §6; T65c-T65e).
+//
+// Each one's bytes are read from the store with no transaction open; then,
+// in a transaction of its own, the document is read FOR UPDATE while still
+// received. One not yet processed is validated (Received, then addressed):
+// refused, with its problem, the audit record einvoicing.einvoice.refused
+// and EInvoiceChanged, or recorded valid with what it read and the audit
+// record einvoicing.einvoice.validated (no event: its status does not
+// move). A valid tax invoice or tax credit note is then entered, in the
+// same transaction, as a supplier invoice or credit memo, or held (enter);
+// one validated before (a tax invoice before T65d, a tax credit note
+// before T65e) is entered the same way by the next fetch.
+//
+// A document already entered, held or refused is skipped, so the step runs
+// any number of times. It answers how many documents this fetch refused,
+// entered and held, counted from the rows so that a run after a commit
+// counts them again, and how many of the connector's documents are still
+// waiting (unprocessed until the company's setup is completed), so a
+// person sees the gap; a document whose bytes are gone fails the step.
 func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (Processed, error) {
 	var c Connector
 	var docs []unprocessed
@@ -117,10 +119,11 @@ func (e *Endpoints) processAll(ctx context.Context, c Connector, operation uuid.
 // those recorded: no retry repairs it.
 var errStoredBytes = errors.New("the stored bytes are gone or not those recorded")
 
-// toProcess is the condition of a document a fetch processes: received
-// and not yet processed (einvoice_unprocessed), or a processed tax invoice
-// not yet entered (einvoice_to_enter).
-const toProcess = `status = 'received' AND (processed_at IS NULL OR document_kind = 'invoice')`
+// toProcess is the condition of a document a fetch processes: received,
+// whether not yet processed or processed and not yet entered
+// (einvoice_to_process). Every processed document still received is a
+// tax invoice or tax credit note, both entered since T65e.
+const toProcess = `status = 'received'`
 
 // unprocessedOf lists the connector's documents to process, oldest
 // received first.

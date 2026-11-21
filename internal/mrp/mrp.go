@@ -1,0 +1,165 @@
+// Package mrp is the material requirements planning context (ADR-0084;
+// plan-supply-chain.md §S2k): materials' planning data at plants (SAP
+// MARC's MRP view) and planning runs per plant, which compute each planned
+// material's net requirement from its plant's confirmed sales orders,
+// stock and open receipts against its reorder point and propose purchase
+// requisitions for the shortages, replacing the run's own earlier
+// proposals and never a person's requisition. A run is long work behind
+// an Operation (ADR-0012), carried out by the workflows context through
+// its port. It is a leaf (ADR-0084 §1): it reads tenancy's plants,
+// materials, the ledger's accounts, sales' demand, inventory's stock and
+// prices and procurement's receipts and requisitions, and writes
+// requisitions, through ports the composition root wires, in the
+// published types of materials and tenancy; no context imports it.
+// Tenancy is row-level security (ADR-0003), quantities exact decimals
+// (ADR-0082 §5), state changes guarded (ADR-0008) and audited (ADR-0011).
+package mrp
+
+import (
+	"context"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
+)
+
+// KindRun is the kind of a planning run's Operation (ADR-0084 §3).
+const KindRun = "mrp.run"
+
+// MRP types (SAP MARC-DISMM, from memory).
+const (
+	ReorderPoint = "reorder_point" // SAP VB
+	NoPlanning   = "no_planning"   // SAP ND
+)
+
+// Run statuses.
+const (
+	RunQueued    = "queued"
+	RunCompleted = "completed"
+	RunFailed    = "failed"
+)
+
+// Proposal statuses (mrp.proposal).
+const (
+	proposalOpen     = "open"
+	proposalReplaced = "replaced"
+	proposalTaken    = "taken_over"
+	proposalClosed   = "closed"
+)
+
+func init() {
+	problem.RegisterConstraint("material_plan_once", func() *problem.Problem {
+		return problem.Conflict("mrp.material_plan_exists", "The material is planned at the plant already; change its planning data instead "+
+			"(GET /v1/material-plans?plant_id=&material_id=).")
+	})
+	// Two runs of a plant started at once: the second's insert meets the
+	// first's queued row.
+	problem.RegisterConstraint("run_one_at_a_time", func() *problem.Problem {
+		return problem.Conflict("mrp.run_in_progress", "Another planning run of the plant was started at the same time and is queued "+
+			"(GET /v1/mrp-runs?status=queued).")
+	})
+}
+
+// Plants reads tenancy's org units and legal entities (its published
+// API): the plants by id, and a company.
+type Plants interface {
+	OrgUnits(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]tenancy.Unit, error)
+	Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error)
+}
+
+// Materials reads materials (the materials context's published API).
+type Materials interface {
+	Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]materials.Material, error)
+}
+
+// Accounts reads the ledger's accounts: whether a company may post to
+// one, and their numbers.
+type Accounts interface {
+	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
+	AccountNumbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
+// Open is a quantity of a material in one unit, as a plain decimal: what
+// sales orders demand or purchasing documents have open.
+type Open struct {
+	MaterialID uuid.UUID
+	Unit       string
+	Quantity   string
+}
+
+// Price is a material's valuation price at a plant, in the company's
+// currency (a valuation's, ADR-0082 §8) per PriceUnit base units.
+type Price struct {
+	Price     money.Minor
+	PriceUnit int32
+}
+
+// Requisition is a requisition a run proposed, as it stands now: its
+// status, version and items of materials.
+type Requisition struct {
+	Status  string
+	Version int32
+	Items   []Open
+}
+
+// Proposal is a requisition a run proposes: one item of the material in
+// its base unit, at its price, naming the account, needed by the day.
+type Proposal struct {
+	LegalEntityID, MaterialID, AccountID uuid.UUID
+	Currency, Quantity, Unit, Price      string
+	PriceUnit                            int32
+	NeededBy                             time.Time
+}
+
+// Proposed is a requisition created for a proposal.
+type Proposed struct {
+	ID      uuid.UUID
+	Number  string
+	Version int32
+}
+
+// Supply is what a run reads of the plant through the other contexts'
+// published APIs, in the run's transaction: the confirmed sales orders'
+// demand (sales), the stock and prices (inventory) and the open
+// receipts (procurement), and the requisitions it proposed, which it
+// proposes and withdraws through procurement.
+type Supply interface {
+	Demand(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
+	Stock(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) (map[uuid.UUID]string, error)
+	Prices(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) (map[uuid.UUID]Price, error)
+	Receipts(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
+	Requisitions(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Requisition, error)
+	Propose(ctx context.Context, p Proposal) (Proposed, error)
+	Withdraw(ctx context.Context, requisition uuid.UUID, version int32) (bool, error)
+}
+
+// Runs keeps a run's Operation (operations context): Start writes it
+// queued for the run's resource path in the request's transaction;
+// Cancelled says whether it was cancelled (under its lock with lock);
+// Succeed and Fail finish it from the run's work.
+type Runs interface {
+	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
+	Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error)
+	Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error
+	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
+}
+
+// Endpoints implements the mrp context's operations of the public API and
+// the planning run's work.
+type Endpoints struct {
+	Settings  config.Documents
+	Plants    Plants
+	Materials Materials
+	Accounts  Accounts
+	Supply    Supply
+	Runs      Runs
+	Pages     *pagination.Codec
+	Now       func() time.Time // the clock of a run's company day; nil: the wall clock
+}

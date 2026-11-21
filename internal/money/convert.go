@@ -248,6 +248,17 @@ func FloorQuantity(r *big.Rat) *big.Rat {
 	return new(big.Rat).SetFrac(n, scale)
 }
 
+// CeilQuantity is r, not below zero, rounded up to a quantity's
+// QuantityDecimals decimals: the least a quantity can say that covers r
+// (a planning run's shortage, ADR-0084 §3).
+func CeilQuantity(r *big.Rat) *big.Rat {
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(QuantityDecimals), nil)
+	n := new(big.Int).Mul(r.Num(), scale)
+	n.Add(n, new(big.Int).Sub(r.Denom(), big.NewInt(1)))
+	n.Div(n, r.Denom()) // (n + d - 1) / d rounds up for the non-negative r it is given
+	return new(big.Rat).SetFrac(n, scale)
+}
+
 // MinRat is the lesser of a and b (a when they are equal).
 func MinRat(a, b *big.Rat) *big.Rat {
 	if a.Cmp(b) <= 0 {

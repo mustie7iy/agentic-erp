@@ -95,12 +95,14 @@ func TestMaterialRules(t *testing.T) {
 		{"its description, group and status changed", func(s scene) []stmt {
 			return []stmt{create(s), update(`description = 'Bracket M10', material_group = 'FASTENERS', status = 'blocked'`)}
 		}, ""},
-		{"its number changed", func(s scene) []stmt { return []stmt{create(s), update(`number = 'MA2'`)} }, "number, company, base unit, type and batch management do not change"},
-		{"its company changed", func(s scene) []stmt { return []stmt{create(s), update(`legal_entity_id = gen_random_uuid()`)} }, "number, company, base unit, type and batch management do not change"},
-		{"its base unit changed", func(s scene) []stmt { return []stmt{create(s), update(`base_uom_code = 'PC'`)} }, "number, company, base unit, type and batch management do not change"},
-		{"its type changed", func(s scene) []stmt { return []stmt{create(s), update(`material_type = 'service'`)} }, "number, company, base unit, type and batch management do not change"},
+		{"its number changed", func(s scene) []stmt { return []stmt{create(s), update(`number = 'MA2'`)} }, "number, company, base unit, type, batch management and serial number profile do not change"},
+		{"its company changed", func(s scene) []stmt { return []stmt{create(s), update(`legal_entity_id = gen_random_uuid()`)} }, "number, company, base unit, type, batch management and serial number profile do not change"},
+		{"its base unit changed", func(s scene) []stmt { return []stmt{create(s), update(`base_uom_code = 'PC'`)} }, "number, company, base unit, type, batch management and serial number profile do not change"},
+		{"its type changed", func(s scene) []stmt { return []stmt{create(s), update(`material_type = 'service'`)} }, "number, company, base unit, type, batch management and serial number profile do not change"},
 		{"its batch management changed", func(s scene) []stmt { return []stmt{create(s), update(`batch_managed = true`)} },
-			"number, company, base unit, type and batch management do not change"},
+			"number, company, base unit, type, batch management and serial number profile do not change"},
+		{"its serial number profile changed", func(s scene) []stmt { return []stmt{create(s), update(`serial_managed = true`)} },
+			"number, company, base unit, type, batch management and serial number profile do not change"},
 		{"a material deleted", func(s scene) []stmt { return []stmt{create(s), step(`DELETE FROM materials.material`)} }, "permission denied"},
 		{"a plant of no material", func(s scene) []stmt { return []stmt{plant(s)} }, "plant_data_material_fkey"},
 		{"a plant twice", func(s scene) []stmt { return []stmt{create(s), plant(s), plant(s)} }, "plant_data_pkey"},
@@ -188,6 +190,7 @@ func TestMaterialTriggersAsOwner(t *testing.T) {
 		"UPDATE materials.material SET base_uom_code = 'PC' WHERE id = $1":            "material_fixed",
 		"UPDATE materials.material SET material_type = 'service' WHERE id = $1":       "material_fixed",
 		"UPDATE materials.material SET batch_managed = true WHERE id = $1":            "material_fixed",
+		"UPDATE materials.material SET serial_managed = true WHERE id = $1":           "material_fixed",
 		"UPDATE materials.unit_conversion SET uom_code = 'EA' WHERE material_id = $1": "unit_conversion_not_base",
 	} {
 		t.Run(set, func(t *testing.T) {

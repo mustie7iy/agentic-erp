@@ -2804,9 +2804,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fix: GET /v1/e-invoices?fetch_operation_id= also lists the documents a fetch refused that an earlier fetch recorded (processed_fetch_operation_id, with its index), as it lists those it entered or held (000427), so a fetch's refused count leads to its documents",
-        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d",
+        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d · db/migrations/000432 (einvoice_by_processed_fetch) · TestProcessedEInvoiceListed",
         "src": "review:batch86",
         "c": []
        },
@@ -2818,10 +2818,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "E-invoice credit notes: entered as credit memos naming the invoice they cite by capture's rule (none, a posted invoice of the supplier, or on_hold naming the number); credit notes left received by T65d processed by the next fetch; walkthrough: a credit note citing the e-invoice of T65d entered as a credit memo referencing that invoice; a credit note naming no invoice is held for a person rather than entered as correcting none (UAE tax specialist, po:2026-11-09, C4 [M]: a UAE tax credit note must name the invoice it corrects, IBG-03 and IBT-025)",
-        "r": "ADR-0061 §6 · T65e · ADR-0061 §5 (answered, C4)",
+        "r": "ADR-0061 §6 · T65e · ADR-0061 §5 (answered, C4) · db/migrations/000433, 000434 (einvoice_to_process) · einvoicing.HeldNoInvoice (einvoicing.credit_note_names_no_invoice) · payables.EInvoice.Kind, CreditedNumber · TestEnterCreditNotes · TestEnterCreditNoteValidatedBefore · walkthrough step_einvoice (einvoice_credit_notes) · ADR-0061 As built T65e",
         "src": "adr:ADR-0061 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "fix: a CHECK on einvoicing.einvoice that a processed document not refused has its document_kind (einvoice_read keeps it empty before processing; nothing requires it after), since the fetch's entering branches on it (invoice or credit note, T65e), with its schema test",
+        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e",
+        "src": "review:batch87",
         "c": []
        },
        {
@@ -5684,9 +5691,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A material with a serial number profile records each unit's serial number on receipt and issue, each in stock at most once",
-      "r": "S2g · docs/design/plan-supply-chain.md §S2g · ADR-0082",
+      "r": "S2g · docs/design/plan-supply-chain.md §S2g · ADR-0082 As built S2g · db/migrations/000435 · materials.material.serial_managed · inventory.serial, .movement_serial · serial_numbers on POST /v1/material-documents · GET /v1/serial-numbers, /v1/serial-numbers/{id} · walkthrough step_serial_numbers (step 151)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5699,7 +5706,7 @@
      },
      {
       "s": "T",
-      "t": "later: serial number variants: serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: serial number variants: serial numbers in the purchase order's goods receipt, the delivery's goods issue, stock transport orders, counts and the SAP stock take-over (refused for a serial-managed material until then), serial number profiles per plant and other serial number usages, serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2g, Later",
       "src": "baseline",
       "c": []
@@ -5796,6 +5803,20 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "A sales order of a stock material names its plant: an order created without plant_id delivers from its company's only active plant when it has exactly one; confirming an order without a plant that has an item of a material kept in stock is refused (422 sales.plant_required); service and non-stock items need none. Per-item plants determined from customer and material data stay Later",
+      "r": "ADR-0082 As built S2j (the plant required) · tenancy.Directory.OnlyPlant · sales.plant_required · TestPlantRequired · TestItemJurisdictionDefaults · walkthrough step_available_to_promise (step 150)",
+      "src": "po:2026-11-21",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A UAE sales item's emirate defaults from the seller's side, never the customer's or ship-to address: the emirate of its order's plant for an item of a stock material, else the company's establishment (its postal address's region); editable per item, each default and a change from it audited. A plant names its region (expand step)",
+      "r": "db/migrations/000431 (tenancy.org_unit.region, org_unit_region) · tenancy.invalid_region · sales defaultJurisdiction · tax_jurisdiction_defaults in the documents' audit records · TestItemJurisdictionDefaults · TestItemJurisdictionWithoutEstablishment · TestOrgUnitRegion (tenancy, db) · ADR-0063 As built (the emirate's default on a sales item) · ADR-0049 §11 · walkthrough step_einvoice_billing (step 148)",
+      "src": "po:2026-11-21",
+      "c": []
+     },
+     {
       "s": "T",
       "t": "contract step: sales.delivery_assignment.plant_id NOT NULL, once every server writes it (S2j's expand step left it nullable; ShipInput.PlantID and GoodsIssue.PlantID required since), with its schema test",
       "r": "db/migrations/000430_sales_availability · ADR-0082 As built S2j · 06 §6.4 (expand, migrate, contract)",
@@ -5824,10 +5845,17 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A planning run per plant computes net requirements (open sales orders and a reorder point against stock and open receipts) and proposes purchase requisitions, replacing only its own open proposals",
-      "r": "S2k · docs/design/plan-supply-chain.md §S2k",
+      "r": "S2k · docs/design/plan-supply-chain.md §S2k · ADR-0084 · db/migrations/000436 · internal/mrp · mrp.material_plan, .run, .run_line, .proposal · POST/GET /v1/material-plans, GET/PATCH /v1/material-plans/{id} · POST/GET /v1/mrp-runs, GET /v1/mrp-runs/{id} · workflows.MrpRun · sales.Orders.PlantRequirements · inventory.Endpoints.PlantPrices · procurement.Orders.OpenReceipts, .Requisitions · procurement.Endpoints.ProposeRequisition, .WithdrawProposal · mrp.plan.read, .write, mrp.run.start · TestPlanningRun · TestMRPRules · walkthrough step_mrp (step 152)",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: listMrpRuns' runs embed their lines whole; once a run is chunked (a step per material, ADR-0084's rejected option for when a plant's run outgrows a transaction), the list gives each run's counts and its lines are paged under GET /v1/mrp-runs/{id}",
+      "r": "internal/mrp/run.go · api/openapi.yaml listMrpRuns, getMrpRun · ADR-0084 (chunked runs) · 04 §4.5",
+      "src": "review:batch87",
       "c": []
      },
      {
@@ -9046,6 +9074,13 @@
       "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing",
       "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4",
       "src": "review:batch86",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: migration 000428_batches.down.sql's guard (batches or batch-managed materials exist) reads inventory.batch and materials.material without SET LOCAL row_security = off, so a migrating role held to their forced row-level security sees no tenant's rows and drops the batch columns whatever exists (pre-existing, as 000356's backfill); read every tenant's rows as 000435's down does, so such a role fails rather than sees zero rows",
+      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
+      "src": "review:batch87",
       "c": []
      }
     ]

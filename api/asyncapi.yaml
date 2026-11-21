@@ -6168,8 +6168,8 @@ components:
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company it is addressed to; null when none."}
         legal_entity_code: {type: [string, 'null'], description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; null with it.'}
         status: {type: string, description: "The document's status after the change. Open enum: received, refused (T65c), entered, held (T65d)."}
-        problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`) or held (T65d: the problem its entering met, such as `payables.capture_needs_order`, or `einvoicing.tax_currency_not_entered`); an open enumeration; null unless refused or held. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
-        supplier_invoice_id: {type: [string, 'null'], format: uuid, description: "The supplier invoice it was entered as (T65d); null unless entered. Added within v1, so not required (ADR-0041); every event carries it."}
+        problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`) or held (T65d: the problem its entering met, such as `payables.capture_needs_order`, or `einvoicing.tax_currency_not_entered`; T65e: `einvoicing.credit_note_names_no_invoice`, `einvoicing.credit_note_names_several_invoices`); an open enumeration; null unless refused or held. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
+        supplier_invoice_id: {type: [string, 'null'], format: uuid, description: "The supplier invoice it was entered as (T65d), a credit memo for a tax credit note (T65e); null unless entered. Added within v1, so not required (ADR-0041); every event carries it."}
         status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
         sha256: {type: string, description: "The SHA-256 of its bytes as received, hex."}
         changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`). Added within v1, so not required (ADR-0041); every event carries it."}
@@ -6820,6 +6820,7 @@ components:
         material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
         material_group: {type: string, description: The material group.}
         batch_managed: {type: boolean, description: 'Whether the material is managed in batches (S2f); it does not change. Not required (ADR-0041).'}
+        serial_managed: {type: boolean, description: 'Whether the material has a serial number profile (S2g); it does not change. Not required (ADR-0041).'}
         status: {type: string, description: "The material's status after the change. Open enum: pending, active, blocked."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         plants:
@@ -6916,6 +6917,7 @@ components:
               in_transit: {type: boolean, description: "Whether the line moves stock in transit to its storage location (a stock transport order's, S2h) rather than the stock at that location; not required (ADR-0041)."}
               batch_id: {type: [string, 'null'], format: uuid, description: "The batch the line moves, `inventory.batch.id`, of a batch-managed material (S2f); null on a line of another material; not required (ADR-0041)."}
               batch_number: {type: [string, 'null'], description: "That batch's number; null with it; not required (ADR-0041)."}
+              serial_numbers: {type: [array, 'null'], items: {type: string}, description: "The serial numbers the line moves, of a serial-managed material (S2g), sorted by number; null on a line of another material; not required (ADR-0041)."}
     OutboundDeliveryChangedV1:
       type: object
       required: [outbound_delivery_id, number, legal_entity_id, legal_entity_code, sales_order_id, sales_order_number, customer_id, customer_number, plant_id, plant_code, storage_location_id, storage_location_code, status, picking_status, goods_issue_date, material_document_id, material_document_number, items, version]

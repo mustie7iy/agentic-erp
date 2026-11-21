@@ -113,6 +113,7 @@ var SchemasWithout = map[string]string{
 	"grc":           "controls and risks: owners by id",
 	"leases":        "lease contracts and their schedules: the lessor, a supplier, by id",
 	"ledger":        "the journal and the chart of accounts: partners by id",
+	"mrp":           "materials' planning data at plants and planning runs: materials, plants and requesters by id",
 	"payables":      "supplier invoices: suppliers by id",
 	"platform":      "operations, idempotency keys and the outbox's machinery",
 	"procurement":   "requisitions, orders and receipts: suppliers by id",

@@ -18,10 +18,10 @@ import (
 // document (ADR-0061 §14; T65c): reading its bytes, validating it as PINT
 // AE, checking its buyer against the connector and the company's FTA
 // registration, and recording the outcome with its audit record, in a
-// connector that holds 10,000 documents processed before (a UAE company's
-// e-invoices of some years; the pilot's own volumes are not known yet,
-// ADR-0052 facts). p95 250 ms, set from the measured median and p95 with
-// room for a loaded machine, as earlier budgets were.
+// connector that holds 10,000 documents processed before, done with (a
+// UAE company's e-invoices of some years; the pilot's own volumes are not
+// known yet, ADR-0052 facts). p95 250 ms, set from the measured median
+// and p95 with room for a loaded machine, as earlier budgets were.
 func TestProcessEInvoiceBudget(t *testing.T) {
 	nfr.Measure(t)
 	s := receiving(t)
@@ -29,8 +29,12 @@ func TestProcessEInvoiceBudget(t *testing.T) {
 			created_by, updated_by)
 		SELECT $1, gen_random_uuid(), $2, 'OLD-' || n, 'received', sha256(n::text::bytea), 1, 'k', gen_random_uuid(), $3, $3
 		FROM generate_series(1, 10000) n`, s.f.Tenant.ID, s.connector, s.f.Tenant.Human.ID)
-	pgtest.Exec(t, `UPDATE einvoicing.einvoice SET processed_at = now(), processed_fetch_operation_id = fetch_operation_id,
-		validated_against = 'PINT AE Billing 1.0.4', version = version + 1 WHERE tenant_id = $1 AND message_id LIKE 'OLD-%'`, s.f.Tenant.ID)
+	// Done with: refused here, as nothing of them is read (since T65e a fetch
+	// lists every received document, so a processed one still received
+	// would be entered again).
+	pgtest.Exec(t, `UPDATE einvoicing.einvoice SET status = 'refused', problem_code = 'einvoicing.unreadable', problem_detail = 'Not XML.',
+		processed_at = now(), processed_fetch_operation_id = fetch_operation_id, validated_against = 'PINT AE Billing 1.0.4', version = version + 1
+		WHERE tenant_id = $1 AND message_id LIKE 'OLD-%'`, s.f.Tenant.ID)
 	ctx := context.Background()
 	var times []time.Duration
 	for i := range 20 {

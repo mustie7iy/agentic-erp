@@ -1316,6 +1316,20 @@ func encodeCreateMaterialDocumentRequest(
 	return nil
 }
 
+func encodeCreateMaterialPlanRequest(
+	req *MaterialPlanCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateMaterialValuationRequest(
 	req *MaterialValuationCreate,
 	r *http.Request,
@@ -3313,6 +3327,20 @@ func encodeStartDepreciationRunRequest(
 	return nil
 }
 
+func encodeStartMrpRunRequest(
+	req *MrpRunStart,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeTakeCashSnapshotRequest(
 	req *CashSnapshotCreate,
 	r *http.Request,
@@ -3595,6 +3623,20 @@ func encodeUpdateLegalEntityRequest(
 
 func encodeUpdateMaterialRequest(
 	req *MaterialUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateMaterialPlanRequest(
+	req *MaterialPlanUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

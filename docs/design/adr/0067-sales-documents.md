@@ -2180,7 +2180,10 @@ post and E2 renders them (ADR-0061 As built E2, Gaps found, closed).
   (decided by default 2) entered it on a customer invoice's item for that
   reason. A default from the customer's address would report a sale in
   the customer's emirate. Which emirate a sales item defaults to, if any,
-  is a question for the tax specialist and the product owner. (2) One
+  is a question for the tax specialist and the product owner. (Answered
+  by the product owner on 2026-11-21: the seller's emirate, the plant's
+  for a stock item, else the company's establishment; ADR-0063 As built,
+  the emirate's default on a sales item.) (2) One
   jurisdiction per item, as on a customer invoice: the order has no
   header default. (3) The events carry totals, not items (§9), so none
   names the jurisdiction.

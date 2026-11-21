@@ -18,9 +18,10 @@ import (
 )
 
 var regexMap = map[string]ogenregex.Regexp{
-	"\\S":                                    ogenregex.MustCompile("\\S"),
-	"^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$": ogenregex.MustCompile("^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"),
-	"^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$":                      ogenregex.MustCompile("^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$"),
+	"\\S":                                            ogenregex.MustCompile("\\S"),
+	"^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$":         ogenregex.MustCompile("^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$"),
+	"^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$":         ogenregex.MustCompile("^(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"),
+	"^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$": ogenregex.MustCompile("^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$"),
 	"^(me|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$": ogenregex.MustCompile("^(me|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"),
 	"^-?(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$":                            ogenregex.MustCompile("^-?(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$"),
 	"^-?(0|[1-9][0-9]{0,15})(\\.[0-9]{1,12})?$":                           ogenregex.MustCompile("^-?(0|[1-9][0-9]{0,15})(\\.[0-9]{1,12})?$"),
@@ -54,6 +55,7 @@ var regexMap = map[string]ogenregex.Regexp{
 	"^[A-Z0-9]{1,6}$":                                                     ogenregex.MustCompile("^[A-Z0-9]{1,6}$"),
 	"^[A-Z0-9]{2}$":                                                       ogenregex.MustCompile("^[A-Z0-9]{2}$"),
 	"^[A-Z0-9_-]{1,10}$":                                                  ogenregex.MustCompile("^[A-Z0-9_-]{1,10}$"),
+	"^[A-Z0-9_-]{1,18}$":                                                  ogenregex.MustCompile("^[A-Z0-9_-]{1,18}$"),
 	"^[A-Z0-9_-]{1,9}$":                                                   ogenregex.MustCompile("^[A-Z0-9_-]{1,9}$"),
 	"^[A-Z0-9_/]{1,10}$":                                                  ogenregex.MustCompile("^[A-Z0-9_/]{1,10}$"),
 	"^[A-Z0-9_]{1,10}$":                                                   ogenregex.MustCompile("^[A-Z0-9_]{1,10}$"),
