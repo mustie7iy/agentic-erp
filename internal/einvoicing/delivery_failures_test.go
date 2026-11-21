@@ -212,9 +212,9 @@ func TestDeliveryReadFailures(t *testing.T) {
 	if step := s.advance(t, id, send); !step.Done {
 		t.Errorf("the 500th read: got %+v, want done", step)
 	}
-	if a, e := recorded(); a != audits+1 || e != events+1 {
-		t.Errorf("no longer awaited, audited and published: got %d audit records and %d events more, want 1 and 1", a-audits, e-events)
-	}
+	a, e := recorded()
+	check(t, "no longer awaited: audit records more", a-audits, 1)
+	check(t, "no longer awaited: events more", e-events, 1)
 	got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
 	tr := got["transmission"].(map[string]any)
 	check(t, "no longer followed nor awaited", words(tr["follow_check_at"], tr["tax_data_awaited"]), "<nil> <nil>")

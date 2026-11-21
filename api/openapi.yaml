@@ -66467,7 +66467,7 @@ components:
           x-extensible-enum: [retry, withdraw]
           description: "A person's request of the tax data document not yet made at the provider; null for none. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
         tax_data_awaited: {type: [string, 'null'], description: "After a request was made, the status the call found, until the provider shows another; meanwhile a new request is refused (409 `einvoicing.tax_data_request_pending`). Null otherwise."}
-        follow_check_at: {type: [string, 'null'], format: date-time, description: "When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to an hour); null before completion and once both are final, nothing is awaited, or 500 reads were made. Each read moves `version`, and so the ETag."}
+        follow_check_at: {type: [string, 'null'], format: date-time, description: "When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to an hour); null before completion, once both are final and nothing is awaited, or after 500 reads. Each read moves `version`, and so the ETag."}
         version: {type: integer, format: int32, description: "The submission's version."}
     OutgoingEInvoiceTransmissionProblem:
       type: object

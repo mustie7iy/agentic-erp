@@ -84062,8 +84062,8 @@ type OutgoingEInvoiceTransmission struct {
 	// new request is refused (409 `einvoicing.tax_data_request_pending`). Null otherwise.
 	TaxDataAwaited NilString `json:"tax_data_awaited"`
 	// When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to
-	// an hour); null before completion and once both are final, nothing is awaited, or 500 reads were
-	// made. Each read moves `version`, and so the ETag.
+	// an hour); null before completion, once both are final and nothing is awaited, or after 500 reads.
+	// Each read moves `version`, and so the ETag.
 	FollowCheckAt NilDateTime `json:"follow_check_at"`
 	// The submission's version.
 	Version int32 `json:"version"`
