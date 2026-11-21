@@ -564,11 +564,15 @@ func TestLockTenant(t *testing.T) {
 		}
 	})
 	t.Run("without a tenant", func(t *testing.T) {
-		tx, err := pool.Begin(ctx, database.Scope{Role: "erp_worker", ReadOnly: true})
+		// The application's role, which may call platform.require_tenant(), with no tenant set: the refusal is
+		// require_tenant's own, not a missing privilege.
+		tx, err := pool.Begin(ctx, database.Scope{Role: "erp_app"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = tx.Rollback(ctx) }) // a read-only transaction the failed statement aborted: nothing to keep
-		pgtest.CheckErr(t, database.LockTenant(ctx, tx, "sales.availability"), "database: advisory lock sales.availability")
+		t.Cleanup(func() { _ = tx.Rollback(ctx) }) // the failed statement aborted the transaction, which wrote nothing: its rollback has nothing to undo
+		err = database.LockTenant(ctx, tx, "sales.availability")
+		pgtest.CheckErr(t, err, "database: advisory lock sales.availability")
+		pgtest.CheckErr(t, err, "no tenant scope")
 	})
 }

@@ -73,3 +73,12 @@
 # 407 from GitHub: 1.2 and 1.26 times a runner's time, so about 300 s and
 # 260 s a run; the S2h lane measured procurement at 533 s a run under a
 # heavier load, so it is raised to 400 (three runs 1200 s, not split).
+# internal/inventory and internal/einvoicing (batch 86, S2f's batches and
+# S2j's availability; E3/E4 sending and T65d's entering): one local race
+# run of the batch, two packages at a time, took 221 s and 169 s, against
+# 623 s for internal/web (weighted 514), so some 1.2 times a runner's:
+# about 185 s and 140 s a run, no longer below the 20 s that leaves a
+# package at 10 s. internal/integration (1282 s, about 1070 s a run) and
+# internal/sales (315 s) stay within their weights.
+185 internal/inventory
+140 internal/einvoicing
