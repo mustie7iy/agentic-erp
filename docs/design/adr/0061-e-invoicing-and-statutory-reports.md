@@ -1696,7 +1696,11 @@ behind the port `einvoicing.Payables` (`enter.go`), adapted in
   rows (`entry_fetch_operation_id`). The list's `fetch_operation_id` filter,
   the fetch's `resource`, matches the entering fetch too (migration 000427,
   `einvoice_by_entry_fetch`), so a fetch's `entered` and `held` lead to
-  their documents, also those an earlier fetch recorded (review round 1).
+  their documents, also those an earlier fetch recorded (review round 1);
+  since review:batch86 it matches the processing fetch as well
+  (`processed_fetch_operation_id`, migration 000431,
+  `einvoice_by_processed_fetch`), so the `refused` count leads to the
+  documents it refused that an earlier fetch recorded.
   A retryable problem (a lock timeout or serialization failure, one with a
   Retry-After) fails the step rather than holding the document, and the
   audit entries buffered inside the savepoint (a rule's hold of the new

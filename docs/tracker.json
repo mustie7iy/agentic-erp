@@ -2804,9 +2804,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fix: GET /v1/e-invoices?fetch_operation_id= also lists the documents a fetch refused that an earlier fetch recorded (processed_fetch_operation_id, with its index), as it lists those it entered or held (000427), so a fetch's refused count leads to its documents",
-        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d",
+        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d · db/migrations/000431 (einvoice_by_processed_fetch) · TestProcessedEInvoiceListed",
         "src": "review:batch86",
         "c": []
        },

@@ -4608,7 +4608,7 @@ processing (`einvoice_entry`), `supplier_invoice_id` and `supplier_id`
 (`einvoice_problem` widened), what the entering decided fixed (the
 trigger); the partial index `einvoice_to_enter` (processed tax invoices
 still received) and the cell-wide `einvoice_held` the gauge
-`erp_einvoices_held` counts, `einvoice_by_entry_fetch` for the list's fetch filter, the worker role reading `status`. The
+`erp_einvoices_held` counts, `einvoice_by_entry_fetch` for the list's fetch filter, the worker role reading `status`; `einvoice_by_processed_fetch` (migration 000431, review:batch86) lets the filter match the processing fetch too. The
 supplier invoice it enters has the source `einvoice` and keeps the
 document's hash and key as a captured one does
 (`supplier_invoice_document_hash`, `supplier_invoice_source_check`). The
