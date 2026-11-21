@@ -83225,6 +83225,11 @@ type OrgUnit struct {
 	Name string `json:"name"`
 	// Parent unit, if any.
 	ParentID OptUUID `json:"parent_id"`
+	// A plant's region: the country subdivision of its address, an ISO 3166-2 code of its company's
+	// country (a UAE plant's emirate, `AE-DU`), as SAP keeps a plant's region (from memory). A sales
+	// order's items of a material kept in stock default their tax jurisdiction to their plant's
+	// (`createSalesOrder`). Absent for none and for other kinds.
+	Region OptString `json:"region"`
 	// Lifecycle status: `inactive` until `:activate`, then `active`, `blocked` by `:block` and back by
 	// `:unblock`. Open enumeration: clients must accept and preserve values not listed here; values may be
 	// added within /v1.
@@ -83284,6 +83289,11 @@ func (s *OrgUnit) GetName() string {
 // GetParentID returns the value of ParentID.
 func (s *OrgUnit) GetParentID() OptUUID {
 	return s.ParentID
+}
+
+// GetRegion returns the value of Region.
+func (s *OrgUnit) GetRegion() OptString {
+	return s.Region
 }
 
 // GetStatus returns the value of Status.
@@ -83346,6 +83356,11 @@ func (s *OrgUnit) SetParentID(val OptUUID) {
 	s.ParentID = val
 }
 
+// SetRegion sets the value of Region.
+func (s *OrgUnit) SetRegion(val OptString) {
+	s.Region = val
+}
+
 // SetStatus sets the value of Status.
 func (s *OrgUnit) SetStatus(val string) {
 	s.Status = val
@@ -83366,6 +83381,9 @@ type OrgUnitCreate struct {
 	Name string `json:"name"`
 	// Parent unit, if any.
 	ParentID OptUUID `json:"parent_id"`
+	// A plant's region: the country subdivision of its address, an ISO 3166-2 code of its company's
+	// country (a UAE plant's emirate, `AE-DU`). Only a plant names one.
+	Region OptString `json:"region"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -83393,6 +83411,11 @@ func (s *OrgUnitCreate) GetParentID() OptUUID {
 	return s.ParentID
 }
 
+// GetRegion returns the value of Region.
+func (s *OrgUnitCreate) GetRegion() OptString {
+	return s.Region
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *OrgUnitCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -83416,6 +83439,11 @@ func (s *OrgUnitCreate) SetName(val string) {
 // SetParentID sets the value of ParentID.
 func (s *OrgUnitCreate) SetParentID(val OptUUID) {
 	s.ParentID = val
+}
+
+// SetRegion sets the value of Region.
+func (s *OrgUnitCreate) SetRegion(val OptString) {
+	s.Region = val
 }
 
 // OrgUnitHeaders wraps OrgUnit with response headers.
@@ -83519,6 +83547,8 @@ type OrgUnitUpdate struct {
 	Name OptString `json:"name"`
 	// Parent unit. Send null to clear.
 	ParentID OptNilUUID `json:"parent_id"`
+	// A plant's region, an ISO 3166-2 code of its company's country. Send null to clear.
+	Region OptNilString `json:"region"`
 }
 
 // GetName returns the value of Name.
@@ -83531,6 +83561,11 @@ func (s *OrgUnitUpdate) GetParentID() OptNilUUID {
 	return s.ParentID
 }
 
+// GetRegion returns the value of Region.
+func (s *OrgUnitUpdate) GetRegion() OptNilString {
+	return s.Region
+}
+
 // SetName sets the value of Name.
 func (s *OrgUnitUpdate) SetName(val OptString) {
 	s.Name = val
@@ -83539,6 +83574,11 @@ func (s *OrgUnitUpdate) SetName(val OptString) {
 // SetParentID sets the value of ParentID.
 func (s *OrgUnitUpdate) SetParentID(val OptNilUUID) {
 	s.ParentID = val
+}
+
+// SetRegion sets the value of Region.
+func (s *OrgUnitUpdate) SetRegion(val OptNilString) {
+	s.Region = val
 }
 
 // An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's
@@ -110248,8 +110288,15 @@ type SalesItemCreate struct {
 	// in. Required with a tax code whose component levies its lines' subdivision (the UAE's `S5`; 422
 	// `sales.tax_jurisdiction_required`), a subdivision of that component's country and, where the
 	// component lists the subdivisions it accepts, one of them; with any other code, or none, it is
-	// refused (422 `sales.tax_jurisdiction_not_levied`). Both name `items[i].tax_jurisdiction`. It is
-	// entered, not derived from an address. The customer invoice its billing posts names it on the item.
+	// refused (422 `sales.tax_jurisdiction_not_levied`). Both name `items[i].tax_jurisdiction`. A UAE item
+	// (a code levying the emirates) that names none takes the seller's emirate, never the customer's or
+	// the ship-to address (product owner 2026-11-21; the VAT 201 reports a sale by the emirate of the
+	// supplier's establishment, ADR-0049 §11): for an item of a material kept in stock of an order with a
+	// plant, the plant's `region` (`createOrgUnit`), else the company's establishment, the region of its
+	// postal address in the configuration; with neither, or one the code does not levy, it is refused as
+	// above. An item may name another emirate, which it keeps; the document's audit record names each
+	// item's default and whether the item differs from it. The customer invoice its billing posts names it
+	// on the item.
 	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 }
 
@@ -110800,7 +110847,8 @@ type SalesOrderCaptureRequest struct {
 	// The province or emirate every item's tax is levied in (ISO 3166-2, `AE-DU`; `SalesItemCreate`'s
 	// `tax_jurisdiction`): required with a `tax_code` that levies its lines' subdivision (422
 	// `sales.tax_jurisdiction_required`), refused with any other code or none (422
-	// `sales.tax_jurisdiction_not_levied`); both name `tax_jurisdiction`.
+	// `sales.tax_jurisdiction_not_levied`); both name `tax_jurisdiction`. Absent, a UAE item takes the
+	// company's establishment emirate, as `SalesItemCreate`'s does (a captured item names no material).
 	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 }
 
@@ -111487,8 +111535,9 @@ type SalesOrderCreate struct {
 	// The plant the order delivers from (S2j): an active org unit of kind `plant` of the order's company
 	// (`GET /v1/org-units/{id}`; 422 `sales.plant_invalid`), with or without `quotation_id`. Its
 	// confirmation checks the availability of the items of a material kept in stock there, and its
-	// outbound deliveries ship from it. Kept as entered. Absent: none, and nothing is checked for
-	// availability.
+	// outbound deliveries ship from it. Kept as entered. Absent: the company's only active plant when it
+	// has exactly one (product owner 2026-11-21), else none, and an order without a plant is confirmed
+	// only without an item of a material kept in stock (422 `sales.plant_required`).
 	PlantID OptUUID `json:"plant_id"`
 	// The items, numbered in this order from 1. Required without `quotation_id`, refused with it.
 	Items []SalesItemCreate `json:"items"`

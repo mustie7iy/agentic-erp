@@ -574,10 +574,11 @@ paths:
       tags:
         - tenancy
       summary: Create an org unit
-      description: "Creates an org unit in status `inactive`."
+      description: "Creates an org unit in status `inactive`. A plant may name its `region`, the country subdivision of its address in its company's country (422 `tenancy.invalid_region`), which a sales order's stock items default their tax jurisdiction to (a UAE plant's emirate; `createSalesOrder`); another kind names none (422 `tenancy.invalid_region`)."
       x-permission: tenancy.org.manage
       x-problem-codes:
         - tenancy.invalid_parent
+        - tenancy.invalid_region
         - tenancy.org_unit_code_taken
         - tenancy.unknown_org_unit_kind
       parameters:
@@ -655,11 +656,12 @@ paths:
       tags:
         - tenancy
       summary: Update an org unit
-      description: "Changes master data of an org unit. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
+      description: "Changes master data of an org unit. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. A plant's `region` is checked as at its creation (422 `tenancy.invalid_region`); a sales item already entered keeps the tax jurisdiction it defaulted to."
       x-permission: tenancy.org.manage
       x-problem-codes:
         - request.version_mismatch
         - tenancy.invalid_parent
+        - tenancy.invalid_region
         - tenancy.org_unit_code_taken
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -714,6 +716,7 @@ paths:
       x-permission: tenancy.org.manage
       x-problem-codes:
         - request.version_mismatch
+        - tenancy.invalid_region
         - tenancy.invalid_status
         - tenancy.org_unit_code_taken
       parameters:
@@ -762,6 +765,7 @@ paths:
       x-permission: tenancy.org.manage
       x-problem-codes:
         - request.version_mismatch
+        - tenancy.invalid_region
         - tenancy.invalid_status
         - tenancy.org_unit_code_taken
       parameters:
@@ -817,6 +821,7 @@ paths:
       x-permission: tenancy.org.manage
       x-problem-codes:
         - request.version_mismatch
+        - tenancy.invalid_region
         - tenancy.invalid_status
         - tenancy.org_unit_code_taken
       parameters:
@@ -22341,7 +22346,7 @@ paths:
       tags:
         - sales
       summary: Create a sales order
-      description: "Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With `quotation_id`, the order copies the quotation's company, customer, currency and items as they were offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the field given). The quotation is one of a company the caller may act in (422 `request.reference_not_found` naming `quotation_id`) that the customer accepted (409 `sales.quotation_not_accepted`), and it gives one order: a second is refused (409 `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`, `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed material is refused, 422 `sales.material_not_usable`, S2f), on the order's date: an item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when there is none). Either way the order needs the customer's data in the company, as a receivables document does: a customer that is not active, has no customer role, has no data in the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is the plant the order delivers from: an active plant of the order's company (422 `sales.plant_invalid`); its confirmation then checks the availability of its items of a material kept in stock there (S2j, `confirmSalesOrder`). It is created `draft`, dated the company's date today in its time zone, with a document number from the company's `sales_order` number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
+      description: "Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With `quotation_id`, the order copies the quotation's company, customer, currency and items as they were offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the field given). The quotation is one of a company the caller may act in (422 `request.reference_not_found` naming `quotation_id`) that the customer accepted (409 `sales.quotation_not_accepted`), and it gives one order: a second is refused (409 `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`, `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed material is refused, 422 `sales.material_not_usable`, S2f), on the order's date: an item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when there is none). Either way the order needs the customer's data in the company, as a receivables document does: a customer that is not active, has no customer role, has no data in the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is the plant the order delivers from: an active plant of the order's company (422 `sales.plant_invalid`); its confirmation then checks the availability of its items of a material kept in stock there (S2j, `confirmSalesOrder`). Without it the order delivers from the company's only active plant when it has exactly one (product owner 2026-11-21), else from none, and an order without a plant is not confirmed while it has an item of a material kept in stock (422 `sales.plant_required`). A UAE item that names no `tax_jurisdiction` takes the seller's emirate: its plant's `region` for an item of a material kept in stock of an order with a plant, else the company's establishment, the region of its postal address (`SalesItemCreate`). It is created `draft`, dated the company's date today in its time zone, with a document number from the company's `sales_order` number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
       x-permission: sales.order.write
       x-agent: false
       x-problem-codes:
@@ -22635,7 +22640,7 @@ paths:
       tags:
         - sales
       summary: Confirm a sales order
-      description: "Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted. The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax its items' tax codes give on the order's date, in the company's currency (an order in another currency at the average rate valid on its date), is compared with the customer's credit limit in the company less its exposure, its open items and its other confirmed orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one customer confirmed at once are checked one after the other, so they cannot both take the room only one fits. The order is not checked again after its confirmation. The value must be calculable: a tax code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422 `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an amount holds is refused too (422 `credit.amount_too_large`). An order with a plant (`plant_id`) has the availability of its items of a material kept in stock checked there (S2j, available-to-promise): each item is confirmed as far as the plant has the material available, its stock at the plant's storage locations, in the base unit, less what the other confirmed orders of the plant confirmed and have not yet delivered, item after item in the order's item order. An item may be confirmed in full, in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the requested delivery date as it is today. Its outbound deliveries take at most what is confirmed (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the limit and the exposure when the customer has a limit and each item's confirmed quantity, and published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`)."
+      description: "Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted. The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax its items' tax codes give on the order's date, in the company's currency (an order in another currency at the average rate valid on its date), is compared with the customer's credit limit in the company less its exposure, its open items and its other confirmed orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one customer confirmed at once are checked one after the other, so they cannot both take the room only one fits. The order is not checked again after its confirmation. The value must be calculable: a tax code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422 `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an amount holds is refused too (422 `credit.amount_too_large`). An order with a plant (`plant_id`) has the availability of its items of a material kept in stock checked there (S2j, available-to-promise): each item is confirmed as far as the plant has the material available, its stock at the plant's storage locations, in the base unit, less what the other confirmed orders of the plant confirmed and have not yet delivered, item after item in the order's item order. An item may be confirmed in full, in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the requested delivery date as it is today. Its outbound deliveries take at most what is confirmed (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the limit and the exposure when the customer has a limit and each item's confirmed quantity, and published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. An order without a plant that has an item of a material kept in stock is not confirmed (422 `sales.plant_required` naming `plant_id`; product owner 2026-11-21): its availability could not be checked; such a draft is cancelled and created again with its `plant_id`. An order of services and non-stock items needs none. Human-only (`x-agent: false`)."
       x-permission: sales.order.confirm
       x-agent: false
       x-problem-codes:
@@ -22652,6 +22657,7 @@ paths:
         - sales.order_delivered
         - sales.order_item_delivered
         - sales.order_item_removed
+        - sales.plant_required
         - sales.quotation_ordered
         - sales.unknown_tax_code
       parameters:
@@ -38331,6 +38337,7 @@ paths:
         - request.validation_failed
         - request.version_mismatch
         - tenancy.invalid_parent
+        - tenancy.invalid_region
         - tenancy.invalid_status
         - tenancy.org_unit_code_taken
         - tenancy.unknown_org_unit_kind
@@ -40927,6 +40934,10 @@ components:
               type: string
               format: uuid
               description: Parent unit, if any.
+            region:
+              type: string
+              description: "A plant's region: the country subdivision of its address, an ISO 3166-2 code of its company's country (a UAE plant's emirate, `AE-DU`), as SAP keeps a plant's region (from memory). A sales order's items of a material kept in stock default their tax jurisdiction to their plant's (`createSalesOrder`). Absent for none and for other kinds."
+              pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$"
             status:
               type: string
               description: "Lifecycle status: `inactive` until `:activate`, then `active`, `blocked` by `:block` and back by `:unblock`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -40980,6 +40991,10 @@ components:
           type: string
           format: uuid
           description: Parent unit, if any.
+        region:
+          type: string
+          description: "A plant's region: the country subdivision of its address, an ISO 3166-2 code of its company's country (a UAE plant's emirate, `AE-DU`). Only a plant names one."
+          pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$"
       additionalProperties: false
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
@@ -41001,6 +41016,12 @@ components:
             - "null"
           format: uuid
           description: Parent unit. Send null to clear.
+        region:
+          type:
+            - string
+            - "null"
+          description: "A plant's region, an ISO 3166-2 code of its company's country. Send null to clear."
+          pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$"
       additionalProperties: false
       examples:
         - name: Muster Industrie GmbH
@@ -62827,7 +62848,7 @@ components:
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the unit price refers to; 1 when absent. It is sent with `unit_price` alone: a price from the price records comes with its own, so an item that sends `price_unit` without `unit_price` is refused (422 `request.validation_failed` naming `items[i].price_unit`)."}
         account_id: {type: string, format: uuid, description: "The revenue account the item credits when it is billed: one that can be posted in the company (`GET /v1/accounts`)."}
         tax_code: {type: string, minLength: 1, maxLength: 20, description: "An output tax code of the company with a rate in force on the document's date; absent: the item bears no tax. The tax is calculated when the item is billed."}
-        tax_jurisdiction: {type: string, pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$", description: "The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`; ADR-0049 §7, ADR-0067 As built, the emirate on a sales item): for a UAE sale, the emirate the VAT 201's boxes 1a-1g report it in. Required with a tax code whose component levies its lines' subdivision (the UAE's `S5`; 422 `sales.tax_jurisdiction_required`), a subdivision of that component's country and, where the component lists the subdivisions it accepts, one of them; with any other code, or none, it is refused (422 `sales.tax_jurisdiction_not_levied`). Both name `items[i].tax_jurisdiction`. It is entered, not derived from an address. The customer invoice its billing posts names it on the item.", example: AE-DU}
+        tax_jurisdiction: {type: string, pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$", description: "The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`; ADR-0049 §7, ADR-0067 As built, the emirate on a sales item): for a UAE sale, the emirate the VAT 201's boxes 1a-1g report it in. Required with a tax code whose component levies its lines' subdivision (the UAE's `S5`; 422 `sales.tax_jurisdiction_required`), a subdivision of that component's country and, where the component lists the subdivisions it accepts, one of them; with any other code, or none, it is refused (422 `sales.tax_jurisdiction_not_levied`). Both name `items[i].tax_jurisdiction`. A UAE item (a code levying the emirates) that names none takes the seller's emirate, never the customer's or the ship-to address (product owner 2026-11-21; the VAT 201 reports a sale by the emirate of the supplier's establishment, ADR-0049 §11): for an item of a material kept in stock of an order with a plant, the plant's `region` (`createOrgUnit`), else the company's establishment, the region of its postal address in the configuration; with neither, or one the code does not levy, it is refused as above. An item may name another emirate, which it keeps; the document's audit record names each item's default and whether the item differs from it. The customer invoice its billing posts names it on the item.", example: AE-DU}
     SalesItem:
       type: object
       description: "An item of a quotation (ADR-0067 §3), with its net value."
@@ -62992,7 +63013,7 @@ components:
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217), every item's. Required without `quotation_id`, refused with it."}
         payment_term_code: {type: string, minLength: 1, maxLength: 20, description: "The payment term the order is billed with: a configured term; absent: the customer's in the company."}
         requested_delivery_date: {type: string, format: date, description: "The day the customer asks to be delivered on: the order's date, the company's date today, or later (422 `sales.invalid_requested_delivery_date`). Absent: none is asked for."}
-        plant_id: {type: string, format: uuid, description: "The plant the order delivers from (S2j): an active org unit of kind `plant` of the order's company (`GET /v1/org-units/{id}`; 422 `sales.plant_invalid`), with or without `quotation_id`. Its confirmation checks the availability of the items of a material kept in stock there, and its outbound deliveries ship from it. Kept as entered. Absent: none, and nothing is checked for availability."}
+        plant_id: {type: string, format: uuid, description: "The plant the order delivers from (S2j): an active org unit of kind `plant` of the order's company (`GET /v1/org-units/{id}`; 422 `sales.plant_invalid`), with or without `quotation_id`. Its confirmation checks the availability of the items of a material kept in stock there, and its outbound deliveries ship from it. Kept as entered. Absent: the company's only active plant when it has exactly one (product owner 2026-11-21), else none, and an order without a plant is confirmed only without an item of a material kept in stock (422 `sales.plant_required`)."}
         items:
           type: array
           minItems: 1
@@ -63160,7 +63181,7 @@ components:
         upload_id: {type: string, format: uuid, description: "A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text, at most 50 MB), consumed by this capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same company, it answers the order it gave; into another, 422 `payables.upload_used`."}
         account_id: {type: string, format: uuid, description: "The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the company (422 `sales.account_not_postable`)."}
         tax_code: {type: string, maxLength: 20, description: "The output tax code every item is billed with: an output tax code of the company in force on the order's date (422 `sales.unknown_tax_code`); absent, the items have none."}
-        tax_jurisdiction: {type: string, pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$", description: "The province or emirate every item's tax is levied in (ISO 3166-2, `AE-DU`; `SalesItemCreate`'s `tax_jurisdiction`): required with a `tax_code` that levies its lines' subdivision (422 `sales.tax_jurisdiction_required`), refused with any other code or none (422 `sales.tax_jurisdiction_not_levied`); both name `tax_jurisdiction`.", example: AE-DU}
+        tax_jurisdiction: {type: string, pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$", description: "The province or emirate every item's tax is levied in (ISO 3166-2, `AE-DU`; `SalesItemCreate`'s `tax_jurisdiction`): required with a `tax_code` that levies its lines' subdivision (422 `sales.tax_jurisdiction_required`), refused with any other code or none (422 `sales.tax_jurisdiction_not_levied`); both name `tax_jurisdiction`. Absent, a UAE item takes the company's establishment emirate, as `SalesItemCreate`'s does (a captured item names no material).", example: AE-DU}
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           upload_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5df1"

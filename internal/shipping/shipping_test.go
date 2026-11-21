@@ -132,15 +132,21 @@ func (e env) freeText() string {
 		"account_id": %q}`, e.revenue)
 }
 
-// order creates Northwind's order of the items, confirmed unless draft,
-// and returns its id.
+// order creates Northwind's order of the items and returns its id: a
+// draft, delivering from the company's only plant P1, or one confirmed
+// without a plant, as an order was confirmed before a plant was required
+// (product owner 2026-11-21; ADR-0082 As built S2j, the plant required),
+// so that its items, unchecked for availability, can be delivered beyond
+// the stock. It is written as such an order was: its confirmation, with
+// no plant, by the owner, since the application confirms none now.
 func (e env) order(t *testing.T, draft bool, items ...string) string {
 	t.Helper()
 	o, _ := e.Must(201, "POST", "/v1/sales-orders", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "currency": "EUR", "items": [%s]}`,
 		e.DE, e.customer, strings.Join(items, ", ")), "")
 	id := o["id"].(string)
 	if !draft {
-		e.Must(200, "POST", "/v1/sales-orders/"+id+":confirm", "", `"1"`)
+		pgtest.Exec(t, `UPDATE sales.sales_order SET status = 'confirmed', plant_id = NULL, version = version + 1 WHERE tenant_id = $1 AND id = $2`,
+			e.Tenant.ID, id)
 	}
 	return id
 }

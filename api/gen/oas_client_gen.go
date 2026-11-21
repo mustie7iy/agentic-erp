@@ -1046,7 +1046,11 @@ type Invoker interface {
 	// one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
 	// limit and the exposure when the customer has a limit and each item's confirmed quantity, and
 	// published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
-	// with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`).
+	// with the same `Idempotency-Key` answers the confirmed order. An order without a plant that has an
+	// item of a material kept in stock is not confirmed (422 `sales.plant_required` naming `plant_id`;
+	// product owner 2026-11-21): its availability could not be checked; such a draft is cancelled and
+	// created again with its `plant_id`. An order of services and non-stock items needs none. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
@@ -2260,7 +2264,10 @@ type Invoker interface {
 	CreateMigrationRun(ctx context.Context, request *MigrationRunCreate, params CreateMigrationRunParams) (CreateMigrationRunRes, error)
 	// CreateOrgUnit invokes createOrgUnit operation.
 	//
-	// Creates an org unit in status `inactive`.
+	// Creates an org unit in status `inactive`. A plant may name its `region`, the country subdivision of
+	// its address in its company's country (422 `tenancy.invalid_region`), which a sales order's stock
+	// items default their tax jurisdiction to (a UAE plant's emirate; `createSalesOrder`); another kind
+	// names none (422 `tenancy.invalid_region`).
 	//
 	// POST /v1/org-units
 	CreateOrgUnit(ctx context.Context, request *OrgUnitCreate, params CreateOrgUnitParams) (CreateOrgUnitRes, error)
@@ -2766,11 +2773,16 @@ type Invoker interface {
 	// `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is the
 	// plant the order delivers from: an active plant of the order's company (422 `sales.plant_invalid`);
 	// its confirmation then checks the availability of its items of a material kept in stock there (S2j,
-	// `confirmSalesOrder`). It is created `draft`, dated the company's date today in its time zone, with a
-	// document number from the company's `sales_order` number range of that date's fiscal year; each item
-	// starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published
-	// as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
-	// (`x-agent: false`).
+	// `confirmSalesOrder`). Without it the order delivers from the company's only active plant when it has
+	// exactly one (product owner 2026-11-21), else from none, and an order without a plant is not
+	// confirmed while it has an item of a material kept in stock (422 `sales.plant_required`). A UAE item
+	// that names no `tax_jurisdiction` takes the seller's emirate: its plant's `region` for an item of a
+	// material kept in stock of an order with a plant, else the company's establishment, the region of its
+	// postal address (`SalesItemCreate`). It is created `draft`, dated the company's date today in its
+	// time zone, with a document number from the company's `sales_order` number range of that date's
+	// fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted.
+	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+	// order created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
@@ -9496,7 +9508,9 @@ type Invoker interface {
 	// UpdateOrgUnit invokes updateOrgUnit operation.
 	//
 	// Changes master data of an org unit. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null`
-	// clears an optional field, arrays are replaced as a whole.
+	// clears an optional field, arrays are replaced as a whole. A plant's `region` is checked as at its
+	// creation (422 `tenancy.invalid_region`); a sales item already entered keeps the tax jurisdiction it
+	// defaulted to.
 	//
 	// PATCH /v1/org-units/{id}
 	UpdateOrgUnit(ctx context.Context, request *OrgUnitUpdate, params UpdateOrgUnitParams) (UpdateOrgUnitRes, error)
@@ -20122,7 +20136,11 @@ func (c *Client) sendConfirmSalesDelivery(ctx context.Context, request *SalesDel
 // one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
 // limit and the exposure when the customer has a limit and each item's confirmed quantity, and
 // published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
-// with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`).
+// with the same `Idempotency-Key` answers the confirmed order. An order without a plant that has an
+// item of a material kept in stock is not confirmed (422 `sales.plant_required` naming `plant_id`;
+// product owner 2026-11-21): its availability could not be checked; such a draft is cancelled and
+// created again with its `plant_id`. An order of services and non-stock items needs none. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:confirm
 func (c *Client) ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error) {
@@ -27823,7 +27841,10 @@ func (c *Client) sendCreateMigrationRun(ctx context.Context, request *MigrationR
 
 // CreateOrgUnit invokes createOrgUnit operation.
 //
-// Creates an org unit in status `inactive`.
+// Creates an org unit in status `inactive`. A plant may name its `region`, the country subdivision of
+// its address in its company's country (422 `tenancy.invalid_region`), which a sales order's stock
+// items default their tax jurisdiction to (a UAE plant's emirate; `createSalesOrder`); another kind
+// names none (422 `tenancy.invalid_region`).
 //
 // POST /v1/org-units
 func (c *Client) CreateOrgUnit(ctx context.Context, request *OrgUnitCreate, params CreateOrgUnitParams) (CreateOrgUnitRes, error) {
@@ -31734,11 +31755,16 @@ func (c *Client) sendCreateRoleAssignment(ctx context.Context, request *RoleAssi
 // `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is the
 // plant the order delivers from: an active plant of the order's company (422 `sales.plant_invalid`);
 // its confirmation then checks the availability of its items of a material kept in stock there (S2j,
-// `confirmSalesOrder`). It is created `draft`, dated the company's date today in its time zone, with a
-// document number from the company's `sales_order` number range of that date's fiscal year; each item
-// starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published
-// as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
-// (`x-agent: false`).
+// `confirmSalesOrder`). Without it the order delivers from the company's only active plant when it has
+// exactly one (product owner 2026-11-21), else from none, and an order without a plant is not
+// confirmed while it has an item of a material kept in stock (422 `sales.plant_required`). A UAE item
+// that names no `tax_jurisdiction` takes the seller's emirate: its plant's `region` for an item of a
+// material kept in stock of an order with a plant, else the company's establishment, the region of its
+// postal address (`SalesItemCreate`). It is created `draft`, dated the company's date today in its
+// time zone, with a document number from the company's `sales_order` number range of that date's
+// fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted.
+// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+// order created. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders
 func (c *Client) CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error) {
@@ -124878,7 +124904,9 @@ func (c *Client) sendUpdateMemoRecord(ctx context.Context, request *MemoRecordUp
 // UpdateOrgUnit invokes updateOrgUnit operation.
 //
 // Changes master data of an org unit. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null`
-// clears an optional field, arrays are replaced as a whole.
+// clears an optional field, arrays are replaced as a whole. A plant's `region` is checked as at its
+// creation (422 `tenancy.invalid_region`); a sales item already entered keeps the tax jurisdiction it
+// defaulted to.
 //
 // PATCH /v1/org-units/{id}
 func (c *Client) UpdateOrgUnit(ctx context.Context, request *OrgUnitUpdate, params UpdateOrgUnitParams) (UpdateOrgUnitRes, error) {

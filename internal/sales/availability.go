@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -41,21 +42,54 @@ type Stock interface {
 // kindPlant is the org unit kind of a plant (tenancy context).
 const kindPlant = "plant"
 
-// orderPlant checks the plant an order names, when it names one: an
-// active plant of the order's company (422 sales.plant_invalid naming
-// plant_id).
-func (e *Endpoints) orderPlant(ctx context.Context, plant *uuid.UUID, le tenancy.Entity) error {
+// orderPlant is the plant a new order delivers from: the one it names,
+// an active plant of the order's company (422 sales.plant_invalid naming
+// plant_id), else the company's only active plant when it has exactly one
+// (product owner 2026-11-21), else none: such an order is confirmed only
+// without an item of a material kept in stock (plantRequired).
+func (e *Endpoints) orderPlant(ctx context.Context, plant *uuid.UUID, le tenancy.Entity) (*tenancy.Unit, error) {
 	if plant == nil {
-		return nil
+		only, ok, err := e.LegalEntities.OnlyPlant(ctx, le.ID)
+		if err != nil || !ok {
+			return nil, errs.Wrapf(err, "sales: the plant of company %s", le.Code)
+		}
+		return &only, nil
 	}
 	units, err := e.LegalEntities.OrgUnits(ctx, []uuid.UUID{*plant})
 	if err != nil {
-		return fmt.Errorf("sales: plant %s of a sales order: %w", *plant, err)
+		return nil, fmt.Errorf("sales: plant %s of a sales order: %w", *plant, err)
 	}
-	if u, ok := units[*plant]; !ok || u.Kind != kindPlant || u.Status != tenancy.Active || u.LegalEntityID != le.ID {
-		return problem.Invalid("sales.plant_invalid", "plant_id", "No active plant with this id in company "+le.Code+", the order's.")
+	u, ok := units[*plant]
+	if !ok || u.Kind != kindPlant || u.Status != tenancy.Active || u.LegalEntityID != le.ID {
+		return nil, problem.Invalid("sales.plant_invalid", "plant_id", "No active plant with this id in company "+le.Code+", the order's.")
 	}
-	return nil
+	return &u, nil
+}
+
+// unitID is the unit's id, nil for none.
+func unitID(u *tenancy.Unit) *uuid.UUID {
+	if u == nil {
+		return nil
+	}
+	return &u.ID
+}
+
+// plantRequired refuses to confirm an order without a plant that has a
+// standing item of a material kept in stock (422 sales.plant_required
+// naming plant_id; product owner 2026-11-21): its availability could not
+// be checked, so it could promise stock another order was promised. An
+// order of services and non-stock items needs none.
+func (e *Endpoints) plantRequired(ctx context.Context, o Order) error {
+	if o.PlantID != nil {
+		return nil
+	}
+	p, err := e.checkPlan(ctx, o.Items, func(OrderItem) bool { return true })
+	if err != nil || len(p.checked) == 0 {
+		return err
+	}
+	return problem.Invalid("sales.plant_required", "plant_id", fmt.Sprintf("Sales order %s names no plant, and its item %d is of material %s, "+
+		"kept in stock: an order is confirmed with the plant it delivers from, which checks the item's availability there; cancel it and "+
+		"create it again with its plant_id.", o.DocumentNumber, p.checked[0].ItemNo, p.materials[*p.checked[0].MaterialID].Number))
 }
 
 // promise is one item's availability check: the item, its quantity, what

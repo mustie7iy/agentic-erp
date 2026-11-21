@@ -14,6 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,6 +59,11 @@ func init() {
 	problem.RegisterConstraint("storage_location_code_once", func() *problem.Problem {
 		return problem.Conflict("tenancy.org_unit_code_taken", "The plant already has a storage location with this code.")
 	})
+	// What checkRegion refuses first (migration 000431).
+	problem.RegisterConstraint("org_unit_region", func() *problem.Problem {
+		return problem.Unprocessable("tenancy.invalid_region", "Only a plant has a region, an ISO 3166-2 subdivision code.",
+			problem.FieldError{Field: "region", Code: "invalid", Message: "a plant's ISO 3166-2 subdivision code"})
+	})
 }
 
 // LegalEntity is a row of tenancy.legal_entity.
@@ -94,22 +101,28 @@ type OrgUnit struct {
 	Code          string
 	Name          string
 	ParentID      *uuid.UUID
-	Status        string
-	Version       int32
-	CreatedAt     time.Time
-	CreatedBy     uuid.UUID
-	UpdatedAt     time.Time
-	UpdatedBy     uuid.UUID
+	// Region is a plant's region, the country subdivision of its address
+	// (ISO 3166-2, a UAE plant's emirate), nil for none (checkRegion).
+	Region    *string
+	Status    string
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }
 
-const ouColumns = `id, legal_entity_id, kind, code, name, parent_id, status, version, created_at, created_by, updated_at, updated_by`
+const ouColumns = `id, legal_entity_id, kind, code, name, parent_id, region, status, version, created_at, created_by, updated_at, updated_by`
 
 func scanOU(row pgx.Row) (OrgUnit, error) {
 	var u OrgUnit
-	err := row.Scan(&u.ID, &u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.ParentID, &u.Status, &u.Version,
+	err := row.Scan(&u.ID, &u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.ParentID, &u.Region, &u.Status, &u.Version,
 		&u.CreatedAt, &u.CreatedBy, &u.UpdatedAt, &u.UpdatedBy)
 	return u, errs.Wrapf(err, "scan org unit")
 }
+
+// kindPlant is the kind of a plant, the one org unit with a region.
+const kindPlant = "plant"
 
 // OrgUnitKinds are the kinds the database accepts.
 var OrgUnitKinds = map[string]bool{"purchasing_org": true, "plant": true, "storage_location": true, "sales_org": true}
@@ -297,10 +310,12 @@ type NewOrgUnit struct {
 	Kind, Code    string
 	Name          string
 	ParentID      *uuid.UUID
+	Region        *string
 }
 
 // CreateOrgUnit inserts an inactive org unit under a legal entity the
-// caller may act in. A parent must belong to the same legal entity.
+// caller may act in. A parent must belong to the same legal entity; a
+// region is a plant's, of the legal entity's country (checkRegion).
 func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -310,24 +325,51 @@ func CreateOrgUnit(ctx context.Context, in NewOrgUnit) (OrgUnit, error) {
 		return OrgUnit{}, problem.Unprocessable("tenancy.unknown_org_unit_kind", "Unknown org unit kind.",
 			problem.FieldError{Field: "kind", Code: "unknown", Message: "purchasing_org, plant, storage_location or sales_org"})
 	}
-	if _, err := getLE(ctx, tx, in.LegalEntityID, false); err != nil {
+	le, err := getLE(ctx, tx, in.LegalEntityID, false)
+	if err != nil {
 		return OrgUnit{}, problem.Reference(err, "legal_entity_id", "legal entity", "no legal entity with this id that you can access")
+	}
+	if err := checkRegion(in.Kind, in.Region, le); err != nil {
+		return OrgUnit{}, err
 	}
 	if err := checkParent(ctx, tx, in.LegalEntityID, uuid.Nil, in.ParentID); err != nil {
 		return OrgUnit{}, err
 	}
-	u, err := scanOU(tx.QueryRow(ctx, `INSERT INTO tenancy.org_unit (tenant_id, id, legal_entity_id, kind, code, name, parent_id, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'inactive', $8, $8) RETURNING `+ouColumns,
-		p.TenantID, uuid.Must(uuid.NewV7()), in.LegalEntityID, in.Kind, in.Code, in.Name, in.ParentID, p.ID))
+	u, err := scanOU(tx.QueryRow(ctx, `INSERT INTO tenancy.org_unit (tenant_id, id, legal_entity_id, kind, code, name, parent_id, region, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'inactive', $9, $9) RETURNING `+ouColumns,
+		p.TenantID, uuid.Must(uuid.NewV7()), in.LegalEntityID, in.Kind, in.Code, in.Name, in.ParentID, in.Region, p.ID))
 	if err != nil {
 		return OrgUnit{}, fmt.Errorf("tenancy: insert org unit %s: %w", in.Code, err)
 	}
-	return u, audit.Record(ctx, "tenancy.org_unit.create", "tenancy.org_unit", u.ID, map[string]any{"code": u.Code, "kind": u.Kind},
+	return u, audit.Record(ctx, "tenancy.org_unit.create", "tenancy.org_unit", u.ID, map[string]any{"code": u.Code, "kind": u.Kind, "region": u.Region},
 		outbox.Event{Context: "tenancy", Name: "org_unit_created", AggregateType: "tenancy.org_unit", AggregateID: u.ID,
 			Payload: map[string]any{
 				"org_unit_id": u.ID, "legal_entity_id": u.LegalEntityID, "kind": u.Kind, "code": u.Code, "name": u.Name,
 				"parent_id": u.ParentID, "status": u.Status,
 			}})
+}
+
+// regionForm is an ISO 3166-2 subdivision code (org_unit_region).
+var regionForm = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
+
+// checkRegion refuses a region on a unit that is not a plant, or one that
+// is not a subdivision of the legal entity's country in ISO 3166-2's form
+// (422 tenancy.invalid_region naming region): a sales item defaults its
+// tax jurisdiction to its plant's region, which its tax code then holds
+// to its own country's subdivisions (ADR-0063 As built, the emirate on
+// the item). nil for no region.
+func checkRegion(kind string, region *string, le LegalEntity) error {
+	switch {
+	case region == nil:
+		return nil
+	case kind != kindPlant:
+		return problem.Unprocessable("tenancy.invalid_region", "Only a plant has a region.",
+			problem.FieldError{Field: "region", Code: "not_allowed", Message: "only a plant names its region"})
+	case !regionForm.MatchString(*region) || !strings.HasPrefix(*region, le.CountryCode+"-"):
+		return problem.Unprocessable("tenancy.invalid_region", "A plant's region is a subdivision of its company's country, "+le.CountryCode+".",
+			problem.FieldError{Field: "region", Code: "invalid", Message: "an ISO 3166-2 code of " + le.CountryCode + " (" + le.CountryCode + "-…)"})
+	}
+	return nil
 }
 
 // checkParent requires a parent in the same legal entity and no cycle: the
@@ -372,12 +414,14 @@ func lockOrgTree(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) error {
 
 // OrgUnitChange is a merge patch of an org unit.
 type OrgUnitChange struct {
-	Name     *string
-	Parent   bool // ParentID is set (nil clears the parent)
-	ParentID *uuid.UUID
+	Name      *string
+	Parent    bool // ParentID is set (nil clears the parent)
+	ParentID  *uuid.UUID
+	RegionSet bool // Region is set (nil clears it)
+	Region    *string
 }
 
-// UpdateOrgUnit changes the name and parent.
+// UpdateOrgUnit changes the name, parent and a plant's region (checkRegion).
 func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch OrgUnitChange) (OrgUnit, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -390,9 +434,19 @@ func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error,
 	if err := ifMatch(u.Version); err != nil {
 		return OrgUnit{}, err
 	}
-	name, parent := u.Name, u.ParentID
+	name, parent, region := u.Name, u.ParentID, u.Region
 	if ch.Name != nil {
 		name = *ch.Name
+	}
+	if ch.RegionSet {
+		le, err := getLE(ctx, tx, u.LegalEntityID, false)
+		if err != nil {
+			return OrgUnit{}, err
+		}
+		if err := checkRegion(u.Kind, ch.Region, le); err != nil {
+			return OrgUnit{}, err
+		}
+		region = ch.Region
 	}
 	if ch.Parent {
 		parent = ch.ParentID
@@ -403,16 +457,20 @@ func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error,
 			return OrgUnit{}, err
 		}
 	}
-	updated, err := scanOU(tx.QueryRow(ctx, `UPDATE tenancy.org_unit SET name = $2, parent_id = $3, version = version + 1, updated_by = $4
-		WHERE id = $1 RETURNING `+ouColumns, id, name, parent, p.ID))
+	updated, err := scanOU(tx.QueryRow(ctx, `UPDATE tenancy.org_unit SET name = $2, parent_id = $3, region = $4, version = version + 1, updated_by = $5
+		WHERE id = $1 RETURNING `+ouColumns, id, name, parent, region, p.ID))
 	if err != nil {
 		return OrgUnit{}, fmt.Errorf("tenancy: update org unit %s: %w", id, err)
 	}
 	return updated, audit.Record(ctx, "tenancy.org_unit.update", "tenancy.org_unit", id,
-		changed(u.Name != name, "name", !sameParent(u.ParentID, parent), "parent_id"))
+		changed(u.Name != name, "name", !sameParent(u.ParentID, parent), "parent_id", !sameText(u.Region, region), "region"))
 }
 
 func sameParent(a, b *uuid.UUID) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func sameText(a, b *string) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 

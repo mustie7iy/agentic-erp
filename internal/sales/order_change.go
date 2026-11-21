@@ -209,6 +209,13 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if checked := promised(promises, o.PlantID); checked != nil {
 		extra["availability"] = checked
 	}
+	added := make([]Item, len(c.items))
+	for i, it := range c.items {
+		added[i] = it.Item // only an added item has a default jurisdiction
+	}
+	if defaults := jurisdictionDefaults(added); defaults != nil {
+		extra["tax_jurisdiction_defaults"] = defaults
+	}
 	return after, recordOrder(ctx, "sales.sales_order.change", after, le, names[o.CustomerID].Number, &o.Status, c.check, extra)
 }
 

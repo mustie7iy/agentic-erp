@@ -86,6 +86,9 @@ type LegalEntities interface {
 	// OrgUnits reads org units by id: the plant an order delivers from
 	// (S2j).
 	OrgUnits(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]tenancy.Unit, error)
+	// OnlyPlant is a company's one active plant, ok = false when it has
+	// none or several: the plant an order naming none delivers from.
+	OnlyPlant(ctx context.Context, legalEntity uuid.UUID) (tenancy.Unit, bool, error)
 }
 
 // Customers says whether a business partner may be sold to as a customer

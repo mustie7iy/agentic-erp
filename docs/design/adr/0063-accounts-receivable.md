@@ -856,6 +856,47 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   sales item; the item's check is `ledger.TaxCode.RefuseItemJurisdiction`,
   shared with sales, its refusals and fields unchanged.)
 
+### The emirate's default on a sales item (product owner 2026-11-21; migration 000431)
+The product owner's answer of 2026-11-21 to ADR-0067 As built (the
+emirate on a sales item, decided by default 1), src `po:2026-11-21`:
+a UAE sales item's emirate defaults from the seller's side, never the
+customer's or the ship-to address, as the VAT 201 reports a supply by
+the emirate of the supplier's establishment most closely connected with
+it (ADR-0049 §11). "Decided by default" (2) above still holds for a
+customer invoice entered in receivables: its item names the emirate.
+- A quotation's, an order's, an order change's new or a captured item
+  whose code levies the UAE's emirates (`S5`: the component's country is
+  `AE`) and that names no `tax_jurisdiction` takes, when it is entered
+  (`sales` `defaultJurisdiction`): for an item of a material kept in
+  stock of an order with a plant, the plant's `region` (ADR-0082 As built
+  S2j, the plant required); else the company's establishment, the
+  `region` of its postal address in the configuration (`companies[].
+  postal_address`, which E2 renders as the seller's address). A default
+  its code does not levy (no region, or one outside the code's
+  subdivisions) is none, and the item is refused as before (422
+  `sales.tax_jurisdiction_required`).
+- It stays editable: an item may name another emirate, which it keeps
+  and is held to its code as before. The document's audit record lists
+  each item that had a default (`tax_jurisdiction_defaults`: the item,
+  its default, the jurisdiction it was entered with and `overridden`
+  when they differ; ADR-0011), so a change from the default is audited.
+  An item's jurisdiction is fixed once entered (000420), so a later
+  change of the plant's region or of the company's address changes no
+  item.
+- **Decided by default:** (1) the default is the UAE's alone: another
+  country's codes that levy their lines' subdivision (none in the packs
+  today) keep the jurisdiction entered, the product owner's decision
+  being about the VAT 201; (2) a quotation has no plant, so its stock
+  items take the company's establishment, and an order from it keeps its
+  items as offered (ADR-0067 §5); (3) an order change's kept items keep
+  theirs, its new items default from the order's plant.
+- For the tax specialist (Musto Ibrahim, UAE VAT signer): confirm in one
+  line "the plant's emirate, else the company's establishment" as the
+  default (product owner 2026-11-21; a default, editable, so the build
+  did not wait).
+- Tests: `TestItemJurisdictionDefaults` (sales), `TestOrgUnitRegion`
+  (tenancy, db). Walkthrough step 148.
+
 ### T75f Partial payment: residual items and payment differences within tolerance (migrations 000350, 000351)
 The first variant of §6 (product owner 16–17 November 2026: variants
 start; `plan-depth-1.md` §T75f). §6's "in full and exactly" stays the

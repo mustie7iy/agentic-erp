@@ -34,9 +34,11 @@ func TestShipmentConstraints(t *testing.T) {
 // confirmed as delivered by hand: it is delivered by an outbound
 // delivery's goods issue (ADR-0083 §5), and nothing is delivered; an item
 // the order lacks is refused as before; the materials are read in the
-// request's transaction.
+// request's transaction. The order delivers from the company's only
+// plant, which an order of a stock item needs to be confirmed.
 func TestDeliveryByGoodsIssue(t *testing.T) {
 	e := setup(t)
+	e.plant(t, "P1", "")
 	stocked := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type, material_group,
 		status, created_by, updated_by) VALUES ($1, $2, '100000009', $3, 'Machined bracket M10', 'EA', 'trading_good', 'BRACKETS', 'active', $4, $4)`,

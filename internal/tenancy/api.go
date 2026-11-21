@@ -52,6 +52,7 @@ func ouToAPI(u OrgUnit) gen.OrgUnit {
 	if u.ParentID != nil {
 		out.ParentID.SetTo(*u.ParentID)
 	}
+	out.Region = apitypes.OptString(u.Region)
 	return out
 }
 
@@ -185,7 +186,7 @@ func (e *Endpoints) UnblockLegalEntity(ctx context.Context, params gen.UnblockLe
 
 // CreateOrgUnit implements POST /v1/org-units.
 func (e *Endpoints) CreateOrgUnit(ctx context.Context, req *gen.OrgUnitCreate, _ gen.CreateOrgUnitParams) (gen.CreateOrgUnitRes, error) {
-	in := NewOrgUnit{LegalEntityID: req.LegalEntityID, Kind: req.Kind, Code: req.Code, Name: req.Name}
+	in := NewOrgUnit{LegalEntityID: req.LegalEntityID, Kind: req.Kind, Code: req.Code, Name: req.Name, Region: apitypes.Ptr[string](req.Region)}
 	if req.ParentID.Set {
 		in.ParentID = &req.ParentID.Value
 	}
@@ -260,6 +261,12 @@ func (e *Endpoints) UpdateOrgUnit(ctx context.Context, req *gen.OrgUnitUpdate, p
 		ch.Parent = true
 		if !req.ParentID.Null {
 			ch.ParentID = &req.ParentID.Value
+		}
+	}
+	if req.Region.Set {
+		ch.RegionSet = true
+		if !req.Region.Null {
+			ch.Region = &req.Region.Value
 		}
 	}
 	u, err := UpdateOrgUnit(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
@@ -454,6 +461,9 @@ type Unit struct {
 	Name          string
 	Status        string
 	ParentID      *uuid.UUID
+	// Region is a plant's region (ISO 3166-2, a UAE plant's emirate), nil
+	// for none.
+	Region *string
 }
 
 // OrgUnit returns the org unit with the id, or ok = false.
@@ -463,8 +473,8 @@ func (Directory) OrgUnit(ctx context.Context, id uuid.UUID) (Unit, bool, error) 
 		return Unit{}, false, err
 	}
 	u := Unit{ID: id}
-	err = tx.QueryRow(ctx, `SELECT legal_entity_id, kind, code, name, status, parent_id FROM tenancy.org_unit WHERE id = $1`, id).
-		Scan(&u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status, &u.ParentID)
+	err = tx.QueryRow(ctx, `SELECT legal_entity_id, kind, code, name, status, parent_id, region FROM tenancy.org_unit WHERE id = $1`, id).
+		Scan(&u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status, &u.ParentID, &u.Region)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Unit{}, false, nil
 	}
@@ -482,15 +492,36 @@ func (Directory) OrgUnits(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]U
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, kind, code, name, status, parent_id FROM tenancy.org_unit WHERE id = ANY($1)`, ids)
+	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, kind, code, name, status, parent_id, region FROM tenancy.org_unit WHERE id = ANY($1)`, ids)
 	out := map[uuid.UUID]Unit{}
 	var u Unit
-	if _, err := pgx.ForEachRow(rows, []any{&u.ID, &u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status, &u.ParentID}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&u.ID, &u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status, &u.ParentID, &u.Region}, func() error {
 		out[u.ID] = u
-		u.ParentID = nil // pgx scans the next parent into the pointer it finds, which the unit just kept holds
+		u.ParentID, u.Region = nil, nil // pgx scans the next row's into the pointers it finds, which the unit just kept holds
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("tenancy: read %d org units: %w", len(ids), err)
 	}
 	return out, nil
+}
+
+// OnlyPlant is the legal entity's one active plant, ok = false when it has
+// none or more than one: the plant a sales order delivers from when it
+// names none (product owner 2026-11-21; ADR-0082 As built S2j). Company
+// access is not applied: the caller applies it.
+func (Directory) OnlyPlant(ctx context.Context, legalEntity uuid.UUID) (Unit, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Unit{}, false, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, kind, code, name, status, parent_id, region FROM tenancy.org_unit
+		WHERE legal_entity_id = $1 AND kind = 'plant' AND status = 'active' ORDER BY code LIMIT 2`, legalEntity)
+	plants, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Unit])
+	if err != nil {
+		return Unit{}, false, fmt.Errorf("tenancy: plants of legal entity %s: %w", legalEntity, err)
+	}
+	if len(plants) != 1 {
+		return Unit{}, false, nil
+	}
+	return plants[0], true, nil
 }

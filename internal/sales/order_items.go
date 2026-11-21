@@ -86,6 +86,14 @@ func (e *Endpoints) changeCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 		return itemCheck{}, err
 	}
 	doc.date = o.OrderDate
+	if o.PlantID != nil && len(added) > 0 { // the plant an added item's jurisdiction defaults from (defaultJurisdiction)
+		plants, err := e.LegalEntities.OrgUnits(ctx, []uuid.UUID{*o.PlantID})
+		if err != nil {
+			return itemCheck{}, fmt.Errorf("sales: plant of sales order %s: %w", o.DocumentNumber, err)
+		}
+		plant := plants[*o.PlantID] // a stored order's plant exists
+		doc.plant = &plant
+	}
 	units := map[string]bool{}
 	if len(added) > 0 {
 		named := make([]string, len(added))
