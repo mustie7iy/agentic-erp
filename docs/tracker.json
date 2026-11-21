@@ -2805,6 +2805,13 @@
        },
        {
         "s": "T",
+        "t": "fix: GET /v1/e-invoices?fetch_operation_id= also lists the documents a fetch refused that an earlier fetch recorded (processed_fetch_operation_id, with its index), as it lists those it entered or held (000427), so a fetch's refused count leads to its documents",
+        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d",
+        "src": "review:batch86",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "E-invoices not in AED entered with their VAT in AED as stated: a received tax invoice in another currency entered as a supplier invoice keeping its VAT in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax at the tax date's rate; T65d holds such a document with einvoicing.tax_currency_not_entered (UAE tax specialist, po:2026-11-09, C5; BTAE-08's and BTAE-10's UBL paths to confirm)",
         "r": "ADR-0061 §5 (C5), §6 · ADR-0061 As built T65d · ADR-0049 §8",
         "src": "split:T65d · po:2026-11-09",
@@ -2877,6 +2884,13 @@
           "t": "E4 Delivery status and FTA reporting: the Peppol message level responses (ACCEPTANCE, REJECTION, BUSINESS_RULE_FATAL and the others) and the tax data document's status shown on the invoice; a rejection or a fatal rule puts it on a worklist to correct by credit note; the tax data document's retry and withdrawal offered to a person only, never an agent; walkthrough step_einvoice_send extended",
           "r": "migration 000422 · einvoicing.outgoing_submission delivery_status, tax_data_status, tax_data_request · retryOutgoingEInvoiceTaxData · withdrawOutgoingEInvoiceTaxData · listOutgoingEInvoices delivery_outcome · OutgoingEInvoiceTransmissionChanged delivery_status, tax_data_status · einvoicing.Evatra Delivery, TaxData · einvoicetest.Evatra invoice-mls-list, get-tdd, tdd/retry-failed, tdd/withdraw · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11, §13 and As built E4 · coordinator plan einvoicing-evatra E4, default 8",
           "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "fix: an outgoing e-invoice whose delivery_outcome is corrected names the credit note that corrected it (its id and number), so the correction worklist's consumer finds it without searching the credit notes by reference_invoice_number",
+          "r": "listOutgoingEInvoices delivery_outcome · ADR-0061 As built E4 (The worklist to correct by credit note) · REVIEW.md (an identifier without the name or reference its consumer needs)",
+          "src": "review:batch86",
           "c": []
          },
          {
@@ -5777,8 +5791,22 @@
      {
       "s": "D",
       "t": "Confirming a sales order item checks the material's available quantity at the plant and confirms what is available on the requested date; two orders racing for the last quantity confirm it once",
-      "r": "S2j · docs/design/plan-supply-chain.md §S2j · ADR-0082 As built S2j · db/migrations/000430 · sales.sales_order.plant_id · sales.sales_order_item.confirmed_quantity · sales.plant_invalid · shipping.plant_mismatch · inventory.Endpoints.PlantStock · TestTwoOrdersRaceForTheLastQuantity · TestSalesAvailabilityRules · walkthrough step_available_to_promise (step 148)",
+      "r": "S2j · docs/design/plan-supply-chain.md §S2j · ADR-0082 As built S2j · db/migrations/000430 · sales.sales_order.plant_id · sales.sales_order_item.confirmed_quantity · sales.plant_invalid · shipping.plant_mismatch · inventory.Endpoints.PlantStock · TestTwoOrdersRaceForTheLastQuantity · TestSalesAvailabilityRules · walkthrough step_available_to_promise (step 150)",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "contract step: sales.delivery_assignment.plant_id NOT NULL, once every server writes it (S2j's expand step left it nullable; ShipInput.PlantID and GoodsIssue.PlantID required since), with its schema test",
+      "r": "db/migrations/000430_sales_availability · ADR-0082 As built S2j · 06 §6.4 (expand, migrate, contract)",
+      "src": "review:batch86",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: a goods issue reversal (602), once built, takes the availability check's lock of its materials at the plant (database.LockTenant sales.availability) or counts its stock before the demand, since it lowers a delivered quantity, which the check's read of the demand before the stock assumes only rises",
+      "r": "internal/sales/availability.go lockMaterials · ADR-0082 As built S2j (Two orders racing) · ADR-0083 (goods issue)",
+      "src": "review:batch86",
       "c": []
      },
      {
@@ -9004,6 +9032,20 @@
       "t": "The NOT VALID checks of migrations 000040 and 000041 validated (000044); a schema test names any check left unvalidated",
       "r": "db/migrations/000044 · T31",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "refactor: the transaction advisory locks taken in SQL by each context (pg_advisory_xact_lock with hashtextextended, some 27 production call sites: credit, configuration, payments, ledger, materials, identity, tenancy, cash, integration, partner, procurement, inventory, collections, numbering, directory) taken through database.LockTenant, or a sibling helper for the keys without a tenant and the shared locks, keeping each key's text so a moved caller still waits for one not yet moved",
+      "r": "internal/platform/database LockTenant · ADR-0008 · ADR-0082 As built S2j (the availability check's lock, the first caller)",
+      "src": "review:batch86",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing",
+      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4",
+      "src": "review:batch86",
       "c": []
      }
     ]
