@@ -16544,6 +16544,132 @@ step_count_agent() {
   passed
 }
 
+# uae_camt NUMBER AMOUNT is a camt.053 statement NUMBER of today of the UAE
+# company's Emirates NBD account (the IBAN illustrative) with one credit of
+# AMOUNT from Oasis Office Supplies, written to camt053-uae.xml.
+uae_camt() {
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>\n'
+    printf '<GrpHdr><MsgId>ENBD-%s-%s</MsgId><CreDtTm>%sT23:45:00</CreDtTm></GrpHdr>\n' "$TODAY" "$1" "$TODAY"
+    printf '<Stmt><Id>ENBD-%s-%s</Id><ElctrncSeqNb>%s</ElctrncSeqNb><Acct><Id><IBAN>AE070331234567890123456</IBAN></Id><Ccy>AED</Ccy></Acct>\n' "$TODAY" "$1" "$1"
+    printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="AED">50000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$TODAY"
+    printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="AED">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' \
+      "$(amount $((5000000 + $(cents "$2"))))" "$TODAY"
+    printf '<Ntry><Amt Ccy="AED">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>%s</Dt></BookgDt><ValDt><Dt>%s</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><RltdPties><Dbtr><Nm>Oasis Office Supplies</Nm></Dbtr></RltdPties><RmtInf><Ustrd>Invoice less 2%% cash discount</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>\n' "$2" "$TODAY" "$TODAY"
+    printf '</Stmt></BkToCstmrStmt></Document>\n'
+  } >"$WORK/camt053-uae.xml"
+}
+
+# step_uae_cash_discount is the cash discount a UAE customer takes (ADR-0063
+# As built, cash discount granted; the product owner's answer of
+# 2026-11-21, ADR-0049 As built batch 88): Ada gives Maple Gulf Trading a
+# house bank at Emirates NBD with its incoming payments clearing account,
+# and an expense account for payment differences and cash discounts
+# granted (6850, payment_difference_expense), through a governed change.
+# Ruth creates Oasis Office Supplies, a UAE customer on 2/10N30, and
+# invoices it AED 1,000.00 of desks in Dubai and AED 200.00 of chairs from
+# Sharjah at 5% (S5), 1,260.00 gross. Oasis pays within the ten days, less
+# its 2%: 1,234.80. Tom imports the statement and posts the credit as
+# incoming; asking for the discount on an application of a credit on
+# account would be refused, and so would a Canadian company's (ETA s.161;
+# the receivables tests). Ruth applies the receipt taking the discount:
+# 25.20, of which 1.00 is Dubai's VAT and 0.20 Sharjah's (each emirate's
+# VAT over the gross), the net 20.00 and 4.00. The clearing entry debits
+# the net per emirate on 6850 and the VAT on 2300, each line naming its
+# emirate: tax items that reduce the output tax the VAT 201 reports in
+# boxes 1b and 1c (the return of a quarter not yet ended is not computed:
+# TestUAECashDiscount proves the boxes).
+step_uae_cash_discount() {
+  heading "Step 156 — A cash discount a UAE customer takes: an invoice paid within its discount period less its 2%, the discount's VAT taken off the output tax of each emirate"
+  local ae base recon sales vat customer invoice entry bank st receipt body payment clearing
+  as ada
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  say "Maple Gulf Trading's customers pay into its account at Emirates NBD, and some pay within the discount period of"
+  say "their terms, less the discount. In the UAE a cash discount reduces the VAT of the supply (the product owner,"
+  say "2026-11-21), as a supplier's does the input tax. Ada proposes the bank with its incoming payments clearing account"
+  say "and an expense account for payment differences and cash discounts granted, a change of the chart, tier 4:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --arg ae "$AE" --argjson base "$base" '{title: "Emirates NBD and cash discounts of \($ae)", rationale: "Customer receipts and cash discounts granted of the UAE company (ADR-0063)",
+    base_version: $base, proposed: (.items[0].document | .companies |= map(if .code == $ae then
+      .chart_of_accounts += [{number: "1050", name: "Bank - Emirates NBD", type: "asset"},
+        {number: "1051", name: "Bank clearing - Emirates NBD", type: "asset", open_items: true},
+        {number: "1055", name: "Bank incoming - Emirates NBD", type: "asset", open_items: true},
+        {number: "6850", name: "Payment differences and cash discounts granted", type: "expense"}]
+      | .account_determination.payment_difference_expense = "6850"
+      | .house_banks = ((.house_banks // []) + [{name: "ENBD", iban: "AE070331234567890123456", bic: "EBILAEAD", gl_account: "1051",
+          main_gl_account: "1050", incoming_gl_account: "1055", currency: "AED"}])
+      | .bank_statements = {matching_rules: [{kind: "end_to_end_id"}], approval_tiers: [{steps: []}]}
+      else . end))}' "$WORK/last.json" >"$WORK/uae-discount.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-discount.json
+  governed "$(field .id)" "the UAE company's bank and discount account"
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  recon=$(field '.items[] | select(.number == "1200") | .id')
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  vat=$(field '.items[] | select(.number == "2300") | .id')
+  as ruth
+  say "Ruth creates Oasis Office Supplies, a UAE customer of $AE on 2/10N30: 2% off within ten days, net in thirty."
+  say "Carla approves it:"
+  body="{\"kind\": \"organization\", \"name\": \"Oasis Office Supplies LLC\", \"country_code\": \"AE\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$ae\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"2/10N30\"}], \"reason\": \"Buys office furniture from Maple Gulf\"}"
+  api 201 '"business partner \(.number) \(.name): \(.status)"' createBusinessPartner -body "$body"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its trade licence"
+  as ruth
+  say "She invoices it AED 1,000.00 of desks delivered in Dubai and AED 200.00 of chairs from the Sharjah warehouse,"
+  say "both standard-rated (S5, 5%) in their emirates, and posts the invoice:"
+  body="{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"AED\", \"items\": [{\"description\": \"Desks\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}, {\"description\": \"Chairs\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"200.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-SH\"}]}"
+  api 201 '"customer invoice \(.document_number): net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice -body "$body"
+  invoice=$(field .id)
+  api 200 '"customer invoice \(.document_number): \(.status), journal entry \(.journal_entry_number), due \(.net_due_date)"' postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  expect "the invoice's gross" "$(field .gross_amount.amount)" 1260.00
+  as tom
+  say "Oasis pays within the ten days, less its 2%: AED 1,234.80. Tom imports Emirates NBD's statement and posts the"
+  say "credit as an incoming payment, which waits on 1055 for accounts receivable:"
+  QUIET=1 api 200 '' listHouseBanks -p "legal_entity_id=$ae"
+  bank=$(field '.items[] | select(.code == "ENBD") | .id')
+  uae_camt 1 1234.80
+  api 201 '.statements[] | "statement \(.statement_ref): \(.status), \(.line_count) line, closing \(.closing_balance.amount) \(.closing_balance.currency)"' \
+    importBankStatements -body "{\"house_bank_id\": \"$bank\", \"format\": \"camt.053\"}" -file file=@camt053-uae.xml
+  st=$(field '.statements[0].id')
+  if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  QUIET=1 api 201 '' matchBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG" -body '{"incoming": true, "reason": "Oasis Office Supplies pays its invoice less the cash discount."}'
+  api 200 '"  ENBD statement line posted in journal entry \(.journal_entry_id[0:8])…, waiting on 1055"' postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
+  receipt=$(field .journal_entry_id)
+  if [ -z "$receipt" ] || [ "$receipt" = null ]; then fail "the incoming line was not posted"; fi
+  as ruth
+  body="{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"receipt_journal_entry_id\": \"$receipt\", \"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$entry\", \"line_no\": 1"
+  say "Ruth applies the receipt to the invoice. Without the discount it falls AED 25.20 short, beyond the company's"
+  say "payment tolerance (it has none):"
+  refused 422 ledger.clearing_not_balanced createIncomingPayment -body "$body}]}"
+  say "Received within the discount period, the invoice takes its cash discount (items[].cash_discount): 2% of 1,260.00,"
+  say "AED 25.20, so the receipt pays it in full:"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), cash discount \(.cash_discount.amount), difference \(.difference.amount)", (.items[] | "  item \(.item_no): \(.reference), \(.amount.amount), cash discount \(.cash_discount.amount)")' \
+    createIncomingPayment -body "$body, \"cash_discount\": true}]}"
+  payment=$(field .id)
+  clearing=$(field .journal_entry_id)
+  expect "the payment" "$(field '"\(.amount.amount) \(.cash_discount.amount) \(.items[0].cash_discount.amount) \(.difference.amount) \(.customers[0].amount.amount)"')" \
+    "1234.80 25.20 25.20 0.00 1234.80"
+  say "The discount is taken off the gross, so it carries VAT: of 25.20, Dubai's 50.00 of VAT in 1,260.00 gives 1.00 and"
+  say "Sharjah's 10.00 gives 0.20; the net, 20.00 and 4.00, is the discount on each emirate's sales. The DZ entry debits"
+  say "them on 6850 and on the VAT account 2300, each line with S5 and its emirate, so the quarter's VAT 201 reports"
+  say "Dubai's and Sharjah's output tax reduced (boxes 1b and 1c):"
+  api 200 '"journal entry \(.document_number)", (.lines[] | "  \(.account_id[0:8])… \(.amount.amount) \(.amount.currency) \(.tax_code // "") \(.tax_jurisdiction // "")")' \
+    getJournalEntry -p "id=$clearing"
+  expect "the discount's lines" "$(field "[.lines[] | select(.tax_code != null) | \"\(.account_id == \"$vat\") \(.amount.amount) \(.tax_code) \(.tax_jurisdiction)\"] | join(\", \")")" \
+    "false 20.00 S5 AE-DU, false 4.00 S5 AE-SH, true 1.00 S5 AE-DU, true 0.20 S5 AE-SH"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$ae" -p "partner_id=$customer" -p page_size=100
+  expect "Oasis's open items" "$(field '.items | length')" 0
+  QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
+  expect "the payment read back" "$(field '.cash_discount.amount')" 25.20
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -18574,7 +18700,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_close'
 
 main() {
   stop_unseen

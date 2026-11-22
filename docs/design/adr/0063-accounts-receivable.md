@@ -965,7 +965,8 @@ rule of a company without a tolerance and of an item without a residual.
 - **For the specialist:** whether a payment difference written off on a
   taxable invoice must reduce the output tax (a tax adjustment as a cash
   discount granted would make) in Canada (GST/HST) and the UAE (VAT); the
-  first version posts none. Not built: cash discount granted, configurable
+  first version posts none. Not built: cash discount granted (built for
+  the UAE since: As built, cash discount granted), configurable
   reason codes.
 
 ### T75g Payment on account and its later application (migration 000352)
@@ -1585,3 +1586,100 @@ that a plain write-off or a short payment (T75f, T75o) makes no tax
 correction, and that a Canadian cash discount makes no GST/HST
 adjustment; a cash discount on a UAE invoice reduces output tax, which
 receivables does not do yet (ADR-0049 As built batch 88, tracker leaf).
+
+### Cash discount granted (po:2026-11-21, migration 000445)
+The product owner's answer of 2026-11-21 (ADR-0049 As built batch 88): a
+cash discount a UAE customer takes reduces the output tax, as T36d's
+correction reduces the input tax on the supplier side; a Canadian cash
+discount makes no GST/HST adjustment (Excise Tax Act s.161, confirmed by
+Musto Ibrahim on 2026-11-21). T75f's "Not built: cash discount granted"
+is built for the UAE.
+
+- **The request.** An item of `POST /v1/incoming-payments` may say
+  `cash_discount: true`: it takes the cash discount its payment terms,
+  as it was posted with them (`ledger.open_item_terms`, T75b), grant for
+  a payment received on the **receipt's posting date**, the day the bank
+  statement line posted it (`ledger.ReceiptApplication.DiscountDate`),
+  not the application's, which may be days later. The discount is the
+  tier's percent of the item's amount in the receipt's currency, rounded
+  half away from zero, one minor unit less where it would take the whole
+  item (`ledger.ItemTerms.DiscountOn`, the rule the payment run takes a
+  supplier's discount by). Only an invoice paid in full takes one: a
+  credit of the customer's or an item with a residual is refused, 422
+  `ledger.invalid_discount`, and an item whose terms grant none that day
+  (no tier, the period over, no terms) 422 `ledger.no_cash_discount`,
+  each naming `items[i].cash_discount`. The items, net of their residuals,
+  write-offs and discounts, must then equal the receipt but for the
+  payment tolerance, as before.
+- **The correction** (`internal/ledger/receiptdiscount.go`): the discount
+  is a debit of the clearing entry split by the invoice's entry's tax
+  items exactly as a supplier's is (T36d): `ledger.discountTax`, now
+  reading the partner lines of the items' kind (supplier or customer),
+  gives each tax item a share of the discount in proportion to its tax
+  over the gross the entry owes, rounded once and shared out by largest
+  remainder, and the net to each code's base and the untaxed rest. The
+  split is keyed by the subdivision a component that levies its lines'
+  names (the emirate, T61f), so each emirate's tax and base are lines of
+  their own naming it, the trigger `journal_line_tax_jurisdiction_code`
+  holds, and the tax items (`sourcedTaxItem`, copying the source item's
+  code, component, jurisdiction and rate, at the payment's tax date)
+  reduce that emirate's VAT 201 box; a zero-rated base is reduced at rate
+  0 (box 4). The supplier side gains the same keying: an input code that
+  levied its lines' subdivision would now have its correction's lines
+  name it (none does today). Lines and items are at the **receipt's
+  rate**, as the payment difference is; the items' local amounts are
+  shared out of each line's (`discountPlan.taxItemsAt`). Undoing the
+  payment (T75i) reverses the clearing entry and its tax items with it.
+- **The account** (decided by default, the brief's question): the net
+  of the discount is posted to the account determination's
+  `payment_difference_expense`, with each code and emirate of the base
+  it reduces. It is the existing key for what a customer takes off, an
+  expense, and the account T75f wrote the same amount to before, so the
+  profit and loss account of a discount does not change with it; the
+  `cash_discount` key is SAP's SKE, the discount *received* from
+  suppliers (revenue, `4800` in the UAE pack), which a discount granted
+  must not reduce. Without the account the application is refused, 422
+  `ledger.no_payment_difference_account`. SAP's own key for a discount
+  granted (SKT) stays the post-pilot tracker leaf.
+- **Which companies** (`receivables.discountTaxCountry`): a company of
+  the UAE grants the discount. Any other refuses one asked for, 422
+  `receivables.cash_discount_not_granted` naming `items[i].cash_discount`:
+  what its customer takes off stays a payment difference written off
+  without a tax code, within the tolerance or by a residual's reason
+  (T75f, T75o), which is the confirmed Canadian rule, and every other
+  country's until its tax specialist answers; the company's country
+  decides, as the ledger's `taxDocumentCountry` does. An application of
+  a credit on account (T75g) grants none either (the same refusal): its
+  items were not paid by a receipt within their period.
+- **What the payment shows:** each item's `cash_discount` (absent for
+  none), the payment's `cash_discount` (their total), each customer's
+  part net of its discounts; IncomingPaymentApplied carries
+  `cash_discount` (an optional field) and the audit record too.
+- **Schema** (000445): `incoming_payment_item.cash_discount`, more than
+  zero and less than the item, which is an invoice paid in full, never
+  beside a residual or a write-off (`incoming_payment_item_cash_discount`,
+  `TestIncomingPaymentCashDiscountRules`); the down migration is refused
+  while an item took one.
+- **Decided by default:** (1) the discount is asked for per item, not
+  taken by itself: a customer paying the gross within the period takes
+  none, and the clerk confirms what the remittance says, as SAP's F-28
+  lets the clerk change the proposed discount (from memory); (2) the
+  discount period is judged on the receipt's posting date; (3) only an
+  invoice paid in full takes one (no residual, no credit); (4) the
+  `payment_difference_expense` account (above); (5) the receipt's rate;
+  (6) the UAE alone; (7) none on an application of a credit on account;
+  (8) an item in another currency than the receipt takes its discount of
+  its translated amount, the split being by proportion.
+- **For the specialist** (stated from memory, not checked against a
+  source in the lane): whether the UAE requires a tax credit note to the
+  customer for the discount's VAT (the Executive Regulation's tax credit
+  note rules), which the e-invoicing send side would then render; whether
+  a zero-rated supply's base in box 4 is reduced by its share; and
+  whether the discount period is judged on the day the funds were
+  received or the day the customer paid.
+- Tests: `TestUAECashDiscount` (a real UAE company on the pack 2026.9's
+  codes and VAT 201: the clearing entry's lines and tax items, the boxes
+  before, after and once the payment is undone), `TestUAECashDiscountRefusals`,
+  `TestCanadianCashDiscount`, `TestCashDiscountDatabaseFailures`,
+  batch 85's `TestDiscountOnLeviedJurisdiction` (a company of DE grants
+  none). Walkthrough step 156 (`step_uae_cash_discount`).
