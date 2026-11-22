@@ -45853,9 +45853,12 @@ type EInvoice struct {
 	// as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid
 	// tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its
 	// entering refused, `problem_code` and `problem_detail` saying why, such as
-	// `payables.capture_needs_order` for one naming no purchase order, or
-	// `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that
-	// is not for a volume discount, for a person to resolve;
+	// `payables.capture_needs_order` for one naming no purchase order (but a tax credit note for a volume
+	// discount, entered without one; batch 89: held with `payables.capture_needs_account` when the company
+	// has no account for discounts received, `payables.einvoice_seller_unknown` or
+	// `payables.einvoice_seller_ambiguous` when no or several suppliers of the company hold the seller's
+	// TRN), or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it
+	// corrects that is not for a volume discount, for a person to resolve;
 	// `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several).
 	// The later slices add dismissed (ADR-0061 §7).
 	Status string `json:"status"`

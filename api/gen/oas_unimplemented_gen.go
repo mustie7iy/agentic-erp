@@ -3797,19 +3797,25 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // and date); a tax credit note naming no invoice is held with
 // `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects,
 // IBG-03), nothing of it entered, rather than entered as correcting none, unless it is for a volume
-// discount (reason `VD`, IBR-055-AE), which is entered without a reference; one naming several
-// invoices (IBG-03 repeated) is entered as one credit memo citing them all, without a
-// `reference_invoice_id`, on hold naming any that is no posted invoice of the supplier (batch 88;
-// before it such a note was held with `einvoicing.credit_note_names_several_invoices`). A tax invoice
-// validated by a fetch before T65d, and a tax credit note validated before T65e, is entered by the
-// next one. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
-// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
-// refused; `entered` and `held`: the documents this fetch entered and held; `waiting`: the connector's
-// documents left unprocessed, waiting for the company's setup) and its `resource` the list of the
-// documents it recorded, found changed, refused, entered or held
-// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
-// `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch
-// recorded, as its `processed_fetch_operation_id`, and one entered or held as its
+// discount (reason `VD`, IBR-055-AE), which is entered without a reference (batch 89: one for a volume
+// discount naming no order, IBT-013, is entered without one, as a credit memo needs none: of the one
+// supplier of the company holding the seller's TRN, else held with `payables.einvoice_seller_unknown`
+// or `payables.einvoice_seller_ambiguous`; each line an item of 1 `EA` with its net on the account of
+// discounts received, account determination `cash_discount`, which a person may change while it is
+// parked, held with `payables.capture_needs_account` when the company has none; its tax as stated, its
+// codes by its lines' category and rate as for any line; a tax credit note for another reason naming
+// no order is held with `payables.capture_needs_order` as before); one naming several invoices (IBG-03
+// repeated) is entered as one credit memo citing them all, without a `reference_invoice_id`, on hold
+// naming any that is no posted invoice of the supplier (batch 88; before it such a note was held with
+// `einvoicing.credit_note_names_several_invoices`). A tax invoice validated by a fetch before T65d,
+// and a tax credit note validated before T65e, is entered by the next one. When the fetch is done its
+// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
+// message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`:
+// the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed,
+// waiting for the company's setup) and its `resource` the list of the documents it recorded, found
+// changed, refused, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the
+// fetch as its `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier
+// fetch recorded, as its `processed_fetch_operation_id`, and one entered or held as its
 // `entry_fetch_operation_id`); a message not recorded fails the Operation with
 // `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 // error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the

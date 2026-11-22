@@ -2846,6 +2846,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "E-invoice volume discount without an order (gap of batch 88, ADR-0061 As built batch 88): a received tax credit note for a volume discount (BTAE-03 VD) naming no purchase order (IBT-013) is entered as a supplier credit memo without an order or a reference rather than held with payables.capture_needs_order (a credit memo needs no order, po:2026-11-21): the supplier the one of the company holding the seller's TRN (none payables.einvoice_seller_unknown, several payables.einvoice_seller_ambiguous), each line an item of 1 EA with its net on the account of discounts received (account determination cash_discount; none payables.capture_needs_account), its tax as stated and its codes by category and rate, for the accounts payable clerk to post; a credit note for another reason naming no order stays held; walkthrough: step_evatra_inbound's EWS-501 of a supplier without orders entered, its code chosen and posted",
+        "r": "ADR-0061 §6 · ADR-0061 As built batch 89 · payables.enteredInput, rebateInput, sellerSupplier · partner.Payees.HoldersOfTaxNumber · payables.capture_needs_account, payables.einvoice_seller_ambiguous · TestEnterVolumeDiscountWithoutOrder · TestEnterVolumeDiscountDatabaseFailures · TestRebateInput · TestSellerSupplier · walkthrough step_evatra_inbound (evatra_volume_discount)",
+        "src": "po:2026-11-21",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "fix: a CHECK on einvoicing.einvoice that a processed document not refused has its document_kind (einvoice_read keeps it empty before processing; nothing requires it after), since the fetch's entering branches on it (invoice or credit note, T65e), with its schema test",
         "r": "db/migrations/000416_einvoice_validation (einvoice_read) · db/migrations/000437, 000438 (einvoice_read_processed) · TestEInvoiceProcessing (processed without its kind) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e, batch 88",

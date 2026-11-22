@@ -17,13 +17,37 @@ import (
 // invoices cited (IBG-03, none for none): one desk, 250.00 AED with 12.50
 // VAT, on the order's item 10.
 func creditNote(number, reason string, cited ...einvoicing.Cited) []byte {
+	return ordered(creditNoteOf(number, reason, cited...), "4500000001", "10")
+}
+
+// creditNoteOf is creditNote's document, naming no order.
+func creditNoteOf(number, reason string, cited ...einvoicing.Cited) einvoicing.Document {
 	d := supplierInvoice(number)
-	d.Kind, d.TypeCode, d.Cited = einvoicing.KindTaxCreditNote, einvoicing.TypeTaxCreditNote, cited
+	d.Kind, d.TypeCode, d.Cited, d.OrderReference = einvoicing.KindTaxCreditNote, einvoicing.TypeTaxCreditNote, cited, ""
 	d.Reason = &einvoicing.Reason{Code: reason, Text: "Damaged desk"}
 	d.Lines[0].Quantity, d.Lines[0].Net = "1", 25000
 	d.Subtotals[0].Taxable, d.Subtotals[0].Tax, d.Tax = 25000, 1250, 1250
 	d.LineTotal, d.TaxExclusive, d.TaxInclusive, d.Payable = 25000, 25000, 26250, 26250
-	return ordered(d, "4500000001", "10")
+	return d
+}
+
+// rebateNote is a volume discount's tax credit note naming no order nor
+// invoice, of the seller whose TRN is trn: 250.00 AED with 12.50 VAT.
+func rebateNote(number, trn string) []byte {
+	d := creditNoteOf(number, einvoicing.ReasonVolumeDiscount)
+	d.Seller.TRN, d.Seller.Endpoint = trn, trn[:10]
+	d.Reason.Text, d.Lines[0].Description = "Volume discount, first quarter", "Volume discount"
+	return ordered(d, "", "")
+}
+
+// rebateAccount gives company 5000 the account of discounts received
+// (account determination cash_discount), 400000, and returns it.
+func (s *entering) rebateAccount(t *testing.T) uuid.UUID {
+	t.Helper()
+	account := s.f.Account(t, "5000", "400000")
+	pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by)
+		VALUES ($1, $2, 'cash_discount', $3, $4)`, s.f.Tenant.ID, s.le, account, s.f.Tenant.Human.ID)
+	return account
 }
 
 // citing is the invoice numbered number, and dated date ("" for none).
@@ -192,5 +216,89 @@ func TestEnterCreditNoteDatabaseFailures(t *testing.T) {
 	})
 	if got, _ := s.credited(t, "CN-1"); got != "entered - credit_memo parked - DL [GOI-1:GOI-1,GOI-2:GOI-2]" {
 		t.Errorf("CN-1 after the failures: got %s, want it entered citing both", got)
+	}
+}
+
+// TestEnterVolumeDiscountWithoutOrder: a volume discount's tax credit note
+// naming no purchase order is entered as a supplier credit memo without an
+// order or a reference (ADR-0061 As built batch 89; po:2026-11-21): the
+// supplier the one of the company holding the seller's TRN, its line an
+// item of 1 EA on the account of discounts received, its tax as stated,
+// on hold for the accounts payable clerk to choose its code among the two
+// of its category and rate (V5, VB5: capturedTax's rule) and post; a
+// company without that account holds it
+// (payables.capture_needs_account), as does a seller no supplier of the
+// company holds the TRN of (payables.einvoice_seller_unknown); a credit
+// note for another reason naming no order is held as before
+// (payables.capture_needs_order). Run twice, the step enters and holds
+// nothing again.
+func TestEnterVolumeDiscountWithoutOrder(t *testing.T) {
+	s := enteringScene(t)
+	s.postedInvoice(t, "GOI-1")
+	s.srv.Deliver("VD-0", uaeParticipant, rebateNote("VD-0", supplierTRN))
+	s.srv.Deliver("DL-1", uaeParticipant, ordered(creditNoteOf("DL-1", "DL", citing("GOI-1", "")), "", ""))
+	first := uuid.Must(uuid.NewV7())
+	s.recordAll(t, first)
+	if got, err := s.e.ProcessEInvoices(context.Background(), s.connector, first, s.within()); err != nil || got.Entered != 0 || got.Held != 2 {
+		t.Fatalf("without the account: got %+v (%v), want both held", got, err)
+	}
+	account := s.rebateAccount(t)
+	s.srv.Deliver("VD-1", uaeParticipant, rebateNote("VD-1", supplierTRN))
+	s.srv.Deliver("VD-2", uaeParticipant, rebateNote("VD-2", "100999999900003"))
+	next := uuid.Must(uuid.NewV7())
+	s.recordAll(t, next)
+	for run := range 2 {
+		if got, err := s.e.ProcessEInvoices(context.Background(), s.connector, next, s.within()); err != nil || got.Entered != 1 || got.Held != 1 {
+			t.Fatalf("run %d: got %+v (%v), want VD-1 entered and VD-2 held", run+1, got, err)
+		}
+	}
+	for _, c := range []struct{ message, want, hold string }{
+		{"VD-0", "held payables.capture_needs_account -", ""},
+		{"DL-1", "held payables.capture_needs_order -", ""},
+		{"VD-1", "entered - credit_memo on_hold - VD []", "5% in VAT category S, which codes V5, VB5 charge"},
+		{"VD-2", "held payables.einvoice_seller_unknown -", ""},
+	} {
+		t.Run(c.message, func(t *testing.T) {
+			got, hold := s.credited(t, c.message)
+			if got != c.want {
+				t.Errorf("got %s, want %s", got, c.want)
+			}
+			if !strings.Contains(hold, c.hold) {
+				t.Errorf("hold reason: got %q, want it to say %q", hold, c.hold)
+			}
+		})
+	}
+	var memo string
+	pgtest.Scan(t, `SELECT i.supplier_id::text || ' ' || coalesce(i.purchase_order_id::text, '-') || ' ' || i.gross_amount || ' ' || i.tax_amount || ' '
+			|| string_agg(it.quantity::numeric::text || ' ' || it.uom_code || ' ' || it.amount || ' ' || coalesce(it.tax_code, '-') || ' '
+				|| coalesce(it.purchase_order_id::text, '-') || ' ' || (it.account_id = $3) || ' ' || coalesce(it.description, '-'), ', ' ORDER BY it.item_no)
+		FROM payables.supplier_invoice i JOIN payables.supplier_invoice_item it ON it.supplier_invoice_id = i.id
+		WHERE i.tenant_id = $1 AND i.supplier_reference = $2 GROUP BY i.tenant_id, i.id`, []any{s.f.Tenant.ID, "VD-1", account}, &memo)
+	if want := s.f.Supplier.String() + " - 26250 1250 1.000000 EA 25000 - - true Volume discount"; memo != want {
+		t.Errorf("VD-1's memo: got %s, want %s", memo, want)
+	}
+	var detail string
+	pgtest.Scan(t, `SELECT problem_detail FROM einvoicing.einvoice WHERE tenant_id = $1 AND message_id = 'VD-2'`, []any{s.f.Tenant.ID}, &detail)
+	if !strings.Contains(detail, "ending 0003,") || strings.Contains(detail, "100999999900003") {
+		t.Errorf("VD-2's detail: got %q, want the TRN's last four only", detail)
+	}
+}
+
+// TestEnterVolumeDiscountDatabaseFailures: a failure of any statement
+// while a volume discount naming no order is entered (finding the seller's
+// supplier, the account of discounts received) fails the step rather than
+// holding the document, which the next try enters.
+func TestEnterVolumeDiscountDatabaseFailures(t *testing.T) {
+	s := enteringScene(t)
+	s.rebateAccount(t)
+	s.srv.Deliver("VD-1", uaeParticipant, rebateNote("VD-1", supplierTRN))
+	op := uuid.Must(uuid.NewV7())
+	s.recordAll(t, op)
+	everyFailure(t, s.scene, func(in einvoicing.Within) error {
+		_, err := s.e.ProcessEInvoices(context.Background(), s.connector, op, in)
+		return err
+	})
+	if got, _ := s.credited(t, "VD-1"); got != "entered - credit_memo on_hold - VD []" {
+		t.Errorf("VD-1 after the failures: got %s, want it entered, on hold for its code", got)
 	}
 }
