@@ -52,6 +52,9 @@ type Transports interface {
 	TransportQuantities(ctx context.Context, in []inventory.TransportItem) (uuid.UUID, []string, error)
 	IssueForTransport(ctx context.Context, reference string, in []inventory.TransportItem) (inventory.Document, error)
 	ReceiveForTransport(ctx context.Context, reference string, in []inventory.TransportItem) (inventory.Document, error)
+	// IssueForIntercompany posts an intercompany order's goods issue
+	// (643, S2i1).
+	IssueForIntercompany(ctx context.Context, reference string, in []inventory.DeliveryItem) (inventory.Document, error)
 }
 
 // OrgUnits reads tenancy's org units by id: the plants and storage

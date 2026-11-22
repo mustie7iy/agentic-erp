@@ -83,6 +83,11 @@ type movementType struct {
 	// transit, which procurement posts (IssueForTransport, S2h), never a
 	// person here, and which is not reversed yet.
 	transport bool
+	// intercompany: an intercompany stock transport order's goods issue
+	// out of the supplying company's stock, which procurement posts
+	// (IssueForIntercompany, S2i1), never a person here, and which is not
+	// reversed yet.
+	intercompany bool
 	// tracked: an item of a batch-managed material names its batch
 	// (S2f), and one of a serial-managed material the serial number of
 	// each unit (S2g); the other movement types carry neither yet, and
@@ -99,7 +104,9 @@ type movementType struct {
 // for the database's rule and posted by no one yet, ADR-0083), and a
 // stock transport order's goods issue, which procurement posts
 // (IssueForTransport, S2h; its receipt is a 101 of its own kind,
-// transportReceipt).
+// transportReceipt), and an intercompany stock transport order's goods
+// issue, which procurement posts (IssueForIntercompany, S2i1; the
+// receiving company receives it as a purchase order's 101).
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true},
@@ -118,6 +125,7 @@ var movementTypes = map[string]movementType{
 	"351": {name: "Goods issue for a stock transport order", sign: -1, transfer: betweenPlants, transport: true},
 	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true},
 	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true},
+	"643": {name: "Goods issue for an intercompany stock transport order", sign: -1, intercompany: true},
 	"701": {name: "Physical inventory surplus", sign: 1, count: true},
 	"702": {name: "Physical inventory shortage", sign: -1, count: true},
 }

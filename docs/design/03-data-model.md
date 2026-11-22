@@ -2225,6 +2225,18 @@ the supplying plant to one of the receiving plant; insert-only
 (`stock_transport_order_item_insert_only`). Plants, storage locations,
 materials and material documents are other contexts', by id.
 
+Intercompany stock transport orders (S2i1, migrations 000437 and 000438;
+ADR-0082 As built S2i): between plants of two companies the order is the
+receiving company's `procurement.purchase_order` naming
+`supplying_plant_id`, a plant of another company of the tenant (tenancy
+context, by id), set at creation and never changed; once its goods issue
+(a `643` of the supplying company) is posted, `issue_document_id`
+(inventory context, by id), `issue_document_number` (1 to 40 characters,
+`purchase_order_issue_document_number_check`) and `issue_date`, all three
+together and only on an order with a supplying plant
+(`purchase_order_issue`); the supplying plant and a goods issue once set
+stay as set (`purchase_order_supply_fixed`, a trigger also for the owner).
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -6850,6 +6862,14 @@ erDiagram
   every line, so stock in transit is the receiving plant's valuated stock
   and no location's. No count blocks a line in transit
   (`count_posting_block` fires only on the others).
+- S2i1 (migrations 000437, 000438): `inventory.material_document` takes
+  the movement type `643`, an intercompany stock transport order's goods
+  issue out of the supplying company's stock, which names the order's
+  number as its `reference` (`material_document_movement_type_check`,
+  `material_document_reference`, widened NOT VALID and validated by
+  000438). It has no line in transit: the goods enter the receiving
+  company's stock and valuation only with the order's goods receipt (a
+  purchase order's `101`).
 - S2f (migrations 000428, 000429): `materials.material.batch_managed`
   (SAP MARA's XCHPF, from memory), fixed once created (`material_fixed`).
   `inventory.batch` (SAP MCH1, batch level material): a batch of a

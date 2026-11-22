@@ -543,6 +543,7 @@ const (
 	PostCustomerInvoiceOperation                   OperationName = "PostCustomerInvoice"
 	PostExpenseReportOperation                     OperationName = "PostExpenseReport"
 	PostGoodsReceiptOperation                      OperationName = "PostGoodsReceipt"
+	PostIntercompanyGoodsIssueOperation            OperationName = "PostIntercompanyGoodsIssue"
 	PostJournalEntryOperation                      OperationName = "PostJournalEntry"
 	PostOutboundDeliveryGoodsIssueOperation        OperationName = "PostOutboundDeliveryGoodsIssue"
 	PostParkedJournalEntryOperation                OperationName = "PostParkedJournalEntry"

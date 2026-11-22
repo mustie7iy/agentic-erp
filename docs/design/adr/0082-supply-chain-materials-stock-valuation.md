@@ -1144,6 +1144,80 @@ reads a location's stock without a lock for shipping's picking.
   reversals (352, 102), cancelling an open order, a delivery between the
   plants, a list of stock in transit, intercompany transfers (S2i).
 
+### S2i (2026-11-21)
+
+Decided by default from SAP's cross-company stock transport order (from
+memory, for the specialist) and plan §S2i, which splits it into S2i1
+(built), S2i2 and S2i3 (tracker leaves).
+
+- **The order is the receiving company's purchase order** naming the
+  plant that supplies it (`supplying_plant_id`; SAP's purchasing
+  document with a supplying plant, EKKO-RESWK, type NB between
+  companies). S2h kept its order out of purchase orders because it has no
+  supplier, prices, approval or GR/IR; between companies the order has
+  all four, so it is a purchase order: numbered, released (and approved
+  by the release strategy) and received as any, its GR/IR positions the
+  ledger's per order item. Migration 000437 adds the supplying plant, set
+  at creation, and the goods issue's material document, number and day,
+  under `purchase_order_issue` and the trigger `purchase_order_supply_fixed`
+  (schema tests in `db/intercompany_transport_test.go`, the trigger also
+  as the owner, the down's refusal); 000438 validates the widened checks.
+- **Partners.** The order's supplier is the business partner whose group
+  company (ADR-0059 §4) is the supplying plant's company (422
+  `procurement.intercompany_supplier`; `partner.Supplier.GroupCompanyID`
+  added to the published read). SAP assigns that vendor to the supplying
+  plant (LFA1-WERKS, from memory); here the group company already says
+  which partner a company is. The supplying plant is an active plant of
+  another company (422 `procurement.supplying_plant_invalid`,
+  `procurement.supplying_plant_own_company`, which points to S2h's order).
+  The supplying company bills the business partner that is the receiving
+  company (S2i2).
+- **Transfer price** is the order item's price in the order's currency,
+  entered or from a contract as on any order. S2i2's billing bills it,
+  so the billing's price is the order's and S2i3's invoice matches the
+  receipt. SAP prices the billing by the supplying side's own conditions
+  (PI01, billing type IV, from memory), which can differ: Later.
+- **Items are stock items** (422 `procurement.intercompany_item_not_stock`)
+  **without an over-delivery tolerance** (422
+  `procurement.intercompany_over_delivery`; the company's default is not
+  applied): the receipt takes what the issue issued.
+- **Goods issue (643)**, `POST /v1/purchase-orders/{id}:postIntercompanyGoodsIssue`
+  (`procurement.stock_transport.post`, human-only): a released order's
+  every item, its ordered quantity, from the storage location of the
+  supplying plant the request names per item (422
+  `procurement.issue_items`), once (409 `procurement.intercompany_issued`;
+  409 `procurement.not_intercompany` for another order), under the
+  order's row lock at the version read, through inventory's
+  `IssueForIntercompany` in the request's transaction: checked, valued
+  and posted as an outbound delivery's 601 is (one helper,
+  `issueAgainstCost`), in the supplying company, WA Dr cost of goods sold,
+  Cr stock (SAP's 643, from memory). The caller acts in both companies:
+  the order's and, as inventory checks, the supplying plant's. Audited
+  (`procurement.purchase_order.goods_issue`); no event of the order, as
+  for S2h: the stock moves are MaterialDocumentPosted. Not reversed (409
+  `inventory.reverse_stock_transport`), nor posted by
+  `POST /v1/material-documents` (422 `inventory.unknown_movement_type`).
+- **Goods receipt** is the order's 101 (S1e), at the order price against
+  GR/IR, refused before the issue (409 `procurement.intercompany_not_issued`)
+  and beyond it (409 `procurement.over_delivery`).
+- **In transit** the goods are in neither company's stock or valuation:
+  the issue took them out of the supplying company's books and the
+  receipt puts them into the receiving company's (SAP's two-step
+  transfer between companies without stock in transit valuation, from
+  memory). S2h's `inventory.transit_stock` is not used: it is valued in
+  the receiving plant, which between companies would book the receiving
+  company's stock before its receipt. Cancelling or closing an order
+  whose issue is posted and not all received is refused (409
+  `procurement.order_in_transit`); a released intercompany order is not
+  changed (409 `procurement.intercompany_order_change`), as its issue
+  issues the ordered quantities.
+- Walkthrough step `step_intercompany_transport`.
+- **Not built** (Later, plan §S2i): partial and repeated issues, a
+  delivery between the companies, the 643's reversal (644), changing a
+  released intercompany order, the supplying side's own pricing,
+  one-step transfers (645), stock in transit valuation and its list,
+  customs (S2s).
+
 ### S2f (2026-11-20)
 
 - Migrations 000428 and 000429 (03 §3.35, S2f): `materials.material.batch_managed`,

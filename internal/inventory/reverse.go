@@ -57,6 +57,11 @@ func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Docu
 		// Its GR/IR and the order item's received quantity move with it.
 		return Document{}, problem.Conflict("inventory.reverse_goods_receipt", "Material document "+orig.Number+" is goods receipt "+*orig.Reference+
 			" of a purchase order; reverse the goods receipt (reverseGoodsReceipt), which reverses its stock too.")
+	case mt.intercompany:
+		// The order's issued quantity, its receipts and its billing move
+		// with it: Later (ADR-0082 As built S2i).
+		return Document{}, problem.Conflict("inventory.reverse_stock_transport", "Material document "+orig.Number+" is the goods issue of "+
+			"intercompany stock transport order "+*orig.Reference+"; it is not reversed yet.")
 	case mt.delivery:
 		// Its cost of goods sold, the order's delivered quantity and its
 		// billing move with it: Later (ADR-0083 §5).

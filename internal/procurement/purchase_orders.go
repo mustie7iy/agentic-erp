@@ -46,12 +46,21 @@ type PurchaseOrder struct {
 	// The custom field schema version the extensions were written under
 	// (ADR-0046), or nil.
 	ExtensionsSchema *int
-	Items            []Item
-	Version          int32
-	CreatedAt        time.Time
-	CreatedBy        uuid.UUID
-	UpdatedAt        time.Time
-	UpdatedBy        uuid.UUID
+	// SupplyingPlantID makes the order an intercompany stock transport
+	// order (S2i1): the plant of another company of the tenant that
+	// supplies it, fixed at creation. Once its goods issue (643) is posted
+	// IssueDocumentID, IssueDocumentNumber and IssueDate name its material
+	// document and day; they are nil until then.
+	SupplyingPlantID    *uuid.UUID
+	IssueDocumentID     *uuid.UUID
+	IssueDocumentNumber *string
+	IssueDate           *time.Time
+	Items               []Item
+	Version             int32
+	CreatedAt           time.Time
+	CreatedBy           uuid.UUID
+	UpdatedAt           time.Time
+	UpdatedBy           uuid.UUID
 }
 
 // Total is the value of the live items.
@@ -59,6 +68,7 @@ func (o PurchaseOrder) Total() money.Minor { return total(o.Items) }
 
 const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purchasing_org_id, o.supplier_id, o.currency, c.exponent, o.order_date,
 		o.payment_term_code, o.requisition_id, o.contract_id, o.status, o.valuation, o.release_request_id, o.revision, o.extensions, o.extensions_schema, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by,
+		o.supplying_plant_id, o.issue_document_id, o.issue_document_number, o.issue_date,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
@@ -79,7 +89,7 @@ func scanOrder(row pgx.Row) (PurchaseOrder, error) {
 	var o PurchaseOrder
 	if err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.PurchasingOrgID, &o.SupplierID, &o.Currency, &o.Exponent, &o.OrderDate,
 		&o.PaymentTermCode, &o.RequisitionID, &o.ContractID, &o.Status, &o.Valuation, &o.ReleaseRequestID, &o.Revision, &o.Extensions, &o.ExtensionsSchema, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt,
-		&o.UpdatedBy, &o.Items); err != nil {
+		&o.UpdatedBy, &o.SupplyingPlantID, &o.IssueDocumentID, &o.IssueDocumentNumber, &o.IssueDate, &o.Items); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("scan purchase order: %w", err)
 	}
 	return o, nil
@@ -165,6 +175,10 @@ type orderHeader struct {
 	// again on their material's status or extension, which may have
 	// changed since they were ordered (stockItem).
 	kept int
+	// intercompany is the supplying plant of an intercompany stock
+	// transport order and its company (S2i1), nil for another order: its
+	// items are stock items received as issued (intercompanyItem).
+	intercompany *intercompanyHeader
 }
 
 // orderItems validates order items. Contract items take the contract's
@@ -175,6 +189,11 @@ func (e *Endpoints) orderItems(ctx context.Context, h orderHeader, in []ItemInpu
 		item, err := e.orderItem(ctx, h, i, it)
 		if err != nil {
 			return nil, err
+		}
+		if h.intercompany != nil {
+			if err := intercompanyItem(i, item); err != nil {
+				return nil, err
+			}
 		}
 		items[i] = item
 	}
@@ -286,10 +305,12 @@ func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items
 }
 
 // header checks what an order's items depend on: currency, contract,
-// purchasing organization, the company's default tolerance and the need
-// date of the requisition the order is created from, if any.
+// purchasing organization, the company's default tolerance, the need
+// date of the requisition the order is created from, if any, and the
+// plant supplying an intercompany order, if any (S2i1), whose items take
+// no over-delivery tolerance.
 func (e *Endpoints) header(ctx context.Context, tx pgx.Tx, le tenancy.Entity, supplier uuid.UUID, currency string, orderDate time.Time,
-	contract, purchasingOrg, requisition *uuid.UUID) (orderHeader, error) {
+	contract, purchasingOrg, requisition, supplying *uuid.UUID) (orderHeader, error) {
 	h := orderHeader{le: le, currency: currency, orderDate: orderDate, tolerance: "0"}
 	var err error
 	if h.exp, err = exponent(ctx, tx, currency, "currency"); err != nil {
@@ -318,7 +339,10 @@ func (e *Endpoints) header(ctx context.Context, tx pgx.Tx, le tenancy.Entity, su
 	if co := doc.Company(le.Code); co != nil {
 		h.tolerance = strconv.Itoa(co.OverDeliveryPercent)
 	}
-	return h, nil
+	if h.intercompany, err = e.supplyingPlant(ctx, le.ID, supplier, supplying); h.intercompany != nil {
+		h.tolerance = "0"
+	}
+	return h, err
 }
 
 // paymentTerm defaults the terms to the supplier's and requires them to exist.
@@ -347,8 +371,11 @@ type NewOrder struct {
 	PaymentTermCode *string
 	RequisitionID   *uuid.UUID
 	ContractID      *uuid.UUID
-	Items           []ItemInput
-	Extensions      map[string]any
+	// SupplyingPlantID makes the order an intercompany stock transport
+	// order (S2i1): the plant of another company that supplies it.
+	SupplyingPlantID *uuid.UUID
+	Items            []ItemInput
+	Extensions       map[string]any
 	// sourcedBy is the RFQ whose award creates the order (T82f): its
 	// requisition, in sourcing, is ordered by it (sourcedFrom).
 	sourcedBy *uuid.UUID
@@ -384,7 +411,8 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	h, err := e.header(ctx, tx, le, in.SupplierID, in.Currency, in.OrderDate, in.ContractID, in.PurchasingOrgID, in.RequisitionID)
+	h, err := e.header(ctx, tx, le, in.SupplierID, in.Currency, in.OrderDate, in.ContractID, in.PurchasingOrgID, in.RequisitionID,
+		in.SupplyingPlantID)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -404,12 +432,8 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 		return PurchaseOrder{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, purchasing_org_id, supplier_id,
-			currency, order_date, payment_term_code, requisition_id, contract_id, status, extensions, extensions_schema, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13, $14, $14)`,
-		p.TenantID, id, number, le.ID, in.PurchasingOrgID, in.SupplierID, in.Currency, in.OrderDate, term, in.RequisitionID, in.ContractID,
-		in.Extensions, schema, p.ID); err != nil {
-		return PurchaseOrder{}, fmt.Errorf("procurement: create purchase order %s: %w", number, err)
+	if err := insertOrder(ctx, tx, p, id, number, le.ID, term, schema, in); err != nil {
+		return PurchaseOrder{}, err
 	}
 	if err := writeOrderItems(ctx, tx, p.TenantID, id, items, false); err != nil {
 		return PurchaseOrder{}, err
@@ -425,6 +449,20 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	}
 	return o, audit.Record(ctx, "procurement.purchase_order.create", "procurement.purchase_order", id, map[string]any{"document_number": number,
 		"items": len(items), "requisition_id": in.RequisitionID})
+}
+
+// insertOrder writes a draft order's header as created.
+func insertOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, le uuid.UUID, term string, schema *int,
+	in NewOrder) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, purchasing_org_id, supplier_id,
+			currency, order_date, payment_term_code, requisition_id, contract_id, status, extensions, extensions_schema, created_by, updated_by,
+			supplying_plant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13, $14, $14, $15)`,
+		p.TenantID, id, number, le, in.PurchasingOrgID, in.SupplierID, in.Currency, in.OrderDate, term, in.RequisitionID, in.ContractID,
+		in.Extensions, schema, p.ID, in.SupplyingPlantID); err != nil {
+		return fmt.Errorf("procurement: create purchase order %s: %w", number, err)
+	}
+	return nil
 }
 
 // neededBy is the need date of the requisition an order was created from,
@@ -516,7 +554,7 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	h, err := e.header(ctx, tx, le, supplier, currency, orderDate, contract, org, o.RequisitionID)
+	h, err := e.header(ctx, tx, le, supplier, currency, orderDate, contract, org, o.RequisitionID, o.SupplyingPlantID)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -826,6 +864,9 @@ func (e *Endpoints) closeOrder(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	if err := inTransit(o, "close"); err != nil {
+		return PurchaseOrder{}, err
+	}
 	if err := e.cancelOpenChange(ctx, tx, p, id, "The purchase order was closed."); err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -852,6 +893,9 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	o, err := loadOrder(ctx, tx, id, ifMatch, "cancel", Draft, PendingApproval, Released)
 	if err != nil {
+		return PurchaseOrder{}, err
+	}
+	if err := inTransit(o, "cancel"); err != nil {
 		return PurchaseOrder{}, err
 	}
 	if o.Status == PendingApproval {

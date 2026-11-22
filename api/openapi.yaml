@@ -11318,6 +11318,9 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11333,6 +11336,8 @@ paths:
         - procurement.requisition_mismatch
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -11425,6 +11430,9 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11439,6 +11447,8 @@ paths:
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -11565,6 +11575,7 @@ paths:
       x-problem-codes:
         - procurement.change_open
         - procurement.invalid_status
+        - procurement.order_in_transit
         - procurement.requisition_ordered
         - request.version_mismatch
         - workflow.request_pending
@@ -11575,6 +11586,155 @@ paths:
       responses:
         "200":
           description: The purchase order after closePurchaseOrder.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}:postIntercompanyGoodsIssue":
+    post:
+      operationId: postIntercompanyGoodsIssue
+      tags:
+        - procurement
+      summary: Post the goods issue of an intercompany stock transport order
+      description: "Posts a released intercompany stock transport order's goods issue (ADR-0082 As built S2i; SAP's 643, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order not `released`, 409 `procurement.invalid_status`; one naming no `supplying_plant_id`, 409 `procurement.not_intercompany`; one issued already, 409 `procurement.intercompany_issued`). Every item of the order is issued, its ordered quantity in its unit, from the storage location of the supplying plant `items` names for it (each item once, 422 `procurement.issue_items`), as one material document of movement type `643` of the supplying company (`issue_document_id`), posted on that company's date today in its time zone and numbered from its `material_document` range, its `reference` the order's number. Each item is checked as an outbound delivery's goods issue is: the material active, extended to the supplying plant and kept at the storage location (422 `inventory.plant_not_extended`, `inventory.storage_location_not_extended`), valued there (422 `inventory.no_valuation`), its quantity exact in its base unit (422 `inventory.inexact_quantity`), the location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical inventory document (409 `inventory.posting_blocked`). The issue takes the stock's value as an issue does and posts it in one WA journal entry of the supplying company, Dr the valuation class's cost of goods sold account, Cr its stock account (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). The goods are then in neither company's stock until the receiving company posts their goods receipt against the order (`postGoodsReceipt`, at the order price against GR/IR, at most what was issued). The caller acts in both companies: the order's (404 otherwise) and the supplying plant's (422 `inventory.plant_invalid`). Audited; the stock moves are published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.serial_in_stock
+        - inventory.serial_not_allowed
+        - inventory.serial_not_in_stock
+        - inventory.serial_not_supported
+        - inventory.serial_quantity
+        - inventory.serial_repeated
+        - inventory.serial_required
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - procurement.intercompany_issued
+        - procurement.invalid_status
+        - procurement.issue_items
+        - procurement.not_intercompany
+        - procurement.requisition_ordered
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntercompanyGoodsIssue"
+      responses:
+        "200":
+          description: The purchase order after its goods issue.
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -11616,6 +11776,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.invalid_status
+        - procurement.order_in_transit
         - procurement.order_invoiced
         - procurement.order_received
         - procurement.requisition_ordered
@@ -11869,6 +12030,10 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_order_change
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11882,6 +12047,8 @@ paths:
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -11976,6 +12143,10 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_order_change
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11989,6 +12160,8 @@ paths:
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -12112,6 +12285,10 @@ paths:
         - procurement.change_open
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_order_change
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -12126,6 +12303,8 @@ paths:
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -13008,6 +13187,9 @@ paths:
         - procurement.agreement_not_valid
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -13025,6 +13207,8 @@ paths:
         - procurement.requisition_ordered
         - procurement.schedule_line_called_off
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -13392,6 +13576,9 @@ paths:
         - procurement.contract_renewed
         - procurement.currency_mismatch
         - procurement.duplicate_material_key
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -13414,6 +13601,8 @@ paths:
         - procurement.requisition_ordered
         - procurement.rfq_from_requisition
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -13771,6 +13960,7 @@ paths:
         - ledger.unknown_unit
         - ledger.zero_amount
         - ledger.zero_tax_base
+        - procurement.intercompany_not_issued
         - procurement.invalid_movement_type
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
@@ -38772,6 +38962,10 @@ paths:
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_not_issued
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -38798,6 +38992,8 @@ paths:
         - procurement.stock_item_not_valued
         - procurement.stock_item_return
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unit_mismatch
         - procurement.unknown_currency
         - procurement.unknown_order_item
@@ -53698,6 +53894,37 @@ components:
               format: uuid
               description: "The `purchase_order` approval request (workflow context) the order waits for while `pending_approval`; absent otherwise."
               readOnly: true
+            supplying_plant_id:
+              type: string
+              format: uuid
+              description: "The plant of another company of the tenant that supplies the order, which makes it an intercompany stock transport order (ADR-0082 As built S2i), fixed at creation; absent for any other order."
+              readOnly: true
+            supplying_plant_code:
+              type: string
+              description: The supplying plant's code; with `supplying_plant_id`.
+              readOnly: true
+            supplying_plant_name:
+              type: string
+              description: The supplying plant's name; with `supplying_plant_id`.
+              readOnly: true
+            supplying_company_code:
+              type: string
+              description: "The code of the supplying plant's company, the supplier's group company; with `supplying_plant_id`."
+              readOnly: true
+            issue_document_id:
+              type: string
+              format: uuid
+              description: "The material document of the intercompany order's goods issue (movement type `643`, the supplying company's), once posted (`postIntercompanyGoodsIssue`)."
+              readOnly: true
+            issue_document_number:
+              type: string
+              description: The goods issue's material document number; with `issue_document_id`.
+              readOnly: true
+            issue_date:
+              type: string
+              format: date
+              description: The goods issue's posting date, the supplying company's day; with `issue_document_id`.
+              readOnly: true
             valuation:
               type: string
               description: "How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a GR/IR account (account determination `gr_ir`) at release. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -53749,6 +53976,32 @@ components:
             currency: EUR
           extensions:
             cost_object_hint: MKT-2026
+    IntercompanyGoodsIssue:
+      type: object
+      description: "Where each item of an intercompany stock transport order is issued from: a storage location of the supplying plant per item, each item once."
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          description: Each of the order's items once.
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            required:
+              - po_item_no
+              - storage_location_id
+            properties:
+              po_item_no:
+                type: integer
+                format: int32
+                minimum: 1
+                description: The order item.
+              storage_location_id:
+                type: string
+                format: uuid
+                description: The storage location of the supplying plant it is issued from.
     PurchaseOrderCreate:
       type: object
       description: Create a draft purchase order.
@@ -53792,6 +54045,10 @@ components:
           type: string
           format: uuid
           description: Contract that prices the order.
+        supplying_plant_id:
+          type: string
+          format: uuid
+          description: "A plant of another company of the tenant that supplies the order, making it an intercompany stock transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`) of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422 `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the transfer price. Fixed once created; an intercompany order is not changed once released (409 `procurement.intercompany_order_change`)."
         items:
           type: array
           items:

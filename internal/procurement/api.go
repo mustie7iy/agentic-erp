@@ -113,7 +113,9 @@ func orderToAPI(o PurchaseOrder) gen.PurchaseOrder {
 		PurchasingOrgID: apitypes.OptUUID(o.PurchasingOrgID), SupplierID: o.SupplierID, Currency: o.Currency, OrderDate: o.OrderDate,
 		PaymentTermCode: o.PaymentTermCode, RequisitionID: apitypes.OptUUID(o.RequisitionID), ContractID: apitypes.OptUUID(o.ContractID), Status: o.Status,
 		Valuation: gen.NewOptString(o.Valuation), ReleaseRequestID: apitypes.OptUUID(o.ReleaseRequestID), Revision: gen.NewOptInt32(o.Revision),
-		TotalAmount: apitypes.Money(o.Total(), o.Currency, o.Exponent), Extensions: apitypes.EncodeObject(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items))}
+		TotalAmount: apitypes.Money(o.Total(), o.Currency, o.Exponent), Extensions: apitypes.EncodeObject(o.Extensions), Items: make([]gen.PurchaseOrderItem, len(o.Items)),
+		SupplyingPlantID: apitypes.OptUUID(o.SupplyingPlantID), IssueDocumentID: apitypes.OptUUID(o.IssueDocumentID),
+		IssueDocumentNumber: apitypes.OptString(o.IssueDocumentNumber), IssueDate: apitypes.OptDate(o.IssueDate)}
 	for i, it := range o.Items {
 		out.Items[i] = orderItemToAPI(it, o.Currency, o.Exponent)
 		out.Items[i].ReceivedQuantity = gen.NewOptQuantity(gen.Quantity{Value: it.Received, Unit: it.Unit})
@@ -444,7 +446,7 @@ func (e *Endpoints) TerminateContract(ctx context.Context, req *gen.ReasonInput,
 
 func (e *Endpoints) orderOK(ctx context.Context, o PurchaseOrder) (*gen.UpdatePurchaseOrderOKHeaders, error) {
 	out := orderToAPI(o)
-	if err := e.located(ctx, out.Items); err != nil {
+	if err := e.orderLocated(ctx, &out); err != nil {
 		return nil, err
 	}
 	return &gen.UpdatePurchaseOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
@@ -452,7 +454,7 @@ func (e *Endpoints) orderOK(ctx context.Context, o PurchaseOrder) (*gen.UpdatePu
 
 func (e *Endpoints) orderOut(ctx context.Context, o PurchaseOrder, expand []string) (gen.PurchaseOrder, error) {
 	out := orderToAPI(o)
-	if err := e.located(ctx, out.Items); err != nil {
+	if err := e.orderLocated(ctx, &out); err != nil {
 		return gen.PurchaseOrder{}, err
 	}
 	var err error
@@ -465,12 +467,12 @@ func (e *Endpoints) CreatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 	o, err := e.createOrder(ctx, NewOrder{LegalEntityID: req.LegalEntityID, PurchasingOrgID: apitypes.Ptr[uuid.UUID](req.PurchasingOrgID),
 		SupplierID: req.SupplierID, Currency: req.Currency, OrderDate: req.OrderDate, PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode),
 		RequisitionID: apitypes.Ptr[uuid.UUID](req.RequisitionID), ContractID: apitypes.Ptr[uuid.UUID](req.ContractID), Items: orderInputs(req.Items),
-		Extensions: apitypes.DecodeObject(req.Extensions.Value)})
+		Extensions: apitypes.DecodeObject(req.Extensions.Value), SupplyingPlantID: apitypes.Ptr[uuid.UUID](req.SupplyingPlantID)})
 	if err != nil {
 		return nil, err
 	}
 	out := orderToAPI(o)
-	if err := e.located(ctx, out.Items); err != nil {
+	if err := e.orderLocated(ctx, &out); err != nil {
 		return nil, err
 	}
 	return &gen.PurchaseOrderHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Location: gen.NewOptString("/v1/purchase-orders/" + o.ID.String()),
@@ -579,6 +581,21 @@ func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.Release
 // ClosePurchaseOrder implements POST /v1/purchase-orders/{id}:close.
 func (e *Endpoints) ClosePurchaseOrder(ctx context.Context, params gen.ClosePurchaseOrderParams) (gen.ClosePurchaseOrderRes, error) {
 	o, err := e.closeOrder(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return e.orderOK(ctx, o)
+}
+
+// PostIntercompanyGoodsIssue implements POST
+// /v1/purchase-orders/{id}:postIntercompanyGoodsIssue.
+func (e *Endpoints) PostIntercompanyGoodsIssue(ctx context.Context, req *gen.IntercompanyGoodsIssue, params gen.PostIntercompanyGoodsIssueParams) (
+	gen.PostIntercompanyGoodsIssueRes, error) {
+	from := make([]IntercompanyIssueItem, len(req.Items))
+	for i, it := range req.Items {
+		from[i] = IntercompanyIssueItem{POItemNo: it.PoItemNo, StorageLocationID: it.StorageLocationID}
+	}
+	o, err := e.PostIntercompanyIssue(ctx, params.ID, etag.IfMatch(params.IfMatch), from)
 	if err != nil {
 		return nil, err
 	}
