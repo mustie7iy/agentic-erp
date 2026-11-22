@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // CreditReason is a credit memo's reason as its e-invoice states it
@@ -46,6 +48,10 @@ const (
 type stated struct {
 	credit    *CreditReason
 	citations []Citation
+	// localTax is the tax in localCurrency a document not in the company's
+	// currency states (an e-invoice's VAT in AED, BTAE-08), nil for none.
+	localTax      *money.Minor
+	localCurrency *string
 }
 
 // reason is the reason's columns, null without one (and its words null
@@ -138,13 +144,18 @@ func putCitations(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, cs []Cit
 	return nil
 }
 
-// statedOf is what a credit memo keeps of an e-invoice credit note: its
-// reason, a code without words kept without them and words beyond the
+// statedOf is what an invoice keeps of its e-invoice: its tax in the
+// company's currency as stated, when the document is in another, and a
+// credit memo its credit note's reason, a code without words kept without them and words beyond the
 // column's bound shortened; a code beyond its bound is not read. An
 // invoice keeps none.
 func statedOf(d EInvoice) (stated, error) {
+	out := stated{localTax: d.LocalTax}
+	if d.LocalTax != nil {
+		out.localCurrency = &d.LocalCurrency
+	}
 	if d.Kind != KindCreditMemo || d.Reason == nil || d.Reason.Code == "" {
-		return stated{}, nil
+		return out, nil
 	}
 	if len([]rune(d.Reason.Code)) > maxReasonCode {
 		return stated{}, unreadable(fmt.Sprintf("the credit note's reason code (BTAE-03) is longer than %d characters", maxReasonCode))
@@ -153,7 +164,8 @@ func statedOf(d EInvoice) (stated, error) {
 	if r := []rune(text); len(r) > maxReasonText {
 		text = string(r[:maxReasonText-1]) + clippedTextSuffix
 	}
-	return stated{credit: &CreditReason{Code: d.Reason.Code, Text: text}}, nil
+	out.credit = &CreditReason{Code: d.Reason.Code, Text: text}
+	return out, nil
 }
 
 // citedInvoices matches the invoices a credit memo's document cites to

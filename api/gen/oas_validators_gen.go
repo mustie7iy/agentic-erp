@@ -93792,6 +93792,24 @@ func (s *SupplierInvoice) Validate() error {
 		})
 	}
 	if err := func() error {
+		if value, ok := s.StatedLocalTax.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "stated_local_tax",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if value, ok := s.PaymentTerms.Get(); ok {
 			if err := func() error {
 				if err := value.Validate(); err != nil {

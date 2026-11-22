@@ -38,8 +38,13 @@ type EInvoice struct {
 	SellerTRN      string // IBT-031
 	Lines          []EInvoiceLine
 	Tax, Gross     money.Minor // IBT-110, IBT-112
-	SHA256         []byte
-	ObjectRef      string
+	// LocalTax is the VAT a document not in the company's currency states
+	// in LocalCurrency (AED: the sum of its lines' BTAE-08), kept as its
+	// tax's local amount when it posts; nil for a document in AED.
+	LocalTax      *money.Minor
+	LocalCurrency string
+	SHA256        []byte
+	ObjectRef     string
 }
 
 // EInvoiceLine is a line of a received e-invoice: its order line (IBT-132,

@@ -896,7 +896,10 @@ customer invoice entered in receivables: its item names the emirate.
   did not wait), and that an order from a quotation keeps its items'
   emirates as offered, the establishment's for a stock item even when
   the order has a plant (decided by default 2; re-defaulting would need
-  the quotation item to record that it defaulted).
+  the quotation item to record that it defaulted). **Confirmed by Musto
+  2026-11-21** (relayed by the product owner): the item emirate default
+  (the plant's, else the company's establishment) and a quotation keeping
+  its emirates.
 - Tests: `TestItemJurisdictionDefaults` (sales), `TestOrgUnitRegion`
   (tenancy, db). Walkthrough step 148.
 
@@ -1575,3 +1578,10 @@ refused as T75k refuses it (not posted, cleared, a period not open).
 source document; a credit memo with one (sales') still is not reversed.
 The API's `reverseCustomerInvoice` refuses both, naming the dunning
 notice and `cancelDunningRun` for a debit memo.
+
+### Batch 88: the tax specialist's confirmations (po:2026-11-21)
+Musto Ibrahim confirmed on 2026-11-21 (relayed by the product owner)
+that a plain write-off or a short payment (T75f, T75o) makes no tax
+correction, and that a Canadian cash discount makes no GST/HST
+adjustment; a cash discount on a UAE invoice reduces output tax, which
+receivables does not do yet (ADR-0049 As built batch 88, tracker leaf).

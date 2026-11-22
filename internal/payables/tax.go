@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"strings"
 	"time"
@@ -122,6 +121,9 @@ func (e *Endpoints) calculateTax(ctx context.Context, v Invoice, taxDate time.Ti
 	}
 	var costs []money.Minor
 	if res.Items, costs, err = statedTax(v, res.Items, toleranceOf(co), conv); err != nil {
+		return invoiceTax{}, err
+	}
+	if res.Items, err = statedLocalTax(v, le.LocalCurrency, res.Items); err != nil {
 		return invoiceTax{}, err
 	}
 	for j, i := range coded {
@@ -382,7 +384,7 @@ func statedTax(v Invoice, items []tax.ComponentTax, units int, conv ledger.Conve
 		return items, make([]money.Minor, len(items)), nil
 	}
 	weights, onAccount := takers(items)
-	shares := shareOut(diff, weights)
+	shares := money.ShareOut(diff, weights)
 	if diff.Abs() > money.Minor(units*codes) || shares == nil {
 		return nil, nil, mismatch(v, items, charged)
 	}
@@ -430,24 +432,6 @@ func chargedSum(items []tax.ComponentTax) (charged money.Minor, codes int, err e
 	}
 	charged, err = money.Sum(taxes...)
 	return charged, len(charging), err
-}
-
-// shareOut shares a difference out in proportion to the weights' size,
-// largest remainder first (money.Allocate); nil when all weigh nothing.
-func shareOut(diff money.Minor, weights []money.Minor) []money.Minor {
-	total := new(big.Int)
-	for _, w := range weights {
-		total.Add(total, big.NewInt(int64(w.Abs())))
-	}
-	if total.Sign() == 0 {
-		return nil
-	}
-	exact := make([]*big.Rat, len(weights))
-	for i, w := range weights {
-		exact[i] = new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(diff)), big.NewInt(int64(w.Abs()))), total)
-	}
-	shares, _ := money.Allocate(exact) // of a difference smaller than an amount: cannot fail
-	return shares
 }
 
 // withShares adds each component's share to its tax, and to its recovered
@@ -565,4 +549,67 @@ func (e *Endpoints) taxPostings(ctx context.Context, v Invoice, taxDate time.Tim
 		out.lines = append(out.lines, ledger.PostingLine{AccountID: *account, Amount: signed(v, amount), TaxCode: &code, LC: &lc})
 	}
 	return nil
+}
+
+// statedLocalTax keeps, as the local amount of what the supplier charges,
+// the tax its e-invoice states in the company's currency (ADR-0061 §5 C5,
+// As built batch 88: a UAE document not in AED states its VAT in AED,
+// BTAE-08, which the VAT 201 reports as stated rather than converted at
+// the tax date's rate). The difference to the converted local tax is
+// shared out among the charged components by their local tax (money.ShareOut),
+// added to the part recovered of a component recovering all of it and to
+// the part not recovered otherwise; self-assessed components, which the
+// supplier does not charge, keep their conversion. An invoice without a
+// stated local tax, or with one in another currency than the company's,
+// is left as calculated. A stated tax that no charged component can take
+// (none charges tax), or that would turn one's sign, is refused (422
+// payables.local_tax_mismatch).
+func statedLocalTax(v Invoice, local string, items []tax.ComponentTax) ([]tax.ComponentTax, error) {
+	if v.StatedLocalTax == nil || v.StatedLocalCurrency == nil || *v.StatedLocalCurrency != local {
+		return items, nil
+	}
+	var weights []money.Minor
+	var at []int
+	for i, c := range items {
+		if c.AccountKey != tax.KeySelfInput && c.AccountKey != tax.KeySelfOutput {
+			weights, at = append(weights, c.Local.Tax), append(at, i)
+		}
+	}
+	converted, err := money.Sum(weights...)
+	if err != nil {
+		return nil, errTaxTooLarge()
+	}
+	diff, err := money.Diff(*v.StatedLocalTax, converted)
+	if err != nil {
+		return nil, errTaxTooLarge()
+	}
+	if diff == 0 {
+		return items, nil
+	}
+	shares := money.ShareOut(diff, weights)
+	if shares == nil {
+		return nil, localTaxMismatch(v, local, converted)
+	}
+	out := slices.Clone(items)
+	for k, i := range at {
+		c := &out[i]
+		if c.Local.Recoverable == c.Local.Tax {
+			c.Local.Recoverable += shares[k]
+		} else {
+			c.Local.NonRecoverable += shares[k]
+		}
+		c.Local.Tax += shares[k]
+		if !sameSide(items[i].Local.Tax, c.Local.Tax, c.Local.Recoverable) || !sameSide(items[i].Local.Tax, c.Local.Tax, c.Local.NonRecoverable) {
+			return nil, localTaxMismatch(v, local, converted)
+		}
+	}
+	return out, nil
+}
+
+// localTaxMismatch refuses an invoice whose stated local tax its charged
+// components cannot take, naming both amounts.
+func localTaxMismatch(v Invoice, local string, converted money.Minor) error {
+	return problem.Unprocessable("payables.local_tax_mismatch", fmt.Sprintf("The invoice states tax of %s %s in the company's currency; "+
+		"its codes' tax converts to %s %s, and no component it charges can take the difference without changing its sign.",
+		v.StatedLocalTax.Plain(v.StatedLocalExponent), local, converted.Plain(v.StatedLocalExponent), local))
 }

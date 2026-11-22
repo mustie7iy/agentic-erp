@@ -3784,22 +3784,30 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`,
 // `payables.already_captured`, a closed period and any other) holds the document instead, `held` with
 // that problem's code and detail, nothing of the entering kept; a tax invoice or tax credit note not
-// in AED is held with `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as
-// it states it, which the entering does not do yet). A valid tax credit note is entered the same way
-// as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
+// in AED is entered keeping its VAT in AED as it states it, the sum of its lines' VAT in AED
+// (BTAE-08), as the invoice's `stated_local_tax`, which its posting keeps as the tax's local amount
+// (ADR-0061 As built batch 88), and is held with `einvoicing.tax_currency_not_entered` when a line
+// (but an exempt one) does not state it; one whose lines' VAT in AED does not sum to its VAT in AED
+// (IBT-111) is refused as `einvoicing.totals_inconsistent`. A valid tax credit note is entered the
+// same way as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
 // (IBT-025) by capture's rule: a posted invoice of the supplier in the company and the note's currency
 // is its `reference_invoice_id`; a number that is none enters it `on_hold`, its hold reason naming the
-// number, for a person to enter the reference; a tax credit note naming no invoice is held with
+// number, for a person to enter the reference; the memo keeps its reason (BTAE-03, `credit_reason`)
+// and each invoice it cites (`cited_invoices`: IBT-025 and, when stated, IBT-026, matched by number
+// and date); a tax credit note naming no invoice is held with
 // `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects,
-// IBG-03), nothing of it entered, rather than entered as correcting none; one naming several invoices
-// (IBG-03 repeated) is held with `einvoicing.credit_note_names_several_invoices`, the detail naming
-// them, since a credit memo names one. A tax invoice validated by a fetch before T65d, and a tax
-// credit note validated before T65e, is entered by the next one. When the fetch is done its Operation
-// succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found
-// with other bytes; `refused`: the documents this fetch refused; `entered` and `held`: the documents
-// this fetch entered and held; `waiting`: the connector's documents left unprocessed, waiting for the
-// company's setup) and its `resource` the list of the documents it recorded, found changed, refused,
-// entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+// IBG-03), nothing of it entered, rather than entered as correcting none, unless it is for a volume
+// discount (reason `VD`, IBR-055-AE), which is entered without a reference; one naming several
+// invoices (IBG-03 repeated) is entered as one credit memo citing them all, without a
+// `reference_invoice_id`, on hold naming any that is no posted invoice of the supplier (batch 88;
+// before it such a note was held with `einvoicing.credit_note_names_several_invoices`). A tax invoice
+// validated by a fetch before T65d, and a tax credit note validated before T65e, is entered by the
+// next one. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
+// refused; `entered` and `held`: the documents this fetch entered and held; `waiting`: the connector's
+// documents left unprocessed, waiting for the company's setup) and its `resource` the list of the
+// documents it recorded, found changed, refused, entered or held
+// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
 // `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch
 // recorded, as its `processed_fetch_operation_id`, and one entered or held as its
 // `entry_fetch_operation_id`); a message not recorded fails the Operation with

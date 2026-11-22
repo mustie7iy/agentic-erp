@@ -1249,3 +1249,11 @@ digest.
   Canada or the UAE must correct the output tax (a bad-debt or price
   reduction rule); the first version corrects none, and a credit memo is
   the resolution that does.
+
+### Batch 88: the tax specialist's confirmations (po:2026-11-21)
+Musto Ibrahim confirmed on 2026-11-21 (relayed by the product owner):
+a dispute's price cut is corrected by a tax credit note (T86d's
+resolution by credit memo, not its write-off, which corrects no tax);
+dunning charges and late interest are out of the VAT's and GST's scope,
+as built (T76h: no tax code on their items); bad debt relief is a step of its own (ADR-0049 As built
+batch 88, tracker leaf).

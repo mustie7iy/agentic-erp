@@ -1893,6 +1893,44 @@ coordinator's memory po-2026-11-21-uae-vat-research). Built:
   as before; any number matching none enters the memo `on_hold`, its hold
   reason naming the numbers. A number repeated is cited once, with the
   first date stated for it.
+- **VAT in AED as stated (split:T65d; C5).** A received tax invoice or
+  credit note not in AED that states each line's VAT in AED (BTAE-08,
+  `cac:InvoiceLine/cac:TaxTotal/cbc:TaxAmount` in AED; BTAE-10 the line's
+  amount with VAT in AED, `cac:InvoiceLine/cac:ItemPriceExtension/
+  cbc:Amount`; both paths from memory [M], for the specialist) is
+  entered rather than held: the invoice keeps the lines' sum as its
+  `stated_local_tax` in AED (migrations 000441, 000442), which its
+  posting takes as the local amount of the tax the supplier charges
+  (`statedLocalTax`: the difference to the tax date's conversion shared
+  out among the charged components by their converted tax,
+  `money.ShareOut`, which moved from payables; self-assessed components
+  keep their conversion; the supplier line's conversion at the posting
+  date leaves the exchange difference), so the VAT 201 reports the VAT as
+  the document states it. An exempt line states none (IBR-163-AE); one
+  without it, on any other line, holds the document
+  (`einvoicing.tax_currency_not_entered`); the lines' VAT in AED not
+  summing to IBT-111 (or, in AED, to IBT-110) refuses it as
+  `einvoicing.totals_inconsistent`. A change of a parked invoice's
+  currency or tax drops the stated tax, audited
+  (`stated_local_tax_dropped`); a stated tax its charged codes cannot take
+  is 422 `payables.local_tax_mismatch` at posting. Decided by default: the
+  stated tax is shared by the components' converted tax rather than
+  matched per line (UAE input codes have one component, so the two agree
+  to the fils for a code's lines).
+- **Sending: BTAE-08 and BTAE-10 on every line (IBR-194-AE).** E2's
+  `not_rendered` findings for a document not in AED are gone: each line
+  states its VAT in AED and its amount with VAT in AED, from the posted
+  entry's output tax items per code in the company's currency
+  (`Sale.LocalCodes`: the code's local base and tax shared among its
+  lines by their net and tax), so the lines' VAT in AED adds up to
+  IBT-111; a document in AED states its own tax and net plus tax. An
+  exempt line states no BTAE-08; zero-rated lines state 0 (IBR-162-AE,
+  IBR-165-AE as researched; reverse-charge lines are not rendered yet).
+  IBT-152 stays the code's rate, 0 for zero-rated lines. The VAT in AED
+  (IBT-111, BTAE-08, BTAE-10) is now written with AED's two digits
+  whatever the document's currency's digits (before, IBT-111 took the
+  document's). A line whose code has no posted local amounts (an
+  unposted document) keeps them out, which a finding names.
 - **The CHECK review:batch87 asked for.** `einvoice_read_processed`
   (migrations 000437, 000438): a processed document not refused states its
   `document_kind`, which the entering branches on.
@@ -1903,5 +1941,7 @@ coordinator's memory po-2026-11-21-uae-vat-research). Built:
   hold naming GOI-2005; GOI-2102 (reason other than VD, naming none) is
   held as before.
 - **For the specialist:** the BTAE-03 code list (the walkthrough's and
-  tests' `DL` is illustrative; only `VD` is acted on); the UBL path of
-  IBT-026.
+  tests' `DL` is illustrative; only `VD` is acted on); the UBL paths of
+  IBT-026, BTAE-08 and BTAE-10 (from memory); whether IBR-162/163/165-AE
+  say what the coordinator's research summarised (zero-rated and
+  reverse-charge lines 0, exempt lines none).

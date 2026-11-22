@@ -45853,9 +45853,10 @@ type EInvoice struct {
 	// tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its
 	// entering refused, `problem_code` and `problem_detail` saying why, such as
 	// `payables.capture_needs_order` for one naming no purchase order, or
-	// `einvoicing.credit_note_names_no_invoice` and `einvoicing.credit_note_names_several_invoices` for a
-	// tax credit note naming no invoice it corrects or several, for a person to resolve). The later slices
-	// add dismissed (ADR-0061 §7).
+	// `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that
+	// is not for a volume discount, for a person to resolve;
+	// `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several).
+	// The later slices add dismissed (ADR-0061 §7).
 	Status string `json:"status"`
 	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
 	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
@@ -45867,20 +45868,21 @@ type EInvoice struct {
 	// `PINT AE Billing 1.0.4`. Omitted with `processed_at`.
 	ValidatedAgainst OptString `json:"validated_against"`
 	// Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice
-	// met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED,
-	// whose VAT in AED the entering does not keep yet, einvoicing.credit_note_names_no_invoice for a tax
-	// credit note naming no invoice it corrects, IBG-03 and IBT-025, or
-	// einvoicing.credit_note_names_several_invoices for one naming more than one, which a credit memo
-	// cannot, T65e). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never
-	// expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following
-	// PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by
-	// its business term), amount_precision (an amount with more decimals than its currency's minor unit),
-	// totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to
-	// the total with VAT, or the VAT subtotals not to the VAT total, with the figures),
-	// not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic
-	// address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA
-	// registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that
+	// does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax
+	// credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount
+	// (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one
+	// naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable
+	// (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a
+	// UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP
+	// reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an
+	// amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not
+	// summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT
+	// subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the
+	// connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its
+	// buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
 	ProblemCode OptString `json:"problem_code"`
 	// What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted
 	// unless refused or held.
@@ -118406,6 +118408,14 @@ type SupplierInvoice struct {
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
 	TaxAmount Money `json:"tax_amount"`
+	// The tax in the company's currency as the supplier's e-invoice states it, for one not in that
+	// currency (a UAE e-invoice's VAT in AED, the sum of its lines' BTAE-08; ADR-0061 §5 C5, As built
+	// batch 88): posting keeps it as the local amount of the tax the supplier charges, shared among its
+	// codes by their converted tax, instead of converting the tax at the tax date's rate, so the VAT 201
+	// reports it as stated; a stated tax its charged codes cannot take is refused when the invoice posts
+	// (422 `payables.local_tax_mismatch`). A change of the invoice's currency or tax drops it. Absent on
+	// every other invoice.
+	StatedLocalTax OptMoney `json:"stated_local_tax"`
 	// Purchase order (PO-based invoices).
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
 	// What the document is, as SAP's invoice verification transactions: `invoice`, `credit_memo` (the
@@ -118553,6 +118563,11 @@ func (s *SupplierInvoice) GetGrossAmount() Money {
 // GetTaxAmount returns the value of TaxAmount.
 func (s *SupplierInvoice) GetTaxAmount() Money {
 	return s.TaxAmount
+}
+
+// GetStatedLocalTax returns the value of StatedLocalTax.
+func (s *SupplierInvoice) GetStatedLocalTax() OptMoney {
+	return s.StatedLocalTax
 }
 
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
@@ -118718,6 +118733,11 @@ func (s *SupplierInvoice) SetGrossAmount(val Money) {
 // SetTaxAmount sets the value of TaxAmount.
 func (s *SupplierInvoice) SetTaxAmount(val Money) {
 	s.TaxAmount = val
+}
+
+// SetStatedLocalTax sets the value of StatedLocalTax.
+func (s *SupplierInvoice) SetStatedLocalTax(val OptMoney) {
+	s.StatedLocalTax = val
 }
 
 // SetPurchaseOrderID sets the value of PurchaseOrderID.

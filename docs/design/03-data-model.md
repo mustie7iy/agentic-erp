@@ -2417,7 +2417,11 @@ Each kind is matched and posted by its kind (T34c):
   once, and `cited_invoice_id`, the supplier's posted invoice the number
   and date matched when it was entered, none when none did). One citing
   one invoice names it as `reference_invoice_id` too; one citing several
-  names none; a volume discount (VD) may cite none.
+  names none; a volume discount (VD) may cite none. An invoice entered
+  from one not in AED keeps the VAT it states in AED
+  (`stated_local_tax` with `stated_local_currency`, together or neither,
+  never negative; `supplier_invoice_stated_local_tax`, migrations 000441,
+  000442), which its posting keeps as the tax's local amount.
 - **Payment terms** (T36b): a document posts with the payment terms SAP's
   invoice verification would give it, kept in `supplier_invoice_terms`
   (migration 000068, insert-only) and passed to the ledger for its open

@@ -289,18 +289,26 @@ type Invoice struct {
 	// in the document's order (ADR-0061 As built batch 88).
 	CreditReason *CreditReason
 	Citations    []Citation
-	Items        []Item
-	Version      int32
-	CreatedAt    time.Time
-	CreatedBy    uuid.UUID
-	UpdatedAt    time.Time
-	UpdatedBy    uuid.UUID
+	// StatedLocalTax is the tax in StatedLocalCurrency (the company's,
+	// AED) its e-invoice states, which its posting keeps as the tax's
+	// local amount (ADR-0061 §5 C5, As built batch 88); nil for none, its
+	// minor units StatedLocalExponent's.
+	StatedLocalTax      *money.Minor
+	StatedLocalCurrency *string
+	StatedLocalExponent int
+	Items               []Item
+	Version             int32
+	CreatedAt           time.Time
+	CreatedBy           uuid.UUID
+	UpdatedAt           time.Time
+	UpdatedBy           uuid.UUID
 }
 
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
 		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
 		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.extensions_schema, i.kind, i.reference_invoice_id,
-		i.tax_date, i.documentary_warnings, i.payment_method, i.credit_reason_code, i.credit_reason_text,
+		i.tax_date, i.documentary_warnings, i.payment_method, i.credit_reason_code, i.credit_reason_text, i.stated_local_tax, i.stated_local_currency,
+		coalesce((SELECT lc.exponent FROM ref.currency lc WHERE lc.code = i.stated_local_currency), 0),
 		coalesce((SELECT json_agg(json_build_object('number', c.invoice_number, 'date', c.invoice_date, 'invoice_id', c.cited_invoice_id,
 			'document_number', (SELECT r.document_number FROM payables.supplier_invoice r WHERE r.tenant_id = c.tenant_id AND r.id = c.cited_invoice_id))
 			ORDER BY c.position)
@@ -322,7 +330,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 		&v.PostingDate, &v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256,
 		&v.CaptureObjectRef, &v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
 		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.DocumentaryWarnings, &v.PaymentMethod, &reason.code, &reason.text,
-		&cited, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
+		&v.StatedLocalTax, &v.StatedLocalCurrency, &v.StatedLocalExponent, &cited, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
 	v.Terms, v.CreditReason, v.Citations = terms.terms(), reason.reason(), cited.citations()
 	return v, errs.Wrapf(err, "scan invoice")
 }

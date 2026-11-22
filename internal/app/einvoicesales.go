@@ -64,7 +64,7 @@ func (s einvoiceSales) Sale(ctx context.Context, id uuid.UUID) (einvoicing.Sale,
 		return einvoicing.Sale{}, false, err
 	}
 	if v.EntryID != nil {
-		if out.LocalTax, err = localTax(ctx, *v.EntryID); err != nil {
+		if out.LocalTax, out.LocalCodes, err = localTax(ctx, *v.EntryID); err != nil {
 			return einvoicing.Sale{}, false, err
 		}
 	}
@@ -101,17 +101,27 @@ func saleLines(ctx context.Context, v receivables.Invoice) ([]einvoicing.SaleLin
 }
 
 // localTax is the VAT the entry's output tax items carry in the company's
-// currency, as the posting converted it: bounded, as the entry's tax lines
-// in that currency balance against its receivable line, a bigint.
-func localTax(ctx context.Context, entry uuid.UUID) (money.Minor, error) {
+// currency, as the posting converted it, in all and per code (its base
+// once, the first component's; its tax over its components), as
+// magnitudes: bounded, as the entry's tax lines in that currency balance
+// against its receivable line, a bigint.
+func localTax(ctx context.Context, entry uuid.UUID) (money.Minor, map[string]einvoicing.LocalAmounts, error) {
 	items, err := (ledger.TaxItems{}).Of(ctx, entry)
 	var lc money.Minor
+	codes := map[string]einvoicing.LocalAmounts{}
 	for _, t := range items {
-		if t.Direction == "output" {
-			lc += t.TaxLC // bounded by the entry's receivable line (above)
+		if t.Direction != "output" {
+			continue
 		}
+		lc += t.TaxLC // bounded by the entry's receivable line (above)
+		c, seen := codes[t.Code]
+		if !seen {
+			c.Base = t.BaseLC.Abs()
+		}
+		c.Tax += t.TaxLC.Abs() // bounded likewise
+		codes[t.Code] = c
 	}
-	return lc, err
+	return lc, codes, err
 }
 
 func (s einvoiceSales) Seller(ctx context.Context, company uuid.UUID, day time.Time) (einvoicing.Seller, error) {

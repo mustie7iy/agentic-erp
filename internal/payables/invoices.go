@@ -70,11 +70,11 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
 			invoice_date, posting_date, currency, gross_amount, tax_amount, purchase_order_id, status, hold_reason, source, capture_object_ref,
 			capture_sha256, extensions, created_by, updated_by, kind, reference_invoice_id, extensions_schema, tax_date, payment_method,
-			credit_reason_code, credit_reason_text)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $22, $23, $24, $25, $26)`,
+			credit_reason_code, credit_reason_text, stated_local_tax, stated_local_currency)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
 		p.TenantID, id, number, in.LegalEntityID, in.SupplierID, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax,
 		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID, c.kind, in.ReferenceInvoiceID, c.extensionsSchema,
-		in.TaxDate, in.PaymentMethod, code, text); err != nil {
+		in.TaxDate, in.PaymentMethod, code, text, in.stated.localTax, in.stated.localCurrency); err != nil {
 		return Invoice{}, fmt.Errorf("payables: insert invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -172,7 +172,9 @@ func amountInput(minor money.Minor, currency string, exp int) Amount {
 // UpdateInvoice changes a parked invoice and validates it again. The edit
 // needs a new match before the invoice posts (F13): it changes the version
 // the latest match was recorded at, and it unlinks an approved exception
-// request, which was decided on the invoice as it was.
+// request, which was decided on the invoice as it was. A change of its
+// currency or tax drops the local tax its e-invoice stated (ADR-0061 As
+// built batch 88): the tax then posts converted, as any other invoice's.
 func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch Change) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -198,7 +200,9 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
 			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, workflow_request_id = NULL, version = version + 1, updated_by = $10,
-			reference_invoice_id = $11, extensions_schema = $12, tax_date = $13, payment_method = $14
+			reference_invoice_id = $11, extensions_schema = $12, tax_date = $13, payment_method = $14,
+			stated_local_tax = CASE WHEN currency = $5 AND tax_amount = $7 THEN stated_local_tax END,
+			stated_local_currency = CASE WHEN currency = $5 AND tax_amount = $7 THEN stated_local_currency END
 		WHERE id = $1`,
 		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID, in.ReferenceInvoiceID,
 		c.extensionsSchema, in.TaxDate, in.PaymentMethod); err != nil {
@@ -219,6 +223,11 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	// decides how the item is paid (ADR-0038).
 	if ch.PaymentMethod != nil && !apitypes.SamePtr(v.PaymentMethod, updated.PaymentMethod) {
 		detail["payment_method"] = map[string]any{"from": v.PaymentMethod, "to": updated.PaymentMethod}
+	}
+	// A change of the currency or the tax drops the local tax the
+	// e-invoice stated, which no longer describes the invoice.
+	if v.StatedLocalTax != nil && updated.StatedLocalTax == nil {
+		detail["stated_local_tax_dropped"] = true
 	}
 	return updated, record(ctx, "payables.supplier_invoice.update", id, detail)
 }

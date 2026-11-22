@@ -8,10 +8,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
-// accountingCurrency is the UAE's tax accounting currency (IBT-006): a
-// document in another currency states its VAT in it too (IBT-111;
-// ADR-0061 §5 C5).
-const accountingCurrency = "AED"
+// AccountingCurrency is the UAE's tax accounting currency (IBT-006): a
+// document in another currency states its VAT in it too (IBT-111,
+// BTAE-08; ADR-0061 §5 C5).
+const AccountingCurrency = "AED"
+
+// accountingCurrency is AccountingCurrency within the package.
+const accountingCurrency = AccountingCurrency
 
 // aedExponent is AED's minor-unit digits (ISO 4217: the fils, two; as
 // ref.currency seeds it): the VAT and amounts a document states in AED

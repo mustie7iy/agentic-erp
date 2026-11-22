@@ -43,6 +43,17 @@ func TestSupplierInvoiceCitations(t *testing.T) {
 			"supplier_invoice_credit_reason"},
 		{"words too long", "credit_memo", `UPDATE payables.supplier_invoice SET version = version + 1, credit_reason_code = 'VD', credit_reason_text = repeat('w', 1001) WHERE id = $2 AND tenant_id = $1`,
 			"supplier_invoice_credit_reason"},
+		// 000441, 000442: the tax in the company's currency an e-invoice states.
+		{"a stated local tax", "invoice", `UPDATE payables.supplier_invoice SET version = version + 1, stated_local_tax = 18363, stated_local_currency = 'AED'
+			WHERE id = $2 AND tenant_id = $1`, ""},
+		{"a local tax without its currency", "invoice", `UPDATE payables.supplier_invoice SET version = version + 1, stated_local_tax = 1
+			WHERE id = $2 AND tenant_id = $1`, "supplier_invoice_stated_local_tax"},
+		{"a currency without its tax", "invoice", `UPDATE payables.supplier_invoice SET version = version + 1, stated_local_currency = 'AED'
+			WHERE id = $2 AND tenant_id = $1`, "supplier_invoice_stated_local_tax"},
+		{"a negative local tax", "invoice", `UPDATE payables.supplier_invoice SET version = version + 1, stated_local_tax = -1, stated_local_currency = 'AED'
+			WHERE id = $2 AND tenant_id = $1`, "supplier_invoice_stated_local_tax"},
+		{"an unknown currency", "invoice", `UPDATE payables.supplier_invoice SET version = version + 1, stated_local_tax = 1, stated_local_currency = 'XXX'
+			WHERE id = $2 AND tenant_id = $1`, "supplier_invoice_stated_local_currency_fkey"},
 		{"citations", "credit_memo", cite + `1, 'GOI-1', '2026-03-01', $3), ($1, $2, 2, 'GOI-2', NULL, NULL)`, ""},
 		{"position 0", "credit_memo", cite + `0, 'GOI-1', NULL, NULL)`, "supplier_invoice_citation_position_check"},
 		{"position 101", "credit_memo", cite + `101, 'GOI-1', NULL, NULL)`, "supplier_invoice_citation_position_check"},
@@ -81,11 +92,11 @@ func TestSupplierInvoiceCitations(t *testing.T) {
 			}
 		})
 	}
-	t.Run("the check validated by 000440", func(t *testing.T) {
+	t.Run("the checks validated by 000440 and 000442", func(t *testing.T) {
 		var valid bool
-		if err := testDB.QueryRow(context.Background(), `SELECT convalidated FROM pg_constraint WHERE conrelid = 'payables.supplier_invoice'::regclass
-			AND conname = 'supplier_invoice_credit_reason'`).Scan(&valid); err != nil || !valid {
-			t.Errorf("got %v %v, want it validated", valid, err)
+		if err := testDB.QueryRow(context.Background(), `SELECT bool_and(convalidated) FROM pg_constraint WHERE conrelid = 'payables.supplier_invoice'::regclass
+			AND conname IN ('supplier_invoice_credit_reason', 'supplier_invoice_stated_local_tax')`).Scan(&valid); err != nil || !valid {
+			t.Errorf("got %v %v, want both validated", valid, err)
 		}
 	})
 }
@@ -166,4 +177,25 @@ func TestSupplierInvoiceCitationsDown(t *testing.T) {
 			failsWith(t, exec(tx, down), "credit memos citing invoices or keeping their reason exist")
 		})
 	}
+}
+
+// TestStatedLocalTaxDown: the down migration of 000441 refuses, rather
+// than drops, invoices keeping their stated local tax (06 §6.4), reading
+// every tenant's rows.
+func TestStatedLocalTaxDown(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant, invoice := id(), id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(`SET LOCAL session_replication_role = replica`),
+		step(citingRow("invoice"), tenant, invoice),
+		step(`UPDATE payables.supplier_invoice SET stated_local_tax = 1, stated_local_currency = 'AED' WHERE id = $2 AND tenant_id = $1`, tenant, invoice),
+		step(`SET LOCAL session_replication_role = origin`), step(`SELECT set_config('app.tenant_id', '', true)`)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, migrationNamed(t, "000441_supplier_invoice_stated_local_tax").Down), "supplier invoices keeping their stated local tax exist")
 }

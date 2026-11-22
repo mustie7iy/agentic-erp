@@ -59,6 +59,9 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		out.PaymentTerms.SetTo(ledger.TermsToAPI(*v.Terms))
 	}
 	out.CreditReason, out.CitedInvoices = creditReasonAPI(v.CreditReason), citationsAPI(v.Citations)
+	if v.StatedLocalTax != nil {
+		out.StatedLocalTax.SetTo(apitypes.Money(*v.StatedLocalTax, *v.StatedLocalCurrency, v.StatedLocalExponent))
+	}
 	out.PurchaseOrderID, out.JournalEntryID, out.ReversalEntryID, out.WorkflowRequestID =
 		apitypes.OptUUID(v.PurchaseOrderID), apitypes.OptUUID(v.JournalEntryID), apitypes.OptUUID(v.ReversalEntryID), apitypes.OptUUID(v.WorkflowRequestID)
 	for i, it := range v.Items {

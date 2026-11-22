@@ -65,3 +65,25 @@ func Allocate(exact []*big.Rat) ([]Minor, error) {
 	}
 	return out, nil
 }
+
+// ShareOut shares an amount out in proportion to the weights' size (their
+// magnitudes), largest remainder first (Allocate), so the shares add up to
+// it exactly; nil when all weigh nothing. Each share is at most the
+// amount's magnitude, so Allocate's ErrOverflow cannot arise: a tax
+// difference shared among components, a document's local tax among its
+// lines.
+func ShareOut(amount Minor, weights []Minor) []Minor {
+	total := new(big.Int)
+	for _, w := range weights {
+		total.Add(total, big.NewInt(int64(w.Abs())))
+	}
+	if total.Sign() == 0 {
+		return nil
+	}
+	exact := make([]*big.Rat, len(weights))
+	for i, w := range weights {
+		exact[i] = new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(amount)), big.NewInt(int64(w.Abs()))), total)
+	}
+	shares, _ := Allocate(exact) // each share is at most the amount's magnitude: in range
+	return shares
+}

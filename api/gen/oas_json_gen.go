@@ -290535,6 +290535,12 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		s.TaxAmount.Encode(e)
 	}
 	{
+		if s.StatedLocalTax.Set {
+			e.FieldStart("stated_local_tax")
+			s.StatedLocalTax.Encode(e)
+		}
+	}
+	{
 		if s.PurchaseOrderID.Set {
 			e.FieldStart("purchase_order_id")
 			s.PurchaseOrderID.Encode(e)
@@ -290646,7 +290652,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [33]string{
+var jsonFieldsNameOfSupplierInvoice = [34]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -290662,24 +290668,25 @@ var jsonFieldsNameOfSupplierInvoice = [33]string{
 	12: "tax_date",
 	13: "gross_amount",
 	14: "tax_amount",
-	15: "purchase_order_id",
-	16: "kind",
-	17: "reference_invoice_id",
-	18: "status",
-	19: "hold_reason",
-	20: "source",
-	21: "journal_entry_id",
-	22: "payment_terms",
-	23: "payment_method",
-	24: "reversal_entry_id",
-	25: "workflow_request_id",
-	26: "items",
-	27: "extensions",
-	28: "documentary_warnings",
-	29: "credit_reason",
-	30: "cited_invoices",
-	31: "calculated_tax",
-	32: "expanded",
+	15: "stated_local_tax",
+	16: "purchase_order_id",
+	17: "kind",
+	18: "reference_invoice_id",
+	19: "status",
+	20: "hold_reason",
+	21: "source",
+	22: "journal_entry_id",
+	23: "payment_terms",
+	24: "payment_method",
+	25: "reversal_entry_id",
+	26: "workflow_request_id",
+	27: "items",
+	28: "extensions",
+	29: "documentary_warnings",
+	30: "credit_reason",
+	31: "cited_invoices",
+	32: "calculated_tax",
+	33: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -290861,6 +290868,16 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_amount\"")
 			}
+		case "stated_local_tax":
+			if err := func() error {
+				s.StatedLocalTax.Reset()
+				if err := s.StatedLocalTax.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stated_local_tax\"")
+			}
 		case "purchase_order_id":
 			if err := func() error {
 				s.PurchaseOrderID.Reset()
@@ -290892,7 +290909,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"reference_invoice_id\"")
 			}
 		case "status":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -290914,7 +290931,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"hold_reason\"")
 			}
 		case "source":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Source = string(v)
@@ -290976,7 +290993,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "items":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -290994,7 +291011,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "extensions":
-			requiredBitSet[3] |= 1 << 3
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -291004,7 +291021,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"extensions\"")
 			}
 		case "documentary_warnings":
-			requiredBitSet[3] |= 1 << 4
+			requiredBitSet[3] |= 1 << 5
 			if err := func() error {
 				s.DocumentaryWarnings = make([]DocumentaryWarning, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -291080,8 +291097,8 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 	for i, mask := range [5]uint8{
 		0b11011111,
 		0b01100111,
-		0b00010100,
-		0b00011100,
+		0b00101000,
+		0b00111000,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {

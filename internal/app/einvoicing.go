@@ -50,6 +50,11 @@ func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvo
 	e := payables.EInvoice{LegalEntityID: in.LegalEntityID, Kind: payables.KindInvoice, Number: d.Number, IssueDate: d.IssueDate, Currency: d.Currency,
 		Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines, Tax: d.Tax, Gross: d.TaxInclusive,
 		SHA256: in.SHA256, ObjectRef: in.ContentRef}
+	// A document not in AED is handed over stating each line's VAT in AED
+	// (heldBefore holds one that does not), kept as its tax's local amount.
+	if lc, stated, err := einvoicing.LineTaxInAED(d); d.Currency != einvoicing.AccountingCurrency && stated && err == nil {
+		e.LocalTax, e.LocalCurrency = &lc, einvoicing.AccountingCurrency
+	}
 	if d.Kind == einvoicing.KindTaxCreditNote {
 		e.Kind = payables.KindCreditMemo
 		for _, c := range d.Cited {

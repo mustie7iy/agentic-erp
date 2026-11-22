@@ -21,11 +21,12 @@ const (
 	StatusHeld    = "held"
 )
 
-// HeldNotInAED is the hold of a tax invoice not in AED (ADR-0061 §5 C5,
-// po:2026-11-09): its VAT is to be kept in AED as it states it (IBT-111,
-// reconciled per line with BTAE-08) for the VAT 201, which a supplier
-// invoice cannot hold yet, so it is held for a person rather than entered
-// with its VAT converted.
+// HeldNotInAED is the hold of a document not in AED that does not state
+// each line's VAT in AED (BTAE-08; ADR-0061 §5 C5, po:2026-11-09,
+// po:2026-11-21): its VAT is kept in AED as it states it for the VAT 201,
+// so without it the document is held for a person rather than entered
+// with its VAT converted. One stating it is entered keeping it (As built
+// batch 88).
 const HeldNotInAED = "einvoicing.tax_currency_not_entered"
 
 // HeldNoInvoice is the hold of a tax credit note naming no invoice (ADR-0061
@@ -108,14 +109,15 @@ func (e *Endpoints) enter(ctx context.Context, tx pgx.Tx, p reqctx.Principal, op
 }
 
 // heldBefore is the hold of a valid document that is not handed to
-// payables at all: one not in AED (C5), and a credit note naming no
-// invoice that is not for a volume discount (C4, IBR-055-AE); nil for one
-// to enter.
+// payables at all: one not in AED without each line's VAT in AED (C5),
+// and a credit note naming no invoice that is not for a volume discount
+// (C4, IBR-055-AE); nil for one to enter.
 func heldBefore(d Document) *Refusal {
+	_, stated, _ := LineTaxInAED(d) // out of range is not stated, and validation refused such a document (inconsistentInAED)
 	switch {
-	case d.Currency != accountingCurrency:
-		return &Refusal{Code: HeldNotInAED, Detail: "The e-invoice is in " + d.Currency + "; its VAT in AED (IBT-111) is kept as it states it " +
-			"for the VAT 201, which a supplier invoice does not hold yet, so enter it by hand."}
+	case d.Currency != accountingCurrency && !stated:
+		return &Refusal{Code: HeldNotInAED, Detail: "The e-invoice is in " + d.Currency + " and does not state each line's VAT in AED (BTAE-08), " +
+			"which is kept as it states it for the VAT 201, so enter it by hand."}
 	case d.Kind == KindTaxCreditNote && len(d.Cited) == 0 && !d.volumeDiscount():
 		return &Refusal{Code: HeldNoInvoice, Detail: "The tax credit note names no invoice it corrects (IBG-03, IBT-025) and is not for a " +
 			"volume discount (BTAE-03 VD); enter it by hand naming the invoice, after asking the supplier which one it corrects."}
