@@ -217,7 +217,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
 | `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner` | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
-| `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument` |
+| `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
 
 A later slice adds its row here and its section under "As built".
 
@@ -1289,10 +1289,16 @@ A later slice adds its row here and its section under "As built".
 - Its never list is every write of count documents and goods movements
   (`createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`,
   `postPhysicalInventoryDifferences`, `createMaterialDocument`,
-  `reverseMaterialDocument`; `TestNever` keeps it whole against the
-  contract's writes named `PhysicalInventory` or `MaterialDocument`),
-  each `x-agent: false`: it never creates a count document (the plan's
-  acceptance).
+  `reverseMaterialDocument`, and the postings that post a material
+  document: `postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`,
+  `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`,
+  `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`, batch 88;
+  `TestNever` keeps it whole against the contract's writes named
+  `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt` or `GoodsIssue`),
+  none among its tools, and each `x-agent: false` but the purchase order
+  receipt's two (`postGoodsReceipt`, `reverseGoodsReceipt`, open to
+  agents by the contract, not to this one): it never creates a count
+  document (the plan's acceptance).
 - `evals/count_planning`, version 1, replayed to level 2: a hinge never
   counted proposed by its line, no count document created; a plant whose
   stock is being counted (an open count) given no proposal and the reply

@@ -383,8 +383,7 @@ func TestPlanRefusals(t *testing.T) {
 
 // TestNever: the agent's tools are reads and the one recommendation; none
 // is an operation of its never list, which holds every write of count
-// documents and goods movements, each closed to agents by the contract
-// (ADR-0072, S2e).
+// documents and goods movements (ADR-0072, S2e).
 func TestNever(t *testing.T) {
 	ops, err := api.Operations()
 	if err != nil {
@@ -406,7 +405,7 @@ func TestNever(t *testing.T) {
 		if op.Method == http.MethodGet {
 			continue
 		}
-		for _, of := range []string{"PhysicalInventory", "MaterialDocument"} {
+		for _, of := range []string{"PhysicalInventory", "MaterialDocument", "GoodsReceipt", "GoodsIssue"} {
 			if strings.Contains(id, of) && !slices.Contains(countagent.Never, id) {
 				t.Errorf("never list: got %v, want it to hold %s", countagent.Never, id)
 			}

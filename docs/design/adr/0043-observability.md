@@ -292,5 +292,5 @@ traces, and CPU and memory saturation.
 - The replenishment agent (`replenishment`, ADR-0072 As built S2l) and
   the count planning agent (`count_planning`, ADR-0072 As built S2e)
   bring `autonomy.Kinds` to 25 (23 types, "untyped" and "none"); the
-  ceiling is the real count, 25, as batch 75 decided. The worst case `Check` computes stays under
-  `MaxSeries` (65,000).
+  ceiling is the real count, 25, as batch 75 decided. The worst case
+  `Check` computes stays under `MaxSeries` (65,000).

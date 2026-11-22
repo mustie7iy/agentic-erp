@@ -9,7 +9,7 @@
 -- for the whole order; the receiving company receives it as any order
 -- (101 against GR/IR), up to what was issued. Expand only (06 §6.4):
 -- columns the previous version never sets, checks widened NOT VALID
--- (validated by 000438), a trigger on what the previous version never
+-- (validated by 000444), a trigger on what the previous version never
 -- changes.
 
 -- The supplying plant (tenancy context: a plant of another company of

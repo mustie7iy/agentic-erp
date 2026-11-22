@@ -55,11 +55,15 @@ var Reads = []string{"listStock", "listMaterials", "getMaterial", "listMaterialD
 	"getPhysicalInventoryDocument"}
 
 // Never are the operations the agent never calls (ADR-0072, S2e): a count
-// document created, counted or its differences posted, and a material
-// document posted or reversed. Its tools hold none of them, nor any other
-// write that moves stock: they are reads and createRecommendation.
+// document created, counted or its differences posted, and every goods
+// movement: a material document posted or reversed, and the postings of
+// other contexts that post one (a purchase order's goods receipt and its
+// reversal, an outbound delivery's goods issue, a stock transport order's
+// issue and receipt, an intercompany order's goods issue, S2i1). Its
+// tools hold none of them: they are reads and createRecommendation.
 var Never = []string{"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences", "createMaterialDocument",
-	"reverseMaterialDocument"}
+	"reverseMaterialDocument", "postGoodsReceipt", "postOutboundDeliveryGoodsIssue", "postStockTransportGoodsIssue",
+	"postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue", "reverseGoodsReceipt"}
 
 const system = `You propose the materials of a plant to count this period, for an inventory controller to decide (cycle counting).
 
