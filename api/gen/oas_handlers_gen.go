@@ -102799,8 +102799,8 @@ func (s *Server) handleListSalesOrderChangesRequest(args [1]string, argsEscaped 
 // The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 // `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
 // quotation it came from, its net value, its credit block and its items with their ordered, delivered,
-// billed and returned quantities. Filtered by company, customer, status, credit block, document number
-// and quotation. Sortable by: `order_date`, `document_number`.
+// billed and returned quantities. Filtered by company, customer, status, credit block, document
+// number, quotation, plant and material. Sortable by: `order_date`, `document_number`.
 //
 // GET /v1/sales-orders
 func (s *Server) handleListSalesOrdersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -102965,6 +102965,14 @@ func (s *Server) handleListSalesOrdersRequest(args [0]string, argsEscaped bool, 
 					Name: "quotation_id",
 					In:   "query",
 				}: params.QuotationID,
+				{
+					Name: "plant_id",
+					In:   "query",
+				}: params.PlantID,
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
 				{
 					Name: "page_size",
 					In:   "query",

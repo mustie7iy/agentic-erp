@@ -10,11 +10,13 @@ import (
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/accessagent"
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/bidagent"
 	"github.com/mustie7iy/agentic-erp/internal/collectionsagent"
 	"github.com/mustie7iy/agentic-erp/internal/creditagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/integrationagent"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 	"github.com/mustie7iy/agentic-erp/internal/regulatoryagent"
@@ -63,6 +65,49 @@ func recommended(command string, res recommend.Result, runErr error) error {
 // were refused.
 func graded(env eval.Env, res recommend.Result) {
 	env.Reply(map[string]any{"text": res.Reply, "recommendations": len(res.Recommendations), "refused": res.Refused})
+}
+
+// companyArg is the value a company's agent runs on beside the company:
+// its flag, how the usage names it and what it is.
+type companyArg struct{ flag, metavar, about string }
+
+// companyRun runs an agent on a company and the value of its companyArg.
+type companyRun func(ctx context.Context, r *llm.Runner, c *apitools.Client, company, value string) (recommend.Result, error)
+
+// companyAgent is the command of an agent run on a company and one more
+// value (-company CODE -<arg> VALUE), with the agents' token.
+func companyAgent(ctx context.Context, args []string, command string, arg companyArg, run companyRun) error {
+	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	company := fs.String("company", "", "company code")
+	value := fs.String(arg.flag, "", arg.about)
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *company == "" || *value == "" {
+		return fmt.Errorf("%s: want -company CODE -%s %s", command, arg.flag, arg.metavar)
+	}
+	c, err := client("ERP_AGENT_TOKEN")
+	if err != nil {
+		return err
+	}
+	res, runErr := run(ctx, newRunner(c), c, *company, *value)
+	return recommended(command, res, runErr)
+}
+
+// companyEval is the evaluation adapter of an agent run on the task's
+// company and its key, as its command runs it; what it recommended is the
+// checks' to judge, and its reply theirs too.
+func companyEval(ctx context.Context, env eval.Env, agentType, key string, run companyRun) error {
+	t, err := tasked(env, "company", key)
+	if err != nil {
+		return err
+	}
+	res, err := run(ctx, env.LLM, env.Agent, t["company"], t[key])
+	if err != nil {
+		return fmt.Errorf("%s: %w", agentType, err)
+	}
+	graded(env, res)
+	return nil
 }
 
 // agentCreditScore has the credit scoring agent review a customer's

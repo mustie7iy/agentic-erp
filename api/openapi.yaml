@@ -22516,7 +22516,7 @@ paths:
       tags:
         - sales
       summary: List sales orders
-      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value, its credit block and its items with their ordered, delivered, billed and returned quantities. Filtered by company, customer, status, credit block, document number and quotation. Sortable by: `order_date`, `document_number`."
+      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value, its credit block and its items with their ordered, delivered, billed and returned quantities. Filtered by company, customer, status, credit block, document number, quotation, plant and material. Sortable by: `order_date`, `document_number`."
       x-permission: sales.order.read
       x-problem-codes:
         - request.invalid_order_by
@@ -22558,6 +22558,20 @@ paths:
           in: query
           required: false
           description: Only the order created from this quotation.
+          schema:
+            type: string
+            format: uuid
+        - name: plant_id
+          in: query
+          required: false
+          description: "Only orders delivering from this plant (`plant_id` of `createSalesOrder`, S2j; an org unit of kind `plant`): the plant's demand, which the demand forecasting agent reads (S2m). An order that names no plant matches none."
+          schema:
+            type: string
+            format: uuid
+        - name: material_id
+          in: query
+          required: false
+          description: "Only orders with an item of this material (`GET /v1/materials/{id}`) that is not removed (`removed_in_change`): the material's sales demand, which the demand forecasting agent reads (S2m). Each order is answered whole, all its items with it."
           schema:
             type: string
             format: uuid
@@ -41803,6 +41817,7 @@ components:
             - enablement
             - replenishment
             - count_planning
+            - demand_forecast
           maxLength: 50
         model:
           type: string

@@ -16748,6 +16748,92 @@ step_uae_cash_discount() {
   passed
 }
 
+# step_demand_forecast_agent is S2m (ADR-0072, ADR-0082 As built S2m,
+# plan-supply-chain.md §S2m): the demand forecasting agent, erp agent
+# demand-forecast, computes before its session the H30 hinge's weekly
+# demand at the Toronto plant, its only plant: the moving average of its
+# goods issues over 13 weeks (Wade issues 4 to maintenance today), the
+# greater of it and the confirmed orders due in each week of the 8-week
+# horizon (Sally's 50 of step 152, due now), and its accuracy, none while
+# nothing was forecast for the weeks before. The stand-in model first
+# writes a line of its own (refused: not the line given), then the line
+# given with its reasons. Its own goods issue is refused (403); Mira, the
+# planner, accepts, which moves and changes nothing.
+step_demand_forecast_agent() {
+  heading "Step 157 — The demand forecasting agent: the hinge's weekly demand at Toronto forecast from its goods issues and the open confirmed order, with its accuracy; a line of its own refused; the agent's own goods issue refused; the planner decides"
+  local role cc number got session rec docs avg
+  [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
+  as ada
+  say "Ada sets up the demand forecasting agent (ADR-0072): an agent principal of type demand_forecast at autonomy level 1"
+  say "on erp-default. Its role reads the organisation, the materials, the stock with its documents and the sales orders,"
+  say "and records its sessions and recommendations; it holds no permission that moves stock, orders or plans."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "demand_forecast_agent", "name": "Demand forecasting agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read materials.material.read inventory.stock.read sales.order.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "demand-agent", "display_name": "Demand forecasting agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "demand_forecast", "model": "erp-default", "description": "Forecasts a material'"'"'s demand by plant for a planner to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token demand-agent "Demand forecasting agent"
+  as wade
+  say "Maintenance takes 4 hinges for cost center CC-1100 (201), the hinge's first goods issue:"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  api 201 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) to cost center \(.lines[0].cost_center_code)"' \
+    createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$HINGE\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"cost_center_id\": \"$cc\"}]}"
+  as mira
+  QUIET=1 api 200 '' getMaterial -p "id=$HINGE"
+  number=$(field .number)
+  QUIET=1 api 200 '' listMaterialDocuments -p "material_id=$HINGE" -p page_size=500
+  docs=$(field '.items | length')
+  say "The agent runs: erp agent demand-forecast reads, before its session, the hinge's material documents and the company's"
+  say "confirmed sales orders of it, and computes for each of its plants, weeks of seven days ending today: the moving"
+  say "average of the last 13 weeks' goods issues (to a cost center, a delivery's, an intercompany one, less reversals), the"
+  say "8 weeks ahead each the greater of it and the open orders due that week, and the accuracy, 100 less WAPE of the average"
+  say "over the last 4 weeks (ADR-0051's measure). The model is the stand-in, answering from a script of turns as the agent's"
+  say "evaluation suite replays them (evals/demand_forecast): it first writes a forecast line of its own (refused by the run:"
+  say "it is not the line given), then the line given with its reasons."
+  jq -n --arg le "$LE" --arg plant "$PLANT" --arg hinge "$HINGE" --arg number "$number" '
+    {session_id: "{{session}}", object_type: "material", object_id: $hinge, kind: "demand_forecast"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})", line: "(Forecast \($number) at P100 [^\\\\]*)"},
+     turns: [
+      {tool: "listSalesOrders", input: {legal_entity_id: $le, status: "confirmed", plant_id: $plant, material_id: $hinge}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Forecast \($number) at P100: 50 a week\nThe order."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "{{line}}\nSally'"'"'s confirmed order of 50 for Northwind is due now and makes this week'"'"'s demand; the 4 issued to maintenance today are all the history there is, so the weeks after rest on them, and the accuracy is not known yet: the order is the demand to watch."})}},
+      {final: "Forecast the hinge at Toronto; the planner decides."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent demand-forecast -company "$CC" -material "$number"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/demand-agent") "$ERP" agent demand-forecast -company "$CC" -material "$number" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent demand-forecast failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): demand_forecast on material $HINGE .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent demand-forecast printed no demand forecast on the hinge"
+  say "Mira, the planner, reads the forecast on the hinge:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$HINGE"
+  expect "the recommendations on the hinge, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  avg="0.308, 0.308, 0.308, 0.308, 0.308, 0.308, 0.308"
+  expect "its line" "$(field '.items[0].content | split("\n")[0] | test("^Forecast '"$number"' at P100 \\(plant '"$PLANT"'\\), EA per week from [0-9-]+: 50, '"$avg"'; issued 4 in 13 weeks, open orders 50; accuracy none over 4 weeks: nothing was forecast$")')" true
+  as demand-agent
+  say "Forecasting is all it may do: a goods movement is a person's (x-agent: false), erp agent builds it no tool for it,"
+  say "and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$HINGE\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}, \"cost_center_id\": \"$cc\"}]}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listSalesOrders createRecommendation createRecommendation"
+  as mira
+  say "Mira accepts the forecast. Accepting moves and changes nothing: the hinge's documents are as they were, and its planning"
+  say "data stays hers to change:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "The order is the demand this week."}'
+  QUIET=1 api 200 '' listMaterialDocuments -p "material_id=$HINGE" -p page_size=500
+  expect "the hinge's material documents after the acceptance" "$(field '.items | length')" "$docs"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -18778,7 +18864,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_demand_forecast_agent step_close'
 
 main() {
   stop_unseen
