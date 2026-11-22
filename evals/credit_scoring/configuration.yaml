@@ -70,7 +70,7 @@ companies:
     tax_registrations:
       - code: GSTHST
         authority: CRA
-        number: "123456789 RT 0001"
+        number: "123456782 RT 0001"
         return_type: GST34
         frequency: quarterly
         first_period_start: "2026-01-01"

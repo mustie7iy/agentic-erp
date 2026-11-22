@@ -10,7 +10,7 @@ import (
 
 // registration is a valid quarterly registration of company 1000.
 func registration() TaxRegistration {
-	return TaxRegistration{Code: "GST", Authority: "CRA", Number: "123456789 RT 0001", ReturnType: "GST34", Frequency: TaxQuarterly,
+	return TaxRegistration{Code: "GST", Authority: "CRA", Number: "123456782 RT 0001", ReturnType: "GST34", Frequency: TaxQuarterly,
 		FirstPeriodStart: "2026-01-01"}
 }
 
@@ -105,19 +105,73 @@ func TestTaxRegistrationRules(t *testing.T) {
 	}
 }
 
+// TestTaxNumberForms: an FTA number is a TRN of exactly 15 digits, a CRA
+// number a business number passing the Luhn check with its GST/HST
+// program account (RT and four digits), however spaces and case are
+// written; each refusal has its code. Other authorities' numbers, Revenu
+// Québec's QST number among them, have no form checked (PO 2026-11-21).
+// The numbers are synthesized, not any real company's.
+func TestTaxNumberForms(t *testing.T) {
+	const p = "companies[1000].tax_registrations[GST].number"
+	cases := []struct {
+		name, authority, number, code string // code "": accepted
+	}{
+		{"a TRN", "FTA", "100234567800003", ""},
+		{"a TRN written in groups", "FTA", "100 2345 6780 0003", ""},
+		{"a TRN of 14 digits", "FTA", "10023456780000", CodeTRNFormat},
+		{"a TRN of 16 digits", "FTA", "1002345678000031", CodeTRNFormat},
+		{"a TRN with a letter", "FTA", "10023456780000A", CodeTRNFormat},
+		{"a TRN with a dash", "FTA", "100-234567800003", CodeTRNFormat},
+		{"a GST/HST number", "CRA", "123456782 RT 0001", ""},
+		{"a GST/HST number run together, in lower case", "CRA", "123456782rt0001", ""},
+		{"another business number", "CRA", "870000007 RT 0002", ""},
+		{"a business number failing Luhn", "CRA", "123456789 RT 0001", CodeBNCheckDigit},
+		{"a transposed digit", "CRA", "123456728 RT 0001", CodeBNCheckDigit},
+		{"a business number alone", "CRA", "123456782", CodeBNRTFormat},
+		{"another program account", "CRA", "123456782 RP 0001", CodeBNRTFormat},
+		{"a reference of three digits", "CRA", "123456782 RT 001", CodeBNRTFormat},
+		{"a business number of eight digits", "CRA", "12345678 RT 0001", CodeBNRTFormat},
+		{"a dash", "CRA", "123456782-RT-0001", CodeBNRTFormat},
+		{"a QST number", "RQ", "1234567890 TQ 0001", ""},
+		{"another authority's", "PST", "PST-1234-5678", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := registration()
+			r.Authority, r.Number = tc.authority, tc.number
+			var codes []string
+			for _, f := range Validate(withRegistrations(t, r), currency.Seeded()) {
+				if f.Severity == SevError {
+					if f.Path != p {
+						t.Errorf("error at %s: %s, want errors at %s only", f.Path, f.Message, p)
+					}
+					codes = append(codes, f.Code)
+				}
+			}
+			want := []string{tc.code}
+			if tc.code == "" {
+				want = nil
+			}
+			if !slices.Equal(codes, want) {
+				t.Errorf("codes: got %v, want %v", codes, want)
+			}
+		})
+	}
+}
+
 // TestTaxRegistrationAcrossCompanies: a code names one registration in the
 // tenant; a company in a tax group files no other return of the authority
 // for the group's periods; one number is one registration at a time,
 // however its letters' case and spaces are written.
 func TestTaxRegistrationAcrossCompanies(t *testing.T) {
 	group := registration()
-	group.Code, group.Authority, group.GroupMembers = "VAT", "FTA", []string{"2000"}
+	group.Code, group.Authority, group.Number, group.GroupMembers = "VAT", "FTA", "100000000000003", []string{"2000"}
 	member := registration()
-	member.Code, member.Authority, member.Number = "VAT2", "FTA", "999"
+	member.Code, member.Authority, member.Number = "VAT2", "FTA", "100000000000011"
 	sameNumber := registration()
 	sameNumber.Code = "OTHER"
 	later := registration()
-	later.Code, later.Authority, later.FirstPeriodStart = "VAT2", "FTA", "2027-01-01"
+	later.Code, later.Authority, later.Number, later.FirstPeriodStart = "VAT2", "FTA", "100000000000011", "2027-01-01"
 	endedGroup := group
 	endedGroup.LastPeriodEnd = "2026-12-31"
 	cases := []struct {
@@ -127,10 +181,10 @@ func TestTaxRegistrationAcrossCompanies(t *testing.T) {
 	}{
 		{"code in two companies", []TaxRegistration{registration()}, []TaxRegistration{registration()}, []string{"companies[2000].tax_registrations[GST].code"}},
 		{"member's own registration", []TaxRegistration{group}, []TaxRegistration{member}, []string{"companies[2000].tax_registrations[VAT2]"}},
-		{"member's in a group of another authority", []TaxRegistration{group}, []TaxRegistration{func() TaxRegistration { r := member; r.Authority = "CRA"; return r }()}, nil},
+		{"member's in a group of another authority", []TaxRegistration{group}, []TaxRegistration{func() TaxRegistration { r := member; r.Authority, r.Number = "CRA", "123456782 RT 0002"; return r }()}, nil},
 		{"one number in two companies", []TaxRegistration{registration()}, []TaxRegistration{sameNumber},
 			[]string{"companies[2000].tax_registrations[OTHER].number"}},
-		{"one number, written otherwise", []TaxRegistration{registration()}, []TaxRegistration{func() TaxRegistration { r := sameNumber; r.Number = "123456789rt0001"; return r }()},
+		{"one number, written otherwise", []TaxRegistration{registration()}, []TaxRegistration{func() TaxRegistration { r := sameNumber; r.Number = "123456782rt0001"; return r }()},
 			[]string{"companies[2000].tax_registrations[OTHER].number"}},
 		{"the member's after the group ended", []TaxRegistration{endedGroup}, []TaxRegistration{later}, nil},
 	}

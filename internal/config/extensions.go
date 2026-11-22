@@ -45,7 +45,7 @@ func ExtensionTransitions(base, proposed *Config) []Finding {
 	var out []Finding
 	for _, entity := range slices.Sorted(maps.Keys(old)) {
 		if _, ok := proposed.Extensions[entity]; !ok {
-			out = append(out, Finding{SevError, "extensions." + entity, "a custom field schema cannot be removed; remove its fields instead"})
+			out = append(out, Finding{Severity: SevError, Path: "extensions." + entity, Message: "a custom field schema cannot be removed; remove its fields instead"})
 		}
 	}
 	for _, entity := range slices.Sorted(maps.Keys(proposed.Extensions)) {
@@ -57,8 +57,8 @@ func ExtensionTransitions(base, proposed *Config) []Finding {
 			}
 		}
 		if s.Version != want {
-			out = append(out, Finding{SevError, "extensions." + entity + ".version",
-				fmt.Sprintf("must be %d: a schema version, once activated, always means the same schema", want)})
+			out = append(out, Finding{Severity: SevError, Path: "extensions." + entity + ".version",
+				Message: fmt.Sprintf("must be %d: a schema version, once activated, always means the same schema", want)})
 		}
 	}
 	return out

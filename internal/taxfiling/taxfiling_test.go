@@ -29,7 +29,7 @@ const perm = "tax.registration.read"
 // gst is company 1000's quarterly registration; vat a tax group's, held by
 // 1000 for itself and 2000, monthly from the 15th.
 func gst() config.TaxRegistration {
-	return config.TaxRegistration{Code: "GST", Authority: "CRA", Number: "123456789 RT 0001", ReturnType: "GST34", Frequency: config.TaxQuarterly,
+	return config.TaxRegistration{Code: "GST", Authority: "CRA", Number: "123456782 RT 0001", ReturnType: "GST34", Frequency: config.TaxQuarterly,
 		FirstPeriodStart: "2026-01-01"}
 }
 

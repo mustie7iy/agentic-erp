@@ -1846,7 +1846,7 @@ PILOT_SETTINGS='
        "gl_account": "1010", "main_gl_account": "1000", "incoming_gl_account": "1015"},
       {"name": "RBCUS", "bic": "ROYCCAT2", "institution_number": "003", "transit_number": "00002", "account_number": "4000001",
        "gl_account": "1020", "main_gl_account": "1030", "incoming_gl_account": "1040", "currency": "USD"}])
-    | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
+    | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456782 RT 0001", "return_type": "GST34",
         "frequency": "quarterly", "first_period_start": "@TAXFIRST@"}]
     | .cash = {"payment_days": ["tue", "thu"]}
     | .payment_methods += [{"code": "W", "description": "Wire transfer", "order": 1,
@@ -1913,6 +1913,18 @@ step_pack() {
   settings=${settings//@CC@/$CC}
   jq "{title: \"Canada pack $version and the pilot's settings\", rationale: \"Pilot company set-up\", proposed: (.proposed | $settings)}" \
     "$WORK/last.json" >"$WORK/proposal.json"
+  say "Ada first types the business number of the GST/HST registration with two digits swapped, 123456728"
+  say "RT 0001: its ninth digit is not the Luhn check digit of the eight before it, so the submission is"
+  say "refused, the number's field named and coded (product owner, 2026-11-21; ADR-0049 §10 As built):"
+  jq --arg cc "$CC" '.proposed.companies |= map(if .code == $cc then .tax_registrations[0].number = "123456728 RT 0001" else . end)' \
+    "$WORK/proposal.json" >"$WORK/proposal-mistyped.json"
+  QUIET=1 api 200 '' updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @proposal-mistyped.json
+  refused 422 config.validation_failed submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  local number_field="proposed.companies[$CC].tax_registrations[GSTHST].number"
+  excerpt '.errors[] | select(.field == "'"$number_field"'") | "\(.field) (\(.code)): \(.message)"'
+  expect "the mistyped business number refused" "$(field '[.errors[] | select(.field == "'"$number_field"'") | .code] | join(" ")')" bn_check_digit
+  say "With the number as the CRA gave it, 123456782 RT 0001, the proposal is submitted:"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
   api 200 '"\(.number): \(.title)"' updateChangeRequest -p "id=$cr" -if-match "$ETAG" -body @proposal.json
   api 200 '"\(.status), tier \(.tier) (structural): \(.items | length) changes"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "status after submit" "$(field .status)" awaiting_evidence

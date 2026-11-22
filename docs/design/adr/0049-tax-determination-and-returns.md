@@ -954,14 +954,33 @@ companies (all in the tenant, under RLS). A registration change is financial
   (as fieldcrypt normalizes it) on two registrations of one authority
   whose periods overlap, so a return reports an item once (§11). The
   number must be printable ASCII (its last four characters are shown)
-  of at most 40 characters without spaces; its format is not checked: no pack or primary source defines the
-  BN/RT or TRN format here (a tracker item for the tax specialist). For the
+  of at most 40 characters without spaces. For the
   UAE the tax specialist answered on 2026-11-09 (po:2026-11-09, C12): a TRN
   is 15 digits, numeric [H], a registered business's typically beginning
   with `100` [M]; its first 10 digits are the TIN used in e-invoicing [H];
   no check digit is published [L], so length and digits are what to
-  validate, and the FTA's TRN verification on EmaraTax gives certainty
-  (the tracker item records it; Canada's formats stay open). The
+  validate, and the FTA's TRN verification on EmaraTax gives certainty.
+  **As built (number formats, batch 89):** the product owner approved on
+  2026-11-21 (po:2026-11-21): a TRN is 15 digits only, no checksum; a
+  GST/HST number is the 9-digit business number passing the Luhn check,
+  then `RT` and 4 digits; the QST number's format waits for Revenu
+  Québec. The form is chosen by the registration's `authority`, the code
+  the e-invoicing wiring already reads the UAE registration by
+  (`internal/app`, `FTA`): an `FTA` number must be exactly 15 digits
+  (field error code `trn_format`); a `CRA` number must be 9 digits, `RT`
+  and 4 digits (`bn_rt_format`), its 9 digits passing Luhn (`bn_check_digit`, the
+  check shared with the model gateway's card redaction in
+  `internal/platform/luhn`). The number is checked as fieldcrypt
+  normalizes it, so spaces and the case of `rt` are free; a dash is
+  refused. Any other authority (`RQ`, a province's) keeps the checks
+  above alone, and a tenant coding the CRA or FTA otherwise escapes the
+  form check (no list of authorities is held). Each is a finding with its
+  code, so the submission's or tenant creation's 422
+  `config.validation_failed` names the number's field with that code
+  (`config.Finding.Code`; other findings stay `invalid`): activation
+  refuses a bad number. No data migration: nothing is deployed, and the
+  fixtures, eval suites and walkthrough that held `123456789 RT 0001`,
+  which fails Luhn, now hold the synthesized `123456782 RT 0001`. The
   registration is kept by `taxfiling.Setup` in `tax.registration`, the
   number sealed with the tenant's key, fingerprinted and shown by its last
   four characters (fieldcrypt, as tax identifiers and house bank accounts

@@ -2630,11 +2630,18 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given; the UAE answered by the tax specialist on 2026-11-09 (C12): a TRN is 15 digits, numeric [H], a registered business's typically beginning with 100 [M], its first 10 digits the TIN used in e-invoicing [H], and no check digit is published [L], so length and digits are checked (the FTA's TRN verification on EmaraTax for certainty); the Canadian formats stay open",
-        "r": "config.TaxRegistration · ADR-0049 §10 (answered for the UAE) · after T61g",
-        "src": "split:T61g · po:2026-11-09",
+        "s": "D",
+        "t": "Tax registration number formats of the UAE and the CRA (product owner 2026-11-21): an FTA TRN is exactly 15 digits, no checksum (the tax specialist, 2026-11-09, C12: no check digit is published); a CRA GST/HST number is the 9-digit business number passing the Luhn check, then RT and 4 digits; each refusal a field error code of the activation's 422 config.validation_failed (trn_format, bn_rt_format, bn_check_digit); fixtures, eval suites and the walkthrough moved to a synthesized number passing Luhn",
+        "r": "config.TaxRegistration (taxNumberForm) · config.Finding.Code · internal/platform/luhn · ADR-0049 §10 As built (number formats) · walkthrough step 2 (step_pack: a mistyped business number refused) · after T61g",
+        "src": "split:T61g · po:2026-11-09 · po:2026-11-21",
         "pilot": "po:2026-10-31 · split:T61g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax registration number formats: Revenu Québec's QST number, whose format waits for Revenu Québec (product owner 2026-11-21); until then an RQ number is checked only as given, printable and at most 40 characters (ADR-0049 §10 As built)",
+        "r": "config.TaxRegistration (taxNumberForm) · ADR-0049 §10 · after the TRN and GST/HST formats",
+        "src": "split:T61g · po:2026-11-09",
         "c": []
        },
        {
