@@ -403,12 +403,16 @@ func parse(doc json.RawMessage, field string) (*config.Config, error) {
 // error under field, the request's field that carries the document: a
 // change request's proposed, the createTenant request's configuration
 // (REVIEW.md, API-consumer classes: a field error names the request's
-// own field).
+// own field), coded as the finding names its reason, else "invalid".
 func failed(findings []config.Finding, field string) error {
 	var fields []problem.FieldError
 	for _, f := range findings {
 		if f.Severity == config.SevError {
-			fields = append(fields, problem.FieldError{Field: field + "." + f.Path, Code: "invalid", Message: f.Message})
+			code := f.Code
+			if code == "" {
+				code = "invalid"
+			}
+			fields = append(fields, problem.FieldError{Field: field + "." + f.Path, Code: code, Message: f.Message})
 		}
 	}
 	if len(fields) == 0 {

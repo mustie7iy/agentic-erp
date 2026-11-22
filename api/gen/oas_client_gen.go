@@ -9285,7 +9285,11 @@ type Invoker interface {
 	// `invalid` (fix it with PATCH, which returns it to `draft`, or `:withdraw` it) or
 	// `awaiting_evidence`. Once the evidence its tier requires has passed it becomes `pending_approval`
 	// and an approval request is opened; decisions are made on that approval request, which moves the
-	// change to `approved` or `rejected`. Requires status `draft`.
+	// change to `approved` or `rejected`. Requires status `draft`. A configuration the validation refuses
+	// is a 422 `config.validation_failed` whose field errors name each refused field and code it
+	// `invalid`, unless the rule names its reason: a tax registration number of the wrong form is
+	// `trn_format` (an `FTA` number, 15 digits), `bn_rt_format` (a `CRA` number, 9 digits, `RT` and 4
+	// digits) or `bn_check_digit` (the business number fails the Luhn check) (ADR-0049 §10).
 	//
 	// POST /v1/change-requests/{id}:submit
 	SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error)
@@ -121474,7 +121478,11 @@ func (c *Client) sendStartMrpRun(ctx context.Context, request *MrpRunStart, para
 // `invalid` (fix it with PATCH, which returns it to `draft`, or `:withdraw` it) or
 // `awaiting_evidence`. Once the evidence its tier requires has passed it becomes `pending_approval`
 // and an approval request is opened; decisions are made on that approval request, which moves the
-// change to `approved` or `rejected`. Requires status `draft`.
+// change to `approved` or `rejected`. Requires status `draft`. A configuration the validation refuses
+// is a 422 `config.validation_failed` whose field errors name each refused field and code it
+// `invalid`, unless the rule names its reason: a tax registration number of the wrong form is
+// `trn_format` (an `FTA` number, 15 digits), `bn_rt_format` (a `CRA` number, 9 digits, `RT` and 4
+// digits) or `bn_check_digit` (the business number fails the Luhn check) (ADR-0049 §10).
 //
 // POST /v1/change-requests/{id}:submit
 func (c *Client) SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error) {

@@ -26,9 +26,20 @@ type Finding struct {
 	Severity Severity `json:"severity"`
 	Path     string   `json:"path"`
 	Message  string   `json:"message"`
+	// Code is the stable reason a consumer may branch on, for the few
+	// findings that name one (a tax registration number's form, ADR-0049
+	// §10); the 422 of an activation reports "invalid" for the others.
+	Code string `json:"code,omitempty"`
 }
 
-func (f Finding) String() string { return fmt.Sprintf("[%s] %s: %s", f.Severity, f.Path, f.Message) }
+// String is the finding as an offline check prints it, with its code
+// when it names one, as the API's field error does.
+func (f Finding) String() string {
+	if f.Code != "" {
+		return fmt.Sprintf("[%s] %s (%s): %s", f.Severity, f.Path, f.Code, f.Message)
+	}
+	return fmt.Sprintf("[%s] %s: %s", f.Severity, f.Path, f.Message)
+}
 
 // Note explains a generated setting reviewers should look at: what a
 // draft document generated from SAP (delivery/sapconfig) or a country pack
@@ -210,10 +221,15 @@ type validator struct {
 }
 
 func (v *validator) err(path, format string, a ...any) {
-	v.out = append(v.out, Finding{SevError, path, fmt.Sprintf(format, a...)})
+	v.out = append(v.out, Finding{Severity: SevError, Path: path, Message: fmt.Sprintf(format, a...)})
+}
+
+// errCode is err with the reason's stable code.
+func (v *validator) errCode(path, code, format string, a ...any) {
+	v.out = append(v.out, Finding{Severity: SevError, Path: path, Message: fmt.Sprintf(format, a...), Code: code})
 }
 func (v *validator) warn(path, format string, a ...any) {
-	v.out = append(v.out, Finding{SevWarning, path, fmt.Sprintf(format, a...)})
+	v.out = append(v.out, Finding{Severity: SevWarning, Path: path, Message: fmt.Sprintf(format, a...)})
 }
 
 func (v *validator) amount(path, s string, decimals int) (money.Minor, bool) {

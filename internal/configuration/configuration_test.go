@@ -321,6 +321,14 @@ func TestSubmitRefusals(t *testing.T) {
 	invalid := document(t)
 	invalid.Output.PurchaseOrderChannel = "pigeon"
 	refuse("invalid", jsonOf(t, invalid), "config.validation_failed", "proposed.output.purchase_order_channel")
+	// A finding naming its reason gives the field error its code; the
+	// others are "invalid" (ADR-0049 §10 As built).
+	mistyped := document(t)
+	mistyped.Companies[0].TaxRegistrations = []config.TaxRegistration{{Code: "GST", Authority: "CRA", Number: "123456789 RT 0001",
+		ReturnType: "GST34", Frequency: config.TaxQuarterly, FirstPeriodStart: "2026-01-01"}}
+	refuse("business number mistyped", jsonOf(t, mistyped), "config.validation_failed",
+		"code:"+config.CodeBNCheckDigit+" field:proposed.companies[1000].tax_registrations[GST].number")
+	refuse("coded invalid", jsonOf(t, invalid), "config.validation_failed", "code:invalid field:proposed.output.purchase_order_channel")
 	removed := document(t)
 	removed.NumberRanges = nil
 	refuse("range removed", jsonOf(t, removed), "config.validation_failed", "cannot be removed")

@@ -90,7 +90,7 @@ func gst34Env(t *testing.T) (fixture.Env, uuid.UUID) {
 			config.Account{Number: "140300", Name: "GST/HST rebates receivable", Type: config.Asset},
 			config.Account{Number: "219500", Name: "Customs clearing", Type: config.Liability})
 		co.TaxCodes = gst34Codes(t)
-		co.TaxRegistrations = []config.TaxRegistration{{Code: "GSTHST", Authority: "CRA", Number: "123456789 RT 0001", ReturnType: "GST34",
+		co.TaxRegistrations = []config.TaxRegistration{{Code: "GSTHST", Authority: "CRA", Number: "123456782 RT 0001", ReturnType: "GST34",
 			Frequency: config.TaxQuarterly, FirstPeriodStart: "2026-01-01"}}
 		doc.Packs = append(doc.Packs, config.PackAdoption{Company: "3000", Country: "CA", Version: "2026.6", AppliedOn: "2026-01-01"})
 	}, gst34Perms()...)
