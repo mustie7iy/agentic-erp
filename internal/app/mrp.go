@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,8 +21,10 @@ import (
 // materials, the ledger's accounts and the configuration's company days,
 // and, through mrpSupply, sales' demand, inventory's stock and prices and
 // procurement's receipts and requisitions, which it proposes and
-// withdraws through procurement's published API. Its runs' Operations are
-// the operations context's.
+// withdraws through procurement's published API, and for S&OP reviews
+// inventory's goods issues, sales' demand by the day it is due and
+// procurement's stock transports (S2n). Its runs' Operations are the
+// operations context's.
 func MRP(cfg Config) *mrp.Endpoints {
 	return &mrp.Endpoints{Settings: configuration.Settings{}, Plants: tenancy.Directory{}, Materials: materials.Materials{}, Accounts: ledger.Accounts{},
 		Supply: mrpSupply{inventory: Inventory(cfg), procurement: Procurement(cfg)}, Runs: runOperations{kind: mrp.KindRun}, Pages: cfg.Pages, Now: cfg.Now}
@@ -92,4 +95,22 @@ func (s mrpSupply) Propose(ctx context.Context, p mrp.Proposal) (mrp.Proposed, e
 
 func (s mrpSupply) Withdraw(ctx context.Context, requisition uuid.UUID, version int32) (bool, error) {
 	return s.procurement.WithdrawProposal(ctx, requisition, version)
+}
+
+func (s mrpSupply) Issues(ctx context.Context, plant uuid.UUID, ms []uuid.UUID, from, to time.Time) (map[uuid.UUID]string, error) {
+	return s.inventory.PlantIssues(ctx, plant, ms, from, to)
+}
+
+func (mrpSupply) DemandDue(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Due, error) {
+	rs, err := sales.Orders{}.PlantRequirementsDue(ctx, plant, ms)
+	out := make([]mrp.Due, len(rs))
+	for i, r := range rs {
+		out[i] = mrp.Due{Open: mrp.Open{MaterialID: r.MaterialID, Unit: r.Unit, Quantity: r.Quantity}, Day: r.Due}
+	}
+	return out, err
+}
+
+func (mrpSupply) Transports(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Open, error) {
+	rs, err := procurement.Orders{}.TransportSupply(ctx, plant, ms)
+	return opens(rs, onOrder), err
 }

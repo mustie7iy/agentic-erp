@@ -28387,6 +28387,7 @@ func (*ConflictHeaders) createSalesPriceRes()                      {}
 func (*ConflictHeaders) createScheduleLineRes()                    {}
 func (*ConflictHeaders) createSegmentRes()                         {}
 func (*ConflictHeaders) createSodRuleRes()                         {}
+func (*ConflictHeaders) createSopPlanRes()                         {}
 func (*ConflictHeaders) createStatisticalKeyFigureRes()            {}
 func (*ConflictHeaders) createStockTransportOrderRes()             {}
 func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
@@ -28415,6 +28416,7 @@ func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
+func (*ConflictHeaders) fixSopPlanRes()                            {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getArchivingRunFileRes()                   {}
@@ -28607,6 +28609,7 @@ func (*ConflictHeaders) updateRevenueContractRes()                 {}
 func (*ConflictHeaders) updateRiskRes()                            {}
 func (*ConflictHeaders) updateRoleRes()                            {}
 func (*ConflictHeaders) updateSegmentRes()                         {}
+func (*ConflictHeaders) updateSopPlanRes()                         {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) updateWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) updateYearCloseTaskRes()                   {}
@@ -36515,6 +36518,18 @@ func (*CreateSodRulePreconditionRequired) createSodRuleRes() {}
 type CreateSodRuleUnprocessableEntity Problem
 
 func (*CreateSodRuleUnprocessableEntity) createSodRuleRes() {}
+
+type CreateSopPlanBadRequest Problem
+
+func (*CreateSopPlanBadRequest) createSopPlanRes() {}
+
+type CreateSopPlanForbidden Problem
+
+func (*CreateSopPlanForbidden) createSopPlanRes() {}
+
+type CreateSopPlanUnprocessableEntity Problem
+
+func (*CreateSopPlanUnprocessableEntity) createSopPlanRes() {}
 
 type CreateStatisticalKeyFigureBadRequest Problem
 
@@ -49548,6 +49563,26 @@ func (s *FiscalPeriodPage) SetTotalEstimate(val OptInt64) {
 
 func (*FiscalPeriodPage) listFiscalPeriodsRes() {}
 
+type FixSopPlanBadRequest Problem
+
+func (*FixSopPlanBadRequest) fixSopPlanRes() {}
+
+type FixSopPlanForbidden Problem
+
+func (*FixSopPlanForbidden) fixSopPlanRes() {}
+
+type FixSopPlanNotFound Problem
+
+func (*FixSopPlanNotFound) fixSopPlanRes() {}
+
+type FixSopPlanPreconditionFailed Problem
+
+func (*FixSopPlanPreconditionFailed) fixSopPlanRes() {}
+
+type FixSopPlanPreconditionRequired Problem
+
+func (*FixSopPlanPreconditionRequired) fixSopPlanRes() {}
+
 // A document a variance comment cites: one the attribution of the variance it explains lists
 // (`listForecastVarianceDocuments`).
 // Ref: #/components/schemas/ForecastVarianceCitation
@@ -54797,6 +54832,48 @@ func (s *GetSodRuleOKHeaders) SetResponse(val SodRule) {
 }
 
 func (*GetSodRuleOKHeaders) getSodRuleRes() {}
+
+type GetSopPlanBadRequest Problem
+
+func (*GetSopPlanBadRequest) getSopPlanRes() {}
+
+type GetSopPlanForbidden Problem
+
+func (*GetSopPlanForbidden) getSopPlanRes() {}
+
+type GetSopPlanNotFound Problem
+
+func (*GetSopPlanNotFound) getSopPlanRes() {}
+
+// GetSopPlanOKHeaders wraps SopPlan with response headers.
+type GetSopPlanOKHeaders struct {
+	ETag     OptString
+	Response SopPlan
+}
+
+// GetETag returns the value of ETag.
+func (s *GetSopPlanOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetSopPlanOKHeaders) GetResponse() SopPlan {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetSopPlanOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetSopPlanOKHeaders) SetResponse(val SopPlan) {
+	s.Response = val
+}
+
+func (*GetSopPlanOKHeaders) fixSopPlanRes()    {}
+func (*GetSopPlanOKHeaders) getSopPlanRes()    {}
+func (*GetSopPlanOKHeaders) updateSopPlanRes() {}
 
 type GetStatisticalKeyFigureBadRequest Problem
 
@@ -68734,6 +68811,14 @@ func (*ListSodRulesBadRequest) listSodRulesRes() {}
 type ListSodRulesForbidden Problem
 
 func (*ListSodRulesForbidden) listSodRulesRes() {}
+
+type ListSopPlansBadRequest Problem
+
+func (*ListSopPlansBadRequest) listSopPlansRes() {}
+
+type ListSopPlansForbidden Problem
+
+func (*ListSopPlansForbidden) listSopPlansRes() {}
 
 type ListStatisticalKeyFigureValuesBadRequest Problem
 
@@ -116082,6 +116167,546 @@ func (s *SodRuleSummary) SetValidTo(val OptDate) {
 	s.ValidTo = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/SopPlan
+type SopPlan struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The version's number in the company, from 1.
+	Number int32 `json:"number"`
+	// `draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The company's day it reviewed on.
+	AsOf time.Time `json:"as_of"`
+	// The horizon's first day, the day after `as_of`.
+	FirstDay time.Time `json:"first_day"`
+	// The horizon's last day, the last of its last month.
+	LastDay time.Time `json:"last_day"`
+	// The months of the horizon.
+	Months int32 `json:"months"`
+	// When it was fixed; absent while it is a draft.
+	FixedAt OptDateTime `json:"fixed_at"`
+	// Who fixed it; absent while it is a draft.
+	FixedBy OptUUID `json:"fixed_by"`
+	// Per material group, unit and month, by group, unit and month.
+	Lines []SopPlanLine `json:"lines"`
+}
+
+// GetID returns the value of ID.
+func (s *SopPlan) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *SopPlan) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SopPlan) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *SopPlan) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SopPlan) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *SopPlan) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SopPlan) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *SopPlan) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetNumber returns the value of Number.
+func (s *SopPlan) GetNumber() int32 {
+	return s.Number
+}
+
+// GetStatus returns the value of Status.
+func (s *SopPlan) GetStatus() string {
+	return s.Status
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *SopPlan) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetFirstDay returns the value of FirstDay.
+func (s *SopPlan) GetFirstDay() time.Time {
+	return s.FirstDay
+}
+
+// GetLastDay returns the value of LastDay.
+func (s *SopPlan) GetLastDay() time.Time {
+	return s.LastDay
+}
+
+// GetMonths returns the value of Months.
+func (s *SopPlan) GetMonths() int32 {
+	return s.Months
+}
+
+// GetFixedAt returns the value of FixedAt.
+func (s *SopPlan) GetFixedAt() OptDateTime {
+	return s.FixedAt
+}
+
+// GetFixedBy returns the value of FixedBy.
+func (s *SopPlan) GetFixedBy() OptUUID {
+	return s.FixedBy
+}
+
+// GetLines returns the value of Lines.
+func (s *SopPlan) GetLines() []SopPlanLine {
+	return s.Lines
+}
+
+// SetID sets the value of ID.
+func (s *SopPlan) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *SopPlan) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SopPlan) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *SopPlan) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SopPlan) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *SopPlan) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SopPlan) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *SopPlan) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetNumber sets the value of Number.
+func (s *SopPlan) SetNumber(val int32) {
+	s.Number = val
+}
+
+// SetStatus sets the value of Status.
+func (s *SopPlan) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *SopPlan) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetFirstDay sets the value of FirstDay.
+func (s *SopPlan) SetFirstDay(val time.Time) {
+	s.FirstDay = val
+}
+
+// SetLastDay sets the value of LastDay.
+func (s *SopPlan) SetLastDay(val time.Time) {
+	s.LastDay = val
+}
+
+// SetMonths sets the value of Months.
+func (s *SopPlan) SetMonths(val int32) {
+	s.Months = val
+}
+
+// SetFixedAt sets the value of FixedAt.
+func (s *SopPlan) SetFixedAt(val OptDateTime) {
+	s.FixedAt = val
+}
+
+// SetFixedBy sets the value of FixedBy.
+func (s *SopPlan) SetFixedBy(val OptUUID) {
+	s.FixedBy = val
+}
+
+// SetLines sets the value of Lines.
+func (s *SopPlan) SetLines(val []SopPlanLine) {
+	s.Lines = val
+}
+
+// The S&OP review to start: a company and the months of its horizon.
+// Ref: #/components/schemas/SopPlanCreate
+type SopPlanCreate struct {
+	// The company to review.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The calendar months of the horizon, the first the one after the company's day begins in; 3 when
+	// absent.
+	Months OptInt32 `json:"months"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SopPlanCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetMonths returns the value of Months.
+func (s *SopPlanCreate) GetMonths() OptInt32 {
+	return s.Months
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SopPlanCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetMonths sets the value of Months.
+func (s *SopPlanCreate) SetMonths(val OptInt32) {
+	s.Months = val
+}
+
+// SopPlanHeaders wraps SopPlan with response headers.
+type SopPlanHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           SopPlan
+}
+
+// GetETag returns the value of ETag.
+func (s *SopPlanHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *SopPlanHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *SopPlanHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *SopPlanHeaders) GetResponse() SopPlan {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *SopPlanHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *SopPlanHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *SopPlanHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SopPlanHeaders) SetResponse(val SopPlan) {
+	s.Response = val
+}
+
+func (*SopPlanHeaders) createSopPlanRes() {}
+
+// One material group's demand and supply in one unit and month of a plan version (ADR-0084 As built
+// S2n), in that unit.
+// Ref: #/components/schemas/SopPlanLine
+type SopPlanLine struct {
+	// The line's key, `material_group/unit/month`, by which `updateSopPlan` names it.
+	Key string `json:"key"`
+	// The materials' group.
+	MaterialGroup string `json:"material_group"`
+	// The materials' base unit.
+	Unit string `json:"unit"`
+	// The calendar month, `YYYY-MM`.
+	Month string `json:"month"`
+	// The month's first day in the horizon: the day after the plan's `as_of` in its first month.
+	FirstDay time.Time `json:"first_day"`
+	// The month's last day.
+	LastDay time.Time `json:"last_day"`
+	// The materials of the group in the unit the plan reviews.
+	Materials int32 `json:"materials"`
+	// The forecast demand: per material and plant the greater of its moving average of goods issues over
+	// the month's days and its confirmed sales orders due in the month.
+	Forecast Quantity `json:"forecast"`
+	// What the confirmed sales orders ordered and have not delivered, due in the month.
+	SalesOrders Quantity `json:"sales_orders"`
+	// The stock at the month's start: the plants' stock in the first month, the previous month's projected
+	// stock after.
+	OpeningStock Quantity `json:"opening_stock"`
+	// The purchase orders' open quantities, in the first month; zero after.
+	PurchaseOrders Quantity `json:"purchase_orders"`
+	// Stock transport orders in transit to the plants less intercompany orders the plants supply and have
+	// not issued, in the first month; zero after. Negative when more leaves than arrives.
+	StockTransports Quantity `json:"stock_transports"`
+	// The requisitions planning runs proposed at the plants, not ordered, cancelled or rejected, in the
+	// first month; zero after.
+	Proposals Quantity `json:"proposals"`
+	// The demand agreed: the forecast until the planner changes it.
+	Consensus Quantity `json:"consensus"`
+	// The opening stock and receipts less the consensus; negative when the demand agreed is not covered.
+	ProjectedStock Quantity `json:"projected_stock"`
+}
+
+// GetKey returns the value of Key.
+func (s *SopPlanLine) GetKey() string {
+	return s.Key
+}
+
+// GetMaterialGroup returns the value of MaterialGroup.
+func (s *SopPlanLine) GetMaterialGroup() string {
+	return s.MaterialGroup
+}
+
+// GetUnit returns the value of Unit.
+func (s *SopPlanLine) GetUnit() string {
+	return s.Unit
+}
+
+// GetMonth returns the value of Month.
+func (s *SopPlanLine) GetMonth() string {
+	return s.Month
+}
+
+// GetFirstDay returns the value of FirstDay.
+func (s *SopPlanLine) GetFirstDay() time.Time {
+	return s.FirstDay
+}
+
+// GetLastDay returns the value of LastDay.
+func (s *SopPlanLine) GetLastDay() time.Time {
+	return s.LastDay
+}
+
+// GetMaterials returns the value of Materials.
+func (s *SopPlanLine) GetMaterials() int32 {
+	return s.Materials
+}
+
+// GetForecast returns the value of Forecast.
+func (s *SopPlanLine) GetForecast() Quantity {
+	return s.Forecast
+}
+
+// GetSalesOrders returns the value of SalesOrders.
+func (s *SopPlanLine) GetSalesOrders() Quantity {
+	return s.SalesOrders
+}
+
+// GetOpeningStock returns the value of OpeningStock.
+func (s *SopPlanLine) GetOpeningStock() Quantity {
+	return s.OpeningStock
+}
+
+// GetPurchaseOrders returns the value of PurchaseOrders.
+func (s *SopPlanLine) GetPurchaseOrders() Quantity {
+	return s.PurchaseOrders
+}
+
+// GetStockTransports returns the value of StockTransports.
+func (s *SopPlanLine) GetStockTransports() Quantity {
+	return s.StockTransports
+}
+
+// GetProposals returns the value of Proposals.
+func (s *SopPlanLine) GetProposals() Quantity {
+	return s.Proposals
+}
+
+// GetConsensus returns the value of Consensus.
+func (s *SopPlanLine) GetConsensus() Quantity {
+	return s.Consensus
+}
+
+// GetProjectedStock returns the value of ProjectedStock.
+func (s *SopPlanLine) GetProjectedStock() Quantity {
+	return s.ProjectedStock
+}
+
+// SetKey sets the value of Key.
+func (s *SopPlanLine) SetKey(val string) {
+	s.Key = val
+}
+
+// SetMaterialGroup sets the value of MaterialGroup.
+func (s *SopPlanLine) SetMaterialGroup(val string) {
+	s.MaterialGroup = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *SopPlanLine) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetMonth sets the value of Month.
+func (s *SopPlanLine) SetMonth(val string) {
+	s.Month = val
+}
+
+// SetFirstDay sets the value of FirstDay.
+func (s *SopPlanLine) SetFirstDay(val time.Time) {
+	s.FirstDay = val
+}
+
+// SetLastDay sets the value of LastDay.
+func (s *SopPlanLine) SetLastDay(val time.Time) {
+	s.LastDay = val
+}
+
+// SetMaterials sets the value of Materials.
+func (s *SopPlanLine) SetMaterials(val int32) {
+	s.Materials = val
+}
+
+// SetForecast sets the value of Forecast.
+func (s *SopPlanLine) SetForecast(val Quantity) {
+	s.Forecast = val
+}
+
+// SetSalesOrders sets the value of SalesOrders.
+func (s *SopPlanLine) SetSalesOrders(val Quantity) {
+	s.SalesOrders = val
+}
+
+// SetOpeningStock sets the value of OpeningStock.
+func (s *SopPlanLine) SetOpeningStock(val Quantity) {
+	s.OpeningStock = val
+}
+
+// SetPurchaseOrders sets the value of PurchaseOrders.
+func (s *SopPlanLine) SetPurchaseOrders(val Quantity) {
+	s.PurchaseOrders = val
+}
+
+// SetStockTransports sets the value of StockTransports.
+func (s *SopPlanLine) SetStockTransports(val Quantity) {
+	s.StockTransports = val
+}
+
+// SetProposals sets the value of Proposals.
+func (s *SopPlanLine) SetProposals(val Quantity) {
+	s.Proposals = val
+}
+
+// SetConsensus sets the value of Consensus.
+func (s *SopPlanLine) SetConsensus(val Quantity) {
+	s.Consensus = val
+}
+
+// SetProjectedStock sets the value of ProjectedStock.
+func (s *SopPlanLine) SetProjectedStock(val Quantity) {
+	s.ProjectedStock = val
+}
+
+// One page of S&OP plan versions.
+// Ref: #/components/schemas/SopPlanPage
+type SopPlanPage struct {
+	// The plan versions on this page.
+	Items []SopPlan `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *SopPlanPage) GetItems() []SopPlan {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SopPlanPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *SopPlanPage) SetItems(val []SopPlan) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SopPlanPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*SopPlanPage) listSopPlansRes() {}
+
+// The consensus of lines of a draft plan version, by line key.
+// Ref: #/components/schemas/SopPlanUpdate
+type SopPlanUpdate struct {
+	// A line's `key` mapped to its new consensus, a plain decimal in the line's unit.
+	Consensus SopPlanUpdateConsensus `json:"consensus"`
+}
+
+// GetConsensus returns the value of Consensus.
+func (s *SopPlanUpdate) GetConsensus() SopPlanUpdateConsensus {
+	return s.Consensus
+}
+
+// SetConsensus sets the value of Consensus.
+func (s *SopPlanUpdate) SetConsensus(val SopPlanUpdateConsensus) {
+	s.Consensus = val
+}
+
+// A line's `key` mapped to its new consensus, a plain decimal in the line's unit.
+type SopPlanUpdateConsensus map[string]string
+
+func (s *SopPlanUpdateConsensus) init() SopPlanUpdateConsensus {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
 type StartAgentSessionBadRequest Problem
 
 func (*StartAgentSessionBadRequest) startAgentSessionRes() {}
@@ -122250,6 +122875,7 @@ func (*TooManyRequestsHeaders) createSalesPriceRes()                      {}
 func (*TooManyRequestsHeaders) createScheduleLineRes()                    {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                         {}
+func (*TooManyRequestsHeaders) createSopPlanRes()                         {}
 func (*TooManyRequestsHeaders) createStatisticalKeyFigurePostingRes()     {}
 func (*TooManyRequestsHeaders) createStatisticalKeyFigureRes()            {}
 func (*TooManyRequestsHeaders) createStockTransportOrderRes()             {}
@@ -122280,6 +122906,7 @@ func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
 func (*TooManyRequestsHeaders) finalizeConsolidationRunRes()              {}
+func (*TooManyRequestsHeaders) fixSopPlanRes()                            {}
 func (*TooManyRequestsHeaders) getAccountRes()                            {}
 func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                       {}
@@ -122431,6 +123058,7 @@ func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
 func (*TooManyRequestsHeaders) getSerialNumberRes()                       {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) getSopPlanRes()                            {}
 func (*TooManyRequestsHeaders) getStatisticalKeyFigureRes()               {}
 func (*TooManyRequestsHeaders) getStockTransportOrderRes()                {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -122602,6 +123230,7 @@ func (*TooManyRequestsHeaders) listScheduleLinesRes()                     {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSerialNumbersRes()                     {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
+func (*TooManyRequestsHeaders) listSopPlansRes()                          {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFiguresRes()             {}
 func (*TooManyRequestsHeaders) listStockRes()                             {}
@@ -122771,6 +123400,7 @@ func (*TooManyRequestsHeaders) updateRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) updateRiskRes()                            {}
 func (*TooManyRequestsHeaders) updateRoleRes()                            {}
 func (*TooManyRequestsHeaders) updateSegmentRes()                         {}
+func (*TooManyRequestsHeaders) updateSopPlanRes()                         {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) updateWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) updateYearCloseTaskRes()                   {}
@@ -123229,6 +123859,7 @@ func (*UnauthorizedHeaders) createSalesPriceRes()                      {}
 func (*UnauthorizedHeaders) createScheduleLineRes()                    {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
 func (*UnauthorizedHeaders) createSodRuleRes()                         {}
+func (*UnauthorizedHeaders) createSopPlanRes()                         {}
 func (*UnauthorizedHeaders) createStatisticalKeyFigurePostingRes()     {}
 func (*UnauthorizedHeaders) createStatisticalKeyFigureRes()            {}
 func (*UnauthorizedHeaders) createStockTransportOrderRes()             {}
@@ -123259,6 +123890,7 @@ func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
 func (*UnauthorizedHeaders) finalizeConsolidationRunRes()              {}
+func (*UnauthorizedHeaders) fixSopPlanRes()                            {}
 func (*UnauthorizedHeaders) getAccountRes()                            {}
 func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                       {}
@@ -123410,6 +124042,7 @@ func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
 func (*UnauthorizedHeaders) getSerialNumberRes()                       {}
 func (*UnauthorizedHeaders) getSodRuleRes()                            {}
+func (*UnauthorizedHeaders) getSopPlanRes()                            {}
 func (*UnauthorizedHeaders) getStatisticalKeyFigureRes()               {}
 func (*UnauthorizedHeaders) getStockTransportOrderRes()                {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -123581,6 +124214,7 @@ func (*UnauthorizedHeaders) listScheduleLinesRes()                     {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSerialNumbersRes()                     {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
+func (*UnauthorizedHeaders) listSopPlansRes()                          {}
 func (*UnauthorizedHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*UnauthorizedHeaders) listStatisticalKeyFiguresRes()             {}
 func (*UnauthorizedHeaders) listStockRes()                             {}
@@ -123750,6 +124384,7 @@ func (*UnauthorizedHeaders) updateRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) updateRiskRes()                            {}
 func (*UnauthorizedHeaders) updateRoleRes()                            {}
 func (*UnauthorizedHeaders) updateSegmentRes()                         {}
+func (*UnauthorizedHeaders) updateSopPlanRes()                         {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) updateWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) updateYearCloseTaskRes()                   {}
@@ -125724,6 +126359,30 @@ func (*UpdateSegmentPreconditionRequired) updateSegmentRes() {}
 type UpdateSegmentUnprocessableEntity Problem
 
 func (*UpdateSegmentUnprocessableEntity) updateSegmentRes() {}
+
+type UpdateSopPlanBadRequest Problem
+
+func (*UpdateSopPlanBadRequest) updateSopPlanRes() {}
+
+type UpdateSopPlanForbidden Problem
+
+func (*UpdateSopPlanForbidden) updateSopPlanRes() {}
+
+type UpdateSopPlanNotFound Problem
+
+func (*UpdateSopPlanNotFound) updateSopPlanRes() {}
+
+type UpdateSopPlanPreconditionFailed Problem
+
+func (*UpdateSopPlanPreconditionFailed) updateSopPlanRes() {}
+
+type UpdateSopPlanPreconditionRequired Problem
+
+func (*UpdateSopPlanPreconditionRequired) updateSopPlanRes() {}
+
+type UpdateSopPlanUnprocessableEntity Problem
+
+func (*UpdateSopPlanUnprocessableEntity) updateSopPlanRes() {}
 
 type UpdateSupplierInvoiceBadRequest Problem
 

@@ -10,7 +10,10 @@
 // materials, the ledger's accounts, sales' demand, inventory's stock and
 // prices and procurement's receipts and requisitions, and writes
 // requisitions, through ports the composition root wires, in the
-// published types of materials and tenancy; no context imports it.
+// published types of materials and tenancy; no context imports it. Its
+// S&OP plan versions (ADR-0084 As built S2n, plan-supply-chain.md §S2n)
+// review a company's demand forecast against supply by material group
+// and month, and fix the consensus a planner agrees.
 // Tenancy is row-level security (ADR-0003), quantities exact decimals
 // (ADR-0082 §5), state changes guarded (ADR-0008) and audited (ADR-0011).
 package mrp
@@ -64,6 +67,12 @@ func init() {
 	problem.RegisterConstraint("run_one_at_a_time", func() *problem.Problem {
 		return problem.Conflict("mrp.run_in_progress", "Another planning run of the plant was started at the same time and is queued "+
 			"(GET /v1/mrp-runs?status=queued).")
+	})
+	// Two reviews of a company started at once: the second's insert meets
+	// the first's number.
+	problem.RegisterConstraint("sop_plan_number_once", func() *problem.Problem {
+		return problem.Conflict("mrp.sop_plan_concurrent", "Another S&OP review of the company was started at the same time and took this "+
+			"version's number; start it again.")
 	})
 }
 
@@ -125,11 +134,21 @@ type Proposed struct {
 	Version int32
 }
 
+// Due is an Open quantity due on a day: what sales orders due then
+// demand.
+type Due struct {
+	Open
+	Day time.Time
+}
+
 // Supply is what a run reads of the plant through the other contexts'
 // published APIs, in the run's transaction: the confirmed sales orders'
 // demand (sales), the stock and prices (inventory) and the open
 // receipts (procurement), and the requisitions it proposed, which it
-// proposes and withdraws through procurement.
+// proposes and withdraws through procurement. An S&OP review (S2n) reads
+// besides the plant's goods issues of the days (inventory), its demand
+// by the day it is due (sales) and what stock transport orders bring or
+// take (procurement).
 type Supply interface {
 	Demand(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
 	Stock(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) (map[uuid.UUID]string, error)
@@ -138,6 +157,9 @@ type Supply interface {
 	Requisitions(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Requisition, error)
 	Propose(ctx context.Context, p Proposal) (Proposed, error)
 	Withdraw(ctx context.Context, requisition uuid.UUID, version int32) (bool, error)
+	Issues(ctx context.Context, plant uuid.UUID, materials []uuid.UUID, from, to time.Time) (map[uuid.UUID]string, error)
+	DemandDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Due, error)
+	Transports(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
 }
 
 // Runs keeps a run's Operation (operations context): Start writes it
@@ -151,8 +173,8 @@ type Runs interface {
 	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
 }
 
-// Endpoints implements the mrp context's operations of the public API and
-// the planning run's work.
+// Endpoints implements the mrp context's operations of the public API,
+// the planning run's work and S&OP's plan versions.
 type Endpoints struct {
 	Settings  config.Documents
 	Plants    Plants

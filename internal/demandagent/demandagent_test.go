@@ -413,7 +413,7 @@ func TestNever(t *testing.T) {
 			continue
 		}
 		for _, of := range []string{"MaterialDocument", "GoodsReceipt", "GoodsIssue", "StockTransport", "PhysicalInventory", "SalesOrder", "SalesDelivery",
-			"OutboundDelivery", "ReturnsOrder", "ReturnReceipt", "Requisition", "PurchaseOrder", "ScheduleLine", "GrIrClearing", "MrpRun", "MaterialPlan"} {
+			"OutboundDelivery", "ReturnsOrder", "ReturnReceipt", "Requisition", "PurchaseOrder", "ScheduleLine", "GrIrClearing", "MrpRun", "MaterialPlan", "SopPlan"} {
 			if strings.Contains(id, of) && !slices.Contains(demandagent.Never, id) {
 				t.Errorf("never list: got %v, want it to hold %s", demandagent.Never, id)
 			}

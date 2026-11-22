@@ -26568,6 +26568,241 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/sop-plans:
+    post:
+      operationId: createSopPlan
+      tags:
+        - mrp
+      summary: Start an S&OP review
+      description: "Starts a sales and operations planning review of a company (ADR-0084 As built S2n; plan-supply-chain.md §S2n; SAP IBP's S&OP review in monthly buckets, from memory): a new plan version, `draft`, numbered per company from 1, that reviews the demand forecast against supply by material group and month, on the company's day (`as_of`). It reviews every material the company plans (`createMaterialPlan`, whatever its MRP type) that is active, kept in stock and extended to the plant, at the plants it plans it; lines per material group, base unit (quantities of different units are never added) and month, the `months` calendar months of the horizon from the day after `as_of` (the first one from that day). Per line: the **forecast**, per material and plant the greater of the moving average of its goods issues (to a cost center, a delivery's and an intercompany one, less their reversals) over the 13 weeks to `as_of`, spread over the month's days, and what its confirmed sales orders ordered and have not delivered due in the month (the day the customer asked for, else the order's date; one due before the horizon in its first month) — the demand forecasting agent's rule (S2m) in months; **sales_orders**, those orders; and in the first month the supply the plants have: **opening_stock** (stock at their storage locations, not in transit), **purchase_orders** (open quantities of purchase orders not closed or cancelled, intercompany ones included), **stock_transports** (stock transport orders in transit to the company's plants, less intercompany orders its plants supply and have not issued) and **proposals** (the requisitions planning runs proposed at the plants that are not ordered, cancelled or rejected). The **consensus** starts as the forecast; `updateSopPlan` changes it; **projected_stock** is the opening stock and receipts less the consensus, the next month's opening stock. Capacity is not reviewed (no production). The company is an active one the caller may act in (422 `mrp.company_invalid`); `months` from 1 to 12 (422 `mrp.invalid_horizon`); a company that plans no such material has nothing to review (422 `mrp.sop_plan_empty`); a quantity in a unit the material no longer has cannot be counted (409 `mrp.unit_not_convertible`); two versions of a company started at once: one is refused (409 `mrp.sop_plan_concurrent`), to retry. Audited. A retry with the same `Idempotency-Key` answers the plan created. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - mrp.company_invalid
+        - mrp.invalid_horizon
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_empty
+        - mrp.unit_not_convertible
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The review to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SopPlanCreate"
+            examples:
+              quarter:
+                summary: Review Maple's next three months
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  months: 3
+      responses:
+        "201":
+          description: "Created; the plan version, `draft`, with its lines."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    get:
+      operationId: listSopPlans
+      tags:
+        - mrp
+      summary: List S&OP plan versions
+      description: "The S&OP plan versions of the companies the caller may act in (ADR-0084 As built S2n), each as `getSopPlan` gives it, in the order they were started. Filtered by company and status: a company's consensus plan is its fixed version with the highest number. Sortable by: `created_at`."
+      x-permission: mrp.sop.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: "Only plan versions in this status. A value that is no status matches none."
+          schema:
+            type: string
+            maxLength: 20
+            description: "Plan version status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [draft, fixed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of plan versions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlanPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sop-plans/{id}":
+    get:
+      operationId: getSopPlan
+      tags:
+        - mrp
+      summary: Get an S&OP plan version
+      description: "One S&OP plan version (ADR-0084 As built S2n): its company, number, status, the day it reviewed on and its horizon, who fixed it and when, and its lines by material group, unit and month, as `createSopPlan` describes them. One of a company the caller cannot act in is not found."
+      x-permission: mrp.sop.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The plan version.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateSopPlan
+      tags:
+        - mrp
+      summary: Change the consensus of a draft S&OP plan version
+      description: "Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a key that is no line of the plan is 422 `mrp.sop_line_unknown`; a change to what every named line already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's consensus before and after. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        - mrp.invalid_quantity
+        - mrp.nothing_to_change
+        - mrp.sop_line_unknown
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_fixed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The consensus to set.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SopPlanUpdate"
+            examples:
+              consensus:
+                summary: Fasteners in December agreed at 60
+                value:
+                  consensus:
+                    FASTENERS/EA/2026-12: "60"
+      responses:
+        "200":
+          description: The changed plan version.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sop-plans/{id}:fix":
+    post:
+      operationId: fixSopPlan
+      tags:
+        - mrp
+      summary: Fix an S&OP plan version as the consensus
+      description: "Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus included (the database refuses any change); the company's consensus plan is its fixed version with the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_fixed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The fixed plan version.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/outbound-deliveries:
     get:
       operationId: listOutboundDeliveries
@@ -66602,6 +66837,122 @@ components:
           items:
             $ref: "#/components/schemas/MrpRun"
           description: The runs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    SopPlanCreate:
+      type: object
+      description: "The S&OP review to start: a company and the months of its horizon."
+      required: [legal_entity_id]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company to review.", example: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01}
+        months: {type: integer, format: int32, minimum: 1, maximum: 12, default: 3, description: "The calendar months of the horizon, the first the one after the company's day begins in; 3 when absent."}
+    SopPlanUpdate:
+      type: object
+      description: "The consensus of lines of a draft plan version, by line key."
+      required: [consensus]
+      additionalProperties: false
+      properties:
+        consensus:
+          type: object
+          minProperties: 1
+          maxProperties: 1000
+          description: "A line's `key` mapped to its new consensus, a plain decimal in the line's unit."
+          additionalProperties:
+            type: string
+            maxLength: 30
+            pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$"
+    SopPlanLine:
+      type: object
+      description: "One material group's demand and supply in one unit and month of a plan version (ADR-0084 As built S2n), in that unit."
+      required: [key, material_group, unit, month, first_day, last_day, materials, forecast, sales_orders, opening_stock, purchase_orders, stock_transports, proposals, consensus, projected_stock]
+      properties:
+        key: {type: string, description: "The line's key, `material_group/unit/month`, by which `updateSopPlan` names it.", readOnly: true}
+        material_group: {type: string, description: "The materials' group.", readOnly: true}
+        unit: {type: string, description: "The materials' base unit.", readOnly: true}
+        month: {type: string, pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$", description: "The calendar month, `YYYY-MM`.", readOnly: true}
+        first_day: {type: string, format: date, description: "The month's first day in the horizon: the day after the plan's `as_of` in its first month.", readOnly: true}
+        last_day: {type: string, format: date, description: "The month's last day.", readOnly: true}
+        materials: {type: integer, format: int32, description: "The materials of the group in the unit the plan reviews.", readOnly: true}
+        forecast: {$ref: "#/components/schemas/Quantity", description: "The forecast demand: per material and plant the greater of its moving average of goods issues over the month's days and its confirmed sales orders due in the month."}
+        sales_orders: {$ref: "#/components/schemas/Quantity", description: "What the confirmed sales orders ordered and have not delivered, due in the month."}
+        opening_stock: {$ref: "#/components/schemas/Quantity", description: "The stock at the month's start: the plants' stock in the first month, the previous month's projected stock after."}
+        purchase_orders: {$ref: "#/components/schemas/Quantity", description: "The purchase orders' open quantities, in the first month; zero after."}
+        stock_transports: {$ref: "#/components/schemas/Quantity", description: "Stock transport orders in transit to the plants less intercompany orders the plants supply and have not issued, in the first month; zero after. Negative when more leaves than arrives."}
+        proposals: {$ref: "#/components/schemas/Quantity", description: "The requisitions planning runs proposed at the plants, not ordered, cancelled or rejected, in the first month; zero after."}
+        consensus: {$ref: "#/components/schemas/Quantity", description: "The demand agreed: the forecast until the planner changes it."}
+        projected_stock: {$ref: "#/components/schemas/Quantity", description: "The opening stock and receipts less the consensus; negative when the demand agreed is not covered."}
+    SopPlan:
+      description: "A version of a company's sales and operations plan (ADR-0084 As built S2n): a review of the demand forecast against supply by material group and month, fixed as the consensus."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, number, status, as_of, first_day, last_day, months, lines]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            number: {type: integer, format: int32, description: "The version's number in the company, from 1.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [draft, fixed]
+              description: "`draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            as_of: {type: string, format: date, description: "The company's day it reviewed on.", readOnly: true}
+            first_day: {type: string, format: date, description: "The horizon's first day, the day after `as_of`.", readOnly: true}
+            last_day: {type: string, format: date, description: "The horizon's last day, the last of its last month.", readOnly: true}
+            months: {type: integer, format: int32, description: "The months of the horizon.", readOnly: true}
+            fixed_at: {type: string, format: date-time, description: "When it was fixed; absent while it is a draft.", readOnly: true}
+            fixed_by: {type: string, format: uuid, description: "Who fixed it; absent while it is a draft.", readOnly: true}
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/SopPlanLine"
+              description: "Per material group, unit and month, by group, unit and month."
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-11-22T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-22T10:00:01Z"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          number: 1
+          status: draft
+          as_of: "2026-11-22"
+          first_day: "2026-11-23"
+          last_day: "2026-11-30"
+          months: 1
+          lines:
+            - key: FASTENERS/EA/2026-11
+              material_group: FASTENERS
+              unit: EA
+              month: "2026-11"
+              first_day: "2026-11-23"
+              last_day: "2026-11-30"
+              materials: 1
+              forecast: {value: "50", unit: EA}
+              sales_orders: {value: "50", unit: EA}
+              opening_stock: {value: "36", unit: EA}
+              purchase_orders: {value: "0", unit: EA}
+              stock_transports: {value: "0", unit: EA}
+              proposals: {value: "40", unit: EA}
+              consensus: {value: "50", unit: EA}
+              projected_stock: {value: "26", unit: EA}
+    SopPlanPage:
+      type: object
+      description: One page of S&OP plan versions.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SopPlan"
+          description: The plan versions on this page.
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."

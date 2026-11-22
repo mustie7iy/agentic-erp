@@ -7133,3 +7133,57 @@ erDiagram
   run reads its open and taken-over proposals by `proposal_by_plant`, a
   run's replaced ones by `proposal_by_replacing_run`.
 - Permissions `mrp.plan.read`, `mrp.plan.write` and `mrp.run.start`.
+
+S&OP plan versions (S2n, migration 000445; ADR-0084 As built S2n): a
+company's review of its demand forecast against supply by material
+group, base unit and month, and the consensus a planner fixes.
+
+```mermaid
+erDiagram
+  sop_plan ||--|{ sop_plan_line : "lines"
+  sop_plan { uuid id PK
+    uuid legal_entity_id "tenancy"
+    integer number "from 1, once per company"
+    text status "draft, fixed"
+    date as_of "the company's day reviewed on"
+    date first_day "as_of + 1"
+    date last_day "its last month's last day"
+    smallint months "1 to 12"
+    timestamptz fixed_at "once fixed"
+    uuid fixed_by "once fixed"
+    integer version }
+  sop_plan_line { uuid plan_id PK
+    text material_group PK
+    text uom_code PK "ref: the base unit"
+    date month PK "its first day"
+    date first_day
+    date last_day
+    integer materials "1 or more"
+    numeric forecast "never below sales_orders"
+    numeric sales_orders
+    numeric stock "first month"
+    numeric purchase_orders "first month"
+    numeric stock_transports "first month, either sign"
+    numeric proposals "first month"
+    numeric consensus "changes while a draft" }
+```
+
+- `mrp.sop_plan`: a version of a company numbered from 1, once per
+  company (`sop_plan_number_once`, `sop_plan_number_check`), `draft` or
+  `fixed` (`sop_plan_status_check`), of 1 to 12 months
+  (`sop_plan_months_check`) from the day after its review to the last day
+  of its last month (`sop_plan_horizon`); a fixed one names who fixed it
+  and when (`sop_plan_fixed_by`). A fixed version changes no more, its
+  company, number and horizon never, and none is deleted
+  (`sop_plan_fixed`, a trigger). Its version moves with every change
+  (`sop_plan_touch`); lists read by `sop_plan_by_created_at`.
+- `mrp.sop_plan_line`: a version's line per material group
+  (`sop_plan_line_material_group_check`), base unit
+  (`sop_plan_line_uom_fkey`) and month (`sop_plan_line_plan_fkey`), its
+  days of the month (`sop_plan_line_days`); its quantities not below zero
+  but its stock transports' (`sop_plan_line_*_check`), its forecast never
+  below its orders (`sop_plan_line_forecast_covers_orders`). Only its
+  consensus changes, and only while its version is a draft; no line is
+  deleted (`sop_plan_line_fixed`, a trigger). The application updates
+  the consensus alone.
+- Permissions `mrp.sop.read` and `mrp.sop.write`.

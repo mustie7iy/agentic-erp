@@ -254,15 +254,23 @@ func orZero(r *big.Rat) *big.Rat {
 // material's cannot be counted, so the run is refused (409
 // mrp.unit_not_convertible) rather than plan with less than is there.
 func (w *work) inBase(o Open) (*big.Rat, error) {
-	m, ok := w.materials[o.MaterialID]
+	return inBase(w.materials, o, w.plant.Code, "the run")
+}
+
+// inBase is an open quantity at the plant in its material's base unit;
+// nil for a material not among the materials. A unit that is no longer
+// one of the material's is refused (409 mrp.unit_not_convertible) naming
+// who cannot count it, rather than count less than is there.
+func inBase(ms map[uuid.UUID]materials.Material, o Open, plant, counter string) (*big.Rat, error) {
+	m, ok := ms[o.MaterialID]
 	if !ok {
 		return nil, nil
 	}
 	f, err := m.Factor(o.Unit)
 	if err != nil {
 		return nil, problem.Conflict("mrp.unit_not_convertible", fmt.Sprintf("Material %s has %s %s open at plant %s, and %s is no longer one of its "+
-			"units, so the run cannot count it in %s; give the material the unit again or change the document.", m.Number, o.Quantity, o.Unit,
-			w.plant.Code, o.Unit, m.BaseUnit))
+			"units, so %s cannot count it in %s; give the material the unit again or change the document.", m.Number, o.Quantity, o.Unit,
+			plant, o.Unit, counter, m.BaseUnit))
 	}
 	return new(big.Rat).Mul(money.ParseRat(o.Quantity), f), nil
 }

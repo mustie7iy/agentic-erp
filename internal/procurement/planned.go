@@ -52,6 +52,41 @@ func (Orders) OpenReceipts(ctx context.Context, plant uuid.UUID, materials []uui
 	return out, nil
 }
 
+// TransportSupply is what stock transport orders bring to the plant ($1)
+// of the materials ($2) or take from it, by material and unit in that
+// order, as signed plain decimals (S2n; ADR-0084 As built S2n): orders
+// within the company in transit to it (S2h), whose stock left the
+// supplying plant and is no plant's until received, add their
+// quantities; intercompany orders (S2i) it supplies, not closed or
+// cancelled and not yet issued, take theirs off. An order within the
+// company not yet issued moves stock between its plants only, and an
+// intercompany order the plant receives is a purchase order
+// (OpenReceipts), so neither is here. A material and unit that nets to
+// nothing has no row. It reads the orders as they are, locking nothing.
+// Company access is not applied: the caller reads a plant of a company it
+// may act in.
+func (Orders) TransportSupply(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT material_id, uom_code, trim_scale(sum(q))::text FROM (
+			SELECT i.material_id, i.uom_code, i.quantity AS q
+			FROM procurement.stock_transport_order_item i JOIN procurement.stock_transport_order o ON o.tenant_id = i.tenant_id AND o.id = i.order_id
+			WHERE o.receiving_plant_id = $1 AND o.status = 'in_transit' AND i.material_id = ANY($2)
+			UNION ALL
+			SELECT i.material_id, i.uom_code, -i.quantity
+			FROM procurement.purchase_order_item i JOIN procurement.purchase_order o ON o.tenant_id = i.tenant_id AND o.id = i.purchase_order_id
+			WHERE o.supplying_plant_id = $1 AND o.issue_document_id IS NULL AND o.status NOT IN ('closed', 'cancelled') AND NOT i.is_removed
+				AND i.material_id = ANY($2)) moves
+		GROUP BY material_id, uom_code HAVING sum(q) <> 0 ORDER BY material_id, uom_code`, plant, materials)
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[OnOrder])
+	if err != nil {
+		return nil, fmt.Errorf("procurement: stock transports of %d materials at plant %s: %w", len(materials), plant, err)
+	}
+	return out, nil
+}
+
 // RequisitionState is a requisition as a planning run reads it: its
 // status and version, and its live items of materials.
 type RequisitionState struct {

@@ -585,6 +585,10 @@ type CreateSodRuleRes interface {
 	createSodRuleRes()
 }
 
+type CreateSopPlanRes interface {
+	createSopPlanRes()
+}
+
 type CreateStatisticalKeyFigurePostingRes interface {
 	createStatisticalKeyFigurePostingRes()
 }
@@ -703,6 +707,10 @@ type FileTaxReturnRes interface {
 
 type FinalizeConsolidationRunRes interface {
 	finalizeConsolidationRunRes()
+}
+
+type FixSopPlanRes interface {
+	fixSopPlanRes()
 }
 
 type GetAccountRes interface {
@@ -1307,6 +1315,10 @@ type GetSerialNumberRes interface {
 
 type GetSodRuleRes interface {
 	getSodRuleRes()
+}
+
+type GetSopPlanRes interface {
+	getSopPlanRes()
 }
 
 type GetStatisticalKeyFigureRes interface {
@@ -1993,6 +2005,10 @@ type ListSodRulesRes interface {
 	listSodRulesRes()
 }
 
+type ListSopPlansRes interface {
+	listSopPlansRes()
+}
+
 type ListStatisticalKeyFigureValuesRes interface {
 	listStatisticalKeyFigureValuesRes()
 }
@@ -2667,6 +2683,10 @@ type UpdateRoleRes interface {
 
 type UpdateSegmentRes interface {
 	updateSegmentRes()
+}
+
+type UpdateSopPlanRes interface {
+	updateSopPlanRes()
 }
 
 type UpdateSupplierInvoiceRes interface {

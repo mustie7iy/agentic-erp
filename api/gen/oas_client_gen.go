@@ -2905,6 +2905,36 @@ type Invoker interface {
 	//
 	// POST /v1/sod-rules
 	CreateSodRule(ctx context.Context, request *SodRuleCreate, params CreateSodRuleParams) (CreateSodRuleRes, error)
+	// CreateSopPlan invokes createSopPlan operation.
+	//
+	// Starts a sales and operations planning review of a company (ADR-0084 As built S2n;
+	// plan-supply-chain.md §S2n; SAP IBP's S&OP review in monthly buckets, from memory): a new plan
+	// version, `draft`, numbered per company from 1, that reviews the demand forecast against supply by
+	// material group and month, on the company's day (`as_of`). It reviews every material the company
+	// plans (`createMaterialPlan`, whatever its MRP type) that is active, kept in stock and extended to
+	// the plant, at the plants it plans it; lines per material group, base unit (quantities of different
+	// units are never added) and month, the `months` calendar months of the horizon from the day after
+	// `as_of` (the first one from that day). Per line: the forecast, per material and plant the greater of
+	// the moving average of its goods issues (to a cost center, a delivery's and an intercompany one, less
+	// their reversals) over the 13 weeks to `as_of`, spread over the month's days, and what its confirmed
+	// sales orders ordered and have not delivered due in the month (the day the customer asked for, else
+	// the order's date; one due before the horizon in its first month) — the demand forecasting agent's
+	// rule (S2m) in months; sales_orders, those orders; and in the first month the supply the plants have:
+	// opening_stock (stock at their storage locations, not in transit), purchase_orders (open quantities
+	// of purchase orders not closed or cancelled, intercompany ones included), stock_transports (stock
+	// transport orders in transit to the company's plants, less intercompany orders its plants supply and
+	// have not issued) and proposals (the requisitions planning runs proposed at the plants that are not
+	// ordered, cancelled or rejected). The consensus starts as the forecast; `updateSopPlan` changes it;
+	// projected_stock is the opening stock and receipts less the consensus, the next month's opening
+	// stock. Capacity is not reviewed (no production). The company is an active one the caller may act in
+	// (422 `mrp.company_invalid`); `months` from 1 to 12 (422 `mrp.invalid_horizon`); a company that plans
+	// no such material has nothing to review (422 `mrp.sop_plan_empty`); a quantity in a unit the material
+	// no longer has cannot be counted (409 `mrp.unit_not_convertible`); two versions of a company started
+	// at once: one is refused (409 `mrp.sop_plan_concurrent`), to retry. Audited. A retry with the same
+	// `Idempotency-Key` answers the plan created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sop-plans
+	CreateSopPlan(ctx context.Context, request *SopPlanCreate, params CreateSopPlanParams) (CreateSopPlanRes, error)
 	// CreateStatisticalKeyFigure invokes createStatisticalKeyFigure operation.
 	//
 	// Defines a statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as
@@ -3384,6 +3414,16 @@ type Invoker interface {
 	//
 	// POST /v1/consolidation-runs/{id}:finalize
 	FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (FinalizeConsolidationRunRes, error)
+	// FixSopPlan invokes fixSopPlan operation.
+	//
+	// Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built
+	// S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus
+	// included (the database refuses any change); the company's consensus plan is its fixed version with
+	// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/sop-plans/{id}:fix
+	FixSopPlan(ctx context.Context, params FixSopPlanParams) (FixSopPlanRes, error)
 	// GetAccount invokes getAccount operation.
 	//
 	// Returns one general ledger account.
@@ -5287,6 +5327,14 @@ type Invoker interface {
 	//
 	// GET /v1/sod-rules/{id}
 	GetSodRule(ctx context.Context, params GetSodRuleParams) (GetSodRuleRes, error)
+	// GetSopPlan invokes getSopPlan operation.
+	//
+	// One S&OP plan version (ADR-0084 As built S2n): its company, number, status, the day it reviewed on
+	// and its horizon, who fixed it and when, and its lines by material group, unit and month, as
+	// `createSopPlan` describes them. One of a company the caller cannot act in is not found.
+	//
+	// GET /v1/sop-plans/{id}
+	GetSopPlan(ctx context.Context, params GetSopPlanParams) (GetSopPlanRes, error)
 	// GetStatisticalKeyFigure invokes getStatisticalKeyFigure operation.
 	//
 	// Returns one statistical key figure. A key figure of a legal entity the caller cannot act in is
@@ -7006,6 +7054,14 @@ type Invoker interface {
 	//
 	// GET /v1/sod-rules
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
+	// ListSopPlans invokes listSopPlans operation.
+	//
+	// The S&OP plan versions of the companies the caller may act in (ADR-0084 As built S2n), each as
+	// `getSopPlan` gives it, in the order they were started. Filtered by company and status: a company's
+	// consensus plan is its fixed version with the highest number. Sortable by: `created_at`.
+	//
+	// GET /v1/sop-plans
+	ListSopPlans(ctx context.Context, params ListSopPlansParams) (ListSopPlansRes, error)
 	// ListStatisticalKeyFigureValues invokes listStatisticalKeyFigureValues operation.
 	//
 	// The values of a statistical key figure in a fiscal period (ADR-0064 As built T60j): per cost center
@@ -9796,6 +9852,18 @@ type Invoker interface {
 	//
 	// PATCH /v1/segments/{id}
 	UpdateSegment(ctx context.Context, request *SegmentUpdate, params UpdateSegmentParams) (UpdateSegmentRes, error)
+	// UpdateSopPlan invokes updateSopPlan operation.
+	//
+	// Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412
+	// otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in
+	// the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a
+	// key that is no line of the plan is 422 `mrp.sop_line_unknown`; a change to what every named line
+	// already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected
+	// stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited
+	// with each line's consensus before and after. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/sop-plans/{id}
+	UpdateSopPlan(ctx context.Context, request *SopPlanUpdate, params UpdateSopPlanParams) (UpdateSopPlanRes, error)
 	// UpdateSupplierInvoice invokes updateSupplierInvoice operation.
 	//
 	// Changes a supplier invoice in status `parked`. JSON Merge Patch (RFC 7396): absent fields are
@@ -32946,6 +33014,160 @@ func (c *Client) sendCreateSodRule(ctx context.Context, request *SodRuleCreate, 
 	return result, nil
 }
 
+// CreateSopPlan invokes createSopPlan operation.
+//
+// Starts a sales and operations planning review of a company (ADR-0084 As built S2n;
+// plan-supply-chain.md §S2n; SAP IBP's S&OP review in monthly buckets, from memory): a new plan
+// version, `draft`, numbered per company from 1, that reviews the demand forecast against supply by
+// material group and month, on the company's day (`as_of`). It reviews every material the company
+// plans (`createMaterialPlan`, whatever its MRP type) that is active, kept in stock and extended to
+// the plant, at the plants it plans it; lines per material group, base unit (quantities of different
+// units are never added) and month, the `months` calendar months of the horizon from the day after
+// `as_of` (the first one from that day). Per line: the forecast, per material and plant the greater of
+// the moving average of its goods issues (to a cost center, a delivery's and an intercompany one, less
+// their reversals) over the 13 weeks to `as_of`, spread over the month's days, and what its confirmed
+// sales orders ordered and have not delivered due in the month (the day the customer asked for, else
+// the order's date; one due before the horizon in its first month) — the demand forecasting agent's
+// rule (S2m) in months; sales_orders, those orders; and in the first month the supply the plants have:
+// opening_stock (stock at their storage locations, not in transit), purchase_orders (open quantities
+// of purchase orders not closed or cancelled, intercompany ones included), stock_transports (stock
+// transport orders in transit to the company's plants, less intercompany orders its plants supply and
+// have not issued) and proposals (the requisitions planning runs proposed at the plants that are not
+// ordered, cancelled or rejected). The consensus starts as the forecast; `updateSopPlan` changes it;
+// projected_stock is the opening stock and receipts less the consensus, the next month's opening
+// stock. Capacity is not reviewed (no production). The company is an active one the caller may act in
+// (422 `mrp.company_invalid`); `months` from 1 to 12 (422 `mrp.invalid_horizon`); a company that plans
+// no such material has nothing to review (422 `mrp.sop_plan_empty`); a quantity in a unit the material
+// no longer has cannot be counted (409 `mrp.unit_not_convertible`); two versions of a company started
+// at once: one is refused (409 `mrp.sop_plan_concurrent`), to retry. Audited. A retry with the same
+// `Idempotency-Key` answers the plan created. Human-only (`x-agent: false`).
+//
+// POST /v1/sop-plans
+func (c *Client) CreateSopPlan(ctx context.Context, request *SopPlanCreate, params CreateSopPlanParams) (CreateSopPlanRes, error) {
+	res, err := c.sendCreateSopPlan(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateSopPlan(ctx context.Context, request *SopPlanCreate, params CreateSopPlanParams) (res CreateSopPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createSopPlan"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sop-plans"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateSopPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sop-plans"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateSopPlanRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateSopPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateSopPlanResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateStatisticalKeyFigure invokes createStatisticalKeyFigure operation.
 //
 // Defines a statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as
@@ -37787,6 +38009,167 @@ func (c *Client) sendFinalizeConsolidationRun(ctx context.Context, params Finali
 
 	stage = "DecodeResponse"
 	result, err := decodeFinalizeConsolidationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// FixSopPlan invokes fixSopPlan operation.
+//
+// Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built
+// S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus
+// included (the database refuses any change); the company's consensus plan is its fixed version with
+// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/sop-plans/{id}:fix
+func (c *Client) FixSopPlan(ctx context.Context, params FixSopPlanParams) (FixSopPlanRes, error) {
+	res, err := c.sendFixSopPlan(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendFixSopPlan(ctx context.Context, params FixSopPlanParams) (res FixSopPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("fixSopPlan"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sop-plans/{id}:fix"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, FixSopPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sop-plans/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":fix"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, FixSopPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeFixSopPlanResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -60225,6 +60608,139 @@ func (c *Client) sendGetSodRule(ctx context.Context, params GetSodRuleParams) (r
 
 	stage = "DecodeResponse"
 	result, err := decodeGetSodRuleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetSopPlan invokes getSopPlan operation.
+//
+// One S&OP plan version (ADR-0084 As built S2n): its company, number, status, the day it reviewed on
+// and its horizon, who fixed it and when, and its lines by material group, unit and month, as
+// `createSopPlan` describes them. One of a company the caller cannot act in is not found.
+//
+// GET /v1/sop-plans/{id}
+func (c *Client) GetSopPlan(ctx context.Context, params GetSopPlanParams) (GetSopPlanRes, error) {
+	res, err := c.sendGetSopPlan(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetSopPlan(ctx context.Context, params GetSopPlanParams) (res GetSopPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSopPlan"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sop-plans/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetSopPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/sop-plans/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetSopPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetSopPlanResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -99279,6 +99795,210 @@ func (c *Client) sendListSodRules(ctx context.Context, params ListSodRulesParams
 	return result, nil
 }
 
+// ListSopPlans invokes listSopPlans operation.
+//
+// The S&OP plan versions of the companies the caller may act in (ADR-0084 As built S2n), each as
+// `getSopPlan` gives it, in the order they were started. Filtered by company and status: a company's
+// consensus plan is its fixed version with the highest number. Sortable by: `created_at`.
+//
+// GET /v1/sop-plans
+func (c *Client) ListSopPlans(ctx context.Context, params ListSopPlansParams) (ListSopPlansRes, error) {
+	res, err := c.sendListSopPlans(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListSopPlans(ctx context.Context, params ListSopPlansParams) (res ListSopPlansRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSopPlans"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sop-plans"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListSopPlansOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sop-plans"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListSopPlansOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListSopPlansResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListStatisticalKeyFigureValues invokes listStatisticalKeyFigureValues operation.
 //
 // The values of a statistical key figure in a fiscal period (ADR-0064 As built T60j): per cost center
@@ -128730,6 +129450,171 @@ func (c *Client) sendUpdateSegment(ctx context.Context, request *SegmentUpdate, 
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateSegmentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateSopPlan invokes updateSopPlan operation.
+//
+// Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412
+// otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in
+// the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a
+// key that is no line of the plan is 422 `mrp.sop_line_unknown`; a change to what every named line
+// already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected
+// stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited
+// with each line's consensus before and after. Human-only (`x-agent: false`).
+//
+// PATCH /v1/sop-plans/{id}
+func (c *Client) UpdateSopPlan(ctx context.Context, request *SopPlanUpdate, params UpdateSopPlanParams) (UpdateSopPlanRes, error) {
+	res, err := c.sendUpdateSopPlan(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateSopPlan(ctx context.Context, request *SopPlanUpdate, params UpdateSopPlanParams) (res UpdateSopPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateSopPlan"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/sop-plans/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateSopPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/sop-plans/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateSopPlanRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateSopPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateSopPlanResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

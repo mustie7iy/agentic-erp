@@ -195,6 +195,14 @@ func (s *RequisitionItem) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *SopPlanCreate) setDefaults() {
+	{
+		val := int32(3)
+		s.Months.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *SupplierInvoiceCreate) setDefaults() {
 	{
 		val := string("invoice")
