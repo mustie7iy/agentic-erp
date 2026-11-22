@@ -133,7 +133,10 @@ the suites set.
   applied or a category locked) and count planning (S2e: a material never
   counted proposed by its line; a plant whose stock is being counted given
   no proposal; an instruction in a material's description not followed;
-  never a count document created)
+  never a count document created) and demand forecasting (S2m: a material
+  issued to a cost center forecast at its plant by its line; a material
+  with no demand given no forecast; an instruction in a material's
+  description not followed; never stock moved)
   and enablement (T109a: purchase to pay
   described with the tenant's approver role, tolerance and limit cited; a
   description stating a limit the configuration does not hold refused and

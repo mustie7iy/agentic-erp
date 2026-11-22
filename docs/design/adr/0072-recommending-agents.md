@@ -218,6 +218,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
 | `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner` | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 | `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
+| `demand_forecast` | `internal/demandagent`, `erp agent demand-forecast -company CODE -material NUMBER` (S2m) | `getMaterial`, `listMaterials`, `listMaterialDocuments`, `getMaterialDocument`, `listSalesOrders`, `getSalesOrder` | on `material`: `demand_forecast` | every goods movement and count (`createMaterialDocument`, `reverseMaterialDocument` and the postings that post one), every write of sales orders and their deliveries, of requisitions and purchase orders, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -1581,6 +1582,81 @@ A later slice adds its row here and its section under "As built".
   nothing, and names Tyrell on the proposal himself.
 - No migration, no new operation, permission, event or problem code.
 
+### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
+
+- `internal/demandagent`; agent type `demand_forecast` (in
+  `autonomy.Types` and the profile's open enumeration in both
+  contracts). ADR-0082 As built S2m holds the method of the forecast;
+  this section the agent.
+- `erp agent demand-forecast -company CODE -material NUMBER`. Before its
+  session the run finds the company (`apitools.LegalEntity`) and the
+  material by its number (`listMaterials`), refusing one it cannot find
+  or that is extended to no plant of the company (`ErrMaterial`); takes
+  the company's date (`apitools.Days.Of`); and reads the material's
+  documents (`listMaterialDocuments` by `material_id`, every page, kept
+  by posting date: the list is in creation order) and the company's
+  confirmed orders of it (`listSalesOrders` by `legal_entity_id`,
+  `status` `confirmed` and the new `material_id`, every page). Any of
+  them the agent may not read stops it there; a quantity in a unit the
+  material has not, or a date that is none, stops it too, never guessed.
+- **The forecast is computed, not judged**: each plant of the company the
+  material is extended to, by code (the first `MaxLines`, 20, given, and
+  how many more), gets the line `Forecast <material number> at <plant
+  code> (plant <id>), <base unit> per week from <the day after>: <8
+  figures>; issued <n> in 13 weeks, open orders <n>; accuracy <x>% over 4
+  weeks` (or `accuracy none over 4 weeks: nothing was forecast`), its
+  figures to three decimals, half away from zero. A material with no
+  goods issue in the 17 weeks read and no open order at any of them gets
+  no session and the reply "Nothing to forecast for material ...",
+  printed alone.
+- **One recommendation on the material** (object type `material`; kind
+  `demand_forecast`). Its check (`forecast.check`): every line starting
+  `Forecast ` is one given (`ErrLine`), in the order given and once
+  (`ErrOrder`), all of them, then reasons (`ErrForm`: a planner needs
+  every plant's forecast); every number of the reasons one the run read
+  (`ErrUnread`, §4). The lines are left out of the figures check, as the
+  replenishment agent's first line is: their figures are the run's, held
+  whole by the line check, and a quantity with a fraction is no amount a
+  read returns, so the prompt keeps such figures to the lines. The
+  planner who accepts sets the material's planning data
+  (`updateMaterialPlan`) or runs planning (`startMrpRun`) through the
+  normal operations: nothing happens on acceptance.
+- Its never list is every goods movement and count (as the count planning
+  agent's, with `createStockTransportOrder`), every write of sales orders
+  and their deliveries (`createSalesOrder`, `captureSalesOrder`,
+  `createSalesOrderUpload`, `confirmSalesOrder`,
+  `releaseSalesOrderCreditBlock`, `changeSalesOrder`, `cancelSalesOrder`,
+  `confirmSalesDelivery`, `createOutboundDelivery`,
+  `pickOutboundDelivery`), of requisitions and purchase orders (as the
+  replenishment agent's) and planning (`startMrpRun`,
+  `createMaterialPlan`, `updateMaterialPlan`): it never changes stock,
+  orders or planning (the brief's acceptance). `TestNever` keeps it whole
+  against the contract's writes named `MaterialDocument`, `GoodsReceipt`,
+  `GoodsIssue`, `StockTransport`, `PhysicalInventory`, `SalesOrder`,
+  `SalesDelivery`, `OutboundDelivery`, `Requisition`, `PurchaseOrder`,
+  `MrpRun` and `MaterialPlan`.
+- `listSalesOrders` gains optional `plant_id` (the orders delivering from
+  the plant; an order that names none matches none) and `material_id`
+  (the orders with a standing item of the material, each answered whole;
+  `TestListByPlantAndMaterial`), additive.
+- `evals/demand_forecast`, version 1, replayed to level 2: a hinge issued
+  to a cost center forecast at its plant by its line (10 in the week,
+  0.769 a week); a hinge with no demand given no forecast and the reply
+  saying so; an instruction in a material's description to issue its
+  stock and recommend nothing not followed. In each the material's
+  documents stay as they were. The replay cell's day is fixed at
+  2026-11-16 (`cellClock`), the year its configuration numbers; the line
+  is read from the agent's prompt (`replay_vars`). Not run against a live
+  model.
+- Walkthrough `step_demand_forecast_agent` (step 156, after
+  `step_intercompany_transport`): Ada sets up the agent; Wade issues 4 H30
+  hinges to CC-1100; the stand-in's line of its own is refused, then the
+  line given (50 this week, Sally's confirmed order of step 152, then
+  0.308 a week; accuracy none) is recommended; its own goods issue is
+  refused (403); Mira accepts, which moves nothing.
+- No migration, no new permission, event or problem code; the two
+  filters are the one contract change.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per
@@ -1796,3 +1872,10 @@ A later slice adds its row here and its section under "As built".
     company's (`apitools.Days.Of`); at most 40 lines are given, the rest
     counted in the prompt for the next run; a plant with nothing due gets
     no session. The rule of a count due is ADR-0082 As built S2e's.
+34. (S2m) The demand forecasting agent recommends on the material (object
+    type `material`), once per run, every plant of the company's line
+    computed before its session (the method ADR-0082 As built S2m's);
+    the model adds the reasons and may not leave a plant out; at most 20
+    plants are given; a material with neither issues nor open orders gets
+    no session. `listSalesOrders` filters by `plant_id` and `material_id`,
+    so the agent reads a material's orders without paging the company's.

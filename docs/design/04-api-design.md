@@ -1206,6 +1206,14 @@ CODE`, agent type `count_planning`, S2e) recommends on a `plant`:
 run computed from the plant's stock, material documents and count
 documents (class, movements, last count); the controller creates the
 count documents (`x-agent: false`, ADR-0082 As built S2e).
+The demand forecasting agent (`erp agent demand-forecast -company CODE
+-material NUMBER`, agent type `demand_forecast`, S2m) recommends on a
+`material`: `demand_forecast`, one line per plant of the company its run
+computed from the material's goods issues and the confirmed orders open
+for it (weekly, 8 weeks ahead, with its accuracy as 100 less WAPE;
+`listSalesOrders` takes `plant_id` and `material_id`); the planner acts
+through materials' planning data and the planning run, none of which it
+has (ADR-0082 As built S2m).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

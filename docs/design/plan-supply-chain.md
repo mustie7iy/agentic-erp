@@ -884,6 +884,26 @@ safety stock calculation, MRP areas, planned orders for production (phase
 plant from its goods issues and open orders and states its accuracy
 (the analytics context's forecast pattern, ADR-0044).
 
+- **Detailed and as built** (lane fcast, 2026-11-22; one slice, one leaf,
+  nothing to split; decided by default, ADR-0082 As built S2m and
+  ADR-0072 As built S2m): `erp agent demand-forecast -company CODE
+  -material NUMBER`, agent type `demand_forecast`
+  (`internal/demandagent`). Before its session the run reads the
+  material's documents and the company's confirmed orders of it and
+  computes, for each plant of the company the material is extended to,
+  weekly buckets ending on the company's date: the moving average of the
+  last 13 weeks' goods issues (201, 601, 643 less 202, 602), the 8 weeks
+  ahead each the greater of it and the confirmed orders' undelivered
+  quantity due that week, and its accuracy, 100 less WAPE of the average
+  over the last 4 weeks (the cash forecast's measure); one line per
+  plant. The model leaves one `demand_forecast` on the material with
+  every plant's line and its reasons; neither issues nor orders, no
+  session. Never: every goods movement and count, every write of sales
+  orders, deliveries, requisitions and purchase orders, planning runs
+  and planning data. `listSalesOrders` takes `plant_id` and
+  `material_id`. No migration; suite `evals/demand_forecast`; walkthrough
+  step 156 (`step_demand_forecast_agent`).
+
 ### S2n S&OP review
 
 **Capability.** A planner reviews the forecast against supply and

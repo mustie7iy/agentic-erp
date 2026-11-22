@@ -6955,8 +6955,8 @@ type Invoker interface {
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
 	// quotation it came from, its net value, its credit block and its items with their ordered, delivered,
-	// billed and returned quantities. Filtered by company, customer, status, credit block, document number
-	// and quotation. Sortable by: `order_date`, `document_number`.
+	// billed and returned quantities. Filtered by company, customer, status, credit block, document
+	// number, quotation, plant and material. Sortable by: `order_date`, `document_number`.
 	//
 	// GET /v1/sales-orders
 	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
@@ -97778,8 +97778,8 @@ func (c *Client) sendListSalesOrderChanges(ctx context.Context, params ListSales
 // The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 // `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
 // quotation it came from, its net value, its credit block and its items with their ordered, delivered,
-// billed and returned quantities. Filtered by company, customer, status, credit block, document number
-// and quotation. Sortable by: `order_date`, `document_number`.
+// billed and returned quantities. Filtered by company, customer, status, credit block, document
+// number, quotation, plant and material. Sortable by: `order_date`, `document_number`.
 //
 // GET /v1/sales-orders
 func (c *Client) ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error) {
@@ -97925,6 +97925,40 @@ func (c *Client) sendListSalesOrders(ctx context.Context, params ListSalesOrders
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.QuotationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
 			}
 			return nil

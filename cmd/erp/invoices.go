@@ -272,7 +272,7 @@ func agentInvoices(ctx context.Context) error {
 }
 
 // agentUsage names the delivery agents.
-const agentUsage = "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | support-diagnose | support-fix | collections | integration-monitor | savings | control-monitor | risk | plan | enablement-docs | enablement-help | replenish | count-plan"
+const agentUsage = "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles | access-sod | access-review | bid-compare | regulatory-notice | regulatory-draft | support-ask | support-diagnose | support-fix | collections | integration-monitor | savings | control-monitor | risk | plan | enablement-docs | enablement-help | replenish | count-plan | demand-forecast"
 
 // agents are the delivery agents but invoices, by their command's name,
 // each run with the arguments after it.
@@ -302,6 +302,7 @@ var agents = map[string]func(context.Context, []string) error{
 	"risk":                agentRisk,
 	"plan":                agentPlan,
 	"count-plan":          agentCountPlan,
+	"demand-forecast":     agentDemandForecast,
 	"enablement-docs":     agentEnablementDocs,
 	"enablement-help":     agentEnablementHelp,
 	"replenish":           agentReplenish,

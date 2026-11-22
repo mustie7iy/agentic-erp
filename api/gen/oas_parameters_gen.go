@@ -111697,6 +111697,14 @@ type ListSalesOrdersParams struct {
 	DocumentNumber OptString `json:",omitempty,omitzero"`
 	// Only the order created from this quotation.
 	QuotationID OptUUID `json:",omitempty,omitzero"`
+	// Only orders delivering from this plant (`plant_id` of `createSalesOrder`, S2j; an org unit of kind
+	// `plant`): the plant's demand, which the demand forecasting agent reads (S2m). An order that names no
+	// plant matches none.
+	PlantID OptUUID `json:",omitempty,omitzero"`
+	// Only orders with an item of this material (`GET /v1/materials/{id}`) that is not removed
+	// (`removed_in_change`): the material's sales demand, which the demand forecasting agent reads (S2m).
+	// Each order is answered whole, all its items with it.
+	MaterialID OptUUID `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -111760,6 +111768,24 @@ func unpackListSalesOrdersParams(packed middleware.Parameters) (params ListSales
 		}
 		if v, ok := packed[key]; ok {
 			params.QuotationID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "plant_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PlantID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "material_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.MaterialID = v.(OptUUID)
 		}
 	}
 	{
@@ -112063,6 +112089,88 @@ func decodeListSalesOrdersParams(args [0]string, argsEscaped bool, r *http.Reque
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "quotation_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: plant_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPlantIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPlantIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PlantID.SetTo(paramsDotPlantIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "plant_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: material_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotMaterialIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotMaterialIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.MaterialID.SetTo(paramsDotMaterialIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "material_id",
 			In:   "query",
 			Err:  err,
 		}
