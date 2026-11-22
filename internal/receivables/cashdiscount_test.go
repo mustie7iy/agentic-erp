@@ -226,8 +226,11 @@ func TestUAECashDiscount(t *testing.T) {
 		AND object_id = $2`, []any{e.Tenant.ID, got["id"]}, &audited)
 	pgtest.Scan(t, `SELECT payload->'cash_discount'->>'amount' FROM receivables.outbox WHERE tenant_id = $1 AND aggregate_id = $2
 		AND event_type = 'com.example.erp.receivables.incoming_payment_applied.v1'`, []any{e.Tenant.ID, got["id"]}, &published)
-	if audited != "35.50" || published != "35.50" {
-		t.Errorf("the cash discount audited and published: got %s and %s, want 35.50 and 35.50", audited, published)
+	if audited != "35.50" {
+		t.Errorf("the cash discount audited: got %s, want 35.50", audited)
+	}
+	if published != "35.50" {
+		t.Errorf("the cash discount published: got %s, want 35.50", published)
 	}
 	e.Must(200, "POST", "/v1/incoming-payments/"+got["id"].(string)+":reset", `{"reason": "Applied to the wrong customer."}`, tag)
 	if boxes := e.vat201(t, "1a_amount", "1a_vat", "1b_amount", "1b_vat", "4_amount"); boxes != before {
@@ -247,16 +250,29 @@ func (e discountEnv) credited(t *testing.T, amount int64, day string) string {
 	return itemRef(entry.ID, 1)
 }
 
+// mixedCode is SM, an output code of two components: VAT at 5% on 230000
+// levying the emirate each line names and a levy of 1% on 231000 that
+// does not.
+var mixedCode = config.TaxCode{Code: "SM", Description: "VAT and a levy", Direction: config.TaxOutput, Components: []config.TaxComponent{
+	{Key: "vat", Jurisdiction: "AE", JurisdictionOnLine: true, AccountKey: config.KeyOutput, Account: "230000", Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}},
+	{Key: "levy", Jurisdiction: "AE", AccountKey: config.KeyOutput, Account: "231000", Rates: []config.TaxRate{{RatePercent: "1", ValidFrom: "2026-01-01"}}}}}
+
 // TestUAECashDiscountRefusals: only an invoice paid in full takes its
 // discount, within its terms' discount period counted on the receipt's
-// day; an application of a credit on account grants none; a company
-// without a payment_difference_expense account grants none either. Each
-// refusal names the item's field and posts nothing.
+// day, and only one whose codes the split can keep the emirates of (not
+// SM, a component of which levies none); an application of a credit on
+// account grants none; a company without a payment_difference_expense
+// account grants none either. Each refusal names the item's field and
+// posts nothing.
 func TestUAECashDiscountRefusals(t *testing.T) {
-	e := uaeEnv(t, nil)
+	e := uaeEnv(t, func(c *config.Company) {
+		c.ChartOfAccounts = append(c.ChartOfAccounts, config.Account{Number: "231000", Name: "Levy payable", Type: config.Liability})
+		c.TaxCodes = append(c.TaxCodes, mixedCode)
+	})
 	invoice := func() string {
 		return itemRef(e.invoiced(t, "2026-03-10", e.item("100.00", "S5", "AE-DU"))["journal_entry_id"], 1)
 	}
+	mixed := itemRef(e.invoiced(t, "2026-03-10", e.item("100.00", "SM", "AE-DU"))["journal_entry_id"], 1)
 	// A payment left on account, whose credit an application would apply.
 	body := e.payment(e.receipt(t, 5000, "2026-03-20").ID)
 	credit, _ := e.Must(201, "POST", "/v1/incoming-payments", body[:len(body)-1]+`, "on_account": true}`, "")
@@ -268,6 +284,8 @@ func TestUAECashDiscountRefusals(t *testing.T) {
 		{"an item paid in part", e.payment(e.receipt(t, 9290, "2026-03-20").ID, discounted(withResidual(invoice(), "10.00", "short_payment", ""))),
 			"ledger.invalid_discount", "items[0].cash_discount"},
 		{"a receipt after the discount period", e.payment(e.receipt(t, 10290, "2026-03-25").ID, discounted(invoice())), "ledger.no_cash_discount",
+			"items[0].cash_discount"},
+		{"a code levying the emirate in one component alone", e.payment(e.receipt(t, 10388, "2026-03-20").ID, discounted(mixed)), "ledger.invalid_discount",
 			"items[0].cash_discount"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -346,4 +364,41 @@ func TestCashDiscountDatabaseFailures(t *testing.T) {
 			PostingDate: gen.NewOptDate(date(t, "2026-03-21")), Items: []gen.IncomingPaymentItemRef{owed}}, gen.CreateIncomingPaymentParams{})
 		return err
 	})
+}
+
+// TestUAECashDiscountOfSome: of two invoices one receipt pays, the one in
+// US dollars takes its discount and the dirham one does not. USD 105.00
+// (100.00 in Dubai at 5%) is AED 385.61 at 3.6725; its 2%, 7.71, has
+// 0.37 of Dubai's VAT (5.00 of 105.00) and 7.34 net. The receipt is
+// 385.61 - 7.71 + 105.00 = 482.90.
+func TestUAECashDiscountOfSome(t *testing.T) {
+	e := uaeEnv(t, nil)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'AED', '2026-01-01', 3.6725, 'test', $2),
+		       ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.92, 'test', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	dollars := e.post(t, e.entered(t, fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "invoice_date": "2026-03-10", "currency": "USD", "items": [%s]}`,
+		e.le, e.customer, in(itemOn(e.revenue, "100.00", "USD", "S5"), "AE-DU"))), "2026-03-10")
+	dirhams := e.invoiced(t, "2026-03-10", e.item("100.00", "S5", "AE-AZ"))
+	got, _ := e.Must(201, "POST", "/v1/incoming-payments", e.payment(e.receipt(t, 48290, "2026-03-20").ID, discounted(itemRef(dollars["journal_entry_id"], 1)),
+		itemRef(dirhams["journal_entry_id"], 1)), "")
+	if c, d := amount(t, got, "cash_discount"), amount(t, got, "difference"); c != "7.71 AED" || d != "0.00 AED" {
+		t.Errorf("cash discount and difference: got %s and %s, want 7.71 AED and 0.00 AED", c, d)
+	}
+	its := items(t, got)
+	if a := amount(t, its[0], "cash_discount"); a != "7.71 AED" {
+		t.Errorf("the dollar invoice's cash discount: got %s, want 7.71 AED", a)
+	}
+	if d, ok := its[1]["cash_discount"]; ok {
+		t.Errorf("the dirham invoice's cash discount: got %v, want none", d)
+	}
+	var lines string
+	pgtest.Scan(t, `SELECT string_agg(format('%s %s %s', a.number, l.amount_tc, l.tax_jurisdiction), '; ' ORDER BY l.line_no)
+		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		WHERE l.tenant_id = $1 AND l.journal_entry_id = $2 AND l.tax_code IS NOT NULL`, []any{e.Tenant.ID, got["journal_entry_id"]}, &lines)
+	if want := "680000 734 AE-DU; 230000 37 AE-DU"; lines != want {
+		t.Errorf("the discount's lines: got %s, want %s", lines, want)
+	}
+	if its, want := e.taxItems(t, got["journal_entry_id"]), "S5 AE-DU 734 37"; its != want {
+		t.Errorf("the clearing entry's tax items: got %s, want %s", its, want)
+	}
 }

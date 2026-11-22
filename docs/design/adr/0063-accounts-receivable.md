@@ -1608,7 +1608,12 @@ is built for the UAE.
   credit of the customer's or an item with a residual is refused, 422
   `ledger.invalid_discount`, and an item whose terms grant none that day
   (no tier, the period over, no terms) 422 `ledger.no_cash_discount`,
-  each naming `items[i].cash_discount`. The items, net of their residuals,
+  each naming `items[i].cash_discount`. So is an invoice under a code of
+  which one component levies its lines' subdivision and another does
+  not (422 `ledger.invalid_discount`): the line rule is per code
+  (`journal_line_tax_jurisdiction_code`), while the other component's
+  items name no emirate, so its share could not be kept in one; the
+  discount is then written off by a reason (T75o). The items, net of their residuals,
   write-offs and discounts, must then equal the receipt but for the
   payment tolerance, as before.
 - **The correction** (`internal/ledger/receiptdiscount.go`): the discount
@@ -1626,7 +1631,7 @@ is built for the UAE.
   reduce that emirate's VAT 201 box; a zero-rated base is reduced at rate
   0 (box 4). The supplier side gains the same keying: an input code that
   levied its lines' subdivision would now have its correction's lines
-  name it (none does today). Lines and items are at the **receipt's
+  name it (none can: the configuration allows a component to levy its lines' subdivision on output codes alone). Lines and items are at the **receipt's
   rate**, as the payment difference is; the items' local amounts are
   shared out of each line's (`discountPlan.taxItemsAt`). Undoing the
   payment (T75i) reverses the clearing entry and its tax items with it.
@@ -1680,6 +1685,9 @@ is built for the UAE.
 - Tests: `TestUAECashDiscount` (a real UAE company on the pack 2026.9's
   codes and VAT 201: the clearing entry's lines and tax items, the boxes
   before, after and once the payment is undone), `TestUAECashDiscountRefusals`,
+  `TestUAECashDiscountOfSome` (a dollar invoice taking its discount on
+  its translated amount beside a dirham one taking none),
   `TestCanadianCashDiscount`, `TestCashDiscountDatabaseFailures`,
+  `TestDiscountsOutOfRange` (ledger),
   batch 85's `TestDiscountOnLeviedJurisdiction` (a company of DE grants
   none). Walkthrough step 156 (`step_uae_cash_discount`).

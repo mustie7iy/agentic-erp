@@ -247,8 +247,8 @@ func (a *application) withinTolerance(ctx context.Context, tx pgx.Tx, in Receipt
 		over = d
 	}
 	// The items applied, net of their residual items: the receipt, the
-	// difference and what was written off.
-	base, err := money.Sum(-receipt.tc, d, a.writtenOff)
+	// difference, what was written off and the cash discounts taken.
+	base, err := money.Sum(-receipt.tc, d, a.writtenOff, a.discount)
 	if err != nil {
 		return errTotalTooLarge("items")
 	}

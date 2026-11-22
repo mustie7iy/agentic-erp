@@ -49,7 +49,7 @@ type sourceItem struct {
 	base, tax money.Minor
 }
 
-// taxedItem is a discounted item with what its entry owes the supplier
+// taxedItem is a discounted item with what its entry owes the partner
 // (paid, in the sign it is paid in) and its entry's tax items in that
 // sign.
 type taxedItem struct {
@@ -174,14 +174,14 @@ func splitTax(items []taxedItem) (discountSplit, error) {
 
 // itemTaxShares is one item's discount split by its entry's tax items. The
 // tax share of each item is the discount times its tax over the gross the
-// entry owes the supplier, the total rounded once half away from zero and
+// entry owes the partner, the total rounded once half away from zero and
 // shared out by largest remainder (money.Allocate, ties in account, code
 // and component order), less than the discount; the net it leaves is
 // shared out the same way among the codes' bases and the untaxed rest of
 // the gross (baseShares), so net and tax add up to the discount exactly.
 // An entry that owes nothing, whose tax does not all run in its payment's
 // direction (§13b and intra-EU pairs among them), or whose tax is at least
-// what it owes the supplier (its supplier lines offset others), is not
+// what it owes the partner (its partner lines offset others), is not
 // split: its discount is all net.
 func itemTaxShares(it taxedItem, n int) []itemShare {
 	if it.paid == 0 || len(it.items) == 0 {
@@ -195,7 +195,7 @@ func itemTaxShares(it taxedItem, n int) []itemShare {
 			return nil
 		}
 		if weight += s.tax; weight.Abs() >= it.paid.Abs() { // each step below the gross: in range
-			return nil // tax of at least what is owed: the supplier lines offset others, so the gross is not the base
+			return nil // tax of at least what is owed: the partner lines offset others, so the gross is not the base
 		}
 		exact[i] = new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.discount)), big.NewInt(int64(s.tax))), big.NewInt(int64(it.paid)))
 	}

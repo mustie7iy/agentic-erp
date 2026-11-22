@@ -215,20 +215,18 @@ type Handler interface {
 	ApplyCountryPack(ctx context.Context, req *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
 	// ApplyIncomingPaymentOnAccount implements applyIncomingPaymentOnAccount operation.
 	//
-	// A cash discount is not granted here (422 `receivables.cash_discount_not_granted` naming
-	// `items[i].cash_discount`): an item takes its discount when a receipt pays it
-	// (`createIncomingPayment`). Applies what an incoming payment left on the customer's account (T75g,
-	// `createIncomingPayment` with `on_account`) to the customer's open items, as SAP clears an account
-	// with a payment on account. The credit applied is the one still open: the payment's own before any
-	// application, else what the last application left; one that is no longer open, all applied or cleared
-	// otherwise, is refused (409 `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared`
-	// when another request cleared it meanwhile, as two applications racing for it end). The items are the
-	// customer's open items in the company, invoices and credits, in the payment's currency or another,
-	// translated into the payment's on the posting date and refused as `createIncomingPayment` translates
-	// and refuses them (T75n), each naming its place in the request as the field `items[i]`, and each may
-	// name a `residual` as there. Together, net of their residuals and of what their reasons wrote off,
-	// they may be less than the credit: what is left stays on account as a new credit of the customer's, a
-	// line of the application's clearing entry, at the credit's rate. More than the credit is refused (422
+	// Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with
+	// `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The
+	// credit applied is the one still open: the payment's own before any application, else what the last
+	// application left; one that is no longer open, all applied or cleared otherwise, is refused (409
+	// `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request
+	// cleared it meanwhile, as two applications racing for it end). The items are the customer's open
+	// items in the company, invoices and credits, in the payment's currency or another, translated into
+	// the payment's on the posting date and refused as `createIncomingPayment` translates and refuses them
+	// (T75n), each naming its place in the request as the field `items[i]`, and each may name a `residual`
+	// as there. Together, net of their residuals and of what their reasons wrote off, they may be less
+	// than the credit: what is left stays on account as a new credit of the customer's, a line of the
+	// application's clearing entry, at the credit's rate. More than the credit is refused (422
 	// `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance,
 	// written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`,
 	// `source_context` `receivables`, its source document the payment, offsets the credit and the items at
@@ -239,8 +237,9 @@ type Handler interface {
 	// with its number. The payment's `version` moves with each application (`ETag`), and the answer is the
 	// payment with the application, which its `applications` list last. Audited, and published as
 	// IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
-	// with the same `Idempotency-Key` answers the payment as the first answered it. Human-only
-	// (`x-agent: false`).
+	// with the same `Idempotency-Key` answers the payment as the first answered it. A cash discount is not
+	// granted here (422 `receivables.cash_discount_not_granted` naming `items[i].cash_discount`): an item
+	// takes its discount when a receipt pays it (`createIncomingPayment`). Human-only (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments/{id}/applications
 	ApplyIncomingPaymentOnAccount(ctx context.Context, req *IncomingPaymentApplicationCreate, params ApplyIncomingPaymentOnAccountParams) (ApplyIncomingPaymentOnAccountRes, error)
