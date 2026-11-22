@@ -16655,14 +16655,14 @@ step_sop_review() {
   say "Mira starts Maple's S&OP review for three months: per material group, unit and month, the forecast against the stock"
   say "and receipts, from the day after Maple's day; the consensus starts as the forecast:"
   api 201 '"S&OP plan \(.number) of \(.company_code): \(.status), as of \(.as_of), \(.first_day) to \(.last_day)",
-    (.lines[] | "  \(.key) (\(.materials) materials): forecast \(.forecast.value) (orders \(.sales_orders.value)), opening \(.opening_stock.value), purchase orders \(.purchase_orders.value), transports \(.stock_transports.value), proposals \(.proposals.value), consensus \(.consensus.value), projected \(.projected_stock.value) \(.unit)")' \
+    (.lines[] | "  \(.key) (\(.materials) materials): forecast \(.forecast.value) (orders \(.orders.value)), opening \(.opening_stock.value), purchase orders \(.purchase_orders.value), transports \(.stock_transports.value), proposals \(.proposals.value), consensus \(.consensus.value), projected \(.projected_stock.value) \(.unit)")' \
     createSopPlan -body "{\"legal_entity_id\": \"$LE\", \"months\": 3}"
   plan=$(field .id)
   key1=$(field '[.lines[] | select(.material_group == "FASTENERS" and .unit == "EA")][0].key')
   key3=$(field '[.lines[] | select(.material_group == "FASTENERS" and .unit == "EA")][2].key')
   expect "the version" "$(field '"\(.number) \(.status) \(.months)"')" "1 draft 3"
   expect "the hinge's group in the first month: materials, orders, forecast" \
-    "$(field '.lines[] | select(.key == "'"$key1"'") | "\(.materials) \(.sales_orders.value) \(.forecast.value)"')" "1 50 50"
+    "$(field '.lines[] | select(.key == "'"$key1"'") | "\(.materials) \(.orders.value) \(.forecast.value)"')" "1 50 50"
   expect "its opening stock, Toronto's" "$(field '.lines[] | select(.key == "'"$key1"'") | .opening_stock.value | tonumber')" "$stock"
   balanced='[.lines[] | select(.material_group == "FASTENERS") | (.opening_stock.value | tonumber) + (.purchase_orders.value | tonumber)
     + (.stock_transports.value | tonumber) + (.proposals.value | tonumber) - (.consensus.value | tonumber) - (.projected_stock.value | tonumber)

@@ -272,12 +272,16 @@ As built S2n, which records why not controlling's planning versions):
 - **Reads** (additions to published APIs, §2's direction): inventory's
   `PlantIssues` (a plant's goods issues 201, 601, 643 less 202, 602 of
   days, not in transit), sales' `PlantRequirementsDue` (§2's demand by
-  the day each order is due) and procurement's `TransportSupply` (stock
-  transport orders in transit to the plant, less intercompany orders it
-  supplies and has not issued). The review reads the plant's stock,
+  the day each order is due), procurement's `TransportReceipts` (stock
+  transport orders within the company in transit to the plant) and
+  `IntercompanyDue` (the intercompany orders the plant supplies and has
+  not issued, by the day each item is due). The review reads the plant's stock,
   purchase orders' receipts and the run's proposals as a run does, and
   counts a proposal open or taken over while its requisition is still to
   be ordered (`counted`); the run's unit check (`inBase`) is shared.
+- **Database rules**: a fixed version and its lines change no more and a
+  fixed version gains no line (`sop_plan_fixed`, `sop_plan_line_fixed`,
+  on insert, update and delete); only a line's consensus changes.
 - **Locks.** A review reads everything as it is and locks nothing: it is
   a snapshot of the company's day, and the next review counts what moved
   since. Setting the consensus and fixing take the version's row lock

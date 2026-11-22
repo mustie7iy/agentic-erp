@@ -45,7 +45,7 @@ func sopLine(t *testing.T, p map[string]any, key string) string {
 	for _, l := range rows(t, p, "lines") {
 		if l["key"] == key {
 			q := func(f string) any { return l[f].(map[string]any)["value"] }
-			return fmt.Sprintf("%v %v %v %v %v %v %v %v", q("forecast"), q("sales_orders"), q("opening_stock"), q("purchase_orders"),
+			return fmt.Sprintf("%v %v %v %v %v %v %v %v", q("forecast"), q("orders"), q("opening_stock"), q("purchase_orders"),
 				q("stock_transports"), q("proposals"), q("consensus"), q("projected_stock"))
 		}
 	}
@@ -154,12 +154,12 @@ func TestSopReview(t *testing.T) {
 	}
 }
 
-// TestSopSupply (S2n): the first month counts what stock transport orders
-// bring to the plant (one within the company in transit to P1: 12) less
-// intercompany orders P1 supplies and has not issued (5), and the
+// TestSopSupply (S2n): the first month counts the stock in transit to the
+// plant (a stock transport order within the company: 12) and the
 // proposals still to be ordered at the plant, a person's changed one with
 // its items of materials planned there only; a cancelled one counts
-// nothing.
+// nothing. An intercompany order P1 supplies and has not issued (5) is an
+// order due, which the forecast is never below, not a negative receipt.
 func TestSopSupply(t *testing.T) {
 	e := setup(t)
 	e.plan(t, e.bracket, "250")
@@ -186,14 +186,14 @@ func TestSopSupply(t *testing.T) {
 	}
 	p, _ := e.review(t, 1)
 	m1, _, _, _ := months(t, p)
-	if got := sopLine(t, p, "BRACKETS/EA/"+m1); got != "0 0 200 0 7 50 0 257" {
-		t.Errorf("the first month: got %s, want 0 0 200 0 7 50 0 257", got)
+	if got := sopLine(t, p, "BRACKETS/EA/"+m1); got != "5 5 200 0 12 50 5 257" {
+		t.Errorf("the first month: got %s, want 5 5 200 0 12 50 5 257", got)
 	}
 	_, rtag = e.requisition(t, first)
 	e.Must(200, "POST", "/v1/requisitions/"+first+":cancel", "", rtag)
 	p, _ = e.review(t, 1)
-	if got := sopLine(t, p, "BRACKETS/EA/"+m1); got != "0 0 200 0 7 0 0 207" {
-		t.Errorf("after the cancellation: got %s, want 0 0 200 0 7 0 0 207", got)
+	if got := sopLine(t, p, "BRACKETS/EA/"+m1); got != "5 5 200 0 12 0 5 207" {
+		t.Errorf("after the cancellation: got %s, want 5 5 200 0 12 0 5 207", got)
 	}
 }
 
@@ -359,7 +359,8 @@ func TestSopDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"demand due": func() error { _, err := sales.Orders{}.PlantRequirementsDue(ctx, ids[0], ids); return err },
-		"transports": func() error { _, err := procurement.Orders{}.TransportSupply(ctx, ids[0], ids); return err },
+		"transports":   func() error { _, err := procurement.Orders{}.TransportReceipts(ctx, ids[0], ids); return err },
+		"intercompany": func() error { _, err := procurement.Orders{}.IntercompanyDue(ctx, ids[0], ids); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := call(); err == nil {

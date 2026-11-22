@@ -2895,22 +2895,24 @@ type Handler interface {
 	// units are never added) and month, the `months` calendar months of the horizon from the day after
 	// `as_of` (the first one from that day). Per line: the forecast, per material and plant the greater of
 	// the moving average of its goods issues (to a cost center, a delivery's and an intercompany one, less
-	// their reversals) over the 13 weeks to `as_of`, spread over the month's days, and what its confirmed
-	// sales orders ordered and have not delivered due in the month (the day the customer asked for, else
-	// the order's date; one due before the horizon in its first month) — the demand forecasting agent's
-	// rule (S2m) in months; sales_orders, those orders; and in the first month the supply the plants have:
-	// opening_stock (stock at their storage locations, not in transit), purchase_orders (open quantities
-	// of purchase orders not closed or cancelled, intercompany ones included), stock_transports (stock
-	// transport orders in transit to the company's plants, less intercompany orders its plants supply and
-	// have not issued) and proposals (the requisitions planning runs proposed at the plants that are not
-	// ordered, cancelled or rejected). The consensus starts as the forecast; `updateSopPlan` changes it;
-	// projected_stock is the opening stock and receipts less the consensus, the next month's opening
-	// stock. Capacity is not reviewed (no production). The company is an active one the caller may act in
-	// (422 `mrp.company_invalid`); `months` from 1 to 12 (422 `mrp.invalid_horizon`); a company that plans
-	// no such material has nothing to review (422 `mrp.sop_plan_empty`); a quantity in a unit the material
-	// no longer has cannot be counted (409 `mrp.unit_not_convertible`); two versions of a company started
-	// at once: one is refused (409 `mrp.sop_plan_concurrent`), to retry. Audited. A retry with the same
-	// `Idempotency-Key` answers the plan created. Human-only (`x-agent: false`).
+	// their reversals) over the 13 weeks to `as_of`, spread over the month's days, and what its orders due
+	// in the month order and it has not delivered or issued: its confirmed sales orders (due the day the
+	// customer asked for, else the order's date) and the intercompany orders it supplies and has not
+	// issued (due on their items' delivery dates, else the order's date), whose goods issues the moving
+	// average holds once issued; one due before the horizon in its first month — the demand forecasting
+	// agent's rule (S2m) in months; orders, those orders; and in the first month the supply the plants
+	// have: opening_stock (stock at their storage locations, not in transit), purchase_orders (open
+	// quantities of purchase orders not closed or cancelled, intercompany ones received included),
+	// stock_transports (stock transport orders within the company in transit to its plants) and proposals
+	// (the requisitions planning runs proposed at the plants that are not ordered, cancelled or rejected).
+	// The consensus starts as the forecast; `updateSopPlan` changes it; projected_stock is the opening
+	// stock and receipts less the consensus, the next month's opening stock. Capacity is not reviewed (no
+	// production). The company is an active one the caller may act in (422 `mrp.company_invalid`);
+	// `months` from 1 to 12 (422 `mrp.invalid_horizon`); a company that plans no such material has nothing
+	// to review (422 `mrp.sop_plan_empty`); a quantity in a unit the material no longer has cannot be
+	// counted (409 `mrp.unit_not_convertible`); two versions of a company started at once: one is refused
+	// (409 `mrp.sop_plan_concurrent`), to retry. Audited. A retry with the same `Idempotency-Key` answers
+	// the plan created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sop-plans
 	CreateSopPlan(ctx context.Context, req *SopPlanCreate, params CreateSopPlanParams) (CreateSopPlanRes, error)
@@ -9836,10 +9838,11 @@ type Handler interface {
 	// Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412
 	// otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in
 	// the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a
-	// key that is no line of the plan is 422 `mrp.sop_line_unknown`; a change to what every named line
-	// already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected
-	// stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited
-	// with each line's consensus before and after. Human-only (`x-agent: false`).
+	// key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set
+	// to `null` is refused (400); a change to what every named line already is is 422
+	// `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A
+	// fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's
+	// consensus before and after. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/sop-plans/{id}
 	UpdateSopPlan(ctx context.Context, req *SopPlanUpdate, params UpdateSopPlanParams) (UpdateSopPlanRes, error)

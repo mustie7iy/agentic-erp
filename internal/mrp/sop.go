@@ -56,7 +56,7 @@ type SopLine struct {
 	Group, Unit                                                   string
 	Month, FirstDay, LastDay                                      time.Time
 	Materials                                                     int32
-	Forecast, SalesOrders, Stock, PurchaseOrders, StockTransports string
+	Forecast, Orders, Stock, PurchaseOrders, StockTransports string
 	Proposals, Consensus                                          string
 }
 
@@ -108,12 +108,12 @@ func withSopLines(ctx context.Context, tx pgx.Tx, ps []SopPlan) error {
 		ids[i], at[ps[i].ID] = ps[i].ID, &ps[i]
 	}
 	rows, _ := tx.Query(ctx, `SELECT plan_id, material_group, uom_code, month, first_day, last_day, materials, trim_scale(forecast)::text,
-			trim_scale(sales_orders)::text, trim_scale(stock)::text, trim_scale(purchase_orders)::text, trim_scale(stock_transports)::text,
+			trim_scale(orders)::text, trim_scale(stock)::text, trim_scale(purchase_orders)::text, trim_scale(stock_transports)::text,
 			trim_scale(proposals)::text, trim_scale(consensus)::text
 		FROM mrp.sop_plan_line WHERE plan_id = ANY($1) ORDER BY plan_id, material_group COLLATE "C", uom_code COLLATE "C", month`, ids)
 	var plan uuid.UUID
 	var l SopLine
-	_, err := pgx.ForEachRow(rows, []any{&plan, &l.Group, &l.Unit, &l.Month, &l.FirstDay, &l.LastDay, &l.Materials, &l.Forecast, &l.SalesOrders,
+	_, err := pgx.ForEachRow(rows, []any{&plan, &l.Group, &l.Unit, &l.Month, &l.FirstDay, &l.LastDay, &l.Materials, &l.Forecast, &l.Orders,
 		&l.Stock, &l.PurchaseOrders, &l.StockTransports, &l.Proposals, &l.Consensus}, func() error {
 		at[plan].Lines = append(at[plan].Lines, l)
 		return nil
@@ -202,12 +202,12 @@ func writeSopLines(ctx context.Context, tx pgx.Tx, tenant, plan uuid.UUID, lines
 	for i, l := range lines {
 		groups[i], units[i], nums[i] = l.Group, l.Unit, l.Materials
 		days[0][i], days[1][i], days[2][i] = l.Month, l.FirstDay, l.LastDay
-		for k, v := range []string{l.Forecast, l.SalesOrders, l.Stock, l.PurchaseOrders, l.StockTransports, l.Proposals, l.Consensus} {
+		for k, v := range []string{l.Forecast, l.Orders, l.Stock, l.PurchaseOrders, l.StockTransports, l.Proposals, l.Consensus} {
 			q[k][i] = v
 		}
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO mrp.sop_plan_line (tenant_id, plan_id, material_group, uom_code, month, first_day, last_day, materials, forecast,
-			sales_orders, stock, purchase_orders, stock_transports, proposals, consensus)
+			orders, stock, purchase_orders, stock_transports, proposals, consensus)
 		SELECT $1, $2, g, u, m, f, l, n, fc::numeric, so::numeric, st::numeric, po::numeric, tr::numeric, pr::numeric, co::numeric
 		FROM unnest($3::text[], $4::text[], $5::date[], $6::date[], $7::date[], $8::int[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[],
 			$14::text[], $15::text[]) AS t(g, u, m, f, l, n, fc, so, st, po, tr, pr, co)`,
@@ -320,6 +320,8 @@ func (e *Endpoints) FixSop(ctx context.Context, id uuid.UUID, ifMatch func(int32
 	if err != nil {
 		return SopPlan{}, err
 	}
+	// fixed_at is the instant, as created_at is, by the database's clock;
+	// the company's day (as_of) is a business date, by e.Now.
 	if _, err := tx.Exec(ctx, `UPDATE mrp.sop_plan SET status = 'fixed', fixed_at = now(), fixed_by = $2, version = version + 1, updated_by = $2
 		WHERE id = $1`, id, p.ID); err != nil {
 		return SopPlan{}, fmt.Errorf("mrp: fix S&OP plan %d: %w", before.Number, err)

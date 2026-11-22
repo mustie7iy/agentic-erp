@@ -7159,11 +7159,11 @@ erDiagram
     date first_day
     date last_day
     integer materials "1 or more"
-    numeric forecast "never below sales_orders"
-    numeric sales_orders
+    numeric forecast "never below orders"
+    numeric orders "sales and intercompany"
     numeric stock "first month"
     numeric purchase_orders "first month"
-    numeric stock_transports "first month, either sign"
+    numeric stock_transports "first month: in transit"
     numeric proposals "first month"
     numeric consensus "changes while a draft" }
 ```
@@ -7181,9 +7181,9 @@ erDiagram
   (`sop_plan_line_material_group_check`), base unit
   (`sop_plan_line_uom_fkey`) and month (`sop_plan_line_plan_fkey`), its
   days of the month (`sop_plan_line_days`); its quantities not below zero
-  but its stock transports' (`sop_plan_line_*_check`), its forecast never
-  below its orders (`sop_plan_line_forecast_covers_orders`). Only its
-  consensus changes, and only while its version is a draft; no line is
-  deleted (`sop_plan_line_fixed`, a trigger). The application updates
+  (`sop_plan_line_*_check`), its forecast never below its orders
+  (`sop_plan_line_forecast_covers_orders`). A line is added to a draft
+  alone, only its consensus changes, and only while its version is a
+  draft; no line is deleted (`sop_plan_line_fixed`, a trigger). The application updates
   the consensus alone.
 - Permissions `mrp.sop.read` and `mrp.sop.write`.

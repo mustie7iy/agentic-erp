@@ -52,7 +52,7 @@ func sopAPI(p SopPlan, companies map[uuid.UUID]string) gen.SopPlan {
 		projected.Add(projected, money.ParseRat(l.StockTransports)).Add(projected, money.ParseRat(l.Proposals)).Sub(projected, money.ParseRat(l.Consensus))
 		q := func(v string) gen.Quantity { return gen.Quantity{Value: v, Unit: l.Unit} }
 		out.Lines[i] = gen.SopPlanLine{Key: l.Key(), MaterialGroup: l.Group, Unit: l.Unit, Month: l.Month.Format("2006-01"), FirstDay: l.FirstDay,
-			LastDay: l.LastDay, Materials: l.Materials, Forecast: q(l.Forecast), SalesOrders: q(l.SalesOrders),
+			LastDay: l.LastDay, Materials: l.Materials, Forecast: q(l.Forecast), Orders: q(l.Orders),
 			OpeningStock: q(money.PlainQuantity(opening)), PurchaseOrders: q(l.PurchaseOrders), StockTransports: q(l.StockTransports),
 			Proposals: q(l.Proposals), Consensus: q(l.Consensus), ProjectedStock: q(money.PlainQuantity(projected))}
 		opening = projected

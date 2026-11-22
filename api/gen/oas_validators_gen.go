@@ -91994,13 +91994,13 @@ func (s *SopPlanLine) Validate() error {
 		})
 	}
 	if err := func() error {
-		if err := s.SalesOrders.Validate(); err != nil {
+		if err := s.Orders.Validate(); err != nil {
 			return err
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "sales_orders",
+			Name:  "orders",
 			Error: err,
 		})
 	}

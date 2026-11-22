@@ -22,8 +22,8 @@ import (
 // and, through mrpSupply, sales' demand, inventory's stock and prices and
 // procurement's receipts and requisitions, which it proposes and
 // withdraws through procurement's published API, and for S&OP reviews
-// inventory's goods issues, sales' demand by the day it is due and
-// procurement's stock transports (S2n). Its runs' Operations are the
+// inventory's goods issues, sales' and intercompany orders' demand by
+// the day it is due and procurement's stock in transit (S2n). Its runs' Operations are the
 // operations context's.
 func MRP(cfg Config) *mrp.Endpoints {
 	return &mrp.Endpoints{Settings: configuration.Settings{}, Plants: tenancy.Directory{}, Materials: materials.Materials{}, Accounts: ledger.Accounts{},
@@ -111,6 +111,15 @@ func (mrpSupply) DemandDue(ctx context.Context, plant uuid.UUID, ms []uuid.UUID)
 }
 
 func (mrpSupply) Transports(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Open, error) {
-	rs, err := procurement.Orders{}.TransportSupply(ctx, plant, ms)
+	rs, err := procurement.Orders{}.TransportReceipts(ctx, plant, ms)
 	return opens(rs, onOrder), err
+}
+
+func (mrpSupply) IntercompanyDue(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Due, error) {
+	rs, err := procurement.Orders{}.IntercompanyDue(ctx, plant, ms)
+	out := make([]mrp.Due, len(rs))
+	for i, r := range rs {
+		out[i] = mrp.Due{Open: mrp.Open{MaterialID: r.MaterialID, Unit: r.Unit, Quantity: r.Quantity}, Day: r.Due}
+	}
+	return out, err
 }

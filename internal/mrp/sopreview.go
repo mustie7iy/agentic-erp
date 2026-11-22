@@ -28,13 +28,14 @@ import (
 // The forecast of a month at a plant is S2m's rule (ADR-0082 As built
 // S2m) in months: the moving average of the plant's goods issues of the
 // HistoryDays to the review's day, never below nothing, spread over the
-// month's days in the horizon, or what the plant's confirmed sales orders
-// due in the month ordered and have not delivered, whichever is greater
-// (the orders consume the forecast); an order due before the horizon is
-// due in its first month, one due after it is left out. The supply the
-// plant has now (stock, purchase orders' open quantities, stock
-// transports, the proposals planning runs made that are still to be
-// ordered) is the first month's: receipts carry no date here, as a
+// month's days in the horizon, or what the plant's orders due in the
+// month order and it has not delivered or issued, whichever is greater
+// (the orders consume the forecast): its confirmed sales orders and the
+// intercompany orders it supplies, whose goods issues (643) the history
+// holds; an order due before the horizon is due in its first month, one
+// due after it is left out. The supply the plant has now (stock, purchase
+// orders' open quantities, stock in transit to it, the proposals planning
+// runs made that are still to be ordered) is the first month's: receipts carry no date here, as a
 // planning run counts them (ADR-0084 §6).
 
 // The review's horizon and history.
@@ -174,7 +175,7 @@ func (e *Endpoints) prepareReview(ctx context.Context, tx pgx.Tx, r *review) err
 
 // countPlant counts a plant's planned materials into their groups: each
 // month's forecast and orders, and the first month's stock, purchase
-// orders and stock transports.
+// orders and stock in transit.
 func (e *Endpoints) countPlant(ctx context.Context, r *review, plant uuid.UUID) error {
 	ids, code := r.planned[plant], r.codes[plant]
 	issued, err := e.Supply.Issues(ctx, plant, ids, r.day.AddDate(0, 0, 1-HistoryDays), r.day)
@@ -195,7 +196,7 @@ func (e *Endpoints) countPlant(ctx context.Context, r *review, plant uuid.UUID) 
 	}
 	transports, err := e.Supply.Transports(ctx, plant, ids)
 	if err != nil {
-		return fmt.Errorf("mrp: stock transports at plant %s: %w", code, err)
+		return fmt.Errorf("mrp: stock in transit to plant %s: %w", code, err)
 	}
 	for _, id := range ids {
 		m := r.materials[id]
@@ -215,18 +216,26 @@ func (e *Endpoints) countPlant(ctx context.Context, r *review, plant uuid.UUID) 
 	return r.add(transports, code, func(s *sums) *big.Rat { return s.transports })
 }
 
-// ordersDue are what the plant's confirmed orders due in each month of
-// the horizon demand of its planned materials, in their base units.
+// ordersDue are what the plant's orders due in each month of the horizon
+// demand of its planned materials, in their base units: its confirmed
+// sales orders and the intercompany orders it supplies and has not
+// issued, which the forecast's goods issues (643) include once issued, so
+// they consume the forecast as sales orders do rather than add to it.
 func (e *Endpoints) ordersDue(ctx context.Context, r *review, plant uuid.UUID) (map[uuid.UUID][]*big.Rat, error) {
 	due, err := e.Supply.DemandDue(ctx, plant, r.planned[plant])
 	if err != nil {
 		return nil, fmt.Errorf("mrp: demand at plant %s: %w", r.codes[plant], err)
 	}
+	ic, err := e.Supply.IntercompanyDue(ctx, plant, r.planned[plant])
+	if err != nil {
+		return nil, fmt.Errorf("mrp: intercompany orders from plant %s: %w", r.codes[plant], err)
+	}
+	due = append(due, ic...)
 	out := map[uuid.UUID][]*big.Rat{}
 	for _, id := range r.planned[plant] {
 		out[id] = zeros(len(r.months))
 	}
-	for _, d := range due { // sales answers for the materials asked alone, each planned at the plant
+	for _, d := range due { // sales and procurement answer for the materials asked alone, each planned at the plant
 		i := r.monthOf(d.Day)
 		if i < 0 {
 			continue
@@ -307,7 +316,7 @@ func (r *review) lines() []SopLine {
 		s := r.groups[g]
 		for i, b := range r.months {
 			l := SopLine{Group: g.name, Unit: g.unit, Month: b.month, FirstDay: b.first, LastDay: b.last, Materials: int32(len(s.materials)),
-				Forecast: money.PlainQuantity(s.forecast[i]), SalesOrders: money.PlainQuantity(s.orders[i]), Stock: "0", PurchaseOrders: "0",
+				Forecast: money.PlainQuantity(s.forecast[i]), Orders: money.PlainQuantity(s.orders[i]), Stock: "0", PurchaseOrders: "0",
 				StockTransports: "0", Proposals: "0"}
 			if i == 0 {
 				l.Stock, l.PurchaseOrders = money.PlainQuantity(s.stock), money.PlainQuantity(s.purchases)

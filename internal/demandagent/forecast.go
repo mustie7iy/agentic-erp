@@ -33,7 +33,9 @@ const (
 // issue to a cost center, a delivery's goods issue, an intercompany goods
 // issue) and their reversals, which give it back: a line's quantity,
 // negated. Scrapping, transfers, receipts and count differences are no
-// demand (SAP's consumption, from memory).
+// demand (SAP's consumption, from memory). S&OP's review reads the same
+// movement types through inventory.PlantIssues (S2n): a change to one is
+// a change to both.
 var issues = map[string]bool{"201": true, "202": true, "601": true, "602": true, "643": true}
 
 // quantity is a Quantity as an answer gives it.

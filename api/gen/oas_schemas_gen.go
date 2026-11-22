@@ -116476,17 +116476,17 @@ type SopPlanLine struct {
 	// The materials of the group in the unit the plan reviews.
 	Materials int32 `json:"materials"`
 	// The forecast demand: per material and plant the greater of its moving average of goods issues over
-	// the month's days and its confirmed sales orders due in the month.
+	// the month's days and its orders due in the month; never below `orders`.
 	Forecast Quantity `json:"forecast"`
-	// What the confirmed sales orders ordered and have not delivered, due in the month.
-	SalesOrders Quantity `json:"sales_orders"`
+	// What the plants' confirmed sales orders and the intercompany orders they supply order and they have
+	// not delivered or issued, due in the month.
+	Orders Quantity `json:"orders"`
 	// The stock at the month's start: the plants' stock in the first month, the previous month's projected
 	// stock after.
 	OpeningStock Quantity `json:"opening_stock"`
 	// The purchase orders' open quantities, in the first month; zero after.
 	PurchaseOrders Quantity `json:"purchase_orders"`
-	// Stock transport orders in transit to the plants less intercompany orders the plants supply and have
-	// not issued, in the first month; zero after. Negative when more leaves than arrives.
+	// Stock transport orders within the company in transit to the plants, in the first month; zero after.
 	StockTransports Quantity `json:"stock_transports"`
 	// The requisitions planning runs proposed at the plants, not ordered, cancelled or rejected, in the
 	// first month; zero after.
@@ -116537,9 +116537,9 @@ func (s *SopPlanLine) GetForecast() Quantity {
 	return s.Forecast
 }
 
-// GetSalesOrders returns the value of SalesOrders.
-func (s *SopPlanLine) GetSalesOrders() Quantity {
-	return s.SalesOrders
+// GetOrders returns the value of Orders.
+func (s *SopPlanLine) GetOrders() Quantity {
+	return s.Orders
 }
 
 // GetOpeningStock returns the value of OpeningStock.
@@ -116612,9 +116612,9 @@ func (s *SopPlanLine) SetForecast(val Quantity) {
 	s.Forecast = val
 }
 
-// SetSalesOrders sets the value of SalesOrders.
-func (s *SopPlanLine) SetSalesOrders(val Quantity) {
-	s.SalesOrders = val
+// SetOrders sets the value of Orders.
+func (s *SopPlanLine) SetOrders(val Quantity) {
+	s.Orders = val
 }
 
 // SetOpeningStock sets the value of OpeningStock.

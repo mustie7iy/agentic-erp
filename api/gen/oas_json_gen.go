@@ -285557,8 +285557,8 @@ func (s *SopPlanLine) encodeFields(e *jx.Encoder) {
 		s.Forecast.Encode(e)
 	}
 	{
-		e.FieldStart("sales_orders")
-		s.SalesOrders.Encode(e)
+		e.FieldStart("orders")
+		s.Orders.Encode(e)
 	}
 	{
 		e.FieldStart("opening_stock")
@@ -285595,7 +285595,7 @@ var jsonFieldsNameOfSopPlanLine = [15]string{
 	5:  "last_day",
 	6:  "materials",
 	7:  "forecast",
-	8:  "sales_orders",
+	8:  "orders",
 	9:  "opening_stock",
 	10: "purchase_orders",
 	11: "stock_transports",
@@ -285707,15 +285707,15 @@ func (s *SopPlanLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"forecast\"")
 			}
-		case "sales_orders":
+		case "orders":
 			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
-				if err := s.SalesOrders.Decode(d); err != nil {
+				if err := s.Orders.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"sales_orders\"")
+				return errors.Wrap(err, "decode field \"orders\"")
 			}
 		case "opening_stock":
 			requiredBitSet[1] |= 1 << 1

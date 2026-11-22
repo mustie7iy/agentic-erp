@@ -1666,19 +1666,23 @@ specialist; ADR-0084 As built S2n has the API and schema):
   material and plant is S2m's Later): the greater of the moving average
   of the plant's goods issues over the 13 weeks (91 days) to the
   company's day, never below nothing, spread over the month's days, and
-  the confirmed sales orders' undelivered quantity due in the month (the
-  day the customer asked for, else the order's date; one due before the
-  horizon in its first month, one due after it left out). The orders
+  the orders due in the month: the confirmed sales orders' undelivered
+  quantity (due the day the customer asked for, else the order's date)
+  and the intercompany orders the plant supplies and has not issued (due
+  on their items' delivery dates, else the order's date); one due before
+  the horizon in its first month, one due after it left out. The orders
   consume the forecast, so a line's forecast is never below its orders
-  (`sop_plan_line_forecast_covers_orders`). The agent's recommendation on
+  (`sop_plan_line_forecast_covers_orders`). An intercompany order is an
+  order, not a negative receipt: its goods issue (643) is in the history
+  the moving average is of, so taking it off the supply as well would
+  count it twice (review round 1). The agent's recommendation on
   each material stays beside it for the planner (`listRecommendations`).
 - **Supply**, all in the first month (receipts carry no date, as a
   planning run counts them, ADR-0084 §6): the stock at the plants'
   storage locations (not in transit), the purchase orders' open
-  quantities (intercompany orders received included), stock transports
-  (in transit to the plants, less intercompany orders they supply and
-  have not issued; an order within the company not yet issued moves
-  stock between its plants only) and the requisitions planning runs
+  quantities (intercompany orders received included), stock transport
+  orders within the company in transit to the plants (one not yet issued
+  moves stock between its plants only) and the requisitions planning runs
   proposed that are not ordered, cancelled or rejected.
 - **Projected stock** of a month: its opening stock (the first month's
   the plants' stock, after it the month before's projected stock) and

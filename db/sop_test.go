@@ -14,9 +14,9 @@ type sopScene struct{ tenant, plan, company uuid.UUID }
 const (
 	sopPlan = `INSERT INTO mrp.sop_plan (tenant_id, id, legal_entity_id, number, as_of, first_day, last_day, months, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, $8, $1, $1)`
-	sopLine = `INSERT INTO mrp.sop_plan_line (tenant_id, plan_id, material_group, uom_code, month, first_day, last_day, materials, forecast, sales_orders,
+	sopLine = `INSERT INTO mrp.sop_plan_line (tenant_id, plan_id, material_group, uom_code, month, first_day, last_day, materials, forecast, orders,
 		stock, purchase_orders, stock_transports, proposals, consensus) VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, 1, $8::numeric, $9::numeric,
-		10, 0, -5, 0, 3)`
+		10, 0, 5, 0, 3)`
 	sopFix = `UPDATE mrp.sop_plan SET status = 'fixed', fixed_at = now(), fixed_by = $1, version = version + 1 WHERE id = $2`
 )
 
@@ -38,9 +38,9 @@ func (s sopScene) fixed() stmt { return step(sopFix, s.tenant, s.plan) }
 // its review and ends on the last day of its last month, of 1 to 12
 // months; a fixed one names who fixed it and when, and changes no more,
 // nor do its company, number and horizon; a line's days are of its month,
-// its forecast never below its orders, its quantities never below zero
-// but its stock transports'; only a draft's consensus changes; nothing is
-// deleted.
+// its forecast never below its orders, its quantities never below zero;
+// lines are added to a draft alone, and only a draft's consensus changes;
+// nothing is deleted.
 func TestSopPlanRules(t *testing.T) {
 	need(t)
 	cases := []struct {
@@ -85,7 +85,15 @@ func TestSopPlanRules(t *testing.T) {
 			return []stmt{s.planned(1), step(`UPDATE mrp.sop_plan SET number = 2, version = version + 1`)}
 		}, "its company, number and horizon do not change"},
 		{"a version deleted", func(s sopScene) []stmt { return []stmt{s.planned(1), step(`DELETE FROM mrp.sop_plan`)} }, "permission denied"},
-		{"a line of no version", func(s sopScene) []stmt { return []stmt{s.line("FASTENERS", "EA", "1", "0")} }, "sop_plan_line_plan_fkey"},
+		{"a line of no version", func(s sopScene) []stmt { return []stmt{s.line("FASTENERS", "EA", "1", "0")} }, "its plan version is not readable"},
+		{"a line added to a fixed version", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.line("FASTENERS", "EA", "1", "0"), s.fixed(), s.line("BOLTS", "EA", "1", "0")}
+		}, "its plan version is fixed"},
+		{"negative stock transports", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), step(`INSERT INTO mrp.sop_plan_line (tenant_id, plan_id, material_group, uom_code, month, first_day, last_day, materials,
+				forecast, orders, stock, purchase_orders, stock_transports, proposals, consensus)
+				VALUES ($1, $2, 'BOLTS', 'EA', '2026-11-01', '2026-11-23', '2026-11-30', 1, 0, 0, 0, 0, -1, 0, 0)`, s.tenant, s.plan)}
+		}, "sop_plan_line_stock_transports_check"},
 		{"a line twice", func(s sopScene) []stmt {
 			return []stmt{s.planned(1), s.line("FASTENERS", "EA", "1", "0"), s.line("FASTENERS", "EA", "2", "0")}
 		}, "sop_plan_line_pkey"},
@@ -134,9 +142,9 @@ func TestSopPlanRules(t *testing.T) {
 }
 
 // TestSopPlanTriggersAsOwner (S2n, migration 000445): past the grants, as
-// the owner, a fixed version and its lines do not change, a draft's line
-// changes only its consensus, and neither a version nor a line is
-// deleted.
+// the owner, a fixed version and its lines do not change nor gain a line,
+// a draft's line changes only its consensus, and neither a version nor a
+// line is deleted.
 func TestSopPlanTriggersAsOwner(t *testing.T) {
 	need(t)
 	ctx := context.Background()
@@ -159,6 +167,7 @@ func TestSopPlanTriggersAsOwner(t *testing.T) {
 			return step(`UPDATE mrp.sop_plan_line SET forecast = 9 WHERE plan_id = $1`, s.plan)
 		}, "only its consensus changes"},
 		"a line deleted": {false, func(s sopScene) stmt { return step(`DELETE FROM mrp.sop_plan_line WHERE plan_id = $1`, s.plan) }, "never deleted"},
+		"a line added to a fixed version": {true, func(s sopScene) stmt { return s.line("BOLTS", "EA", "1", "0") }, "its plan version is fixed"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := sopScene{tenant: id(), plan: id(), company: id()}

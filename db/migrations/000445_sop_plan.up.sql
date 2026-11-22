@@ -63,13 +63,13 @@ SELECT platform.secure_table('mrp.sop_plan'::regclass);
 -- A version's line per material group, base unit and month (month, its
 -- first day; first_day..last_day the days of it in the horizon), in that
 -- unit: the forecast (per material and plant the greater of its moving
--- average of goods issues over the days and its confirmed sales orders
--- due, so never below the orders), those orders, and in the first month
--- the plants' stock, purchase orders' open quantities, stock transports
--- (in transit to the plants less intercompany orders they supply and
--- have not issued: either sign) and the proposed requisitions; the
--- consensus the planner agrees. Only the consensus changes, and only while
--- the version is a draft; no line is deleted.
+-- average of goods issues over the days and its orders due: confirmed
+-- sales orders and intercompany orders it supplies, so never below the
+-- orders), those orders, and in the first month the plants' stock,
+-- purchase orders' open quantities, stock transport orders in transit to
+-- them and the proposed requisitions; the consensus the planner agrees. A
+-- line is written with its version, a draft; only its consensus changes,
+-- and only while the version is a draft; no line is deleted.
 CREATE TABLE mrp.sop_plan_line (
   tenant_id         uuid NOT NULL,
   plan_id           uuid NOT NULL,
@@ -80,10 +80,10 @@ CREATE TABLE mrp.sop_plan_line (
   last_day          date NOT NULL,
   materials         integer NOT NULL CONSTRAINT sop_plan_line_materials_check CHECK (materials >= 1),
   forecast          numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_forecast_check CHECK (forecast >= 0),
-  sales_orders      numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_sales_orders_check CHECK (sales_orders >= 0),
+  orders            numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_orders_check CHECK (orders >= 0),
   stock             numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_stock_check CHECK (stock >= 0),
   purchase_orders   numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_purchase_orders_check CHECK (purchase_orders >= 0),
-  stock_transports  numeric(20,6) NOT NULL,
+  stock_transports  numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_stock_transports_check CHECK (stock_transports >= 0),
   proposals         numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_proposals_check CHECK (proposals >= 0),
   consensus         numeric(20,6) NOT NULL CONSTRAINT sop_plan_line_consensus_check CHECK (consensus >= 0),
   PRIMARY KEY (tenant_id, plan_id, material_group, uom_code, month),
@@ -92,7 +92,7 @@ CREATE TABLE mrp.sop_plan_line (
   CONSTRAINT sop_plan_line_days CHECK (month = date_trunc('month', month)::date AND first_day >= month AND first_day <= last_day
     AND last_day = (month + interval '1 month' - interval '1 day')::date),
   -- The orders consume the forecast, which is never below them.
-  CONSTRAINT sop_plan_line_forecast_covers_orders CHECK (forecast >= sales_orders)
+  CONSTRAINT sop_plan_line_forecast_covers_orders CHECK (forecast >= orders)
 );
 CREATE FUNCTION mrp.sop_plan_line_fixed() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE st text;
@@ -100,18 +100,18 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'S&OP plan line %: a line is never deleted', OLD.material_group USING ERRCODE = 'check_violation', CONSTRAINT = 'sop_plan_line_fixed';
   END IF;
-  IF (to_jsonb(NEW) - 'consensus') IS DISTINCT FROM (to_jsonb(OLD) - 'consensus') THEN
+  IF TG_OP = 'UPDATE' AND (to_jsonb(NEW) - 'consensus') IS DISTINCT FROM (to_jsonb(OLD) - 'consensus') THEN
     RAISE EXCEPTION 'S&OP plan line %: only its consensus changes', OLD.material_group USING ERRCODE = 'check_violation', CONSTRAINT = 'sop_plan_line_fixed';
   END IF;
-  SELECT status INTO st FROM mrp.sop_plan WHERE tenant_id = OLD.tenant_id AND id = OLD.plan_id;
+  SELECT status INTO st FROM mrp.sop_plan WHERE tenant_id = NEW.tenant_id AND id = NEW.plan_id;
   IF st IS DISTINCT FROM 'draft' THEN
-    RAISE EXCEPTION 'S&OP plan line %: its plan version is %, so it changes no more', OLD.material_group, coalesce(st, 'not readable')
+    RAISE EXCEPTION 'S&OP plan line %: its plan version is %, so it changes no more', NEW.material_group, coalesce(st, 'not readable')
       USING ERRCODE = 'check_violation', CONSTRAINT = 'sop_plan_line_fixed';
   END IF;
   RETURN NEW;
 END $$;
 ALTER FUNCTION mrp.sop_plan_line_fixed() OWNER TO erp_owner;
-CREATE TRIGGER sop_plan_line_fixed BEFORE UPDATE OR DELETE ON mrp.sop_plan_line FOR EACH ROW EXECUTE FUNCTION mrp.sop_plan_line_fixed();
+CREATE TRIGGER sop_plan_line_fixed BEFORE INSERT OR UPDATE OR DELETE ON mrp.sop_plan_line FOR EACH ROW EXECUTE FUNCTION mrp.sop_plan_line_fixed();
 SELECT platform.secure_table('mrp.sop_plan_line'::regclass);
 GRANT UPDATE (consensus) ON mrp.sop_plan_line TO erp_app;
 

@@ -919,15 +919,16 @@ supply optimisation.
   base unit and calendar month of 1 to 12 (3 by default) from the day
   after, the forecast (per planned material and plant the greater of the
   moving average of 13 weeks' goods issues over the month's days and the
-  confirmed orders due in it, S2m's rule in months), the orders, and in
-  the first month the stock, purchase orders, stock transports and MRP's
-  proposals still to be ordered; the projected stock the opening stock
+  orders due in it, confirmed sales orders and intercompany orders it
+  supplies, S2m's rule in months), the orders, and in the first month the
+  stock, purchase orders, stock in transit and MRP's proposals still to
+  be ordered; the projected stock the opening stock
   and receipts less the consensus, which starts as the forecast.
   `updateSopPlan` sets the consensus by line key, `fixSopPlan` fixes the
   version, which then changes no more (database triggers); audited;
   people only. Capacity is not reviewed (no production context). Reads
   inventory's `PlantIssues`, sales' `PlantRequirementsDue` and
-  procurement's `TransportSupply`, new in their published APIs.
+  procurement's `TransportReceipts` and `IntercompanyDue`, new in their published APIs.
   Migration 000445; walkthrough step 157 (`step_sop_review`).
 
 ### S2o SAP migration of the material master (pilot)
