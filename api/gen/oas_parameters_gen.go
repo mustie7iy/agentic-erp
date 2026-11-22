@@ -50385,6 +50385,10 @@ type ListBadDebtReliefsParams struct {
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
 	// Only the reliefs of this customer invoice.
 	CustomerInvoiceID OptUUID `json:",omitempty,omitzero"`
+	// Only documents with a posting date on or after this date.
+	PostingDateFrom OptDate `json:",omitempty,omitzero"`
+	// Only documents with a posting date on or before this date.
+	PostingDateTo OptDate `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -50412,6 +50416,24 @@ func unpackListBadDebtReliefsParams(packed middleware.Parameters) (params ListBa
 		}
 		if v, ok := packed[key]; ok {
 			params.CustomerInvoiceID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "posting_date_from",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PostingDateFrom = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "posting_date_to",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PostingDateTo = v.(OptDate)
 		}
 	}
 	{
@@ -50524,6 +50546,88 @@ func decodeListBadDebtReliefsParams(args [0]string, argsEscaped bool, r *http.Re
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "customer_invoice_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: posting_date_from.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "posting_date_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPostingDateFromVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPostingDateFromVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PostingDateFrom.SetTo(paramsDotPostingDateFromVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "posting_date_from",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: posting_date_to.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "posting_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPostingDateToVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPostingDateToVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PostingDateTo.SetTo(paramsDotPostingDateToVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "posting_date_to",
 			In:   "query",
 			Err:  err,
 		}

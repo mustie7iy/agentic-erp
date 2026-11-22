@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/collections"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Bad debt relief (ADR-0049 As built, bad debt relief): the output tax of
@@ -152,8 +156,8 @@ func TestUAEBadDebtReliefRefusals(t *testing.T) {
 		{"an entry that is no write-off of it", relief(invoice, zeroOff, "AS", "2026-08-01", "2026-08-10"), 422, "receivables.not_written_off",
 			"write_off_journal_entry_id"},
 		{"before the write-off", relief(invoice, writeOff, "AS", "2026-03-01", "2026-03-14"), 422, "receivables.relief_before_write_off", "posting_date"},
-		{"within six months of the due date", relief(invoice, writeOff, "AS", "2026-08-01", "2026-08-08"), 422, "receivables.bad_debt_relief_too_early",
-			"posting_date"},
+		{"on the day six months pass since the due date", relief(invoice, writeOff, "AS", "2026-08-01", "2026-08-09"), 422,
+			"receivables.bad_debt_relief_too_early", "posting_date"},
 		{"without the customer's notice", relief(invoice, writeOff, "AS", "", "2026-08-10"), 422, "receivables.customer_not_notified", "customer_notified_on"},
 		{"notified after the relief", relief(invoice, writeOff, "AS", "2026-08-11", "2026-08-10"), 422, "receivables.invalid_notice_date",
 			"customer_notified_on"},
@@ -245,9 +249,21 @@ func TestBadDebtReliefElsewhere(t *testing.T) {
 	if n := len(items(t, page)); n != 0 {
 		t.Errorf("reliefs listed to a reader of 2000: got %d, want 0", n)
 	}
+	u.In(t).Problem(404, "request.not_found", "GET", "/v1/bad-debt-reliefs/"+uuid.NewString(), "", "")
+	second := u.invoiced(t, "2026-01-11", u.item("200.00", "S5", "AE-DU"))
+	u.Must(201, "POST", "/v1/bad-debt-reliefs", relief(second, u.writtenOff(t, second, "210.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-11"), "")
+	page, _ = u.Must(200, "GET", "/v1/bad-debt-reliefs?page_size=1&legal_entity_id="+u.le.String(), "", "")
+	next, _ := page["next_page_token"].(string)
+	if ids := items(t, page); len(ids) != 1 || ids[0]["id"] != got["id"] || next == "" {
+		t.Fatalf("the company's first page: got %v, want the first relief and a next page", page)
+	}
+	page, _ = u.Must(200, "GET", "/v1/bad-debt-reliefs?page_size=1&legal_entity_id="+u.le.String()+"&page_token="+next, "", "")
+	if ids := items(t, page); len(ids) != 1 || ids[0]["customer_invoice_id"] != second["id"] {
+		t.Errorf("the company's second page: got %v, want the second relief", page["items"])
+	}
 	page, _ = u.Must(200, "GET", "/v1/bad-debt-reliefs?legal_entity_id="+u.le.String(), "", "")
-	if n := len(items(t, page)); n != 1 {
-		t.Errorf("the company's reliefs: got %d, want 1", n)
+	if n := len(items(t, page)); n != 2 {
+		t.Errorf("the company's reliefs: got %d, want 2", n)
 	}
 	u.In(t).Problem(400, "request.invalid_page_token", "GET", "/v1/bad-debt-reliefs?page_token=x", "", "")
 }
@@ -259,14 +275,47 @@ func TestBadDebtReliefDatabaseFailures(t *testing.T) {
 	h := endpoints(t)
 	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
 	writeOff := uuid.MustParse(e.writtenOff(t, invoice, "105.00", "2026-03-15"))
+	// Without a posting date the relief posts on the company's today.
+	h.Now = func() time.Time { return date(t, "2026-08-10") }
 	in := &gen.BadDebtReliefCreate{CustomerInvoiceID: uuid.MustParse(invoice["id"].(string)), WriteOffJournalEntryID: writeOff, TaxCode: "AS",
-		CustomerNotifiedOn: gen.NewOptDate(date(t, "2026-08-01")), PostingDate: gen.NewOptDate(date(t, "2026-08-10"))}
+		CustomerNotifiedOn: gen.NewOptDate(date(t, "2026-08-01"))}
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "claim a bad debt relief", func(ctx context.Context) error {
-		_, err := h.CreateBadDebtRelief(ctx, in, gen.CreateBadDebtReliefParams{})
+		got, err := h.CreateBadDebtRelief(ctx, in, gen.CreateBadDebtReliefParams{})
+		if r, ok := got.(*gen.BadDebtReliefHeaders); ok && r.Response.PostingDate.Format(time.DateOnly) != "2026-08-10" {
+			t.Errorf("the relief's date: got %v, want the company's today, 2026-08-10", r.Response.PostingDate)
+		}
 		return err
 	})
 	got, _ := e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, writeOff.String(), "AS", "2026-08-01", "2026-08-10"), "")
 	id := uuid.MustParse(got["id"].(string))
+	outside := map[string]func(ctx context.Context) error{
+		"claim": func(ctx context.Context) error {
+			_, err := h.CreateBadDebtRelief(ctx, in, gen.CreateBadDebtReliefParams{})
+			return err
+		},
+		"read": func(ctx context.Context) error {
+			_, err := h.GetBadDebtRelief(ctx, gen.GetBadDebtReliefParams{ID: id})
+			return err
+		},
+		"list": func(ctx context.Context) error {
+			_, err := h.ListBadDebtReliefs(ctx, gen.ListBadDebtReliefsParams{})
+			return err
+		},
+		"read a write-off": func(ctx context.Context) error {
+			_, _, err := collections.WriteOffs{}.WrittenOff(ctx, writeOff, 2026, uuid.New())
+			return err
+		},
+	}
+	for name, call := range outside {
+		t.Run(name+" outside a unit of work", func(t *testing.T) {
+			if err := call(context.Background()); err == nil {
+				t.Error("got nil error, want an error")
+			}
+		})
+	}
+	if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: "bad_debt_relief_once"}); p.Status != 409 || p.Code != "receivables.bad_debt_relief_claimed" {
+		t.Errorf("bad_debt_relief_once: got %v, want 409 receivables.bad_debt_relief_claimed", p)
+	}
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "read a bad debt relief", func(ctx context.Context) error {
 		_, err := h.GetBadDebtRelief(ctx, gen.GetBadDebtReliefParams{ID: id})
 		return err
@@ -275,4 +324,50 @@ func TestBadDebtReliefDatabaseFailures(t *testing.T) {
 		_, err := h.ListBadDebtReliefs(ctx, gen.ListBadDebtReliefsParams{})
 		return err
 	})
+}
+
+// TestUAEBadDebtReliefOfPart: of an invoice of AED 1,000.00 in Dubai and
+// AED 0.20 in Abu Dhabi at 5% (50.00 and 0.01 of VAT, 1,050.21 gross),
+// AED 10.00 written off recovers 0.48 (10.00 x 50.01 / 1,050.21 = 0.476),
+// all Dubai's: Abu Dhabi's share rounds to nothing, so the entry has no
+// line for it.
+func TestUAEBadDebtReliefOfPart(t *testing.T) {
+	e := reliefEnv(t)
+	invoice := e.invoiced(t, "2026-01-10", e.item("1000.00", "S5", "AE-DU"), e.item("0.20", "S5", "AE-AZ"))
+	got, _ := e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, e.writtenOff(t, invoice, "10.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-10"), "")
+	if a := amount(t, got, "tax_amount"); a != "0.48 AED" {
+		t.Errorf("the VAT recovered: got %s, want 0.48 AED", a)
+	}
+	if lines, want := e.jurisdictionLines(t, got["journal_entry_id"]), "230000 48 AS AE-DU; 680000 -48 - -"; lines != want {
+		t.Errorf("the relief's lines: got %s, want %s", lines, want)
+	}
+}
+
+// TestUAEBadDebtReliefCumulative: an invoice of AED 100.00 in Dubai at 5%,
+// 105.00 gross, written off by three cases of 35.00 recovers 1.67, 1.66
+// and 1.67, the invoice's 5.00 in all (each relief its cumulative share,
+// 1.67, 3.33 and 5.00, less the earlier ones'), never 5.01; a fourth case
+// writing the same item off again is refused, as the reliefs relieved the
+// whole gross.
+func TestUAEBadDebtReliefCumulative(t *testing.T) {
+	e := reliefEnv(t)
+	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+	var got []string
+	for i, day := range []string{"2026-08-10", "2026-08-11", "2026-08-12"} {
+		writeOff := e.writtenOff(t, invoice, "35.00", fmt.Sprintf("2026-03-%d", 15+i))
+		r, _ := e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, writeOff, "AS", "2026-08-01", day), "")
+		got = append(got, amount(t, r, "tax_amount")+"/"+amount(t, r, "local_tax_amount"))
+	}
+	if s, want := fmt.Sprint(got), "[1.67 AED/1.67 AED 1.66 AED/1.66 AED 1.67 AED/1.67 AED]"; s != want {
+		t.Errorf("the reliefs' tax: got %s, want %s", s, want)
+	}
+	p := e.In(t).Problem(422, "receivables.bad_debt_relief_exceeds_invoice", "POST", "/v1/bad-debt-reliefs",
+		relief(invoice, e.writtenOff(t, invoice, "35.00", "2026-03-20"), "AS", "2026-08-01", "2026-08-13"), "")
+	if field(p) != "write_off_journal_entry_id" {
+		t.Errorf("the field: got %v, want write_off_journal_entry_id", field(p))
+	}
+	page, _ := e.Must(200, "GET", "/v1/bad-debt-reliefs?posting_date_from=2026-08-11&posting_date_to=2026-08-11", "", "")
+	if its := items(t, page); len(its) != 1 || amount(t, its[0], "tax_amount") != "1.66 AED" {
+		t.Errorf("the reliefs of 11 August: got %v, want the second alone", page["items"])
+	}
 }

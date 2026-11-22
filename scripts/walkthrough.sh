@@ -16605,10 +16605,7 @@ step_uae_cash_discount() {
       else . end))}' "$WORK/last.json" >"$WORK/uae-discount.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-discount.json
   governed "$(field .id)" "the UAE company's bank and discount account"
-  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
-  recon=$(field '.items[] | select(.number == "1200") | .id')
-  sales=$(field '.items[] | select(.number == "4000") | .id')
-  vat=$(field '.items[] | select(.number == "2300") | .id')
+  recon=$(company_account "$ae" 1200) sales=$(company_account "$ae" 4000) vat=$(company_account "$ae" 2300)
   as ruth
   say "Ruth creates Oasis Office Supplies, a UAE customer of $AE on 2/10N30: 2% off within ten days, net in thirty."
   say "Carla approves it:"
@@ -16682,12 +16679,13 @@ step_uae_cash_discount() {
 # the GST that the GST34 reports on line 107, CAD 20.00 is debited on 1300
 # and credited to 6850, with the date Bayview was told; a second claim of
 # the write-off is refused, and the relief lists by its invoice. A UAE
-# invoice written off today is refused: Federal Decree-Law No. 8 of 2017
-# Art. 64 asks six months past its due date (the return of a quarter not
+# invoice written off today is refused: under Federal Decree-Law No. 8 of
+# 2017 Art. 64 six months must have passed, counted by default from its
+# due date (ADR-0049 As built batch 90; the return of a quarter not
 # yet ended is not computed: TestUAEBadDebtRelief proves the VAT 201's
 # adjustment columns and TestCanadianBadDebtRelief line 107).
 step_bad_debt_relief() {
-  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once; a UAE invoice written off before six months past its due date refused"
+  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once; a UAE invoice written off before six months have passed refused"
   local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae
   [ -n "$customer" ] || fail "step 139's customer is not there"
   as ruth
@@ -16727,15 +16725,16 @@ step_bad_debt_relief() {
   refused 409 receivables.bad_debt_relief_claimed createBadDebtRelief -body "${body/\"GI\"/\"GA\"}"
   QUIET=1 api 200 '' listBadDebtReliefs -p "customer_invoice_id=$invoice"
   expect "the invoice's reliefs" "$(field '[.items[].id] | join(" ")')" "$relief"
-  say "A UAE company recovers its VAT under Federal Decree-Law No. 8 of 2017 Art. 64 only six months past the supply's"
-  say "due date, with the customer notified. Ruth writes off an invoice of Maple Gulf Trading to Oasis Office Supplies"
+  say "A UAE company recovers its VAT under Federal Decree-Law No. 8 of 2017 Art. 64 only once six months have passed"
+  say "since the supply (counted, by default, from its due date), with the customer notified. Ruth writes off an"
+  say "invoice of Maple Gulf Trading to Oasis Office Supplies"
   say "of today, AED 100.00 at 5% in Dubai; relief now is refused:"
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
   QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Oasis
   oasis=$(field '.items[0].id')
   QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$oasis\", \"invoice_date\": \"$TODAY\", \"currency\": \"AED\",
-    \"items\": [{\"description\": \"Filing cabinet\", \"account_id\": \"$(uae_account "$ae" 4000)\", \"net_amount\": {\"amount\": \"100.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"
+    \"items\": [{\"description\": \"Filing cabinet\", \"account_id\": \"$(company_account "$ae" 4000)\", \"net_amount\": {\"amount\": \"100.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"
   QUIET=1 api 200 '' postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
   uae=$(field .id) entry=$(field .journal_entry_id)
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$ae" -p "partner_id=$oasis" -p page_size=100
@@ -16748,8 +16747,9 @@ step_bad_debt_relief() {
   passed
 }
 
-# uae_account LE NUMBER is the id of the account NUMBER of the company LE.
-uae_account() {
+# company_account LE NUMBER is the id of the account NUMBER of the
+# company LE.
+company_account() {
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$1" -p page_size=200
   field '.items[] | select(.number == "'"$2"'") | .id'
 }

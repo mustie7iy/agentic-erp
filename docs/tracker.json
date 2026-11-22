@@ -2765,7 +2765,7 @@
      },
      {
       "s": "D",
-      "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt by a dispute case's write-off (T86d) recovered by an adjustment the return reports (createBadDebtRelief, migration 000446): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 as the research states it (six months past the later of the invoice's date and its due date, written off, the customer's notice date given), in the VAT 201's box 1 adjustment column of the item's emirate; for a Canadian one under the Excise Tax Act s.231 (written off), on the GST34's line 107; never by a plain write-off or a short payment; its evidence (the write-off entry, the notice date) kept with the relief; a person posts it (ADR-0049 As built batch 90)",
+      "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt by a dispute case's write-off (T86d) recovered by an adjustment the return reports (createBadDebtRelief, migration 000446): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 as the research states it (six months, counted by default from the later of the invoice's date and its due date, written off, the customer's notice date given; counted cumulatively, at most the invoice's tax), in the VAT 201's box 1 adjustment column of the item's emirate; for a Canadian one under the Excise Tax Act s.231 (written off), on the GST34's line 107; never by a plain write-off or a short payment; its evidence (the write-off entry, the notice date) kept with the relief; a person posts it (ADR-0049 As built batch 90)",
       "r": "ADR-0049 As built batch 90 · ADR-0065 (write-offs) · T86d",
       "src": "po:2026-11-21",
       "c": []
@@ -3279,6 +3279,13 @@
         "t": "An AR accountant resolves an accepted dispute case, in full or in part, by a customer credit memo per accepted invoice through receivables or by a write-off to the payment differences account; the case closes as accepted naming the documents",
         "r": "T86d · docs/design/plan-depth-3.md §T86d · db/migrations/000404, 000405 · dispute_case resolution columns · dispute_case_item accepted amounts and credit memo · POST /v1/dispute-cases/{id}:resolve · collections.dispute.resolve · DisputeCaseChanged resolved · receivables credit memo per item (source the case's item) · write-off SA entry, source_context collections, to payment_difference_expense, an item of a dunning charge's debit memo refused (422 collections.dunning_charge_write_off, TestWriteOffOfADunningCharge) · collectionsagent.Never · walkthrough step_dispute_resolution · ADR-0065 As built",
         "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A dispute case disputes at most what is still owed of an item: today a case's amount is bounded by the item's line amount, and a write-off or credit memo leaves the item open beside its credit, so a second case can write the same invoice off again, past its gross (money correctness; bad debt relief refuses relieving more than the gross, 422 receivables.bad_debt_relief_exceeds_invoice, but the second write-off still posts)",
+        "r": "internal/collections/dispute_items.go disputed · ADR-0065 As built T86d · ADR-0049 As built batch 90",
+        "src": "review:batch90",
         "c": []
        },
        {

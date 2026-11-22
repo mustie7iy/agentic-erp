@@ -52,13 +52,16 @@ type Relief struct {
 }
 
 // reliefSelect reads reliefs with their invoices' numbers and customers
-// and their currencies' minor-unit digits.
+// and their currencies' minor-unit digits. The invoice's columns come
+// from a lateral subquery that carries no id, so id names the relief's
+// alone, as the keyset's page condition takes it (pagination.Keyset.SQL).
 const reliefSelect = `SELECT r.id, r.legal_entity_id, r.customer_invoice_id, i.document_number, i.customer_id, r.write_off_entry_year,
 		r.write_off_entry_id, r.write_off_entry_number, r.dispute_case_id, r.currency, c.exponent, r.local_currency, l.exponent,
 		r.written_off_amount, r.written_off_amount_lc, r.tax_amount, r.tax_amount_lc, r.tax_code, r.customer_notified_on, r.posting_date,
 		r.journal_entry_year, r.journal_entry_id, r.journal_entry_number, r.created_at, r.created_by
 	FROM receivables.bad_debt_relief r
-	JOIN receivables.customer_invoice i ON i.tenant_id = r.tenant_id AND i.id = r.customer_invoice_id
+	CROSS JOIN LATERAL (SELECT v.document_number, v.customer_id FROM receivables.customer_invoice v
+		WHERE v.tenant_id = r.tenant_id AND v.id = r.customer_invoice_id) i
 	JOIN ref.currency c ON c.code = r.currency JOIN ref.currency l ON l.code = r.local_currency`
 
 func scanRelief(row pgx.Row) (Relief, error) {
@@ -190,8 +193,5 @@ func recordRelief(ctx context.Context, r Relief) error {
 		"written_off_amount": money.EventAmount(r.WrittenOff, r.Currency, r.Exponent), "tax_amount": money.EventAmount(r.Tax, r.Currency, r.Exponent),
 		"tax_code": r.TaxCode, "customer_notified_on": notified, "posting_date": r.PostingDate.Format(time.DateOnly),
 		"journal_entry_id": r.EntryID, "journal_entry_number": r.EntryNumber}
-	if err := audit.Record(ctx, action, "receivables.bad_debt_relief", r.ID, detail); err != nil {
-		return fmt.Errorf("receivables: record %s of bad debt relief %s: %w", action, r.ID, err)
-	}
-	return nil
+	return errs.Wrapf(audit.Record(ctx, action, "receivables.bad_debt_relief", r.ID, detail), "receivables: record %s of bad debt relief %s", action, r.ID)
 }

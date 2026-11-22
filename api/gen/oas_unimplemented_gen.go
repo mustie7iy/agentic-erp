@@ -1545,31 +1545,35 @@ func (UnimplementedHandler) CreateAuditEvidenceExport(ctx context.Context, req *
 // items, the total rounded once half away from zero and shared out by their tax, in the invoice's
 // currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share
 // rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under
-// Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: six months after
-// the supply's due date (the later of the invoice's date and its net due date; 422
-// `receivables.bad_debt_relief_too_early` naming `posting_date` before then) and once the customer was
-// notified of what was written off (`customer_notified_on`, required: 422
-// `receivables.customer_not_notified`); a Canadian company under the Excise Tax Act s.231, once the
-// account is written off. A notice given is dated from the invoice's date to the relief's (422
-// `receivables.invalid_notice_date`). `tax_code` is the adjustment code the relief is posted under
-// (kind `adjustment`): for a UAE company an output code whose `vat` component levies the emirate each
-// line names, so the VAT 201 reports the relief in box 1's adjustment column of the emirate the
-// invoice's item named; for a Canadian company an input code of the GST/HST, which the GST34 reports
-// on line 107, adjustments that decrease the net tax (ADR-0049 §11). A code of another kind or
-// direction, or without a component of each of the invoice's tax components with an account, levying
-// the line's emirate exactly where the invoice's item named one, is refused (422
-// `receivables.invalid_relief_tax_code`). The relief posts one journal entry, document type `SA`,
-// `source_context` `receivables`, the invoice's number its reference, on `posting_date` (else today,
-// the company's date in its time zone), which is its tax date and must be in an open period (409
-// `ledger.period_not_open`) and not before the write-off posted (422
+// Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months
+// have passed since the supply, counted by default from the later of the invoice's date and its net
+// due date (a relief dated on or before the day they pass is refused, 422
+// `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified
+// of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`);
+// a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given
+// is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code`
+// is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output
+// code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in
+// box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input
+// code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax
+// (ADR-0049 §11). A code of another kind or direction, or without a component of each of the
+// invoice's tax components with an account, levying the line's emirate exactly where the invoice's
+// item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal
+// entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on
+// `posting_date` (else today, the company's date in its time zone), which is its tax date and must be
+// in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422
 // `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the
 // tax recovered with the code and the emirate, and their total credited to the company's
 // `payment_difference_expense` account, which the write-off debited (422
-// `receivables.no_write_off_account` without it). A write-off of an invoice is relieved once (409
-// `receivables.bad_debt_relief_claimed`); two claims of one invoice at once are ordered by the
-// invoice's row lock. An audit record is written with it. A retry with the same `Idempotency-Key`
-// answers the relief recorded. The recovery of the tax when the customer pays later is not built yet.
-// Human-only (`x-agent: false`).
+// `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax
+// in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial
+// write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409
+// `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross
+// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a
+// second dispute case writing the same item off again); two claims of one invoice at once are ordered
+// by the invoice's row lock. An audit record is written with it. A retry with the same
+// `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later
+// is not built yet. Human-only (`x-agent: false`).
 //
 // POST /v1/bad-debt-reliefs
 func (UnimplementedHandler) CreateBadDebtRelief(ctx context.Context, req *BadDebtReliefCreate, params CreateBadDebtReliefParams) (r CreateBadDebtReliefRes, _ error) {
@@ -6732,8 +6736,9 @@ func (UnimplementedHandler) ListAuditEvidenceExports(ctx context.Context, params
 // ListBadDebtReliefs implements listBadDebtReliefs operation.
 //
 // The bad debt reliefs of the companies the caller may act in (ADR-0049 As built, bad debt relief),
-// each as `getBadDebtRelief` gives it, newest posting date last. Filtered by company and customer
-// invoice. Sortable by: `posting_date`.
+// each as `getBadDebtRelief` gives it, newest posting date last. Filtered by company, customer invoice
+// and posting date (the tax date, which decides the return that reports it). Sortable by:
+// `posting_date`.
 //
 // GET /v1/bad-debt-reliefs
 func (UnimplementedHandler) ListBadDebtReliefs(ctx context.Context, params ListBadDebtReliefsParams) (r ListBadDebtReliefsRes, _ error) {

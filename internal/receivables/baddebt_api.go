@@ -111,7 +111,9 @@ func (e *Endpoints) ListBadDebtReliefs(ctx context.Context, params gen.ListBadDe
 		return nil, err
 	}
 	le, invoice := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID)
-	ks, err := e.Pages.Keyset(reliefSort, fmt.Sprintf("listBadDebtReliefs|%s|%s", le, invoice), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	from, to := apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo)
+	scope := fmt.Sprintf("listBadDebtReliefs|%s|%s|%v|%v", le, invoice, from, to)
+	ks, err := e.Pages.Keyset(reliefSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("receivables: page of bad debt reliefs: %w", err)
 	}
@@ -120,7 +122,8 @@ func (e *Endpoints) ListBadDebtReliefs(ctx context.Context, params gen.ListBadDe
 		return nil, fmt.Errorf("receivables: company access for bad debt reliefs: %w", err)
 	}
 	q, args := ks.SQL(reliefSelect+` WHERE ($1 OR r.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR r.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR r.customer_invoice_id = $4)`, []any{access.All, access.IDs, le, invoice})
+		AND ($4::uuid IS NULL OR r.customer_invoice_id = $4) AND ($5::date IS NULL OR r.posting_date >= $5)
+		AND ($6::date IS NULL OR r.posting_date <= $6)`, []any{access.All, access.IDs, le, invoice, from, to})
 	rows, _ := tx.Query(ctx, q, args...)
 	reliefs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Relief, error) { return scanRelief(r) })
 	if err != nil {

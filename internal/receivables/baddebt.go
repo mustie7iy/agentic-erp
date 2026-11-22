@@ -36,8 +36,11 @@ import (
 // posted under, which decides the line of the return that reports it
 // (ADR-0049 §11: adjustments are entries of a code of kind adjustment
 // mapped to their box); the months that must have passed since the
-// supply's due date (0: none); and whether the customer must have been
-// notified of what was written off.
+// supply (0: none; the research says six months and the tracker leaf
+// "past the date of supply": counted, by default of this step, from the
+// later of the invoice's date and its due date, the stricter reading, and
+// only once they have passed in full); and whether the customer must have
+// been notified of what was written off.
 type reliefRule struct {
 	law       string
 	direction string
@@ -126,6 +129,13 @@ type claim struct {
 	shares   []reliefShare
 	tax, lc  money.Minor
 	expensed uuid.UUID
+	before   reliefTotals
+}
+
+// reliefTotals are what an invoice's reliefs wrote off and recovered, in
+// its currency, and the tax in the company's.
+type reliefTotals struct {
+	written, tax, lc money.Minor
 }
 
 // ClaimBadDebtRelief recovers the output tax of a customer invoice a
@@ -152,7 +162,7 @@ func (e *Endpoints) ClaimBadDebtRelief(ctx context.Context, in ReliefInput) (Rel
 	if err != nil {
 		return Relief{}, err
 	}
-	id := uuid.New()
+	id := uuid.Must(uuid.NewV7())
 	entry, err := e.postRelief(ctx, &c, id)
 	if err != nil {
 		return Relief{}, err
@@ -191,7 +201,7 @@ func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in Re
 	if err := c.rule.check(v, c.date, in.CustomerNotifiedOn); err != nil {
 		return claim{}, err
 	}
-	if err := relieved(ctx, tx, v, in.WriteOffEntryID, c.written); err != nil {
+	if c.before, err = relieved(ctx, tx, v, in.WriteOffEntryID, c.written); err != nil {
 		return claim{}, err
 	}
 	if err := e.reliefShares(ctx, &c); err != nil {
@@ -258,9 +268,10 @@ func (e *Endpoints) writtenOff(ctx context.Context, v Invoice, entry uuid.UUID, 
 	return w, nil
 }
 
-// check holds the claim to the rule's conditions: the months past the
-// later of the invoice's date (its tax date, the supply's) and its due
-// date (422 receivables.bad_debt_relief_too_early naming posting_date),
+// check holds the claim to the rule's conditions: a relief dated after
+// the months have passed since the later of the invoice's date (its tax
+// date, the supply's) and its due date (422
+// receivables.bad_debt_relief_too_early naming posting_date),
 // and the customer's notice where the rule asks for one (422
 // receivables.customer_not_notified naming customer_notified_on). A notice
 // given is dated from the invoice's date to the relief's (422
@@ -270,10 +281,10 @@ func (r reliefRule) check(v Invoice, date time.Time, notified *time.Time) error 
 	if v.NetDueDate != nil && v.NetDueDate.After(since) { // a posted invoice names its due date (customer_invoice_posted)
 		since = *v.NetDueDate
 	}
-	if earliest := since.AddDate(0, r.months, 0); r.months > 0 && date.Before(earliest) {
-		return problem.Invalid("receivables.bad_debt_relief_too_early", "posting_date", fmt.Sprintf("Under %s the relief is claimed %d months "+
-			"after the supply's due date: customer invoice %s is due on %s, so relief posts on or after %s.", r.law, r.months, v.DocumentNumber,
-			since.Format(time.DateOnly), earliest.Format(time.DateOnly)))
+	if passed := since.AddDate(0, r.months, 0); r.months > 0 && !date.After(passed) {
+		return problem.Invalid("receivables.bad_debt_relief_too_early", "posting_date", fmt.Sprintf("Under %s the relief is claimed once %d months "+
+			"have passed since the supply (counted, by default, from the later of the invoice's date and its due date, %s for customer invoice %s): "+
+			"it posts after %s.", r.law, r.months, since.Format(time.DateOnly), v.DocumentNumber, passed.Format(time.DateOnly)))
 	}
 	if notified == nil {
 		if r.notice {
@@ -289,20 +300,32 @@ func (r reliefRule) check(v Invoice, date time.Time, notified *time.Time) error 
 	return nil
 }
 
-// relieved refuses a write-off of the invoice already relieved, 409
-// receivables.bad_debt_relief_claimed: the invoice's row lock, held since
-// the claim read it, orders two claims of it, and bad_debt_relief_once
-// refuses the second if both got this far.
-func relieved(ctx context.Context, tx pgx.Tx, v Invoice, entry uuid.UUID, w WrittenOff) error {
-	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM receivables.bad_debt_relief WHERE customer_invoice_id = $1 AND write_off_entry_id = $2)`,
-		v.ID, entry).Scan(&exists); err != nil {
-		return fmt.Errorf("receivables: is write-off %s of customer invoice %s relieved: %w", w.EntryNumber, v.DocumentNumber, err)
+// relieved are the invoice's reliefs so far, read under its row lock,
+// which orders two claims of it (bad_debt_relief_once refuses the second
+// if both got this far): a write-off of the invoice relieved already is
+// refused, 409 receivables.bad_debt_relief_claimed, and so is one that,
+// with what earlier reliefs relieved, would relieve more than the
+// invoice's gross amount, 422 receivables.bad_debt_relief_exceeds_invoice
+// naming write_off_journal_entry_id (a write-off leaves the invoice's item
+// open, so a second case may write it off again).
+func relieved(ctx context.Context, tx pgx.Tx, v Invoice, entry uuid.UUID, w WrittenOff) (reliefTotals, error) {
+	var claimed bool
+	var t reliefTotals
+	if err := tx.QueryRow(ctx, `SELECT coalesce(bool_or(write_off_entry_id = $2), false), coalesce(sum(written_off_amount), 0)::bigint,
+			coalesce(sum(tax_amount), 0)::bigint, coalesce(sum(tax_amount_lc), 0)::bigint
+		FROM receivables.bad_debt_relief WHERE customer_invoice_id = $1`, v.ID, entry).Scan(&claimed, &t.written, &t.tax, &t.lc); err != nil {
+		return reliefTotals{}, fmt.Errorf("receivables: the bad debt reliefs of customer invoice %s: %w", v.DocumentNumber, err)
 	}
-	if exists {
-		return claimedTwice(v.DocumentNumber, w.EntryNumber)
+	if claimed {
+		return reliefTotals{}, claimedTwice(v.DocumentNumber, w.EntryNumber)
 	}
-	return nil
+	// Recorded reliefs are each less than the gross: their sum and this write-off's are in range.
+	if t.written+w.Amount > v.Gross {
+		return reliefTotals{}, problem.Invalid("receivables.bad_debt_relief_exceeds_invoice", "write_off_journal_entry_id", fmt.Sprintf("Write-off %s "+
+			"wrote off %s of customer invoice %s, whose reliefs so far relieved %s of its gross amount of %s: its tax is recovered once.", w.EntryNumber,
+			w.Amount.Plain(v.Exponent), v.DocumentNumber, t.written.Plain(v.Exponent), v.Gross.Plain(v.Exponent)))
+	}
+	return t, nil
 }
 
 func init() {
@@ -318,13 +341,17 @@ func claimedTwice(invoice, writeOff string) *problem.Problem {
 }
 
 // reliefShares is the tax share of what was written off of each of the
-// invoice's output tax items: the written-off part of the gross times the
-// invoice's output tax, in its currency and at its booked rate in the
-// company's, each total rounded once half away from zero and shared out
-// over the items by their tax (money.ShareOut), so every item keeps its
-// code, component and emirate. An invoice that bore no output tax, or
-// whose share rounds to nothing, is refused (422 receivables.no_output_tax
-// naming customer_invoice_id).
+// invoice's output tax items. Counted cumulatively, as sales credits a
+// billing item's tax (ADR-0067): the invoice's output tax times the part
+// of its gross its reliefs, this one with the earlier, wrote off, in its
+// currency and at its booked rate in the company's, each rounded once half
+// away from zero, less what the earlier reliefs recovered, so partial
+// write-offs never recover more than the invoice bore. The total is shared
+// out over the items by their tax (money.ShareOut), so every item keeps its
+// code, component and emirate, and the local total over the items whose
+// share is not nothing, by their local tax, so the lines add up to it. An
+// invoice that bore no output tax, or whose share rounds to nothing, is
+// refused (422 receivables.no_output_tax naming customer_invoice_id).
 func (e *Endpoints) reliefShares(ctx context.Context, c *claim) error {
 	items, err := e.TaxItems.Of(ctx, *c.invoice.EntryID)
 	if err != nil {
@@ -341,19 +368,24 @@ func (e *Endpoints) reliefShares(ctx context.Context, c *claim) error {
 		taxes, taxesLC = append(taxes, -it.Tax), append(taxesLC, -it.TaxLC)
 		total, totalLC = total-it.Tax, totalLC-it.TaxLC
 	}
-	g := c.invoice.Gross
-	c.tax, _ = money.Round(new(big.Rat).Mul(big.NewRat(int64(c.written.Amount), int64(g)), new(big.Rat).SetInt64(int64(total))), 0)  // at most the tax: in range
-	c.lc, _ = money.Round(new(big.Rat).Mul(big.NewRat(int64(c.written.Amount), int64(g)), new(big.Rat).SetInt64(int64(totalLC))), 0) // at most the tax: in range
+	part := big.NewRat(int64(c.before.written+c.written.Amount), int64(c.invoice.Gross))    // at most the gross (relieved): at most 1
+	tax, _ := money.Round(new(big.Rat).Mul(part, new(big.Rat).SetInt64(int64(total))), 0)   // at most the tax: in range
+	lcs, _ := money.Round(new(big.Rat).Mul(part, new(big.Rat).SetInt64(int64(totalLC))), 0) // at most the tax: in range
+	c.tax, c.lc = tax-c.before.tax, lcs-c.before.lc                                         // what the earlier reliefs recovered is part of the cumulative share
 	if c.tax <= 0 {
 		return problem.Invalid("receivables.no_output_tax", "customer_invoice_id", "Customer invoice "+c.invoice.DocumentNumber+" bore no output tax "+
 			"that what write-off "+c.written.EntryNumber+" wrote off would recover.")
 	}
-	tc, lc := money.ShareOut(c.tax, taxes), money.ShareOut(c.lc, taxesLC)
+	tc := money.ShareOut(c.tax, taxes)
 	for i := range c.shares {
-		c.shares[i].tc = tc[i]
-		if lc != nil { // nil: the items carry no local tax to share it by
-			c.shares[i].lc = lc[i]
+		if c.shares[i].tc = tc[i]; tc[i] == 0 {
+			taxesLC[i] = 0 // no line takes it (reliefLines)
 		}
+	}
+	// nil when no item with a share carries local tax: none is shared, and
+	// reliefLines records the local tax the lines post.
+	for i, lc := range money.ShareOut(c.lc, taxesLC) {
+		c.shares[i].lc = lc
 	}
 	return nil
 }

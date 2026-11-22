@@ -2017,24 +2017,36 @@ product owner's digest:
   changes. A write-off of a partly paid invoice's residual item (an
   incoming payment's entry, not the invoice's) is not found
   (`receivables.not_written_off`); relieving it is later.
-- **How much.** What was written off, as a part of the invoice's gross
-  amount, times the invoice's output tax, in its currency and at its
-  booked rate in the company's, each total rounded once half away from
-  zero and shared out over the invoice's output tax items by their tax
-  (`money.ShareOut`), so every item keeps its code, component and
-  emirate. Each write-off of an invoice is relieved once
-  (`bad_debt_relief_once`), so two partial write-offs give two reliefs.
+- **How much.** Counted cumulatively, as sales credits a billing item's
+  tax (ADR-0067 As built): the invoice's output tax times the part of its
+  gross that its reliefs' write-offs, this one with the earlier ones,
+  wrote off, in its currency and at its booked rate in the company's,
+  each rounded once half away from zero, less what the earlier reliefs
+  recovered, so partial write-offs never recover more than the invoice
+  bore (three of 35.00 of a 105.00 invoice with 5.00 VAT recover 1.67,
+  1.66 and 1.67). The total is shared out over the invoice's output tax
+  items by their tax (`money.ShareOut`), so every item keeps its code,
+  component and emirate, and the local total over the items whose share
+  is not nothing, by their local tax, so the lines add up to it. Each
+  write-off of an invoice is relieved once (`bad_debt_relief_once`), and
+  its reliefs together relieve at most its gross amount (422
+  `receivables.bad_debt_relief_exceeds_invoice`): a write-off leaves the
+  invoice's item open, so a second dispute case can write it off again
+  (a collections gap, tracker leaf src review:batch90).
 - **The conditions, by the company's country** (`reliefRules`):
-  - UAE, Federal Decree-Law No. 8 of 2017 Art. 64 (research): six months
-    past the supply's due date, written off in the accounts, the customer
-    notified. Built as: the relief's posting date on or after six months
-    (`AddDate(0, 6, 0)`) after the later of the invoice's date (its tax
-    date, the supply's) and its net due date (422
-    `receivables.bad_debt_relief_too_early`); the write-off exists (above);
-    `customer_notified_on` given (422 `receivables.customer_not_notified`).
-    The research names the supply's due date and the tracker leaf "the
-    date of supply": the later of the two satisfies both readings, for the
-    specialist to settle. The leaf also says "its tax paid": not checked
+  - UAE, Federal Decree-Law No. 8 of 2017 Art. 64 (research): six months,
+    written off in the accounts, the customer notified. Built as: the
+    relief's posting date after the day six months (`AddDate(0, 6, 0)`)
+    have passed since the later of the invoice's date (its tax date, the
+    supply's) and its net due date (422
+    `receivables.bad_debt_relief_too_early` on or before that day); the
+    write-off exists (above); `customer_notified_on` given (422
+    `receivables.customer_not_notified`). What the six months count from
+    is not in the research: the tracker leaf says "past the date of
+    supply" and the lane brief the supply's due date, so the later of the
+    two, and only once they have passed in full, is this step's default,
+    the stricter reading, for the specialist to settle against the law's
+    text (whether it says "more than six months"). The leaf also says "its tax paid": not checked
     (the ERP does not know what was paid to the FTA, and whether a filed
     return reporting the invoice is required is not in the research), for
     the specialist.
