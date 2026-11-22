@@ -5825,6 +5825,29 @@ erDiagram
   order's `version`. Insert-only. A billing document's status may now
   be `cancelled`, keeping what it posted with (`billing_document_posted`
   widened), set by that trigger alone (`billing_document_posted_once`).
+- `sales.intercompany_billing` and `sales.intercompany_billing_item` (S2i2, migration 000445;
+  ADR-0082 As built S2i): the supplying company's (`legal_entity_id`)
+  bill of an intercompany stock transport order's goods issue to the
+  business partner that is the receiving company (`customer_id`), written
+  once its customer invoice has posted and never changed (insert-only,
+  `platform.forbid_mutation`, no update grant). It names the order
+  (`purchase_order_id`, procurement context), its number and company
+  (`receiving_legal_entity_id`, another than the billing's,
+  `intercompany_billing_other_company`), the goods issue
+  (`issue_document_id`, inventory context, billed once:
+  `intercompany_billing_once`) and its number, the billing and posting
+  dates, the order's currency, the net amount (above zero) and the
+  invoice's tax (not below zero), the customer invoice by id (once,
+  `intercompany_billing_invoice_once`) and number and its journal entry
+  and year; numbered once per company from the `billing_document` range
+  (`intercompany_billing_number_once`); the numbers 1 to 40 characters
+  (`intercompany_billing_*_number_check`). An item bills an order item
+  once (`intercompany_billing_item_once`), numbered from 1, with its
+  material, description, quantity in its unit, the order's price per
+  price unit, its amount above zero, the revenue account, the output tax
+  code and jurisdiction (a jurisdiction or tax only with a code,
+  `intercompany_billing_item_tax`) and the tax its invoice item bore.
+  `intercompany_billing_by_order` finds an order's billing.
 - `sales.returns_order` (T85a, migration 000306; ADR-0067, As built
   T85a): quantities of a posted billing document's items that the
   customer sends back, numbered once per company

@@ -798,11 +798,13 @@ customs (S2s).
     **Acceptance:** each company's entry balances, the supplying
     company's at its stock's value, the receiving company's at the order
     price. Walkthrough step `step_intercompany_transport`.
-  - **S2i2 Intercompany billing** (leaf): the supplying company bills the
-    posted goods issue to the receiving company's customer at the order's
-    prices (a billing document of the goods issue, not of a sales order),
-    its tax by the supplying company's tax code, posted as a customer
-    invoice (receivable and revenue); once per goods issue.
+  - **S2i2 Intercompany billing** (built, lane icbill, 2026-11-22; ADR-0082
+    As built S2i2): the supplying company bills the posted goods issue to
+    the receiving company's customer at the order's prices (a document of
+    its own, `sales.intercompany_billing`, not a sales billing document),
+    its tax by the supplying company's tax code, posted at once as a
+    customer invoice (receivable and revenue); once per goods issue.
+    `POST /v1/intercompany-billings`; walkthrough step 155.
   - **S2i3 The receiving company's supplier invoice from the billing**
     (leaf): the posted intercompany billing is entered as a supplier
     invoice of the receiving company for the supplier that is the

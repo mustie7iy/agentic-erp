@@ -2288,6 +2288,47 @@ func (UnimplementedHandler) CreateIncomingPayment(ctx context.Context, req *Inco
 	return r, ht.ErrNotImplemented
 }
 
+// CreateIntercompanyBilling implements createIntercompanyBilling operation.
+//
+// The supplying company bills the posted goods issue (643) of an intercompany stock transport order
+// (ADR-0082 As built S2i, S2i2; SAP's intercompany billing, billing type IV, from memory) to the
+// business partner that is the receiving company, and posts it at once as a customer invoice, in one
+// transaction. The order (`purchase_order_id`) is one of a company the caller may act in, supplied by
+// a plant of another company the caller may act in, which bills (422 `request.reference_not_found`
+// naming `purchase_order_id` otherwise); an order naming no supplying plant is refused (422
+// `sales.not_intercompany`), one whose goods issue is not posted yet (409
+// `sales.intercompany_not_issued`) or is billed already (409 `sales.intercompany_billed`: a goods
+// issue is billed once, and of two requests racing for one the second meets this). The customer
+// (`customer_id`) is the business partner whose group company is the order's company (422
+// `sales.intercompany_customer`), set up as a customer in the supplying company. Every item of the
+// order is billed once (422 `sales.intercompany_items` otherwise), its ordered quantity, which the
+// goods issue issued, at the order's price, the transfer price: its amount is the order item's value,
+// quantity × price ÷ price unit rounded half away from zero, in the order's currency, so the
+// billing's net amount is the order's. Each item names the supplying company's revenue account and,
+// optionally, its output tax code and tax jurisdiction; an item whose code levies the UAE's emirates
+// and that names none takes the supplying plant's emirate (the seller's side, ADR-0049 §11). The
+// billing is dated `billing_date`, else the supplying company's date today in its time zone, never
+// before the goods issue (422 `sales.billing_before_issue`), and numbered from that company's
+// `billing_document` range. Accounts receivable enters and posts the customer invoice (document type
+// `DR`) as for a billing document (`postBillingDocument`): the billing date its invoice and tax date,
+// the customer's payment term in the company, the output tax calculated by the items' codes, Dr the
+// customer's reconciliation account, Cr each item's account and the output tax; it names the billing
+// as its source. Its refusals leave nothing billed or posted and name the request's own fields
+// (`customer_id`, `items[i].account_id`, `items[i].tax_code`), such as a customer not set up in the
+// supplying company (422 `receivables.customer_not_usable`), an account not postable there (422
+// `receivables.account_not_postable`), a code that is no output tax code of that company (422
+// `receivables.unknown_tax_code`) and a closed period (409 `ledger.period_not_open`). The posting date
+// is the request's, else the supplying company's date today. The billing names its customer invoice,
+// the invoice's journal entry, its tax and gross amounts and each item's tax, and is never changed
+// (cancelling it is Later). Audited (`sales.intercompany_billing.create`); the invoice publishes
+// CustomerInvoiceChanged and CustomerInvoicePosted. A retry with the same `Idempotency-Key` answers
+// the billing created. Human-only (`x-agent: false`).
+//
+// POST /v1/intercompany-billings
+func (UnimplementedHandler) CreateIntercompanyBilling(ctx context.Context, req *IntercompanyBillingCreate, params CreateIntercompanyBillingParams) (r CreateIntercompanyBillingRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateInternalOrder implements createInternalOrder operation.
 //
 // Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
@@ -5088,6 +5129,20 @@ func (UnimplementedHandler) GetIncomingPayment(ctx context.Context, params GetIn
 	return r, ht.ErrNotImplemented
 }
 
+// GetIntercompanyBilling implements getIntercompanyBilling operation.
+//
+// One intercompany billing (ADR-0082 As built S2i, S2i2) with the supplying company that billed and
+// the receiving company billed by id and code, its customer by number and name, the intercompany order
+// and its goods issue by id and number, its dates, its net, tax and gross amounts, the customer
+// invoice it posted as with that invoice's journal entry, and its items, each with the order item it
+// bills, the quantity, the order's price, its amount, its tax and its revenue account by number and
+// name. One the caller may act in neither company of is not found (404), as one that does not exist.
+//
+// GET /v1/intercompany-billings/{id}
+func (UnimplementedHandler) GetIntercompanyBilling(ctx context.Context, params GetIntercompanyBillingParams) (r GetIntercompanyBillingRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetInternalOrder implements getInternalOrder operation.
 //
 // Returns one internal order with its responsible cost center's code. An order of a legal entity the
@@ -7513,6 +7568,18 @@ func (UnimplementedHandler) ListHouseBanks(ctx context.Context, params ListHouse
 //
 // GET /v1/incoming-payments
 func (UnimplementedHandler) ListIncomingPayments(ctx context.Context, params ListIncomingPaymentsParams) (r ListIncomingPaymentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListIntercompanyBillings implements listIntercompanyBillings operation.
+//
+// The intercompany billings (ADR-0082 As built S2i, S2i2) the caller may read, each as
+// `getIntercompanyBilling` gives it: those billed by a company the caller may act in, and those billed
+// to one (the receiving company of the order). Filtered by the billing company, the receiving company
+// and the purchase order billed. Sortable by: `billing_date` (the default), `document_number`.
+//
+// GET /v1/intercompany-billings
+func (UnimplementedHandler) ListIntercompanyBillings(ctx context.Context, params ListIntercompanyBillingsParams) (r ListIntercompanyBillingsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -28344,6 +28344,7 @@ func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
 func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
 func (*ConflictHeaders) createIncomingPaymentRes()                 {}
+func (*ConflictHeaders) createIntercompanyBillingRes()             {}
 func (*ConflictHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLeaseContractRes()                   {}
@@ -35698,6 +35699,22 @@ func (*CreateIncomingPaymentPreconditionRequired) createIncomingPaymentRes() {}
 type CreateIncomingPaymentUnprocessableEntity Problem
 
 func (*CreateIncomingPaymentUnprocessableEntity) createIncomingPaymentRes() {}
+
+type CreateIntercompanyBillingBadRequest Problem
+
+func (*CreateIntercompanyBillingBadRequest) createIntercompanyBillingRes() {}
+
+type CreateIntercompanyBillingForbidden Problem
+
+func (*CreateIntercompanyBillingForbidden) createIntercompanyBillingRes() {}
+
+type CreateIntercompanyBillingPreconditionRequired Problem
+
+func (*CreateIntercompanyBillingPreconditionRequired) createIntercompanyBillingRes() {}
+
+type CreateIntercompanyBillingUnprocessableEntity Problem
+
+func (*CreateIntercompanyBillingUnprocessableEntity) createIntercompanyBillingRes() {}
 
 type CreateInternalOrderBadRequest Problem
 
@@ -52484,6 +52501,46 @@ func (s *GetIncomingPaymentOKHeaders) SetResponse(val IncomingPayment) {
 
 func (*GetIncomingPaymentOKHeaders) getIncomingPaymentRes() {}
 
+type GetIntercompanyBillingBadRequest Problem
+
+func (*GetIntercompanyBillingBadRequest) getIntercompanyBillingRes() {}
+
+type GetIntercompanyBillingForbidden Problem
+
+func (*GetIntercompanyBillingForbidden) getIntercompanyBillingRes() {}
+
+type GetIntercompanyBillingNotFound Problem
+
+func (*GetIntercompanyBillingNotFound) getIntercompanyBillingRes() {}
+
+// GetIntercompanyBillingOKHeaders wraps IntercompanyBilling with response headers.
+type GetIntercompanyBillingOKHeaders struct {
+	ETag     OptString
+	Response IntercompanyBilling
+}
+
+// GetETag returns the value of ETag.
+func (s *GetIntercompanyBillingOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetIntercompanyBillingOKHeaders) GetResponse() IntercompanyBilling {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetIntercompanyBillingOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetIntercompanyBillingOKHeaders) SetResponse(val IntercompanyBilling) {
+	s.Response = val
+}
+
+func (*GetIntercompanyBillingOKHeaders) getIntercompanyBillingRes() {}
+
 type GetInternalOrderBadRequest Problem
 
 func (*GetInternalOrderBadRequest) getInternalOrderRes() {}
@@ -59524,6 +59581,719 @@ func (s *IncomingPaymentWriteOff) SetJournalEntryNumber(val string) {
 func (s *IncomingPaymentWriteOff) SetLineNo(val int32) {
 	s.LineNo = val
 }
+
+// An intercompany billing (sales, ADR-0082 As built S2i, S2i2): the supplying company's bill of an
+// intercompany stock transport order's goods issue to the business partner that is the receiving
+// company, at the order's prices, posted at once as a customer invoice and never changed.
+// Ref: #/components/schemas/IntercompanyBilling
+type IntercompanyBilling struct {
+	// The billing's id.
+	ID uuid.UUID `json:"id"`
+	// Its number, from the supplying company's `billing_document` range.
+	DocumentNumber string `json:"document_number"`
+	// The supplying company, which bills.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The business partner that is the receiving company (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// Its business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// Its name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The receiving company, the order's.
+	ReceivingLegalEntityID uuid.UUID `json:"receiving_legal_entity_id"`
+	// That company's code.
+	ReceivingCompanyCode string `json:"receiving_company_code"`
+	// The intercompany stock transport order billed (`GET /v1/purchase-orders/{id}`).
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The order's document number.
+	PurchaseOrderNumber string `json:"purchase_order_number"`
+	// The order's goods issue (643, `GET /v1/material-documents/{id}`), which is billed once.
+	IssueDocumentID uuid.UUID `json:"issue_document_id"`
+	// The goods issue's number.
+	IssueDocumentNumber string `json:"issue_document_number"`
+	// The billing date, its customer invoice's invoice and tax date.
+	BillingDate time.Time `json:"billing_date"`
+	// The date its customer invoice posted on.
+	PostingDate time.Time `json:"posting_date"`
+	// The order's currency (ISO 4217), which it is billed in.
+	Currency string `json:"currency"`
+	// The sum of the items' amounts: the order's value, the transfer price.
+	NetAmount Money `json:"net_amount"`
+	// The output tax of its customer invoice.
+	TaxAmount Money `json:"tax_amount"`
+	// Net and tax: what the receiving company owes.
+	GrossAmount Money `json:"gross_amount"`
+	// The customer invoice it posted as (`GET /v1/customer-invoices/{id}`), the receiving company's open
+	// item in the supplying company.
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The customer invoice's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The items, by item number.
+	Items []IntercompanyBillingItem `json:"items"`
+	// When it was billed and posted.
+	CreatedAt time.Time `json:"created_at"`
+	// Who billed it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *IntercompanyBilling) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *IntercompanyBilling) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IntercompanyBilling) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *IntercompanyBilling) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IntercompanyBilling) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *IntercompanyBilling) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *IntercompanyBilling) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetReceivingLegalEntityID returns the value of ReceivingLegalEntityID.
+func (s *IntercompanyBilling) GetReceivingLegalEntityID() uuid.UUID {
+	return s.ReceivingLegalEntityID
+}
+
+// GetReceivingCompanyCode returns the value of ReceivingCompanyCode.
+func (s *IntercompanyBilling) GetReceivingCompanyCode() string {
+	return s.ReceivingCompanyCode
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *IntercompanyBilling) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *IntercompanyBilling) GetPurchaseOrderNumber() string {
+	return s.PurchaseOrderNumber
+}
+
+// GetIssueDocumentID returns the value of IssueDocumentID.
+func (s *IntercompanyBilling) GetIssueDocumentID() uuid.UUID {
+	return s.IssueDocumentID
+}
+
+// GetIssueDocumentNumber returns the value of IssueDocumentNumber.
+func (s *IntercompanyBilling) GetIssueDocumentNumber() string {
+	return s.IssueDocumentNumber
+}
+
+// GetBillingDate returns the value of BillingDate.
+func (s *IntercompanyBilling) GetBillingDate() time.Time {
+	return s.BillingDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IntercompanyBilling) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *IntercompanyBilling) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *IntercompanyBilling) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *IntercompanyBilling) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *IntercompanyBilling) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *IntercompanyBilling) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *IntercompanyBilling) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IntercompanyBilling) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IntercompanyBilling) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IntercompanyBilling) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyBilling) GetItems() []IntercompanyBillingItem {
+	return s.Items
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IntercompanyBilling) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IntercompanyBilling) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *IntercompanyBilling) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *IntercompanyBilling) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IntercompanyBilling) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *IntercompanyBilling) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IntercompanyBilling) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *IntercompanyBilling) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *IntercompanyBilling) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetReceivingLegalEntityID sets the value of ReceivingLegalEntityID.
+func (s *IntercompanyBilling) SetReceivingLegalEntityID(val uuid.UUID) {
+	s.ReceivingLegalEntityID = val
+}
+
+// SetReceivingCompanyCode sets the value of ReceivingCompanyCode.
+func (s *IntercompanyBilling) SetReceivingCompanyCode(val string) {
+	s.ReceivingCompanyCode = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *IntercompanyBilling) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *IntercompanyBilling) SetPurchaseOrderNumber(val string) {
+	s.PurchaseOrderNumber = val
+}
+
+// SetIssueDocumentID sets the value of IssueDocumentID.
+func (s *IntercompanyBilling) SetIssueDocumentID(val uuid.UUID) {
+	s.IssueDocumentID = val
+}
+
+// SetIssueDocumentNumber sets the value of IssueDocumentNumber.
+func (s *IntercompanyBilling) SetIssueDocumentNumber(val string) {
+	s.IssueDocumentNumber = val
+}
+
+// SetBillingDate sets the value of BillingDate.
+func (s *IntercompanyBilling) SetBillingDate(val time.Time) {
+	s.BillingDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IntercompanyBilling) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *IntercompanyBilling) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *IntercompanyBilling) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *IntercompanyBilling) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *IntercompanyBilling) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *IntercompanyBilling) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *IntercompanyBilling) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IntercompanyBilling) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IntercompanyBilling) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IntercompanyBilling) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyBilling) SetItems(val []IntercompanyBillingItem) {
+	s.Items = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IntercompanyBilling) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IntercompanyBilling) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// Bill an intercompany stock transport order's posted goods issue to the business partner that is the
+// receiving company (S2i2): every item of the order once, with the supplying company's revenue account
+// and output tax.
+// Ref: #/components/schemas/IntercompanyBillingCreate
+type IntercompanyBillingCreate struct {
+	// The intercompany stock transport order (`GET /v1/purchase-orders/{id}`, naming `supplying_plant_id`)
+	// whose goods issue is billed.
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The business partner whose group company is the order's company (`GET /v1/business-partners/{id}`),
+	// a customer of the supplying company.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The billing date, the customer invoice's invoice and tax date, not before the goods issue; absent:
+	// the supplying company's date today in its time zone.
+	BillingDate OptDate `json:"billing_date"`
+	// The customer invoice's posting date; absent: the supplying company's date today in its time zone.
+	PostingDate OptDate `json:"posting_date"`
+	// Every item of the order, each once.
+	Items []IntercompanyBillingItemInput `json:"items"`
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *IntercompanyBillingCreate) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IntercompanyBillingCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetBillingDate returns the value of BillingDate.
+func (s *IntercompanyBillingCreate) GetBillingDate() OptDate {
+	return s.BillingDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IntercompanyBillingCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyBillingCreate) GetItems() []IntercompanyBillingItemInput {
+	return s.Items
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *IntercompanyBillingCreate) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IntercompanyBillingCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetBillingDate sets the value of BillingDate.
+func (s *IntercompanyBillingCreate) SetBillingDate(val OptDate) {
+	s.BillingDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IntercompanyBillingCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyBillingCreate) SetItems(val []IntercompanyBillingItemInput) {
+	s.Items = val
+}
+
+// IntercompanyBillingHeaders wraps IntercompanyBilling with response headers.
+type IntercompanyBillingHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           IntercompanyBilling
+}
+
+// GetETag returns the value of ETag.
+func (s *IntercompanyBillingHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *IntercompanyBillingHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *IntercompanyBillingHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *IntercompanyBillingHeaders) GetResponse() IntercompanyBilling {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *IntercompanyBillingHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *IntercompanyBillingHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *IntercompanyBillingHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *IntercompanyBillingHeaders) SetResponse(val IntercompanyBilling) {
+	s.Response = val
+}
+
+func (*IntercompanyBillingHeaders) createIntercompanyBillingRes() {}
+
+// An item of an intercompany billing: an order item's issued quantity at the order's price, credited
+// to the supplying company's revenue account with its output tax.
+// Ref: #/components/schemas/IntercompanyBillingItem
+type IntercompanyBillingItem struct {
+	// The item's number in the billing, from 1, in the order of the request's items; the customer
+	// invoice's item of the same number.
+	ItemNo int32 `json:"item_no"`
+	// The order item billed.
+	PoItemNo int32 `json:"po_item_no"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The order item's description.
+	Description string `json:"description"`
+	// The ordered quantity, which the goods issue issued, in the order item's unit.
+	Quantity Quantity `json:"quantity"`
+	// The order's price per `price_unit`, the transfer price.
+	UnitPrice Money `json:"unit_price"`
+	// The quantity the unit price is for.
+	PriceUnit int32 `json:"price_unit"`
+	// The item's amount: quantity × price ÷ price unit, rounded half away from zero, the order item's
+	// value.
+	NetAmount Money `json:"net_amount"`
+	// The output tax the customer invoice's item bore; zero without a tax code.
+	TaxAmount Money `json:"tax_amount"`
+	// The revenue account credited.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The output tax code; absent: none.
+	TaxCode OptString `json:"tax_code"`
+	// The subdivision its tax is levied in; absent where the code levies none.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *IntercompanyBillingItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *IntercompanyBillingItem) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *IntercompanyBillingItem) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetDescription returns the value of Description.
+func (s *IntercompanyBillingItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *IntercompanyBillingItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *IntercompanyBillingItem) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *IntercompanyBillingItem) GetPriceUnit() int32 {
+	return s.PriceUnit
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *IntercompanyBillingItem) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *IntercompanyBillingItem) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *IntercompanyBillingItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *IntercompanyBillingItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *IntercompanyBillingItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *IntercompanyBillingItem) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *IntercompanyBillingItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *IntercompanyBillingItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *IntercompanyBillingItem) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *IntercompanyBillingItem) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *IntercompanyBillingItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *IntercompanyBillingItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *IntercompanyBillingItem) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *IntercompanyBillingItem) SetPriceUnit(val int32) {
+	s.PriceUnit = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *IntercompanyBillingItem) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *IntercompanyBillingItem) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *IntercompanyBillingItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *IntercompanyBillingItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *IntercompanyBillingItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *IntercompanyBillingItem) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *IntercompanyBillingItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
+// How an item of the order is billed.
+// Ref: #/components/schemas/IntercompanyBillingItemInput
+type IntercompanyBillingItemInput struct {
+	// The order item.
+	PoItemNo int32 `json:"po_item_no"`
+	// The supplying company's revenue account the item is credited to.
+	AccountID uuid.UUID `json:"account_id"`
+	// The supplying company's output tax code; absent: no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The subdivision the tax is levied in, where the code levies its lines' subdivision (the emirate of a
+	// UAE supply, `AE-SH`); absent with such a code: the supplying plant's emirate.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *IntercompanyBillingItemInput) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *IntercompanyBillingItemInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *IntercompanyBillingItemInput) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *IntercompanyBillingItemInput) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *IntercompanyBillingItemInput) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *IntercompanyBillingItemInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *IntercompanyBillingItemInput) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *IntercompanyBillingItemInput) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
+// One page of intercompany billings.
+// Ref: #/components/schemas/IntercompanyBillingPage
+type IntercompanyBillingPage struct {
+	// The intercompany billings on this page.
+	Items []IntercompanyBilling `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyBillingPage) GetItems() []IntercompanyBilling {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *IntercompanyBillingPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyBillingPage) SetItems(val []IntercompanyBilling) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *IntercompanyBillingPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*IntercompanyBillingPage) listIntercompanyBillingsRes() {}
 
 // A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
 // elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a
@@ -68030,6 +68800,14 @@ func (*ListIncomingPaymentsBadRequest) listIncomingPaymentsRes() {}
 type ListIncomingPaymentsForbidden Problem
 
 func (*ListIncomingPaymentsForbidden) listIncomingPaymentsRes() {}
+
+type ListIntercompanyBillingsBadRequest Problem
+
+func (*ListIntercompanyBillingsBadRequest) listIntercompanyBillingsRes() {}
+
+type ListIntercompanyBillingsForbidden Problem
+
+func (*ListIntercompanyBillingsForbidden) listIntercompanyBillingsRes() {}
 
 type ListIntercompanyDifferencesBadRequest Problem
 
@@ -122205,6 +122983,7 @@ func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
 func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
+func (*TooManyRequestsHeaders) createIntercompanyBillingRes()             {}
 func (*TooManyRequestsHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
@@ -122357,6 +123136,7 @@ func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()             {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                          {}
 func (*TooManyRequestsHeaders) getIncomingPaymentRes()                    {}
+func (*TooManyRequestsHeaders) getIntercompanyBillingRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderBudgetRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
@@ -122525,6 +123305,7 @@ func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listIncomingPaymentsRes()                  {}
+func (*TooManyRequestsHeaders) listIntercompanyBillingsRes()              {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
 func (*TooManyRequestsHeaders) listInternalOrderBudgetChangesRes()        {}
@@ -123184,6 +123965,7 @@ func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
 func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
+func (*UnauthorizedHeaders) createIntercompanyBillingRes()             {}
 func (*UnauthorizedHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
@@ -123336,6 +124118,7 @@ func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()             {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) getHierarchyRes()                          {}
 func (*UnauthorizedHeaders) getIncomingPaymentRes()                    {}
+func (*UnauthorizedHeaders) getIntercompanyBillingRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderBudgetRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
@@ -123504,6 +124287,7 @@ func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listIncomingPaymentsRes()                  {}
+func (*UnauthorizedHeaders) listIntercompanyBillingsRes()              {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
 func (*UnauthorizedHeaders) listInternalOrderBudgetChangesRes()        {}

@@ -16330,9 +16330,10 @@ step_replenishment_agent() {
 # company issues it. Wade posts the goods issue (643) of Maple Gulf
 # Trading out of Sharjah against its cost of goods sold, once; the order in
 # transit is not cancelled. Ben receives the lamps into Toronto at the
-# order price against GR/IR. Each company's entry balances.
+# order price against GR/IR. Ruth bills the goods issue to Maple at that
+# price (S2i2, intercompany_billing). Each company's entry balances.
 step_intercompany_transport() {
-  heading "Step 155 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; each company's entry balances"
+  heading "Step 155 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; the UAE company bills the goods issue to Maple at that price as its customer invoice, once; each company's entry balances"
   local ae base cr warehouse store lamp recon term sister po tag doc entry receipt
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
@@ -16451,7 +16452,53 @@ step_intercompany_transport() {
   QUIET=1 api 200 '' listStock -p "material_id=$lamp"
   expect "the lamps' stock after the receipt" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" \
     "P100/SL01 20, P300/SL01 30"
+  intercompany_billing "$ae" "$po" "$sister"
   passed
+}
+
+# intercompany_billing is S2i2 (ADR-0082 As built S2i): Maple Gulf Trading
+# bills the goods issue of step 155's order to the business partner that is
+# Maple, a customer Ruth records in the UAE company. A customer that is not
+# the order's company is refused; the billing bills the order's price, the
+# transfer price, zero-rated as an export (Z0), and posts at once as the UAE
+# company's customer invoice (Dr 1200, Cr 4000), once.
+intercompany_billing() {
+  local ae=$1 po=$2 sister=$3 recv sales sibling body bill entry invoice
+  recv=$(jq -r '.items[] | select(.number == "1200") | .id' "$WORK/ae-accounts.json")
+  sales=$(jq -r '.items[] | select(.number == "4000") | .id' "$WORK/ae-accounts.json")
+  as ruth
+  say "Maple Gulf Trading bills the lamps it issued (S2i2). Ruth records Maple Industries Canada as a customer of $AE, on"
+  say "its trade receivables (1200), linked to company $CC, the group company it is (ADR-0059 §4); Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), group company \(.group_company.code) \(.group_company.name)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Maple Industries Canada\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$ae\", \"reconciliation_account_id\": \"$recv\", \"payment_term_code\": \"NT30\"}], \"group_company_id\": \"$LE\", \"reason\": \"Our Canadian sister buys stock from Maple Gulf\"}"
+  sibling=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$sibling" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Our own Canadian company, checked against the group's companies"
+  as ruth
+  body="{\"purchase_order_id\": \"$po\", \"customer_id\": \"@CUSTOMER@\", \"items\": [{\"po_item_no\": 1, \"account_id\": \"$sales\", \"tax_code\": \"Z0\"}]}"
+  say "A customer that is not the order's company is refused: Maple Gulf Trading itself is linked to $AE:"
+  refused 422 sales.intercompany_customer createIntercompanyBilling -body "${body//@CUSTOMER@/$sister}"
+  say "Ruth bills the goods issue to Maple at the order's price, the transfer price, zero-rated as an export (Z0); it"
+  say "posts at once as Maple Gulf Trading's customer invoice:"
+  api 201 '"intercompany billing \(.document_number) of \(.company_code) to \(.customer_name) (company \(.receiving_company_code)): purchase order \(.purchase_order_number), goods issue \(.issue_document_number)", "  net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency); customer invoice \(.customer_invoice_number), journal entry \(.journal_entry_number)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), \(.net_amount.amount) on \(.account_number), \(.tax_code)")' \
+    createIntercompanyBilling -body "${body//@CUSTOMER@/$sibling}"
+  bill=$(field .id) entry=$(field .journal_entry_id) invoice=$(field .customer_invoice_id)
+  expect "the billing, at the transfer price the receipt took" "$(field '"\(.legal_entity_id) \(.receiving_legal_entity_id) \(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.currency)"')" \
+    "$ae $LE 320.00 0.00 320.00 CAD"
+  say "Its entry (DR) puts Maple's open item on the UAE company's receivables and credits its sales:"
+  api 200 '.lines[] | "  \(.account_id): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  expect "the billing's entry" "$(jq -r --slurpfile a "$WORK/ae-accounts.json" '[.lines[] | . as $l | "\($a[0].items[] | select(.id == $l.account_id) | .number):\(.amount.amount)"] | sort | join(" ")' "$WORK/last.json")" \
+    "1200:320.00 4000:-320.00"
+  expect "the entry balances" "$(field '[.lines[] | .amount.amount | tonumber] | add')" 0
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  expect "the customer invoice" "$(field '"\(.status) \(.legal_entity_id) \(.customer_id) \(.source_document_id)"')" "posted $ae $sibling $bill"
+  say "The goods issue is billed once:"
+  refused 409 sales.intercompany_billed createIntercompanyBilling -body "${body//@CUSTOMER@/$sibling}"
+  say "Maple reads the billing it is to enter as its supplier invoice:"
+  as ben
+  api 200 '.items[] | "  intercompany billing \(.document_number) of \(.company_code): \(.gross_amount.amount) \(.currency), purchase order \(.purchase_order_number)"' \
+    listIntercompanyBillings -p "receiving_legal_entity_id=$LE" -p "purchase_order_id=$po"
+  expect "Maple's billings of the order" "$(field '[.items[].id] | join(" ")')" "$bill"
 }
 
 # step_count_agent is S2e (ADR-0072, ADR-0082 As built S2e,

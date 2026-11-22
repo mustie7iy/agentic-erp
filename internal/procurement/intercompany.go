@@ -3,6 +3,7 @@ package procurement
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -202,4 +203,75 @@ func (e *Endpoints) orderLocated(ctx context.Context, out *gen.PurchaseOrder) er
 	}
 	out.SupplyingPlantCode, out.SupplyingPlantName, out.SupplyingCompanyCode = gen.NewOptString(u.Code), gen.NewOptString(u.Name), gen.NewOptString(le.Code)
 	return nil
+}
+
+// IssuedItem is an item of an intercompany order as its billing bills it
+// (S2i2): the material and what the order calls it, the ordered quantity,
+// which the goods issue issued, in its unit, the order's price per price
+// unit in minor units of the order's currency, the transfer price, and
+// the item's value, quantity × price ÷ price unit rounded half away from
+// zero, as the order values it.
+type IssuedItem struct {
+	No          int32
+	MaterialID  uuid.UUID
+	Description string
+	Quantity    string
+	Unit        string
+	UnitPrice   money.Minor
+	PriceUnit   int32
+	Net         money.Minor
+}
+
+// IssuedOrder is an intercompany stock transport order as the supplying
+// company's billing reads it (S2i2): the receiving company's order, its
+// supplier (the business partner that is the supplying company), its
+// supplying plant and currency, with the currency's minor-unit digits,
+// and, once posted, its goods issue (643);
+// IssueDocumentID is nil until then. SupplyingPlantID is nil for an order
+// that is no intercompany one.
+type IssuedOrder struct {
+	ID                  uuid.UUID
+	DocumentNumber      string
+	LegalEntityID       uuid.UUID
+	SupplierID          uuid.UUID
+	SupplyingPlantID    *uuid.UUID
+	Currency            string
+	Exponent            int
+	IssueDocumentID     *uuid.UUID
+	IssueDocumentNumber *string
+	IssueDate           *time.Time
+	Items               []IssuedItem
+}
+
+// Issued reads a purchase order of a company the caller may act in for
+// its intercompany billing, under a share lock on its row until the
+// caller's transaction ends: what is billed of it stays as read, since
+// every change of an order takes its row FOR UPDATE (ADR-0008); a goods
+// issue once posted never changes (purchase_order_supply_fixed). An order
+// of a company the caller may not act in is not found, as one that does
+// not exist (404 problem, as getOrder's).
+func (Orders) Issued(ctx context.Context, id uuid.UUID) (IssuedOrder, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return IssuedOrder{}, err
+	}
+	o, err := visibleOrder(ctx, tx, orderSelect+` WHERE o.id = $1 FOR SHARE OF o`, id)
+	if err != nil {
+		return IssuedOrder{}, err
+	}
+	amounts, err := itemAmounts(o.Items)
+	if err != nil {
+		return IssuedOrder{}, fmt.Errorf("procurement: value purchase order %s: %w", o.DocumentNumber, err)
+	}
+	out := IssuedOrder{ID: o.ID, DocumentNumber: o.DocumentNumber, LegalEntityID: o.LegalEntityID, SupplierID: o.SupplierID,
+		SupplyingPlantID: o.SupplyingPlantID, Currency: o.Currency, Exponent: o.Exponent, IssueDocumentID: o.IssueDocumentID, IssueDocumentNumber: o.IssueDocumentNumber,
+		IssueDate: o.IssueDate, Items: make([]IssuedItem, len(o.Items))}
+	for i, it := range o.Items {
+		out.Items[i] = IssuedItem{No: it.No, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, UnitPrice: it.UnitPrice,
+			PriceUnit: it.PriceUnit, Net: amounts[i]}
+		if it.MaterialID != nil { // an intercompany order's items are stock items of a material (intercompanyItem)
+			out.Items[i].MaterialID = *it.MaterialID
+		}
+	}
+	return out, nil
 }

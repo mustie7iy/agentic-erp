@@ -23824,6 +23824,223 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/intercompany-billings:
+    get:
+      operationId: listIntercompanyBillings
+      tags:
+        - sales
+      summary: List intercompany billings
+      description: "The intercompany billings (ADR-0082 As built S2i, S2i2) the caller may read, each as `getIntercompanyBilling` gives it: those billed by a company the caller may act in, and those billed to one (the receiving company of the order). Filtered by the billing company, the receiving company and the purchase order billed. Sortable by: `billing_date` (the default), `document_number`."
+      x-permission: sales.billing.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the billings of this company, the supplying company that billed.
+          schema:
+            type: string
+            format: uuid
+        - name: receiving_legal_entity_id
+          in: query
+          required: false
+          description: Only the billings to this company, the receiving company of the orders billed.
+          schema:
+            type: string
+            format: uuid
+        - name: purchase_order_id
+          in: query
+          required: false
+          description: Only the billing of this intercompany stock transport order (`GET /v1/purchase-orders/{id}`); an order is billed once.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of intercompany billings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyBillingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createIntercompanyBilling
+      tags:
+        - sales
+      summary: Bill an intercompany stock transport order's goods issue and post it as a customer invoice
+      description: "The supplying company bills the posted goods issue (643) of an intercompany stock transport order (ADR-0082 As built S2i, S2i2; SAP's intercompany billing, billing type IV, from memory) to the business partner that is the receiving company, and posts it at once as a customer invoice, in one transaction. The order (`purchase_order_id`) is one of a company the caller may act in, supplied by a plant of another company the caller may act in, which bills (422 `request.reference_not_found` naming `purchase_order_id` otherwise); an order naming no supplying plant is refused (422 `sales.not_intercompany`), one whose goods issue is not posted yet (409 `sales.intercompany_not_issued`) or is billed already (409 `sales.intercompany_billed`: a goods issue is billed once, and of two requests racing for one the second meets this). The customer (`customer_id`) is the business partner whose group company is the order's company (422 `sales.intercompany_customer`), set up as a customer in the supplying company. Every item of the order is billed once (422 `sales.intercompany_items` otherwise), its ordered quantity, which the goods issue issued, at the order's price, the transfer price: its amount is the order item's value, quantity × price ÷ price unit rounded half away from zero, in the order's currency, so the billing's net amount is the order's. Each item names the supplying company's revenue account and, optionally, its output tax code and tax jurisdiction; an item whose code levies the UAE's emirates and that names none takes the supplying plant's emirate (the seller's side, ADR-0049 §11). The billing is dated `billing_date`, else the supplying company's date today in its time zone, never before the goods issue (422 `sales.billing_before_issue`), and numbered from that company's `billing_document` range. Accounts receivable enters and posts the customer invoice (document type `DR`) as for a billing document (`postBillingDocument`): the billing date its invoice and tax date, the customer's payment term in the company, the output tax calculated by the items' codes, Dr the customer's reconciliation account, Cr each item's account and the output tax; it names the billing as its source. Its refusals leave nothing billed or posted and name the request's own fields (`customer_id`, `items[i].account_id`, `items[i].tax_code`), such as a customer not set up in the supplying company (422 `receivables.customer_not_usable`), an account not postable there (422 `receivables.account_not_postable`), a code that is no output tax code of that company (422 `receivables.unknown_tax_code`) and a closed period (409 `ledger.period_not_open`). The posting date is the request's, else the supplying company's date today. The billing names its customer invoice, the invoice's journal entry, its tax and gross amounts and each item's tax, and is never changed (cancelling it is Later). Audited (`sales.intercompany_billing.create`); the invoice publishes CustomerInvoiceChanged and CustomerInvoicePosted. A retry with the same `Idempotency-Key` answers the billing created. Human-only (`x-agent: false`)."
+      x-permission: sales.billing.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - sales.billing_before_issue
+        - sales.intercompany_billed
+        - sales.intercompany_customer
+        - sales.intercompany_items
+        - sales.intercompany_not_issued
+        - sales.not_intercompany
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The intercompany order whose goods issue is billed, its customer and the accounts and tax codes of its items.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntercompanyBillingCreate"
+            examples:
+              export:
+                summary: A zero-rated export dated the supplying company's date today
+                value:
+                  purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  items:
+                    - po_item_no: 1
+                      account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+                      tax_code: Z0
+      responses:
+        "201":
+          description: "Created; the billing, posted."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyBilling"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/intercompany-billings/{id}":
+    get:
+      operationId: getIntercompanyBilling
+      tags:
+        - sales
+      summary: Get an intercompany billing
+      description: "One intercompany billing (ADR-0082 As built S2i, S2i2) with the supplying company that billed and the receiving company billed by id and code, its customer by number and name, the intercompany order and its goods issue by id and number, its dates, its net, tax and gross amounts, the customer invoice it posted as with that invoice's journal entry, and its items, each with the order item it bills, the quantity, the order's price, its amount, its tax and its revenue account by number and name. One the caller may act in neither company of is not found (404), as one that does not exist."
+      x-permission: sales.billing.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The intercompany billing.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyBilling"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/revenue-contracts:
     get:
       operationId: listRevenueContracts
@@ -64506,6 +64723,141 @@ components:
               tax_code: GO5
               order_item_no: 1
               credited_amount: {amount: "0.00", currency: CAD}
+    IntercompanyBillingCreate:
+      type: object
+      description: "Bill an intercompany stock transport order's posted goods issue to the business partner that is the receiving company (S2i2): every item of the order once, with the supplying company's revenue account and output tax."
+      required: [purchase_order_id, customer_id, items]
+      additionalProperties: false
+      properties:
+        purchase_order_id: {type: string, format: uuid, description: "The intercompany stock transport order (`GET /v1/purchase-orders/{id}`, naming `supplying_plant_id`) whose goods issue is billed."}
+        customer_id: {type: string, format: uuid, description: "The business partner whose group company is the order's company (`GET /v1/business-partners/{id}`), a customer of the supplying company."}
+        billing_date: {type: string, format: date, description: "The billing date, the customer invoice's invoice and tax date, not before the goods issue; absent: the supplying company's date today in its time zone."}
+        posting_date: {type: string, format: date, description: "The customer invoice's posting date; absent: the supplying company's date today in its time zone."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/IntercompanyBillingItemInput"}
+          description: "Every item of the order, each once."
+    IntercompanyBillingItemInput:
+      type: object
+      description: "How an item of the order is billed."
+      required: [po_item_no, account_id]
+      additionalProperties: false
+      properties:
+        po_item_no: {type: integer, format: int32, minimum: 1, description: "The order item."}
+        account_id: {type: string, format: uuid, description: "The supplying company's revenue account the item is credited to."}
+        tax_code: {type: string, minLength: 1, maxLength: 10, description: "The supplying company's output tax code; absent: no tax."}
+        tax_jurisdiction: {type: string, minLength: 1, maxLength: 10, description: "The subdivision the tax is levied in, where the code levies its lines' subdivision (the emirate of a UAE supply, `AE-SH`); absent with such a code: the supplying plant's emirate."}
+    IntercompanyBillingItem:
+      type: object
+      description: "An item of an intercompany billing: an order item's issued quantity at the order's price, credited to the supplying company's revenue account with its output tax."
+      required: [item_no, po_item_no, material_id, description, quantity, unit_price, price_unit, net_amount, tax_amount, account_id, account_number, account_name]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number in the billing, from 1, in the order of the request's items; the customer invoice's item of the same number.", readOnly: true}
+        po_item_no: {type: integer, format: int32, description: "The order item billed.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The ordered quantity, which the goods issue issued, in the order item's unit."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "The order's price per `price_unit`, the transfer price."}
+        price_unit: {type: integer, format: int32, description: "The quantity the unit price is for.", readOnly: true}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The item's amount: quantity × price ÷ price unit, rounded half away from zero, the order item's value."}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax the customer invoice's item bore; zero without a tax code."}
+        account_id: {type: string, format: uuid, description: "The revenue account credited.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
+        tax_code: {type: string, description: "The output tax code; absent: none.", readOnly: true}
+        tax_jurisdiction: {type: string, description: "The subdivision its tax is levied in; absent where the code levies none.", readOnly: true}
+    IntercompanyBilling:
+      type: object
+      description: "An intercompany billing (sales, ADR-0082 As built S2i, S2i2): the supplying company's bill of an intercompany stock transport order's goods issue to the business partner that is the receiving company, at the order's prices, posted at once as a customer invoice and never changed."
+      required: [id, document_number, legal_entity_id, company_code, customer_id, customer_number, customer_name, receiving_legal_entity_id,
+        receiving_company_code, purchase_order_id, purchase_order_number, issue_document_id, issue_document_number, billing_date, posting_date, currency,
+        net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number,
+        items, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, readOnly: true, description: "The billing's id."}
+        document_number: {type: string, description: "Its number, from the supplying company's `billing_document` range.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The supplying company, which bills.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The business partner that is the receiving company (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "Its business partner number.", readOnly: true}
+        customer_name: {type: string, description: "Its name, as it is now.", readOnly: true}
+        receiving_legal_entity_id: {type: string, format: uuid, description: "The receiving company, the order's.", readOnly: true}
+        receiving_company_code: {type: string, description: "That company's code.", readOnly: true}
+        purchase_order_id: {type: string, format: uuid, description: "The intercompany stock transport order billed (`GET /v1/purchase-orders/{id}`).", readOnly: true}
+        purchase_order_number: {type: string, description: "The order's document number.", readOnly: true}
+        issue_document_id: {type: string, format: uuid, description: "The order's goods issue (643, `GET /v1/material-documents/{id}`), which is billed once.", readOnly: true}
+        issue_document_number: {type: string, description: "The goods issue's number.", readOnly: true}
+        billing_date: {type: string, format: date, description: "The billing date, its customer invoice's invoice and tax date.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The date its customer invoice posted on.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217), which it is billed in.", readOnly: true}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts: the order's value, the transfer price."}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax of its customer invoice."}
+        gross_amount: {$ref: "#/components/schemas/Money", description: "Net and tax: what the receiving company owes."}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer invoice it posted as (`GET /v1/customer-invoices/{id}`), the receiving company's open item in the supplying company.", readOnly: true}
+        customer_invoice_number: {type: string, description: "The customer invoice's document number.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The entry's document number.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyBillingItem"}
+          description: "The items, by item number."
+          readOnly: true
+        created_at: {type: string, format: date-time, readOnly: true, description: "When it was billed and posted."}
+        created_by: {type: string, format: uuid, readOnly: true, description: "Who billed it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da7"
+          document_number: BD000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d02"
+          company_code: AE01
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100077
+          customer_name: Maple Industries Canada
+          receiving_legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          receiving_company_code: "3000"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          purchase_order_number: PO000042
+          issue_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          issue_document_number: MD000007
+          billing_date: "2026-11-22"
+          posting_date: "2026-11-22"
+          currency: CAD
+          net_amount: {amount: "320.00", currency: CAD}
+          tax_amount: {amount: "0.00", currency: CAD}
+          gross_amount: {amount: "320.00", currency: CAD}
+          customer_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          customer_invoice_number: CI000003
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          journal_entry_year: 2026
+          journal_entry_number: "1400000003"
+          items:
+            - item_no: 1
+              po_item_no: 1
+              material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              description: Desk lamp DL-1
+              quantity: {value: "20", unit: EA}
+              unit_price: {amount: "16.00", currency: CAD}
+              price_unit: 1
+              net_amount: {amount: "320.00", currency: CAD}
+              tax_amount: {amount: "0.00", currency: CAD}
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              account_number: "4000"
+              account_name: Sales revenue
+              tax_code: Z0
+          created_at: "2026-11-22T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    IntercompanyBillingPage:
+      type: object
+      description: One page of intercompany billings.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyBilling"}
+          description: The intercompany billings on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     BillingDocumentPage:
       type: object
       description: One page of billing documents.

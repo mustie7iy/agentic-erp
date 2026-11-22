@@ -49,7 +49,14 @@ type icEnv struct {
 
 func setupIntercompany(t *testing.T) icEnv {
 	t.Helper()
-	e := icEnv{orderEnv: setupOrdersWith(t, intercompany, "procurement.stock_transport.post", "procurement.order.release")}
+	return setupIntercompanyWith(t, intercompany)
+}
+
+// setupIntercompanyWith is setupIntercompany under the configuration cfg
+// sets, which extends intercompany's, with the permissions more besides.
+func setupIntercompanyWith(t *testing.T, cfg func(*config.Config), more ...string) icEnv {
+	t.Helper()
+	e := icEnv{orderEnv: setupOrdersWith(t, cfg, append([]string{"procurement.stock_transport.post", "procurement.order.release"}, more...)...)}
 	m, _ := e.Must(201, "POST", "/v1/materials", mustJSON(t, map[string]any{"legal_entity_id": e.DE, "description": "Widget", "base_unit": "EA",
 		"material_type": "trading_good", "material_group": "BRACKETS", "confirm_duplicate": true, "plants": []any{
 			map[string]any{"plant_id": e.p1, "storage_location_ids": []any{e.s1}}, map[string]any{"plant_id": e.p3, "storage_location_ids": []any{e.s4}}}}), "")

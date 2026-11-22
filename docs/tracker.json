@@ -5754,9 +5754,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2i2 Intercompany billing: the supplying company bills an intercompany stock transport order's posted goods issue to the business partner that is the receiving company, at the order's prices, its tax by the supplying company's tax code, posted as a customer invoice, once per goods issue",
-      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i2) · ADR-0082 As built S2i",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i2) · ADR-0082 As built S2i, S2i2 · db/migrations/000445 · sales.intercompany_billing, _item · POST/GET /v1/intercompany-billings · GET /v1/intercompany-billings/{id} · procurement.Orders.Issued · partner.Customer.GroupCompanyID · walkthrough step_intercompany_transport (step 155, intercompany_billing)",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
