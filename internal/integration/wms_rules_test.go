@@ -2,20 +2,24 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 const wmsBase = `"adapter": "standin", "base_url": "https://wms.example"`
@@ -221,4 +225,92 @@ func TestWMSQueueEvents(t *testing.T) {
 			}
 		})
 	}
+}
+
+// wmsEntities is the directory, failing or knowing no company.
+type wmsEntities struct {
+	integration.LegalEntities
+	fail bool
+}
+
+func (w wmsEntities) Entity(context.Context, uuid.UUID) (tenancy.Entity, bool, error) {
+	if w.fail {
+		return tenancy.Entity{}, false, errors.New("directory down")
+	}
+	return tenancy.Entity{}, false, nil
+}
+
+// TestWMSFailures: creating, changing, enabling wms connectors and
+// listing their messages fail with each database statement; the list
+// fails when the directory fails or does not hold a message's company;
+// production refuses a wms connector of another adapter by its settings.
+func TestWMSFailures(t *testing.T) {
+	e := setupWMS(t)
+	id, _ := e.delivery(t, e.p1, e.s1, "1")
+	e.queued(t, id)
+	h := app.Integration(app.Config{Pages: wmsPages(t)})
+	conn := uuid.MustParse(e.conn)
+	settings := `{` + wmsBase + `, "plants": {"2000": ["P7"]}}`
+	for name, fn := range map[string]func(ctx context.Context) error{
+		"create": func(ctx context.Context) error {
+			_, err := h.CreateConnector(ctx, &gen.ConnectorCreate{Kind: integration.WMS, Name: "Another", Settings: decoded(t, settings)}, gen.CreateConnectorParams{})
+			return err
+		},
+		"change": func(ctx context.Context) error {
+			_, err := h.UpdateConnector(ctx, &gen.ConnectorUpdate{Settings: gen.NewOptConnectorUpdateSettings(gen.ConnectorUpdateSettings(decoded(t,
+				`{`+wmsBase+`, "plants": {"2000": ["P1", "P7"]}}`)))}, gen.UpdateConnectorParams{ID: conn, IfMatch: etag.Format(1)})
+			return err
+		},
+		"list": func(ctx context.Context) error {
+			_, err := h.ListWMSMessages(ctx, gen.ListWMSMessagesParams{})
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) { apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, fn) })
+	}
+	t.Run("enable", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE integration.connector SET status = 'disabled', version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, conn)
+		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "enable", func(ctx context.Context) error {
+			_, err := h.EnableConnector(ctx, gen.EnableConnectorParams{ID: conn, IfMatch: etag.Format(2)})
+			return err
+		})
+	})
+	for name, c := range map[string]struct {
+		entities integration.LegalEntities
+		want     string
+	}{
+		"the directory down": {wmsEntities{fail: true}, "directory down"},
+		"a company not held": {wmsEntities{}, "legal entity"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := app.Integration(app.Config{Pages: wmsPages(t)})
+			h.LegalEntities = c.entities
+			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+				_, err := h.ListWMSMessages(ctx, gen.ListWMSMessagesParams{})
+				return err
+			})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("got %v, want an error naming %q", err, c.want)
+			}
+		})
+	}
+	t.Run("another adapter in production", func(t *testing.T) {
+		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := (&integration.Endpoints{RefuseEBICS: true}).CreateConnector(ctx, &gen.ConnectorCreate{Kind: integration.WMS, Name: "Acme",
+				Settings: decoded(t, `{"adapter": "acme", "base_url": "https://wms.example", "plants": {"2000": ["P8"]}}`)}, gen.CreateConnectorParams{})
+			return err
+		})
+		if problem.From(err).Code != "integration.invalid_settings" {
+			t.Errorf("got %v, want integration.invalid_settings", err)
+		}
+	})
+}
+
+func wmsPages(t *testing.T) *pagination.Codec {
+	t.Helper()
+	pages, err := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pages
 }

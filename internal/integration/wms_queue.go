@@ -182,10 +182,7 @@ func (q *WMSQueue) queue(ctx context.Context, tx pgx.Tx, ev deliveryCreated) err
 	for i, it := range ev.Items {
 		msg.Items[i] = WMSDeliveryItem{ItemNo: it.ItemNo, MaterialNumber: it.Material, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
 	}
-	body, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("integration: render the wms message of outbound delivery %s: %w", ev.Number, err)
-	}
+	body, _ := json.Marshal(msg) // strings, numbers and a UUID always marshal
 	tag, err := tx.Exec(ctx, `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, legal_entity_id, document_id,
 			document_number, plant_code, body, status, next_attempt_at)
 		VALUES (platform.require_tenant(), $1, $2, 'outbound', $3, $4, $5, $6, $7, $8, $9, 'pending', $10)

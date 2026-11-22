@@ -1664,6 +1664,15 @@ specialist):
   (`integration.wms_message.queue`, `.send`, `.retry`, `.fail`, `.post`,
   `.refuse`); no event is published (nothing inside the platform reacts
   to one, and none is offered as a webhook until a consumer asks).
+- **Locks** (ADR-0008): a connector's create, change or enable takes its
+  row (`FOR UPDATE`, but on create) and then the tenant's wms advisory
+  lock; the queue's insert takes the connector's key share (its foreign
+  key) and nothing else; a send's claim and its record take the message's
+  row alone (`FOR UPDATE`, `SKIP LOCKED` to claim); a confirmation's
+  record takes the advisory lock of its connector and message id, then
+  shipping's locks in shipping's order (the delivery, the valuations and
+  stock, the sales order), as a person's goods issue takes them without
+  the advisory lock. No two writers take two of these in opposite orders.
 - **Read:** `GET /v1/wms-messages` (`integration.connector.read`), newest
   first, by connector, direction, status and delivery, of the companies
   the caller may act in (an inbound message refused before its delivery

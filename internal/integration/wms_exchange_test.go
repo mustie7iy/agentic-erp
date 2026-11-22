@@ -28,11 +28,19 @@ func (e wmsEnv) wmsRow(t *testing.T, delivery string) (status string, attempts i
 	return status, attempts, lastError
 }
 
-// pending makes the delivery's message pending and due again, at attempt.
-func (e wmsEnv) pending(t *testing.T, delivery string, attempts int) {
+// due makes the delivery's pending message due now, at attempts.
+func (e wmsEnv) due(t *testing.T, delivery string, attempts int) {
 	t.Helper()
-	pgtest.Exec(t, `UPDATE integration.wms_message SET status = 'pending', sent_at = NULL, attempts = $3, next_attempt_at = now() - interval '1 second',
-		last_error = NULL, version = version + 1 WHERE tenant_id = $1 AND document_id = $2`, e.Tenant.ID, delivery, attempts)
+	pgtest.Exec(t, `UPDATE integration.wms_message SET attempts = $3, next_attempt_at = now() - interval '1 second', version = version + 1
+		WHERE tenant_id = $1 AND document_id = $2 AND status = 'pending'`, e.Tenant.ID, delivery, attempts)
+}
+
+// queuedDelivery is a new delivery at P1, its message queued.
+func (e wmsEnv) queuedDelivery(t *testing.T) string {
+	t.Helper()
+	id, _ := e.delivery(t, e.p1, e.s1, "1")
+	e.queued(t, id)
+	return id
 }
 
 // failingSecrets is a vault that cannot be reached.
@@ -50,9 +58,7 @@ func (failingSecrets) Resolve(context.Context, string) (string, error) {
 // taken over while its call ran records nothing.
 func TestWMSSendOutcomes(t *testing.T) {
 	e := setupWMS(t)
-	id, _ := e.delivery(t, e.p1, e.s1, "1")
-	e.queued(t, id)
-	at := time.Now()
+	at := time.Now().Add(time.Minute) // after the queue's time, which the messages are due at
 	x := e.exchange(t, func() time.Time { return at })
 	send := func(t *testing.T) {
 		t.Helper()
@@ -61,7 +67,7 @@ func TestWMSSendOutcomes(t *testing.T) {
 		}
 	}
 	t.Run("tried again after its backoff, failed after the sixth", func(t *testing.T) {
-		e.pending(t, id, 0)
+		id := e.queuedDelivery(t)
 		e.wms.Fail("PUT /messages", 6, http.StatusServiceUnavailable)
 		for i, wait := range []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour, 4 * time.Hour} {
 			send(t)
@@ -76,36 +82,43 @@ func TestWMSSendOutcomes(t *testing.T) {
 		}
 	})
 	for name, c := range map[string]struct {
-		change func(t *testing.T, x *integration.WMSExchange)
+		change func(t *testing.T, x *integration.WMSExchange, id string)
 		status string
 		code   string
 	}{
-		"refused by the WMS": {func(t *testing.T, _ *integration.WMSExchange) {
+		"refused by the WMS": {func(t *testing.T, _ *integration.WMSExchange, _ string) {
 			t.Helper()
 			e.wms.Fail("PUT /messages", 1, http.StatusBadRequest)
 		},
 			"failed", "integration.wms_refused"},
-		"the connector disabled": {func(t *testing.T, _ *integration.WMSExchange) { t.Helper(); e.connectorSet(t, `status = 'disabled'`) }, "pending",
+		"the connector disabled": {func(t *testing.T, _ *integration.WMSExchange, _ string) {
+			t.Helper()
+			e.connectorSet(t, `status = 'disabled'`)
+		}, "pending",
 			"integration.connector_disabled"},
-		"no secret_ref": {func(t *testing.T, _ *integration.WMSExchange) { t.Helper(); e.connectorSet(t, `secret_ref = NULL`) }, "pending", "integration.secret_required"},
-		"settings changed by hand": {func(t *testing.T, _ *integration.WMSExchange) {
+		"no secret_ref": {func(t *testing.T, _ *integration.WMSExchange, _ string) {
+			t.Helper()
+			e.connectorSet(t, `secret_ref = NULL`)
+		}, "pending", "integration.secret_required"},
+		"settings changed by hand": {func(t *testing.T, _ *integration.WMSExchange, _ string) {
 			t.Helper()
 			e.connectorSet(t, `settings = '{"adapter": "acme"}'`)
 		}, "pending",
 			"integration.invalid_settings"},
-		"the stand-in in production": {func(_ *testing.T, x *integration.WMSExchange) { x.RefuseStandIn = true }, "pending",
+		"the stand-in in production": {func(_ *testing.T, x *integration.WMSExchange, _ string) { x.RefuseStandIn = true }, "pending",
 			"integration.adapter_not_certified"},
-		"credentials not the tenant's": {func(_ *testing.T, x *integration.WMSExchange) { x.Secrets = secretsNone{} }, "pending",
+		"credentials not the tenant's": {func(_ *testing.T, x *integration.WMSExchange, _ string) { x.Secrets = secretsNone{} }, "pending",
 			"integration.secret_unavailable"},
-		"the vault down":        {func(_ *testing.T, x *integration.WMSExchange) { x.Secrets = failingSecrets{} }, "pending", "platform.internal"},
-		"no client":             {func(_ *testing.T, x *integration.WMSExchange) { x.Adapter = integration.WMSAdapters(nil) }, "pending", "platform.unavailable"},
-		"a lapsed last attempt": {func(t *testing.T, _ *integration.WMSExchange) { t.Helper(); e.pending(t, id, 6) }, "failed", "integration.wms_outcome_unknown"},
+		"the vault down": {func(_ *testing.T, x *integration.WMSExchange, _ string) { x.Secrets = failingSecrets{} }, "pending", "platform.internal"},
+		"no client":      {func(_ *testing.T, x *integration.WMSExchange, _ string) { x.Adapter = integration.WMSAdapters(nil) }, "pending", "platform.unavailable"},
+		"a lapsed last attempt": {func(t *testing.T, _ *integration.WMSExchange, id string) { t.Helper(); e.due(t, id, 6) }, "failed",
+			"integration.wms_outcome_unknown"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			e.pending(t, id, 0)
 			e.connectorSet(t, `status = 'active', secret_ref = '`+e.ref+`', settings = '{"adapter": "standin", "base_url": "`+e.wms.URL+`", "plants": {"2000": ["P1"]}}'`)
+			id := e.queuedDelivery(t)
 			x := e.exchange(t, func() time.Time { return at })
-			c.change(t, x)
+			c.change(t, x, id)
 			if _, err := x.SendOnce(context.Background()); err != nil {
 				t.Fatalf("send: got %v, want nil", err)
 			}
@@ -123,8 +136,8 @@ func TestWMSSendOutcomes(t *testing.T) {
 			VALUES ($1, $2, 'email', 'Mail', '{}', 'active', $3, $3)`, e.Tenant.ID, other, e.Tenant.Human.ID)
 		pgtest.Exec(t, `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, legal_entity_id, document_id,
 				document_number, plant_code, body, status, next_attempt_at)
-			VALUES ($1, $2, $3, 'outbound', $2::text, 'outbound_delivery', $4, $5, 'OD9', 'P1', '{}', 'pending', now() - interval '1 second')`,
-			e.Tenant.ID, msg, other, e.DE, doc)
+			VALUES ($1, $2, $3, 'outbound', $4, 'outbound_delivery', $5, $6, 'OD9', 'P1', '{}', 'pending', now() - interval '1 second')`,
+			e.Tenant.ID, msg, other, msg.String(), e.DE, doc)
 		send(t)
 		if s, _, code := e.wmsRow(t, doc.String()); s != "pending" || code != "integration.not_a_wms" {
 			t.Errorf("got %s, %s; want pending, integration.not_a_wms", s, code)
@@ -351,15 +364,15 @@ func TestWMSDatabaseFailures(t *testing.T) {
 		return len(page["items"].([]any)) == 1
 	})
 	until(t, "the send", func(begin database.BeginFunc) error {
-		e.pending(t, id, 0)
+		e.due(t, id, 0)
 		x := e.exchange(t, time.Now)
 		x.Begin = begin
 		_, err := x.SendOnce(context.Background())
 		return err
 	}, func() bool { s, _, _ := e.wmsRow(t, id); return s == "sent" })
 	until(t, "the poll", func(begin database.BeginFunc) error {
-		pgtest.Exec(t, `DELETE FROM integration.wms_message WHERE tenant_id = $1 AND direction = 'inbound'`, e.Tenant.ID)
-		pgtest.Exec(t, `UPDATE shipping.outbound_delivery_item SET picked_quantity = 0 WHERE tenant_id = $1 AND outbound_delivery_id = $2`, e.Tenant.ID, id)
+		// Listed again each time: an acknowledgement made whose recording
+		// failed is made again by the next poll, which finds it recorded.
 		e.wms.Report("GI-db", goodsIssue("GI-db", id, "1 1 BOX"))
 		x := e.exchange(t, time.Now)
 		x.Begin = begin
