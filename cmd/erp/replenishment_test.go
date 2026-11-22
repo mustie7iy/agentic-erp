@@ -111,6 +111,15 @@ func TestReplenishmentAdapterWaits(t *testing.T) {
 		t.Errorf("a case stopped: got %v, want its context's end", err)
 	}
 	runPoll = poll
+	// A run carried out but failed reaches the agent, which refuses it.
+	fakeAPI(t, routes{"GET /v1/mrp-runs/" + run: {ok(`{"id": "` + run + `", "status": "failed", "error": {"code": "platform.internal"}}`)}})
+	if agent, err = client("ERP_AGENT_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	env = eval.Env{Agent: agent, LLM: &llm.Runner{}, Task: map[string]any{"run": run}}
+	if err := replenishmentEval(context.Background(), env); err == nil || !strings.Contains(err.Error(), "replenishment: replenishmentagent: ") {
+		t.Errorf("a failed run: got %v, want the agent's refusal", err)
+	}
 	carried := routes{"GET /v1/mrp-runs/" + run: {ok(`{"id": "` + run + `", "status": "queued"}`), ok(`{"id": "` + run + `", "status": "completed", "plant_code": "P100", "lines": []}`)}}
 	fakeAPI(t, carried)
 	if agent, err = client("ERP_AGENT_TOKEN"); err != nil {
