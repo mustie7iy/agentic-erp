@@ -21,25 +21,24 @@ const (
 	StatusHeld    = "held"
 )
 
-// HeldNotInAED is the hold of a tax invoice not in AED (ADR-0061 §5 C5,
-// po:2026-11-09): its VAT is to be kept in AED as it states it (IBT-111,
-// reconciled per line with BTAE-08) for the VAT 201, which a supplier
-// invoice cannot hold yet, so it is held for a person rather than entered
-// with its VAT converted.
+// HeldNotInAED is the hold of a document not in AED that does not state
+// each line's VAT in AED (BTAE-08; ADR-0061 §5 C5, po:2026-11-09,
+// po:2026-11-21): its VAT is kept in AED as it states it for the VAT 201,
+// so without it the document is held for a person rather than entered
+// with its VAT converted. One stating it is entered keeping it (As built
+// batch 88).
 const HeldNotInAED = "einvoicing.tax_currency_not_entered"
 
 // HeldNoInvoice is the hold of a tax credit note naming no invoice (ADR-0061
 // §5 C4, po:2026-11-09; T65e): a UAE tax credit note names the invoice it
-// corrects (IBG-03, IBT-025), so one naming none goes to a person rather
-// than being entered as a credit memo correcting none, as capture would
-// enter a paper one.
+// corrects (IBG-03, IBT-025) unless it is for a volume discount (BTAE-03
+// VD, IBR-055-AE; po:2026-11-21), so any other naming none goes to a
+// person rather than being entered as a credit memo correcting none, as
+// capture would enter a paper one. A credit note citing several invoices
+// is entered as one credit memo citing them all (po:2026-11-21); the hold
+// einvoicing.credit_note_names_several_invoices of T65e is no longer
+// given, and documents held with it before stay held.
 const HeldNoInvoice = "einvoicing.credit_note_names_no_invoice"
-
-// HeldSeveralInvoices is the hold of a tax credit note naming more than
-// one invoice it corrects (IBG-03 repeated; T65e): a credit memo names one
-// invoice, so a person decides how it is split rather than it being
-// entered against the first alone.
-const HeldSeveralInvoices = "einvoicing.credit_note_names_several_invoices"
 
 // Payables enters received e-invoices as supplier invoices and names the
 // invoices entered (payables context, ADR-0061 §2, §6), in the caller's
@@ -90,9 +89,10 @@ type entering struct {
 // database raised nor the entering's partial writes survive and the hold
 // is written in the outer transaction, which commits; only infrastructure
 // errors fail the step. A credit note is entered as a credit memo naming
-// the invoice it cites by capture's rule (T65e: a posted invoice of the
-// supplier, or on hold naming the number); one citing none is held
-// (heldBefore). Entering a parked invoice or credit memo opens no
+// the invoice it cites as payables matches it (T65e: a posted invoice of the
+// supplier, or on hold naming the number), or one citing several as one
+// credit memo citing them all; one citing none is held unless it is for a
+// volume discount (heldBefore). Entering a parked invoice or credit memo opens no
 // approval, so nothing in the savepoint registers a step after the commit
 // that its rollback would leave behind.
 func (e *Endpoints) enter(ctx context.Context, tx pgx.Tx, p reqctx.Principal, operation uuid.UUID, u unprocessed, doc EInvoice, company *Company,
@@ -109,19 +109,18 @@ func (e *Endpoints) enter(ctx context.Context, tx pgx.Tx, p reqctx.Principal, op
 }
 
 // heldBefore is the hold of a valid document that is not handed to
-// payables at all: one not in AED (C5), a credit note naming no invoice
-// (C4) and one naming several (C4, IBG-03 repeated); nil for one to enter.
+// payables at all: one not in AED without each line's VAT in AED (C5),
+// and a credit note naming no invoice that is not for a volume discount
+// (C4, IBR-055-AE); nil for one to enter.
 func heldBefore(d Document) *Refusal {
+	_, stated, _ := LineTaxInAED(d) // out of range is not stated, and validation refused such a document (inconsistentInAED)
 	switch {
-	case d.Currency != accountingCurrency:
-		return &Refusal{Code: HeldNotInAED, Detail: "The e-invoice is in " + d.Currency + "; its VAT in AED (IBT-111) is kept as it states it " +
-			"for the VAT 201, which a supplier invoice does not hold yet, so enter it by hand."}
-	case d.Kind == KindTaxCreditNote && d.Reference == "":
-		return &Refusal{Code: HeldNoInvoice, Detail: "The tax credit note names no invoice it corrects (IBG-03, IBT-025); enter it by hand " +
-			"naming the invoice, after asking the supplier which one it corrects."}
-	case d.Kind == KindTaxCreditNote && len(d.Cited) > 1:
-		return &Refusal{Code: HeldSeveralInvoices, Detail: fmt.Sprintf("The tax credit note names %d invoices it corrects (IBT-025), %s; "+
-			"a credit memo names one, so enter it by hand, one credit memo per invoice.", len(d.Cited), cited(d.Cited))}
+	case d.Currency != accountingCurrency && !stated:
+		return &Refusal{Code: HeldNotInAED, Detail: "The e-invoice is in " + d.Currency + " and does not state each line's VAT in AED (BTAE-08), " +
+			"which is kept as it states it for the VAT 201, so enter it by hand."}
+	case d.Kind == KindTaxCreditNote && len(d.Cited) == 0 && !d.volumeDiscount():
+		return &Refusal{Code: HeldNoInvoice, Detail: "The tax credit note names no invoice it corrects (IBG-03, IBT-025) and is not for a " +
+			"volume discount (BTAE-03 VD); enter it by hand naming the invoice, after asking the supplier which one it corrects."}
 	}
 	return nil
 }
@@ -181,16 +180,6 @@ func (e *Endpoints) entryDecided(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		return recordChange(ctx, after, company, entered)
 	}
 	return recordChange(ctx, after, company, held)
-}
-
-// cited is the numbers a credit note cites, each clipped as a detail
-// quotes a document's values, and bounded as atMost bounds a list.
-func cited(numbers []string) string {
-	out := make([]string, len(numbers))
-	for i, n := range numbers {
-		out[i] = clip(n)
-	}
-	return atMost(out)
 }
 
 // clipDetail keeps a problem's detail within the column's 2,000

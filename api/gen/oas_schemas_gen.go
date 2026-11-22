@@ -45853,9 +45853,10 @@ type EInvoice struct {
 	// tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its
 	// entering refused, `problem_code` and `problem_detail` saying why, such as
 	// `payables.capture_needs_order` for one naming no purchase order, or
-	// `einvoicing.credit_note_names_no_invoice` and `einvoicing.credit_note_names_several_invoices` for a
-	// tax credit note naming no invoice it corrects or several, for a person to resolve). The later slices
-	// add dismissed (ADR-0061 §7).
+	// `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that
+	// is not for a volume discount, for a person to resolve;
+	// `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several).
+	// The later slices add dismissed (ADR-0061 §7).
 	Status string `json:"status"`
 	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
 	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
@@ -45867,20 +45868,21 @@ type EInvoice struct {
 	// `PINT AE Billing 1.0.4`. Omitted with `processed_at`.
 	ValidatedAgainst OptString `json:"validated_against"`
 	// Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice
-	// met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED,
-	// whose VAT in AED the entering does not keep yet, einvoicing.credit_note_names_no_invoice for a tax
-	// credit note naming no invoice it corrects, IBG-03 and IBT-025, or
-	// einvoicing.credit_note_names_several_invoices for one naming more than one, which a credit memo
-	// cannot, T65e). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never
-	// expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following
-	// PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by
-	// its business term), amount_precision (an amount with more decimals than its currency's minor unit),
-	// totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to
-	// the total with VAT, or the VAT subtotals not to the VAT total, with the figures),
-	// not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic
-	// address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA
-	// registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that
+	// does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax
+	// credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount
+	// (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one
+	// naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable
+	// (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a
+	// UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP
+	// reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an
+	// amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not
+	// summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT
+	// subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the
+	// connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its
+	// buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
 	ProblemCode OptString `json:"problem_code"`
 	// What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted
 	// unless refused or held.
@@ -84008,6 +84010,52 @@ func (o OptString) Or(d string) string {
 	return d
 }
 
+// NewOptSupplierCreditReason returns new OptSupplierCreditReason with value set to v.
+func NewOptSupplierCreditReason(v SupplierCreditReason) OptSupplierCreditReason {
+	return OptSupplierCreditReason{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSupplierCreditReason is optional SupplierCreditReason.
+type OptSupplierCreditReason struct {
+	Value SupplierCreditReason
+	Set   bool
+}
+
+// IsSet returns true if OptSupplierCreditReason was set.
+func (o OptSupplierCreditReason) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSupplierCreditReason) Reset() {
+	var v SupplierCreditReason
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSupplierCreditReason) SetTo(v SupplierCreditReason) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSupplierCreditReason) Get() (v SupplierCreditReason, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSupplierCreditReason) Or(d SupplierCreditReason) SupplierCreditReason {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptSupplierInvoicePost returns new OptSupplierInvoicePost with value set to v.
 func NewOptSupplierInvoicePost(v SupplierInvoicePost) OptSupplierInvoicePost {
 	return OptSupplierInvoicePost{
@@ -118296,6 +118344,36 @@ func (s *SupplierCompanyInput) SetPlanningGroup(val OptString) {
 	s.PlanningGroup = val
 }
 
+// A credit memo's reason as its e-invoice states it (BTAE-03).
+// Ref: #/components/schemas/SupplierCreditReason
+type SupplierCreditReason struct {
+	// The reason's code as the credit note states it, such as `VD` (volume discount).
+	Code string `json:"code"`
+	// The reason's words as the credit note states them, a longer text shortened to 1,000 characters
+	// ending in an ellipsis. Absent when it states none.
+	Text OptString `json:"text"`
+}
+
+// GetCode returns the value of Code.
+func (s *SupplierCreditReason) GetCode() string {
+	return s.Code
+}
+
+// GetText returns the value of Text.
+func (s *SupplierCreditReason) GetText() OptString {
+	return s.Text
+}
+
+// SetCode sets the value of Code.
+func (s *SupplierCreditReason) SetCode(val string) {
+	s.Code = val
+}
+
+// SetText sets the value of Text.
+func (s *SupplierCreditReason) SetText(val OptString) {
+	s.Text = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/SupplierInvoice
 type SupplierInvoice struct {
@@ -118330,6 +118408,14 @@ type SupplierInvoice struct {
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
 	TaxAmount Money `json:"tax_amount"`
+	// The tax in the company's currency as the supplier's e-invoice states it, for one not in that
+	// currency (a UAE e-invoice's VAT in AED, the sum of its lines' BTAE-08; ADR-0061 §5 C5, As built
+	// batch 88): posting keeps it as the local amount of the tax the supplier charges, shared among its
+	// codes by their converted tax, instead of converting the tax at the tax date's rate, so the VAT 201
+	// reports it as stated; a stated tax its charged codes cannot take is refused when the invoice posts
+	// (422 `payables.local_tax_mismatch`). A change of the invoice's currency or tax drops it. Absent on
+	// every other invoice.
+	StatedLocalTax OptMoney `json:"stated_local_tax"`
 	// Purchase order (PO-based invoices).
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
 	// What the document is, as SAP's invoice verification transactions: `invoice`, `credit_memo` (the
@@ -118339,7 +118425,8 @@ type SupplierInvoice struct {
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind OptString `json:"kind"`
 	// The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal
-	// entity and currency); never on an invoice.
+	// entity and currency); never on an invoice. A credit memo entered from an e-invoice credit note
+	// citing several invoices names none (they are its `cited_invoices`).
 	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
 	// Lifecycle status: `parked`, `on_hold` (`:hold`/`:release`), `posted` (`:post`), `cancelled`
 	// (`:cancel`, unposted only), `reversed` (`:reverse`), or `rejected` when the approval request for an
@@ -118382,6 +118469,17 @@ type SupplierInvoice struct {
 	// may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming
 	// no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed.
 	DocumentaryWarnings []DocumentaryWarning `json:"documentary_warnings"`
+	// A credit memo's reason as the supplier's e-invoice credit note states it (BTAE-03; ADR-0061 As built
+	// batch 88), such as `VD` for a volume discount. Absent on a document entered otherwise and on every
+	// invoice.
+	CreditReason OptSupplierCreditReason `json:"credit_reason"`
+	// The invoices a credit memo's e-invoice credit note cites (IBG-03; ADR-0061 As built batch 88,
+	// po:2026-11-21), in its order, each number once: a credit note correcting several invoices is one
+	// credit memo citing them all, its `reference_invoice_id` absent, and the accounts payable clerk
+	// clears it against them; one citing one also names it as its `reference_invoice_id`; one for a volume
+	// discount (`credit_reason` `VD`) may cite none. Empty on a document entered otherwise and on every
+	// invoice.
+	CitedInvoices []SupplierInvoiceCitation `json:"cited_invoices"`
 	// The tax its items' codes' rates give on its tax date, in all and per code, beside the tax it states
 	// (ADR-0052, T73e3): in `getSupplierInvoice`'s answer alone, as it is calculated on each read,
 	// whatever the invoice's status. Absent when no item carries a tax code and an amount, and when the
@@ -118467,6 +118565,11 @@ func (s *SupplierInvoice) GetTaxAmount() Money {
 	return s.TaxAmount
 }
 
+// GetStatedLocalTax returns the value of StatedLocalTax.
+func (s *SupplierInvoice) GetStatedLocalTax() OptMoney {
+	return s.StatedLocalTax
+}
+
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
 func (s *SupplierInvoice) GetPurchaseOrderID() OptUUID {
 	return s.PurchaseOrderID
@@ -118535,6 +118638,16 @@ func (s *SupplierInvoice) GetExtensions() Extensions {
 // GetDocumentaryWarnings returns the value of DocumentaryWarnings.
 func (s *SupplierInvoice) GetDocumentaryWarnings() []DocumentaryWarning {
 	return s.DocumentaryWarnings
+}
+
+// GetCreditReason returns the value of CreditReason.
+func (s *SupplierInvoice) GetCreditReason() OptSupplierCreditReason {
+	return s.CreditReason
+}
+
+// GetCitedInvoices returns the value of CitedInvoices.
+func (s *SupplierInvoice) GetCitedInvoices() []SupplierInvoiceCitation {
+	return s.CitedInvoices
 }
 
 // GetCalculatedTax returns the value of CalculatedTax.
@@ -118622,6 +118735,11 @@ func (s *SupplierInvoice) SetTaxAmount(val Money) {
 	s.TaxAmount = val
 }
 
+// SetStatedLocalTax sets the value of StatedLocalTax.
+func (s *SupplierInvoice) SetStatedLocalTax(val OptMoney) {
+	s.StatedLocalTax = val
+}
+
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *SupplierInvoice) SetPurchaseOrderID(val OptUUID) {
 	s.PurchaseOrderID = val
@@ -118692,6 +118810,16 @@ func (s *SupplierInvoice) SetDocumentaryWarnings(val []DocumentaryWarning) {
 	s.DocumentaryWarnings = val
 }
 
+// SetCreditReason sets the value of CreditReason.
+func (s *SupplierInvoice) SetCreditReason(val OptSupplierCreditReason) {
+	s.CreditReason = val
+}
+
+// SetCitedInvoices sets the value of CitedInvoices.
+func (s *SupplierInvoice) SetCitedInvoices(val []SupplierInvoiceCitation) {
+	s.CitedInvoices = val
+}
+
 // SetCalculatedTax sets the value of CalculatedTax.
 func (s *SupplierInvoice) SetCalculatedTax(val OptCalculatedTax) {
 	s.CalculatedTax = val
@@ -118747,6 +118875,62 @@ func (s *SupplierInvoiceCaptureMultipart) SetDocument(val OptString) {
 // SetUploadID sets the value of UploadID.
 func (s *SupplierInvoiceCaptureMultipart) SetUploadID(val OptUUID) {
 	s.UploadID = val
+}
+
+// A preceding invoice a credit memo's e-invoice cites (IBG-03).
+// Ref: #/components/schemas/SupplierInvoiceCitation
+type SupplierInvoiceCitation struct {
+	// The cited invoice's number as the credit note states it (IBT-025): the supplier's own reference.
+	InvoiceNumber string `json:"invoice_number"`
+	// The cited invoice's issue date as the credit note states it (IBT-026), which the match also
+	// compares. Absent when it states none.
+	InvoiceDate OptDate `json:"invoice_date"`
+	// The supplier's posted invoice of the company, in the memo's currency, whose `supplier_reference` is
+	// the number (and whose `invoice_date` the date, when stated), as found when the memo was entered.
+	// Absent when none was: the memo was entered `on_hold`, its `hold_reason` naming the number.
+	InvoiceID OptUUID `json:"invoice_id"`
+	// That invoice's `document_number`. Absent with `invoice_id`.
+	DocumentNumber OptString `json:"document_number"`
+}
+
+// GetInvoiceNumber returns the value of InvoiceNumber.
+func (s *SupplierInvoiceCitation) GetInvoiceNumber() string {
+	return s.InvoiceNumber
+}
+
+// GetInvoiceDate returns the value of InvoiceDate.
+func (s *SupplierInvoiceCitation) GetInvoiceDate() OptDate {
+	return s.InvoiceDate
+}
+
+// GetInvoiceID returns the value of InvoiceID.
+func (s *SupplierInvoiceCitation) GetInvoiceID() OptUUID {
+	return s.InvoiceID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *SupplierInvoiceCitation) GetDocumentNumber() OptString {
+	return s.DocumentNumber
+}
+
+// SetInvoiceNumber sets the value of InvoiceNumber.
+func (s *SupplierInvoiceCitation) SetInvoiceNumber(val string) {
+	s.InvoiceNumber = val
+}
+
+// SetInvoiceDate sets the value of InvoiceDate.
+func (s *SupplierInvoiceCitation) SetInvoiceDate(val OptDate) {
+	s.InvoiceDate = val
+}
+
+// SetInvoiceID sets the value of InvoiceID.
+func (s *SupplierInvoiceCitation) SetInvoiceID(val OptUUID) {
+	s.InvoiceID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *SupplierInvoiceCitation) SetDocumentNumber(val OptString) {
+	s.DocumentNumber = val
 }
 
 // Enter a supplier invoice. It is created `parked`.

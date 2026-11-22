@@ -1943,3 +1943,42 @@ rewritten.
   mapping of `packs/ca/TAX-PENDING-T61j.md` (§11 As built, T61j: Signed
   off), in Canada pack 2026.7. The FPZ-500's lines (P4) wait for the
   specialist's list and the pilot's registrations, its own tracker leaf.
+
+### As built batch 88: the tax specialist's confirmations and a cash discount on a UAE invoice (po:2026-11-21)
+
+The product owner relayed on 2026-11-21 the confirmations of Musto
+Ibrahim, the UAE and Canada tax specialist, of rules built or decided
+before (items 6-8 of the coordinator's research of 21 Nov, memory
+po-2026-11-21-uae-vat-research), and answered one open question:
+
+- **Special periods keep refusing tax codes** (ADR-0060 As built T64m1,
+  `ledger.special_period_tax_code`): a tax-relevant year-end change is a
+  dated note posted in a normal period. Confirmed as built.
+- **No tax correction on a plain write-off or a short payment**
+  (ADR-0063 T75f and T75o, ADR-0065 T86d's write-off): the output tax
+  stays as invoiced. Confirmed as built.
+- **A dispute's price cut is corrected by a tax credit note**: ADR-0065
+  T86d's resolution by customer credit memo, whose tax is the invoice's
+  share (and, for a UAE company, its outgoing tax credit note, E2).
+  Confirmed as built; no new step.
+- **Bad debt relief is its own step**: for the UAE, Federal Decree-Law
+  No. 8 of 2017 Art. 64 (six months, written off in the accounts, the
+  customer notified, as the research states it); for Canada, the Excise
+  Tax Act s.231. Not built: tracker leaf (src po:2026-11-21).
+- **A Canadian cash discount makes no GST/HST adjustment** (ETA s.161, as
+  the research states it): receivables' cash discount is a payment
+  difference without a tax code (ADR-0063 T75f), which is that.
+  Confirmed as built.
+- **Dunning charges and late interest are out of the VAT's and GST's
+  scope** (ADR-0065 As built T76h: their debit memo items carry no tax code).
+  Confirmed as built.
+- **A cash discount on a UAE invoice reduces output tax** (the product
+  owner's answer of 21 Nov), as T36d's correction reduces input tax on
+  the supplier side. Batch 85's `TestDiscountOnLeviedJurisdiction`
+  (receivables) does not confirm it: its company is a stand-in for an
+  emirate-levying code, not a UAE company, and it shows that receivables
+  grants no cash discount of its own, writing what the customer took off
+  as a payment difference without a tax code (ADR-0063 T75f, "Not
+  built"), so the output tax is **not** reduced today. No test was added
+  claiming otherwise; the correction of output tax on a UAE customer's
+  cash discount is a tracker leaf (src po:2026-11-21) for receivables.

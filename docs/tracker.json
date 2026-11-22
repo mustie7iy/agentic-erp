@@ -1303,6 +1303,13 @@
       "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Finance / Payments and bank communication: customer side, with AR)",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A cash discount a UAE customer takes reduces the output tax (product owner 2026-11-21, as T36d's correction reduces input tax on the supplier side): a payment within the discount period of an invoice whose codes levy VAT corrects the output tax per tax item in proportion, with the item's jurisdiction (emirate), so the VAT 201 reports the reduced tax; today receivables writes what the customer took off as a payment difference without a tax code (ADR-0063 T75f, Not built). A Canadian cash discount keeps making no GST/HST adjustment (ETA s.161, Musto 2026-11-21)",
+      "r": "ADR-0049 As built batch 88 · ADR-0063 T75f · TestDiscountOnLeviedJurisdiction",
+      "src": "po:2026-11-21",
+      "c": []
      }
     ]
    },
@@ -2755,6 +2762,13 @@
         "c": []
        }
       ]
+     },
+     {
+      "s": "T",
+      "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt recovered by an adjustment in the return, never by a plain write-off or a short payment (no tax correction on those) and never by a dispute's price cut, which is a tax credit note (T86d's credit memo): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 (the supply made and its tax paid, six months past the date of supply, written off in the accounts and the customer notified), for a Canadian one under the Excise Tax Act s.231 (the account written off as bad); its evidence (the write-off entry, the notice) kept with the adjustment, the reversal when the customer pays later; tax-relevant, so a person posts it (Musto, UAE and Canada tax specialist, 2026-11-21; conditions as the coordinator's research of 21 Nov states them, to read in the law's text before the slice)",
+      "r": "ADR-0049 As built batch 88 · ADR-0065 (write-offs) · T86d",
+      "src": "po:2026-11-21",
+      "c": []
      }
     ]
    },
@@ -2811,10 +2825,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "E-invoices not in AED entered with their VAT in AED as stated: a received tax invoice in another currency entered as a supplier invoice keeping its VAT in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax at the tax date's rate; T65d holds such a document with einvoicing.tax_currency_not_entered (UAE tax specialist, po:2026-11-09, C5; BTAE-08's and BTAE-10's UBL paths to confirm)",
-        "r": "ADR-0061 §5 (C5), §6 · ADR-0061 As built T65d · ADR-0049 §8",
-        "src": "split:T65d · po:2026-11-09",
+        "s": "D",
+        "t": "E-invoices not in AED entered with their VAT in AED as stated: a received tax invoice in another currency entered as a supplier invoice keeping its VAT in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax at the tax date's rate; T65d holds such a document with einvoicing.tax_currency_not_entered (UAE tax specialist, po:2026-11-09, C5; po:2026-11-21: the VAT in AED the lines state, BTAE-08, held only when a line does not state it; the send side fills BTAE-08 and BTAE-10 on every line from the posting's local amounts per code, IBR-162/163/165/194-AE; BTAE-08's and BTAE-10's UBL paths from memory, for the specialist)",
+        "r": "ADR-0061 §5 (C5), §6 · ADR-0061 As built T65d, batch 88 · ADR-0049 §8 · db/migrations/000441, 000442 (stated_local_tax) · payables.statedLocalTax, payables.local_tax_mismatch · money.ShareOut · einvoicing.LineTaxInAED, inconsistentInAED, inAED · SupplierInvoice.stated_local_tax · TestEnterNotInAED · TestStatedLocalTax · TestRenderForeignCurrency · TestLinesInAED",
+        "src": "split:T65d · po:2026-11-09 · po:2026-11-21",
         "c": []
        },
        {
@@ -2825,9 +2839,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
+        "t": "E-invoice credit notes as one credit memo (fix of T65e): a received tax credit note for a volume discount (BTAE-03 VD) naming no invoice is valid (IBR-055-AE) and entered as a supplier credit memo without a reference; only one for another reason naming none is held (einvoicing.credit_note_names_no_invoice); a credit note citing several invoices (IBG-03 repeated) is entered as ONE credit memo citing them all, its reference_invoice_id none, the accounts payable clerk clearing it (the VAT 201 reports it by the credit note's date, no per-invoice split); the memo keeps the reason (BTAE-03) and each cited invoice's number and date (IBT-025, IBT-026), matched to the supplier's posted invoice by supplier and number and, when stated, date, an unmatched one holding the memo naming it; the outgoing rule lets a VD tax credit note name no invoice; walkthrough: GOI-2103, a VD credit note without reference, entered; GOI-2104 citing two invoices entered as one memo citing both",
+        "r": "ADR-0061 §6 · ADR-0061 As built batch 88 · db/migrations/000439, 000440 (supplier_invoice_citation, supplier_invoice_credit_reason) · payables.citedInvoices, statedOf, Citation, CreditReason · SupplierInvoice.credit_reason, cited_invoices · einvoicing.Cited, ReasonVolumeDiscount · TestEnterCreditNotes · TestSupplierInvoiceCitations · walkthrough step_einvoice (einvoice_credit_note_vd, einvoice_credit_note_citing_two)",
+        "src": "po:2026-11-21",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "fix: a CHECK on einvoicing.einvoice that a processed document not refused has its document_kind (einvoice_read keeps it empty before processing; nothing requires it after), since the fetch's entering branches on it (invoice or credit note, T65e), with its schema test",
-        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e",
+        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · db/migrations/000437, 000438 (einvoice_read_processed) · TestEInvoiceProcessing (processed without its kind) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e, batch 88",
         "src": "review:batch87",
         "c": []
        },
@@ -2902,7 +2923,7 @@
          },
          {
           "s": "T",
-          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider; PINT AE: non-AED documents and E/O/AE lines (BTAE-08/10/20, IBT-120/121), once the specialist confirms the terms (ADR-0061 As built E2)",
+          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider; PINT AE: E/O/AE lines (IBT-120/121) and BTAE-20, once the specialist confirms the terms (ADR-0061 As built E2; non-AED documents' BTAE-08/10 built in batch 88)",
           "r": "coordinator plan einvoicing-evatra Later",
           "src": "po:2026-11-19",
           "c": []

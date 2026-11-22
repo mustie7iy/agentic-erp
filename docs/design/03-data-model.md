@@ -2407,6 +2407,21 @@ Each kind is matched and posted by its kind (T34c):
   such invoice is entered `on_hold` with the reason, for the reference to
   be entered by hand rather than dropped; an invoice printing one is not
   captured.
+- **E-invoice credit notes** (ADR-0061 As built batch 88; migrations
+  000439, 000440): a credit memo entered from a received tax credit note
+  keeps its reason (`credit_reason_code`, `credit_reason_text`, BTAE-03:
+  only on what credits, the words not without the code, at most 100 and
+  1,000 characters; `supplier_invoice_credit_reason`) and every invoice
+  it cites in `payables.supplier_invoice_citation` (insert-only: the
+  position, the number IBT-025, the date IBT-026 when stated, each number
+  once, and `cited_invoice_id`, the supplier's posted invoice the number
+  and date matched when it was entered, none when none did). One citing
+  one invoice names it as `reference_invoice_id` too; one citing several
+  names none; a volume discount (VD) may cite none. An invoice entered
+  from one not in AED keeps the VAT it states in AED
+  (`stated_local_tax` with `stated_local_currency`, together or neither,
+  never negative; `supplier_invoice_stated_local_tax`, migrations 000441,
+  000442), which its posting keeps as the tax's local amount.
 - **Payment terms** (T36b): a document posts with the payment terms SAP's
   invoice verification would give it, kept in `supplier_invoice_terms`
   (migration 000068, insert-only) and passed to the ledger for its open
@@ -4623,7 +4638,10 @@ document's hash and key as a captured one does
 (`supplier_invoice_document_hash`, `supplier_invoice_source_check`). T65e
 (migrations 000433, 000434) enters tax credit notes too, as credit memos:
 a fetch lists every `received` document by `einvoice_to_process` (the
-status alone), which replaces `einvoice_to_enter`; no column changes. The
+status alone), which replaces `einvoice_to_enter`; no column changes.
+A processed document that was not refused states its `document_kind`,
+which the entering branches on (`einvoice_read_processed`, migrations
+000437, 000438; review:batch87). The
 other columns below arrive with the slices that write them (T65f;
 the lines and totals read are not stored, the bytes being kept).
 E2 (migration 000415; ADR-0061 As built E2) adds

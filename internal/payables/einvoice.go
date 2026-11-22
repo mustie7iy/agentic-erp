@@ -28,8 +28,9 @@ const SourceEInvoice = "einvoice"
 type EInvoice struct {
 	LegalEntityID  uuid.UUID
 	Kind           string
-	Number         string    // IBT-001, the supplier reference
-	CreditedNumber string    // IBT-025, the invoice a credit note corrects
+	Number         string     // IBT-001, the supplier reference
+	Cited          []Citation // IBG-03, the invoices a credit note corrects, each number once (their InvoiceID nil)
+	Reason         *CreditReason
 	IssueDate      time.Time // IBT-002
 	Currency       string    // IBT-005
 	Exponent       int
@@ -37,8 +38,13 @@ type EInvoice struct {
 	SellerTRN      string // IBT-031
 	Lines          []EInvoiceLine
 	Tax, Gross     money.Minor // IBT-110, IBT-112
-	SHA256         []byte
-	ObjectRef      string
+	// LocalTax is the VAT a document not in the company's currency states
+	// in LocalCurrency (AED: the sum of its lines' BTAE-08), kept as its
+	// tax's local amount when it posts; nil for a document in AED.
+	LocalTax      *money.Minor
+	LocalCurrency string
+	SHA256        []byte
+	ObjectRef     string
 }
 
 // EInvoiceLine is a line of a received e-invoice: its order line (IBT-132,
@@ -59,7 +65,11 @@ type EInvoiceLine struct {
 // is no posted invoice of the supplier is on hold naming it); its items by
 // order line or by position with the order items' units and codes; codes
 // from each line's category and rate by capturedTax's rule, an ambiguity
-// holding it; the document's bytes its document. It is parked, or on hold
+// holding it; the document's bytes its document. A credit memo keeps
+// its reason (BTAE-03) and every invoice it cites (citedInvoices): one
+// citing one names it as its reference, one citing several names none and
+// one for a volume discount may cite none (ADR-0061 As built batch 88).
+// It is parked, or on hold
 // with capture's reasons, as a captured invoice is, and published as
 // SupplierInvoiceCaptured with source einvoice. Any refusal is a problem
 // (no order: payables.capture_needs_order), for the caller to hold the
@@ -75,12 +85,23 @@ func (e *Endpoints) EnterEInvoice(ctx context.Context, d EInvoice) (Invoice, err
 	if err != nil {
 		return Invoice{}, err
 	}
+	facts, err := statedOf(d)
+	if err != nil {
+		return Invoice{}, err
+	}
 	in, held, err := e.capturedInput(ctx, tx, d.LegalEntityID, ext)
 	if err != nil {
 		return Invoice{}, err
 	}
 	if err := e.sellerOf(ctx, in.SupplierID, d.SellerTRN); err != nil {
 		return Invoice{}, err
+	}
+	if d.Kind == KindCreditMemo {
+		var unmatched string
+		if facts.citations, unmatched, err = citedInvoices(ctx, tx, &in, d.Cited); err != nil {
+			return Invoice{}, err
+		}
+		held = strings.TrimSpace(held + " " + unmatched)
 	}
 	rates := make([]printedTax, len(d.Lines))
 	for i, l := range d.Lines {
@@ -97,16 +118,18 @@ func (e *Endpoints) EnterEInvoice(ctx context.Context, d EInvoice) (Invoice, err
 		return Invoice{}, err
 	}
 	status, reason, _ := captureStatus("high", held) // read, not extracted: no confidence to doubt, so no warning
-	return e.insert(ctx, tx, p, newInvoice{Input: in, source: SourceEInvoice, status: status, holdReason: reason, sha: d.SHA256, objectRef: d.ObjectRef})
+	return e.insert(ctx, tx, p, newInvoice{Input: in, source: SourceEInvoice, status: status, holdReason: reason, sha: d.SHA256, objectRef: d.ObjectRef,
+		stated: facts})
 }
 
 // extractionOf is the e-invoice as capture's code reads a document: an
-// invoice or a credit memo naming the invoice it credits (capture's kinds
-// are payables' own), its amounts as decimals of its currency, its lines'
+// invoice or a credit memo (capture's kinds are payables' own), the
+// invoices a memo cites matched by citedInvoices rather than capture's
+// single number, its amounts as decimals of its currency, its lines'
 // order line numbers as item numbers. An order line that is no item number
 // is refused, as capture refuses a line naming no item of the order.
 func extractionOf(d EInvoice) (*capture.Extraction, error) {
-	ext := &capture.Extraction{DocumentKind: d.Kind, InvoiceNumber: d.Number, CreditedInvoiceNumber: d.CreditedNumber,
+	ext := &capture.Extraction{DocumentKind: d.Kind, InvoiceNumber: d.Number,
 		InvoiceDate: d.IssueDate.Format(time.DateOnly), PurchaseOrder: d.OrderReference, Currency: d.Currency, TaxAmount: d.Tax.Plain(d.Exponent),
 		GrossAmount: d.Gross.Plain(d.Exponent), Confidence: "high"}
 	for i, l := range d.Lines {

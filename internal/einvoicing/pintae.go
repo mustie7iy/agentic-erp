@@ -54,8 +54,8 @@ type Document struct {
 	Customization   string     // IBT-024
 	Profile         string     // IBT-023
 	TransactionType string     // BTAE-02, eight flags
-	Reference       string     // IBT-025, the invoice a credit note corrects
-	Cited           []string   // IBT-025 of each IBG-03 a received document states, distinct, Reference first
+	Reference       string     // IBT-025, the invoice a credit note corrects (the first it cites)
+	Cited           []Cited    // each IBG-03 a document states, by number once, Reference first; nil: Reference alone
 	OrderReference  string     // IBT-013, a received document's purchase order
 	Reason          *Reason    // BTAE-03, a credit note's
 	Seller, Buyer   Party
@@ -75,6 +75,28 @@ type Document struct {
 
 // Reason is a credit note's reason (BTAE-03): its code and its words.
 type Reason struct{ Code, Text string }
+
+// ReasonVolumeDiscount is the credit note reason of a volume discount
+// (BTAE-03 VD), the one reason a tax credit note may name no preceding
+// invoice for (IBR-055-AE; OpenPeppol PINT AE Billing, AE specific rules
+// and business process, as the coordinator's research of 21 Nov read
+// them; po:2026-11-21): a discount earned over a period's purchases
+// corrects no one invoice.
+const ReasonVolumeDiscount = "VD"
+
+// Cited is a preceding invoice reference (IBG-03): the invoice's number
+// (IBT-025) and, when the document states it, its issue date (IBT-026),
+// which tells invoices of one number apart.
+type Cited struct {
+	Number string
+	Date   *time.Time
+}
+
+// volumeDiscount is whether the document is a credit note for a volume
+// discount (BTAE-03 VD).
+func (d Document) volumeDiscount() bool {
+	return d.Kind == KindTaxCreditNote && d.Reason != nil && d.Reason.Code == ReasonVolumeDiscount
+}
 
 // Party is the seller (IBG-04) or the buyer (IBG-07): its electronic
 // address (IBT-034/IBT-049, with its scheme), name (IBT-027/IBT-044), VAT
@@ -104,6 +126,11 @@ type Line struct {
 	Net, Price        money.Minor
 	Name, Description string
 	Category, Percent string
+	// AccountingTax is the line's VAT in AED (BTAE-08) and
+	// AccountingAmount its amount with VAT in AED (BTAE-10), both of
+	// IBG-39 and in minor units of AED (accountingCurrency) whatever the
+	// document's currency; nil when the document does not state them.
+	AccountingTax, AccountingAmount *money.Minor
 }
 
 // Subtotal is the VAT of one category and rate (IBG-23): taxable amount

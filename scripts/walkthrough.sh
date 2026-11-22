@@ -5360,6 +5360,7 @@ step_einvoice() {
   einvoice_original "$connector" "$doc" "$sum"
   einvoice_refusals "$connector" "$doc"
   einvoice_credit_notes "$connector" "$doc"
+  einvoice_not_in_aed "$connector"
   passed
 }
 
@@ -5405,6 +5406,72 @@ pint_ae_invoice() {
   printf '<cac:Price><cbc:PriceAmount currencyID="AED">250.00</cbc:PriceAmount></cac:Price></cac:InvoiceLine></Invoice>\n'
 }
 
+# pint_ae_invoice_usd writes pint_ae_invoice's tax invoice NUMBER for
+# ORDER's line LINE in USD (1,000.00 net, 50.00 VAT): its VAT in AED
+# stated in all (IBT-111) and on its line (BTAE-08), 183.63, with the
+# line's amount with VAT in AED (BTAE-10), 3,856.13, at an illustrative
+# 3.6725 AED to the dollar.
+pint_ae_invoice_usd() {
+  local xml
+  xml=$(pint_ae_invoice "$1" "$AE_TRN" "$2" "$3")
+  xml=${xml//currencyID=\"AED\"/currencyID=\"USD\"}
+  local doc='<cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>'
+  xml=${xml/"$doc"/'<cbc:DocumentCurrencyCode>USD</cbc:DocumentCurrencyCode><cbc:TaxCurrencyCode>AED</cbc:TaxCurrencyCode>'}
+  xml=${xml/<\/cac:TaxTotal>/<\/cac:TaxTotal><cac:TaxTotal><cbc:TaxAmount currencyID=\"AED\">183.63</cbc:TaxAmount></cac:TaxTotal>}
+  xml=${xml/<cac:Item>/<cac:TaxTotal><cbc:TaxAmount currencyID=\"AED\">183.63</cbc:TaxAmount></cac:TaxTotal><cac:Item>}
+  xml=${xml/<\/cac:Price>/<\/cac:Price><cac:ItemPriceExtension><cbc:Amount currencyID=\"AED\">3856.13</cbc:Amount></cac:ItemPriceExtension>}
+  printf '%s\n' "$xml"
+}
+
+# einvoice_not_in_aed is split:T65d's part of step_einvoice (ADR-0061 §5
+# C5, As built batch 88; po:2026-11-21): Ben orders four desks from Gulf
+# Office Interiors in US dollars; its tax invoice GOI-2201 in USD states
+# its VAT in AED on each line (BTAE-08), which the next fetch enters as
+# the supplier invoice's stated local tax, kept for the VAT 201 as the
+# document states it rather than converted.
+einvoice_not_in_aed() {
+  local connector=$1 ae supplier expense po order
+  as ben
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Gulf Office Interiors" -p role=supplier
+  supplier=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  expense=$(field '.items[] | select(.number == "6000") | .id')
+  as tom
+  say "Gulf Office Interiors now prices in US dollars. Tom records the dirham's rate to the dollar, illustrative here"
+  say "(the CBUAE's published rate would be used), which an invoice's tax is compared in:"
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"AED\", \"valid_from\": \"$YEAR-01-01\", \"rate\": \"3.6725\", \"source\": \"walkthrough\"}"
+  as ben
+  say "Ben orders four more desks from Gulf Office Interiors, priced in US dollars this time:"
+  api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"currency\": \"USD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Oak desk, 160 cm\", \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"USD\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
+  po=$(field .id)
+  order=$(field .document_number)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Office fit-out budgeted"
+  fi
+  as ada
+  say "Its tax invoice GOI-2201 is in USD, 1,000.00 with 50.00 VAT; a UAE document in another currency states its VAT in"
+  say "AED too, in all (IBT-111) and on each line (BTAE-08): AED 183.63 (illustrative). The fetch enters it, keeping that"
+  say "VAT in AED as the document states it, for the VAT 201, rather than converting the dollars at its own rate:"
+  pint_ae_invoice_usd GOI-2201 "$order" 1 >"$WORK/provider/inbox/GOI-2201.xml"
+  printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/inbox/GOI-2201.receiver"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), refused \(.result.refused), entered \(.result.entered), held \(.result.held)"'
+  expect "the dollar invoice's fetch counts" "$(field '"\(.result.recorded) \(.result.refused) \(.result.entered) \(.result.held)"')" "1 0 1 0"
+  api 200 '.items[] | "  \(.message_id): \(.status), supplier invoice \(.supplier_invoice_number)"' listEInvoices -p "fetch_operation_id=$(field .id)"
+  as alex
+  api 200 '"\(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount), VAT in AED as stated \(.stated_local_tax.amount) \(.stated_local_tax.currency)"' \
+    getSupplierInvoice -p "id=$(field '.items[0].supplier_invoice_id')"
+  expect "the dollar invoice" "$(field '"\(.supplier_reference) \(.status) \(.gross_amount.amount) \(.gross_amount.currency) \(.stated_local_tax.amount) \(.stated_local_tax.currency)"')" \
+    "GOI-2201 parked 1050.00 USD 183.63 AED"
+  as ada
+}
+
 # einvoice_refusals is T65c's part of step_einvoice (ADR-0061 §5): the
 # provider delivers a malformed e-invoice and one whose buyer's TRN is not
 # the company's FTA registration; a fetch refuses both with their reasons
@@ -5440,21 +5507,28 @@ einvoice_refusals() {
 }
 
 # pint_ae_credit_note writes Gulf Office Interiors' PINT AE tax credit
-# note NUMBER (381, an illustrative document, dated today) correcting its
-# invoice CREDITED (IBT-025; none when empty): one desk of order AE_ORDER's
-# line 1 found damaged, 250.00 AED with 12.50 VAT at 5%, its reason
-# (BTAE-03) illustrative.
+# note NUMBER (381, an illustrative document, dated today) for the reason
+# code REASON (BTAE-03: VD a volume discount, IBR-055-AE; any other code
+# illustrative) correcting each invoice CREDITED names (IBG-03: its number,
+# IBT-025, and with @DATE its issue date, IBT-026; none when none is
+# given): one desk of order AE_ORDER's line 1, 250.00 AED with 12.50 VAT
+# at 5%.
 pint_ae_credit_note() {
-  local number=$1 credited=${2:-}
+  local number=$1 reason=$2 credited cited date
+  shift 2
   printf '<?xml version="1.0" encoding="UTF-8"?>\n'
   printf '<!-- Illustrative only: a supplier'"'"'s PINT AE tax credit note. -->\n'
   printf '<CreditNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">'
   printf '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID><cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>'
   printf '<cbc:ProfileExecutionID>00000000</cbc:ProfileExecutionID><cbc:ID>%s</cbc:ID><cbc:IssueDate>%s</cbc:IssueDate>' "$number" "$TODAY"
   printf '<cbc:CreditNoteTypeCode>381</cbc:CreditNoteTypeCode><cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>'
-  printf '<cac:DiscrepancyResponse><cbc:ResponseCode>VD</cbc:ResponseCode><cbc:Description>Desk damaged in delivery</cbc:Description></cac:DiscrepancyResponse>'
+  printf '<cac:DiscrepancyResponse><cbc:ResponseCode>%s</cbc:ResponseCode><cbc:Description>Desk damaged in delivery</cbc:Description></cac:DiscrepancyResponse>' "$reason"
   printf '<cac:OrderReference><cbc:ID>%s</cbc:ID></cac:OrderReference>' "$AE_ORDER"
-  [ -z "$credited" ] || printf '<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>%s</cbc:ID></cac:InvoiceDocumentReference></cac:BillingReference>' "$credited"
+  for credited in "$@"; do
+    cited=${credited%%@*} date=
+    [ "$cited" = "$credited" ] || date="<cbc:IssueDate>${credited#*@}</cbc:IssueDate>"
+    printf '<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>%s</cbc:ID>%s</cac:InvoiceDocumentReference></cac:BillingReference>' "$cited" "$date"
+  done
   printf '<cac:AccountingSupplierParty><cac:Party><cbc:EndpointID schemeID="0235">1005555555</cbc:EndpointID>'
   printf '<cac:PostalAddress><cbc:StreetName>Sheikh Zayed Road</cbc:StreetName><cbc:CityName>Dubai</cbc:CityName><cbc:CountrySubentity>DXB</cbc:CountrySubentity><cac:Country><cbc:IdentificationCode>AE</cbc:IdentificationCode></cac:Country></cac:PostalAddress>'
   printf '<cac:PartyTaxScheme><cbc:CompanyID>100555555500003</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>'
@@ -5475,32 +5549,44 @@ pint_ae_credit_note() {
 }
 
 # einvoice_credit_notes is T65e's part of step_einvoice (ADR-0061 §6, §5
-# C4): Gulf Office Interiors sends a tax credit note correcting GOI-2001
-# (IBT-025), which the next fetch enters as a supplier credit memo naming
-# GOI-2001's posted invoice as its reference; and one naming no invoice,
-# which is held for a person (einvoicing.credit_note_names_no_invoice)
-# rather than entered as correcting none.
+# C4, As built batch 88; po:2026-11-21): Gulf Office Interiors sends a tax
+# credit note correcting GOI-2001 (IBT-025), which the next fetch enters
+# as a supplier credit memo naming GOI-2001's posted invoice as its
+# reference, keeping its reason (BTAE-03); one naming no invoice, which is
+# held for a person (einvoicing.credit_note_names_no_invoice) rather than
+# entered as correcting none; a volume discount (VD) naming none, which is
+# entered without a reference (IBR-055-AE); and one citing two invoices,
+# entered as one credit memo citing both (einvoice_credit_note_citing_two).
 einvoice_credit_notes() {
-  local connector=$1 doc=$2 op invoice memo
+  local connector=$1 doc=$2 op invoice memo vd two
   QUIET=1 api 200 '' getEInvoice -p "id=$doc"
   invoice=$(field .supplier_invoice_id)
   say "One of GOI-2001's desks arrived damaged: Gulf Office Interiors sends a tax credit note, GOI-2101, correcting GOI-2001"
   say "(IBT-025), one desk of order $AE_ORDER's line 1, AED 250.00 with 12.50 VAT. By mistake it also sends GOI-2102, the"
   say "same credit naming no invoice; a UAE tax credit note names the invoice it corrects (IBG-03), so that one goes to a"
-  say "person rather than being entered as correcting none (the UAE tax specialist, C4):"
-  pint_ae_credit_note GOI-2101 GOI-2001 >"$WORK/provider/inbox/GOI-2101.xml"
-  pint_ae_credit_note GOI-2102 >"$WORK/provider/inbox/GOI-2102.xml"
-  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/inbox/GOI-2101.receiver" >"$WORK/provider/inbox/GOI-2102.receiver"
+  say "person rather than being entered as correcting none (the UAE tax specialist, C4). Only a volume discount (reason VD)"
+  say "may name none (IBR-055-AE): GOI-2103, a volume discount on the order, is entered without a reference. And GOI-2104"
+  say "corrects two invoices at once, GOI-2001 (dated as it was, IBT-026) and GOI-2005, which is no posted invoice:"
+  pint_ae_credit_note GOI-2101 DL GOI-2001 >"$WORK/provider/inbox/GOI-2101.xml"
+  pint_ae_credit_note GOI-2102 DL >"$WORK/provider/inbox/GOI-2102.xml"
+  pint_ae_credit_note GOI-2103 VD >"$WORK/provider/inbox/GOI-2103.xml"
+  pint_ae_credit_note GOI-2104 DL "GOI-2001@$TODAY" GOI-2005 >"$WORK/provider/inbox/GOI-2104.xml"
+  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/inbox/GOI-2101.receiver" "$WORK/provider/inbox/GOI-2102.receiver" \
+    "$WORK/provider/inbox/GOI-2103.receiver" >"$WORK/provider/inbox/GOI-2104.receiver"
   api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
   wait_op
   op=$(field .id)
   excerpt '"operation \(.status): recorded \(.result.recorded), refused \(.result.refused), entered \(.result.entered), held \(.result.held)"'
-  expect "the credit notes' fetch counts" "$(field '"\(.result.recorded) \(.result.refused) \(.result.entered) \(.result.held)"')" "2 0 1 1"
+  expect "the credit notes' fetch counts" "$(field '"\(.result.recorded) \(.result.refused) \(.result.entered) \(.result.held)"')" "4 0 3 1"
   api 200 '.items[] | "  \(.message_id) \(.document_kind): \(.status)\(if .supplier_invoice_number then ", supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status))" else "" end)\(if .problem_code then " \(.problem_code): \(.problem_detail)" else "" end)"' \
     listEInvoices -p "fetch_operation_id=$op"
   expect "the fetch's credit notes" "$(field '[.items[] | "\(.message_id) \(.document_kind) \(.status) \(.problem_code // "-")"] | sort | join(", ")')" \
-    "GOI-2101 credit_note entered -, GOI-2102 credit_note held einvoicing.credit_note_names_no_invoice"
+    "GOI-2101 credit_note entered -, GOI-2102 credit_note held einvoicing.credit_note_names_no_invoice, GOI-2103 credit_note entered -, GOI-2104 credit_note entered -"
+  vd=$(field '.items[] | select(.message_id == "GOI-2103") | .supplier_invoice_id')
+  two=$(field '.items[] | select(.message_id == "GOI-2104") | .supplier_invoice_id')
   memo=$(field '.items[] | select(.message_id == "GOI-2101") | .supplier_invoice_id')
+  einvoice_credit_note_vd "$vd"
+  einvoice_credit_note_citing_two "$two" "$invoice"
   say "GOI-2101 is a supplier credit memo of source einvoice, parked for Alex, naming GOI-2001's posted invoice as the invoice"
   say "it credits (capture's rule: a posted invoice of the supplier), its line on the order's line 1 with V5:"
   api 200 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), source \(.source), \(.gross_amount.amount) \(.gross_amount.currency), crediting \(.reference_invoice_id)", (.items[] | "  item \(.item_no): \(.quantity) \(.unit), \(.amount.amount), \(.tax_code)")' \
@@ -5508,6 +5594,30 @@ einvoice_credit_notes() {
   expect "the credit memo" "$(field '"\(.kind) \(.supplier_reference) \(.status) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \([.items[].tax_code] | join(","))"')" \
     "credit_memo GOI-2101 parked einvoice 262.50 12.50 V5"
   expect "the invoice it credits, GOI-2001's" "$(field .reference_invoice_id)" "$invoice"
+  expect "its reason and citation" "$(field '"\(.credit_reason.code) \([.cited_invoices[] | "\(.invoice_number)=\(.invoice_id)"] | join(","))"')" "DL GOI-2001=$invoice"
+}
+
+# einvoice_credit_note_vd shows MEMO, GOI-2103's credit memo: the volume
+# discount naming no invoice, entered without a reference (IBR-055-AE).
+einvoice_credit_note_vd() {
+  local memo=$1
+  api 200 '"\(.kind) \(.supplier_reference): \(.status), reason \(.credit_reason.code), crediting \(.reference_invoice_id // "no invoice"), citing \(.cited_invoices | length)"' \
+    getSupplierInvoice -p "id=$memo"
+  expect "the volume discount" "$(field '"\(.kind) \(.status) \(.credit_reason.code) \(.reference_invoice_id // "-") \(.cited_invoices | length)"')" "credit_memo parked VD - 0"
+}
+
+# einvoice_credit_note_citing_two shows MEMO, GOI-2104's credit memo,
+# entered as ONE credit memo citing both invoices it corrects
+# (po:2026-11-21): no single reference, GOI-2001 matched by number and
+# date to its posted invoice INVOICE, GOI-2005 matching no posted invoice,
+# so the memo waits on hold for Alex, who clears it against the invoices.
+einvoice_credit_note_citing_two() {
+  local memo=$1 invoice=$2
+  api 200 '"\(.kind) \(.supplier_reference): \(.status) (\(.hold_reason)), crediting \(.reference_invoice_id // "no one invoice")", (.cited_invoices[] | "  cites \(.invoice_number) \(.invoice_date // "") -> \(.document_number // "none")")' \
+    getSupplierInvoice -p "id=$memo"
+  expect "one memo citing two" "$(field '"\(.kind) \(.status) \(.reference_invoice_id // "-") \([.cited_invoices[] | "\(.invoice_number)=\(.invoice_id // "-")"] | join(","))"')" \
+    "credit_memo on_hold - GOI-2001=$invoice,GOI-2005=-"
+  expect "the hold names the unmatched one" "$(field '.hold_reason | contains("GOI-2005")')" true
 }
 
 # einvoice_order is T65d's setup in step_einvoice: Alex records Gulf Office
@@ -15503,7 +15613,40 @@ step_einvoice_send() {
   api 202 '"operation \(.kind): \(.status)"' withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
   wait_einvoice "$invoice" '.transmission.tax_data_status' WITHDRAW_SEND
   api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  einvoice_render_usd "$ae"
   passed
+}
+
+# einvoice_render_usd is batch 88's sending part of split:T65d (ADR-0061
+# As built batch 88; po:2026-11-21): a UAE tax invoice in US dollars is a
+# valid e-invoice whose line states its VAT in AED (BTAE-08) and its
+# amount with VAT in AED (BTAE-10), from the posting's local amounts, the
+# lines' VAT in AED adding up to the document's (IBT-111).
+einvoice_render_usd() {
+  local ae=$1 customer sales invoice rendered xml
+  as ruth
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Desert Rose Retail" -p role=customer
+  customer=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  say "Desert Rose Retail also buys in US dollars (step 43 recorded the rate). Ruth invoices it USD 1,000.00 of office"
+  say "chairs, standard-rated in Dubai, posts it and renders its e-invoice: in"
+  say "another currency than AED, each line states its VAT in AED and its amount in AED, so it is valid:"
+  api 201 '"customer invoice \(.document_number): gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"USD\", \"items\": [{\"description\": \"Office chairs\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"USD\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"
+  invoice=$(field .id)
+  api 200 '"customer invoice \(.document_number): \(.status)"' postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  api 201 '"e-invoice \(.type_code) of \(.customer_invoice_number): \(.status), \(.problems | length) problems, gross \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$invoice\"}"
+  expect "the dollar e-invoice" "$(field '"\(.status) \(.problems | length) \(.gross_amount.amount) \(.gross_amount.currency)"')" "valid 0 1050.00 USD"
+  rendered=$(field .id)
+  api 200 '' getOutgoingEInvoiceContent -p "id=$rendered" -out "$WORK/einvoice-usd.xml"
+  xml=$(cat "$WORK/einvoice-usd.xml")
+  for want in '<cbc:TaxCurrencyCode>AED</cbc:TaxCurrencyCode>' '<cac:TaxTotal><cbc:TaxAmount currencyID="AED">183.63</cbc:TaxAmount></cac:TaxTotal>' \
+    '<cac:TaxTotal><cbc:TaxAmount currencyID="AED">183.63</cbc:TaxAmount></cac:TaxTotal><cac:Item>' \
+    '<cac:ItemPriceExtension><cbc:Amount currencyID="AED">3856.13</cbc:Amount></cac:ItemPriceExtension>'; do
+    case "$xml" in *"$want"*) say "  $want" ;; *) fail "the dollar e-invoice's XML lacks $want" ;; esac
+  done
 }
 
 # wait_einvoice EINVOICE PATH VALUE waits, up to three minutes, until the

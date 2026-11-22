@@ -1846,3 +1846,110 @@ condition too, which implies it). Decided by default:
   assumed here from the mandate's summary [secondary, plan
   einvoicing-evatra.md], and so whether entering one memo per invoice is
   what the VAT 201 expects.
+
+### Batch 88: credit notes as one memo, VAT in AED as stated (po:2026-11-21 · review:batch87)
+
+The product owner approved on 2026-11-21 the coordinator's research of
+the open UAE questions (sources: OpenPeppol's PINT AE Billing pages, the
+AE specific rules and the business process, read 21 Nov; recorded in the
+coordinator's memory po-2026-11-21-uae-vat-research). Built:
+
+- **A volume discount may name no invoice (IBR-055-AE).** A received tax
+  credit note whose reason (BTAE-03) is `VD` and that cites no invoice is
+  valid and entered as a supplier credit memo without a reference (it
+  corrects no one invoice; its tax date is its own, `taxDateOf`); only a
+  credit note for another reason citing none is held
+  (`einvoicing.credit_note_names_no_invoice`, its detail naming the VD
+  exception). The outgoing rule (`einvoicing.pint_ae.credited_invoice`)
+  lets a VD tax credit note name no invoice too. This corrects T65e,
+  which held every one (C4 had assumed IBG-03 always mandatory).
+- **Several invoices, one memo.** A credit note citing several invoices
+  (IBG-03 repeated, which PINT AE's business process allows) is entered
+  as ONE credit memo citing them all, rather than held
+  (`einvoicing.credit_note_names_several_invoices` is no longer given;
+  documents held with it before stay held, and the value stays in the
+  contract's open enumeration). Its `reference_invoice_id` is none, since
+  no one invoice is what it corrects: its tax date is its own date, the
+  VAT 201 reporting it by the credit note's date with no per-invoice
+  split; it posts within no single invoice's credit limit (the limit,
+  product owner 2026-11-10, is one named invoice's gross, and a memo
+  naming none has none); the accounts payable clerk clears it against the
+  invoices. Decided by default, for the product owner to overrule.
+- **What the memo keeps.** `payables.supplier_invoice_citation`
+  (migration 000439, insert-only): each cited invoice's number (IBT-025),
+  its issue date when stated (IBT-026, `cac:BillingReference/
+  cac:InvoiceDocumentReference/cbc:IssueDate`, path from memory [M]) and
+  the supplier's posted invoice it matched; and the reason's code and
+  words (`credit_reason_code`, `credit_reason_text`, BTAE-03, words beyond
+  1,000 characters shortened, a code beyond 100 or more than 100 cited
+  invoices not read: a hold). The resource shows them as `credit_reason`
+  and `cited_invoices` (with the matched invoice's `document_number`).
+  Not copied into audit details or events: the reason's words are the
+  supplier's free text (ADR-0079).
+- **Matching.** Each cited number is matched to the supplier's posted
+  invoice in the company and the memo's currency by its supplier
+  reference, and by its invoice date when the note states IBT-026
+  (`citedInvoices`); a memo citing one names it as `reference_invoice_id`
+  as before; any number matching none enters the memo `on_hold`, its hold
+  reason naming the numbers. A number repeated is cited once, with the
+  first date stated for it.
+- **VAT in AED as stated (split:T65d; C5).** A received tax invoice or
+  credit note not in AED that states each line's VAT in AED (BTAE-08,
+  `cac:InvoiceLine/cac:TaxTotal/cbc:TaxAmount` in AED; BTAE-10 the line's
+  amount with VAT in AED, `cac:InvoiceLine/cac:ItemPriceExtension/
+  cbc:Amount`; both paths from memory [M], for the specialist) is
+  entered rather than held: the invoice keeps the lines' sum as its
+  `stated_local_tax` in AED (migrations 000441, 000442), which its
+  posting takes as the local amount of the tax the supplier charges
+  (`statedLocalTax`: the difference to the tax date's conversion shared
+  out among the charged components by their converted tax,
+  `money.ShareOut`, which moved from payables; self-assessed components
+  keep their conversion; the supplier line's conversion at the posting
+  date leaves the exchange difference), so the VAT 201 reports the VAT as
+  the document states it. An exempt line states none (IBR-163-AE); one
+  without it, on any other line, holds the document
+  (`einvoicing.tax_currency_not_entered`); the lines' VAT in AED not
+  summing to IBT-111 (or, in AED, to IBT-110) refuses it as
+  `einvoicing.totals_inconsistent`. A change of a parked invoice's
+  currency or tax drops the stated tax, audited
+  (`stated_local_tax_dropped`); a stated tax its charged codes cannot take
+  is 422 `payables.local_tax_mismatch` at posting. Decided by default: the
+  stated tax is shared by the components' converted tax rather than
+  matched per line (UAE input codes have one component, so the two agree
+  to the fils for a code's lines).
+- **Sending: BTAE-08 and BTAE-10 on every line (IBR-194-AE).** E2's
+  `not_rendered` findings for a document not in AED are gone: each line
+  states its VAT in AED and its amount with VAT in AED, from the posted
+  entry's output tax items per code in the company's currency
+  (`Sale.LocalCodes`: the code's local base and tax shared among its
+  lines by their net and tax), so the lines' VAT in AED adds up to
+  IBT-111; a document in AED states its own tax and net plus tax. An
+  exempt line states no BTAE-08; zero-rated lines state 0 (IBR-162-AE,
+  IBR-165-AE as researched; reverse-charge lines are not rendered yet).
+  IBT-152 stays the code's rate, 0 for zero-rated lines. The VAT in AED
+  (IBT-111, BTAE-08, BTAE-10) is now written with AED's two digits
+  whatever the document's currency's digits (before, IBT-111 took the
+  document's). A line whose code has no posted local amounts (an
+  unposted document) keeps them out, which a finding names.
+- **The CHECK review:batch87 asked for.** `einvoice_read_processed`
+  (migrations 000437, 000438): a processed document not refused states its
+  `document_kind`, which the entering branches on.
+- **The walkthrough.** `step_einvoice` (step 43, `einvoice_credit_notes`):
+  GOI-2103, a VD credit note naming no invoice, is entered as a parked
+  credit memo without a reference; GOI-2104, citing GOI-2001 (dated) and
+  GOI-2005 (no posted invoice), is entered as one memo citing both, on
+  hold naming GOI-2005; GOI-2102 (reason other than VD, naming none) is
+  held as before. `einvoice_not_in_aed`: GOI-2201, a tax invoice in USD
+  on a dollar order stating its VAT in AED on its line (BTAE-08, AED
+  183.63), is entered with that `stated_local_tax`. `step_einvoice_send`
+  (step 146, `einvoice_render_usd`): a UAE customer invoice in USD is
+  rendered valid, its line stating BTAE-08 and BTAE-10.
+- **A partly recovering code** takes its share of the stated tax's
+  difference between its recovered part and the part not recovered as
+  its converted local tax divides (review round 1), as the recoverable
+  share of its code says.
+- **For the specialist:** the BTAE-03 code list (the walkthrough's and
+  tests' `DL` is illustrative; only `VD` is acted on); the UBL paths of
+  IBT-026, BTAE-08 and BTAE-10 (from memory); whether IBR-162/163/165-AE
+  say what the coordinator's research summarised (zero-rated and
+  reverse-charge lines 0, exempt lines none).
