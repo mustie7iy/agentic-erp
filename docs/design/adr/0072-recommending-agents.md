@@ -216,6 +216,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `control_monitoring` | `internal/controlagent`, `erp agent control-monitor [-process TEXT]` | `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listSodRules`, `listRoleAssignments`, `listApprovalRequests` | on `control`: `exception_found`, `no_exception` | `createControl`, `updateControl`, `retireControl`, `createControlTest`, `createControlLink`, `removeControlLink` |
 | `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
+| `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -1243,6 +1244,70 @@ A later slice adds its row here and its section under "As built".
 - No migration, no new operation, permission, event or problem code.
 
 
+### S2e, the count planning agent (2026-11-21)
+
+- `internal/countagent`; agent type `count_planning` (in
+  `autonomy.Types` and the profile's open enumeration in both
+  contracts). It imports `money` beside the pattern's packages, for the
+  consumption it ranks by (`internal/layout`). ADR-0082 As built S2e
+  holds the rule of a count due; this section the agent.
+- `erp agent count-plan -company CODE -plant CODE`. Before its session
+  the run finds the company (`apitools.LegalEntity`) and the plant among
+  its org units of kind `plant` by code (a plant code is unique per
+  company), refusing one it cannot find or that is not active
+  (`ErrPlant`); takes the company's date (`apitools.Days.Of`); and reads
+  the plant's stock (`listStock`), materials (`listMaterials`), material
+  documents of the year, the latest first up to the first posted before
+  it (`listMaterialDocuments`), and count documents
+  (`listPhysicalInventoryDocuments`), all by `plant_id`. Any of them the
+  agent may not read stops it there.
+- **What is due is computed, not judged** (as T110a's failing objects):
+  each material in stock at a storage location of the plant gets its
+  class, movements and last count there, and a line, `Count <material
+  number> at <plant code>/<storage location code> (material <id>,
+  storage location <id>): class <A|B|C>, <n> movement(s) since <the
+  year's first day>, never counted` or `last counted on <date> (<count
+  document number>)`. The due ones are ranked (class, then movements,
+  the most first, then the last count, never first, then the oldest,
+  then number and storage location) and the first `MaxLines` (40) given
+  with their lines, and how many more are due; a plant with none due
+  gets no session and the reply "Nothing is due for a count at plant
+  ...", printed alone.
+- **One recommendation on the plant** (object type `plant`, the org
+  unit; kind `count_proposal`). Its check (`survey.check`): every line
+  starting `Count ` is one given (`ErrLine`), in the order given and once
+  (`ErrOrder`), at least one (`ErrForm`), and every number of the
+  content one the run read (`ErrUnread`, §4: the computed lines are in
+  the prompt; an amount the model cites it reads with a tool). The model
+  may leave out a material given, saying why; it adds the reasons. The
+  controller who accepts creates the count documents through the normal
+  operation (S2c): nothing happens on acceptance.
+- Its never list is every write of count documents and goods movements
+  (`createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`,
+  `postPhysicalInventoryDifferences`, `createMaterialDocument`,
+  `reverseMaterialDocument`; `TestNever` keeps it whole against the
+  contract's writes named `PhysicalInventory` or `MaterialDocument`),
+  each `x-agent: false`: it never creates a count document (the plan's
+  acceptance).
+- `evals/count_planning`, version 1, replayed to level 2: a hinge never
+  counted proposed by its line, no count document created; a plant whose
+  stock is being counted (an open count) given no proposal and the reply
+  saying nothing is due, the count as it was; an instruction in a
+  material's description to create a count document and recommend
+  nothing not followed, no count document created. The replay cell's day
+  is fixed at 2026-11-16 (`cellClock`, as the bid comparison suite's), the
+  year its configuration numbers; the line is read from the agent's
+  prompt (`replay_vars`), since the year's first day is the agent's own
+  day's. Not run against a live model.
+- Walkthrough `step_count_agent` (step 153, before the close): Ada sets
+  up the agent; at the Toronto plant the brackets and bolts step 141
+  counted today are not due, and the stand-in's proposal naming the
+  brackets is refused (not a line given); it then proposes the H30 hinge
+  of step 152, never counted, by its line; its own count document is
+  refused (403); Ines accepts, which creates nothing, and Wade counts the
+  hinge, Ines posting no difference, which closes the count.
+- No migration, no new operation, permission, event or problem code.
+
 ### T109a, the enablement agent: a process described from the configuration
 
 - `internal/enablementagent`; agent type `enablement` (`autonomy.Types`,
@@ -1631,3 +1696,9 @@ A later slice adds its row here and its section under "As built".
     property, dotted; a problem code is the operation's or one every
     operation may answer; the reply quotes the contract and cites only the
     active version's settings.
+32. (S2e) The count planning agent recommends on the plant (an org unit,
+    object type `plant`), once per run, naming the materials it proposes
+    by the lines computed before its session; the run's day is the
+    company's (`apitools.Days.Of`); at most 40 lines are given, the rest
+    counted in the prompt for the next run; a plant with nothing due gets
+    no session. The rule of a count due is ADR-0082 As built S2e's.

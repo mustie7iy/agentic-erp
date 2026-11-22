@@ -1193,6 +1193,12 @@ or a problem code of an operation (`erp agent enablement-help`, T109b),
 it refuses one the contract does not have before any model call and
 replies quoting the contract's description and citing the settings in
 force.
+The count planning agent (`erp agent count-plan -company CODE -plant
+CODE`, agent type `count_planning`, S2e) recommends on a `plant`:
+`count_proposal`, naming the materials due for a count by the lines its
+run computed from the plant's stock, material documents and count
+documents (class, movements, last count); the controller creates the
+count documents (`x-agent: false`, ADR-0082 As built S2e).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

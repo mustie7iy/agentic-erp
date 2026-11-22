@@ -1451,3 +1451,45 @@ The product owner's answer of 2026-11-21 to S2j's question above
 Material requirements planning (S2k onward) is the leaf context `mrp`,
 decided by ADR-0084; it reads inventory's `PlantStock` and a new
 `PlantPrices` and adds no direction to this ADR's §3.
+
+### S2e (2026-11-21)
+
+The count planning agent (ADR-0072 As built S2e, `internal/countagent`)
+proposes the materials of a plant to count this period, for an inventory
+controller to decide; it reads stock, materials, material documents and
+count documents through this ADR's published reads only, adds no
+direction to §3 and never creates a count document (x-agent: false).
+The rule of a count due, decided by default from SAP's cycle counting
+(the ABC analysis MIBC and the cycle counting indicator's intervals,
+OMCO, from memory) and computed by the agent's run, not by the model:
+
+- **The year** is the 365 days to the run's day, the company's date.
+- **ABC class** by consumption value at the plant over the year (SAP's
+  ABC indicator is a plant's, MARC-ABCIN): a material's consumption is
+  the value of its issues to a cost center (201), scrappings (551) and
+  deliveries' goods issues (601), less their reversals (202, 552, 602),
+  as their lines' amounts give it, in the company's currency (an amount
+  in another is refused, never added). Transfers, receipts and count
+  differences are no consumption. In the order of consumption value,
+  the greatest first, a material is A while the materials before it make
+  up less than 80 percent of the plant's total, B while less than 95, C
+  otherwise; one with no consumption is C.
+- **Intervals**: A every 90 days, B every 180, C every 365 (four, two and
+  one counts a year). A material is due at a storage location when it
+  was never counted there (a rejected or withdrawn count is none) or its
+  last posted count there is the interval or more before the day.
+- **Candidates** are the materials in stock at a storage location of the
+  plant (`listStock`) that a count document takes: `active` or `blocked`,
+  neither batch- nor serial-managed (which counts refuse, As built S2f,
+  S2g), and not held by an open count there (`counting`, `counted`,
+  `pending_approval`, or a status this version does not know).
+- **Movements** are the lines of the year's material documents moving
+  the material at that storage location, in transit or not counted;
+  they rank a class's materials, the most first, then the last count,
+  never first, then the oldest.
+
+**Later** (the plan's): cycle counting indicators on the plant data (the
+class and interval kept on the material at the plant rather than
+computed per run, with the tenant's own shares and intervals), materials
+with no stock counted, counts on a calendar, counting by risk learned
+from differences.

@@ -41570,6 +41570,7 @@ components:
             - risk
             - planning
             - enablement
+            - count_planning
           maxLength: 50
         model:
           type: string

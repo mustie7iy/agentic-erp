@@ -633,6 +633,23 @@ last count) for an inventory controller to decide.
 
 - **Adds:** an agent package, its type, suite and walkthrough step.
   **Acceptance:** it never creates a count document itself.
+- **Detailed** (lane cntag, 2026-11-21; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2e and ADR-0072 As built
+  S2e): `erp agent count-plan -company CODE -plant CODE`, agent type
+  `count_planning` (`internal/countagent`). Before its session the run
+  reads the plant's stock, materials, the year's material documents and
+  its count documents through inventory's and materials' published reads
+  and computes what is due: an ABC class by the year's consumption value
+  at the plant (A the first 80 percent, B the next 15, C the rest), the
+  material's movements at the storage location and its last posted
+  count there; due when never counted there or not within its class's
+  interval (90, 180, 365 days); batch- and serial-managed materials and
+  those an open count holds left out. The due ones, ranked by class,
+  movements and last count, each with its line, are offered to the
+  model, which proposes those it recommends, in that order, with its
+  reasons, in one `count_proposal` on the plant; nothing due, no
+  session. Never: every write of count documents and goods movements.
+  Suite `evals/count_planning`; walkthrough `step_count_agent`.
 
 **Later for Physical inventory and cycle counting:** cycle counting
 indicators on the plant data, sampling inventory, counts on handling units

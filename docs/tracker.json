@@ -5649,9 +5649,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The count planning agent recommends the materials to count this period for an inventory controller to decide; it never creates a count document",
-      "r": "S2e · docs/design/plan-supply-chain.md §S2e · ADR-0082",
+      "r": "S2e · docs/design/plan-supply-chain.md §S2e · ADR-0082 As built S2e · ADR-0072 §7 and As built S2e · internal/countagent (countagent.Agent.Plan, survey.check, due.go: ABC class by the year's consumption value, movements, last count; intervals 90/180/365) · agent type count_planning · erp agent count-plan -company -plant (cmd/erp/countplan.go) · evals/count_planning · TestPlan, TestPlanMaxLines, TestPlanNothingDue, TestPlanRefusals, TestNever, TestAgentCountPlan · walkthrough step_count_agent (step 153) · 04-api-design · ADR-0039",
       "src": "po:2026-11-17",
       "c": []
      },
