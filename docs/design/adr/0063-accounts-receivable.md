@@ -1613,9 +1613,9 @@ is built for the UAE.
   not (422 `ledger.invalid_discount`): the line rule is per code
   (`journal_line_tax_jurisdiction_code`), while the other component's
   items name no emirate, so its share could not be kept in one; the
-  discount is then written off by a reason (T75o). The items, net of their residuals,
-  write-offs and discounts, must then equal the receipt but for the
-  payment tolerance, as before.
+  discount is then written off by a reason (T75o). The items, net of
+  their residuals, write-offs and discounts, must then equal the receipt
+  but for the payment tolerance, as before.
 - **The correction** (`internal/ledger/receiptdiscount.go`): the discount
   is a debit of the clearing entry split by the invoice's entry's tax
   items exactly as a supplier's is (T36d): `ledger.discountTax`, now
@@ -1631,8 +1631,9 @@ is built for the UAE.
   reduce that emirate's VAT 201 box; a zero-rated base is reduced at rate
   0 (box 4). The supplier side gains the same keying: an input code that
   levied its lines' subdivision would now have its correction's lines
-  name it (none can: the configuration allows a component to levy its lines' subdivision on output codes alone). Lines and items are at the **receipt's
-  rate**, as the payment difference is; the items' local amounts are
+  name it (none can: the configuration allows a component to levy its
+  lines' subdivision on output codes alone). Lines and items are at the
+  **receipt's rate**, as the payment difference is; the items' local amounts are
   shared out of each line's (`discountPlan.taxItemsAt`). Undoing the
   payment (T75i) reverses the clearing entry and its tax items with it.
 - **The account** (decided by default, the brief's question): the net

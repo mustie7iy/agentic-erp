@@ -52,16 +52,13 @@ func (a *application) receiptDiscounts(ctx context.Context, tx pgx.Tx, in Receip
 	if err != nil {
 		return err
 	}
-	if err := a.addDiscountLines(receipt, account, lines); err != nil {
-		return err
-	}
 	// What a share of the receipt's transaction amount is in local
 	// currency, exactly: the receipt's local amount in proportion, as
 	// receiptRate rounds it (prorate). The receipt is a credit, never zero.
 	rate := new(big.Rat).SetFrac(big.NewInt(int64(receipt.lc)), big.NewInt(int64(receipt.tc)))
 	a.taxItems = plan.taxItemsAt(func(tc money.Minor) *big.Rat { return new(big.Rat).Mul(rate, new(big.Rat).SetInt64(int64(tc))) })
 	a.discounts, a.discount = taken, total
-	return nil
+	return a.addDiscountLines(receipt, account, lines)
 }
 
 // addDiscountLines adds the discount's lines, its net on the account and
