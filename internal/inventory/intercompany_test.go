@@ -248,6 +248,18 @@ func TestIntercompanyOrderRefused(t *testing.T) {
 			}
 		})
 	}
+	t.Run("the supplying plant's orders to issue, page by page", func(t *testing.T) {
+		q := orders + "?supplying_plant_id=" + e.p3.String() + "&issued=false&page_size=1"
+		first, _ := e.Must(200, "GET", q, "", "")
+		tok, _ := first["next_page_token"].(string)
+		if n := len(rows(t, first, "items")); n != 1 || tok == "" {
+			t.Fatalf("page 1: got %d orders and token %q, want 1 and a token", n, tok)
+		}
+		second, _ := e.Must(200, "GET", q+"&page_token="+tok, "", "")
+		if n := len(rows(t, second, "items")); n != 1 {
+			t.Errorf("page 2: got %d orders, want 1", n)
+		}
+	})
 	plain := e.stockOrder(t, "PO-PLAIN", "EUR")
 	e.issueRefused(t, map[string]any{"id": plain.String()}, 409, "procurement.not_intercompany")
 }

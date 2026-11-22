@@ -16164,8 +16164,12 @@ step_intercompany_transport() {
   expect "the released order" "$(field '"\(.status) \(.valuation)"')" "released gr_ir"
   tag=$ETAG
   as wade
-  say "Wade, in Sharjah, posts the order's goods issue at the version Ben read: one material document of $AE (643), out of"
-  say "the Sharjah store, valued at its moving price:"
+  say "Wade, in Sharjah, lists the orders the warehouse is to issue:"
+  api 200 '.items[] | "  purchase order \(.document_number) of \(.legal_entity_id == "'"$LE"'"), supplied by \(.supplying_plant_code)"' listPurchaseOrders \
+    -p "supplying_plant_id=$warehouse" -p issued=false
+  expect "the orders to issue" "$(field '[.items[] | .id] | join(" ")')" "$po"
+  say "He posts the order's goods issue at the version Ben read: one material document of $AE (643), out of the Sharjah"
+  say "store, valued at its moving price:"
   api 200 '"purchase order \(.document_number): goods issue \(.issue_document_number) on \(.issue_date)"' postIntercompanyGoodsIssue -p "id=$po" \
     -if-match "$tag" -body "{\"items\": [{\"po_item_no\": 1, \"storage_location_id\": \"$store\"}]}"
   doc=$(field .issue_document_id)

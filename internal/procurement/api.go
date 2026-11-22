@@ -510,7 +510,7 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 	from, to := apitypes.Ptr[time.Time](params.OrderDateFrom), apitypes.Ptr[time.Time](params.OrderDateTo)
 	plant, issued := apitypes.Ptr[uuid.UUID](params.SupplyingPlantID), apitypes.Ptr[bool](params.Issued)
 	scope := fmt.Sprintf("listPurchaseOrders|%s|%s|%s|%s|%v|%v|%s|%v", le, supplier, params.Status.Value, params.DocumentNumber.Value, from, to, plant,
-		issued)
+		params.Issued)
 	ks, err := e.Pages.Keyset(orderSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
