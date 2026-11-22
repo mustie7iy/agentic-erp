@@ -1675,7 +1675,8 @@ specialist; ADR-0084 As built S2n has the API and schema):
   (`sop_plan_line_forecast_covers_orders`). An intercompany order is an
   order, not a negative receipt: its goods issue (643) is in the history
   the moving average is of, so taking it off the supply as well would
-  count it twice (review round 1). The agent's recommendation on
+  count it twice (review round 1). In this S2n differs from S2m's agent,
+  whose open orders are sales orders alone. The agent's recommendation on
   each material stays beside it for the planner (`listRecommendations`).
 - **Supply**, all in the first month (receipts carry no date, as a
   planning run counts them, ADR-0084 §6): the stock at the plants'

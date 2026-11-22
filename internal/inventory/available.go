@@ -51,8 +51,8 @@ func (e *Endpoints) PlantStock(ctx context.Context, plant uuid.UUID, materials [
 // (SAP's consumption, from memory). It is the demand S2m's agent
 // forecasts from (internal/demandagent's issues, which keeps the same
 // movement types: a change to one is a change to both), read for S&OP's
-// review (S2n; ADR-0084 As built S2n), locking nothing. Company access is not applied: the caller reads a
-// plant of a company it may act in.
+// review (S2n; ADR-0084 As built S2n), locking nothing. Company access is
+// not applied: the caller reads a plant of a company it may act in.
 func (e *Endpoints) PlantIssues(ctx context.Context, plant uuid.UUID, materials []uuid.UUID, from, to time.Time) (map[uuid.UUID]string, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

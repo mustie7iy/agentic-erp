@@ -53,11 +53,11 @@ type SopPlan struct {
 // (Unit) and a month, as plain decimals in that unit; Stock is the plants'
 // stock in the first month and zero after.
 type SopLine struct {
-	Group, Unit                                                   string
-	Month, FirstDay, LastDay                                      time.Time
-	Materials                                                     int32
+	Group, Unit                                              string
+	Month, FirstDay, LastDay                                 time.Time
+	Materials                                                int32
 	Forecast, Orders, Stock, PurchaseOrders, StockTransports string
-	Proposals, Consensus                                          string
+	Proposals, Consensus                                     string
 }
 
 // Key is the line's key, group/unit/month, by which a change names it.

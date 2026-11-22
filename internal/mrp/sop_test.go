@@ -358,7 +358,7 @@ func TestSopDatabaseFailures(t *testing.T) {
 			_, err := app.Inventory(app.Config{}).PlantIssues(ctx, ids[0], ids, time.Now(), time.Now())
 			return err
 		},
-		"demand due": func() error { _, err := sales.Orders{}.PlantRequirementsDue(ctx, ids[0], ids); return err },
+		"demand due":   func() error { _, err := sales.Orders{}.PlantRequirementsDue(ctx, ids[0], ids); return err },
 		"transports":   func() error { _, err := procurement.Orders{}.TransportReceipts(ctx, ids[0], ids); return err },
 		"intercompany": func() error { _, err := procurement.Orders{}.IntercompanyDue(ctx, ids[0], ids); return err },
 	} {

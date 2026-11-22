@@ -166,7 +166,7 @@ func TestSopPlanTriggersAsOwner(t *testing.T) {
 		"a draft's forecast": {false, func(s sopScene) stmt {
 			return step(`UPDATE mrp.sop_plan_line SET forecast = 9 WHERE plan_id = $1`, s.plan)
 		}, "only its consensus changes"},
-		"a line deleted": {false, func(s sopScene) stmt { return step(`DELETE FROM mrp.sop_plan_line WHERE plan_id = $1`, s.plan) }, "never deleted"},
+		"a line deleted":                  {false, func(s sopScene) stmt { return step(`DELETE FROM mrp.sop_plan_line WHERE plan_id = $1`, s.plan) }, "never deleted"},
 		"a line added to a fixed version": {true, func(s sopScene) stmt { return s.line("BOLTS", "EA", "1", "0") }, "its plan version is fixed"},
 	} {
 		t.Run(name, func(t *testing.T) {

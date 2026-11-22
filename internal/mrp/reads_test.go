@@ -70,7 +70,10 @@ func TestPlantIssues(t *testing.T) {
 	e.document(t, "D9", "301", "2026-09-01", "-5", false, nil)
 	pgtest.Exec(t, `INSERT INTO inventory.transit_stock (tenant_id, id, legal_entity_id, material_id, plant_id, storage_location_id)
 		VALUES ($1, gen_random_uuid(), $2, $3, $4, $5)`, e.Tenant.ID, e.DE, e.bracket, e.p1, e.s1)
-	e.document(t, "D10", "351", "2026-09-01", "5", true, nil) // in transit to P1
+	// In transit to P1: a 351, left out by its movement type already, the
+	// read's in-transit filter being defensive (no listed type moves stock
+	// in transit).
+	e.document(t, "D10", "351", "2026-09-01", "5", true, nil)
 	from, to := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
 	inv := app.Inventory(app.Config{})
 	for _, c := range []struct {
