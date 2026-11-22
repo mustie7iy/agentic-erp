@@ -129,6 +129,9 @@ type orderItem struct {
 	// A stock item's material, plant and storage location (S1e), nil on
 	// another item.
 	material, plant, storageLocation *uuid.UUID
+	// awaitingIssue: the item is of an intercompany stock transport order
+	// whose goods issue is not posted (S2i1), so nothing is received yet.
+	awaitingIssue bool
 }
 
 // lockItems locks the purchase order items a movement touches, in a fixed
@@ -147,7 +150,8 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 			trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text, coalesce(o.document_number, ''),
 			coalesce(o.currency, ''), coalesce(o.valuation, ''), coalesce(i.valuation_price, 0), coalesce(i.valuation_price_unit, 1), coalesce(i.account_id, $3),
-			i.cost_center_id, CASE WHEN i.storage_location_id IS NOT NULL THEN i.material_id END, i.plant_id, i.storage_location_id
+			i.cost_center_id, CASE WHEN i.storage_location_id IS NOT NULL THEN i.material_id END, i.plant_id, i.storage_location_id,
+			coalesce(o.supplying_plant_id IS NOT NULL AND o.issue_document_id IS NULL, false)
 		FROM unnest($1::uuid[], $2::int[]) WITH ORDINALITY AS x(o, n, ord)
 		LEFT JOIN procurement.purchase_order o ON o.id = x.o
 		LEFT JOIN procurement.purchase_order_item i ON i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND i.item_no = x.n AND NOT i.is_removed
@@ -155,7 +159,8 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 	var out []orderItem
 	var oi orderItem
 	_, err := pgx.ForEachRow(rows, []any{&oi.found, &oi.legalEntity, &oi.status, &oi.unit, &oi.ordered, &oi.tolerance, &oi.received, &oi.documentNumber,
-		&oi.currency, &oi.valuation, &oi.valuationPrice, &oi.valuationPriceUnit, &oi.account, &oi.costCenter, &oi.material, &oi.plant, &oi.storageLocation},
+		&oi.currency, &oi.valuation, &oi.valuationPrice, &oi.valuationPriceUnit, &oi.account, &oi.costCenter, &oi.material, &oi.plant, &oi.storageLocation,
+		&oi.awaitingIssue},
 		func() error { out = append(out, oi); return nil })
 	if err != nil {
 		return nil, fmt.Errorf("procurement: read %d purchase order items: %w", len(items), err)
@@ -293,6 +298,9 @@ func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) 
 			return nil, problem.Invalid("procurement.unknown_order_item", field, "an item of a purchase order of the legal entity")
 		case mt == Receipt && oi.status != Released:
 			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are received only on released orders.")
+		case mt == Receipt && oi.awaitingIssue:
+			return nil, problem.Conflict("procurement.intercompany_not_issued", "Purchase order "+oi.documentNumber+
+				" is an intercompany stock transport order whose goods issue is not posted; its goods are received once the supplying company issues them.")
 		case mt == Return && oi.status != Released && oi.status != Closed:
 			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are returned only on released or closed orders.")
 		case it.Unit != oi.unit:

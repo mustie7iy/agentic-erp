@@ -28480,6 +28480,7 @@ func (*ConflictHeaders) postCreditMemoRequestRes()                 {}
 func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postExpenseReportRes()                     {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
+func (*ConflictHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
@@ -59892,6 +59893,51 @@ func (s *IntercompanyDifferenceTotal) SetDifference(val OptMoney) {
 	s.Difference = val
 }
 
+// Where each item of an intercompany stock transport order is issued from: a storage location of the
+// supplying plant per item, each item once.
+// Ref: #/components/schemas/IntercompanyGoodsIssue
+type IntercompanyGoodsIssue struct {
+	// Each of the order's items once.
+	Items []IntercompanyGoodsIssueItemsItem `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyGoodsIssue) GetItems() []IntercompanyGoodsIssueItemsItem {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyGoodsIssue) SetItems(val []IntercompanyGoodsIssueItemsItem) {
+	s.Items = val
+}
+
+type IntercompanyGoodsIssueItemsItem struct {
+	// The order item.
+	PoItemNo int32 `json:"po_item_no"`
+	// The storage location of the supplying plant it is issued from.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *IntercompanyGoodsIssueItemsItem) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *IntercompanyGoodsIssueItemsItem) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *IntercompanyGoodsIssueItemsItem) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *IntercompanyGoodsIssueItemsItem) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/InternalOrder
 type InternalOrder struct {
@@ -70603,7 +70649,11 @@ type MaterialDocument struct {
 	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods
 	// issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number`
 	// (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409
-	// `inventory.reverse_stock_transport`). Absent on every other document.
+	// `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643,
+	// S2i1, the supplying company's): the purchase order's `document_number`
+	// (`GET /v1/purchase-orders?document_number=`, the receiving company's order), whose WA entry posts
+	// the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on
+	// every other document.
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
@@ -93319,6 +93369,30 @@ type PostGoodsReceiptUnprocessableEntity Problem
 
 func (*PostGoodsReceiptUnprocessableEntity) postGoodsReceiptRes() {}
 
+type PostIntercompanyGoodsIssueBadRequest Problem
+
+func (*PostIntercompanyGoodsIssueBadRequest) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssueForbidden Problem
+
+func (*PostIntercompanyGoodsIssueForbidden) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssueNotFound Problem
+
+func (*PostIntercompanyGoodsIssueNotFound) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssuePreconditionFailed Problem
+
+func (*PostIntercompanyGoodsIssuePreconditionFailed) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssuePreconditionRequired Problem
+
+func (*PostIntercompanyGoodsIssuePreconditionRequired) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssueUnprocessableEntity Problem
+
+func (*PostIntercompanyGoodsIssueUnprocessableEntity) postIntercompanyGoodsIssueRes() {}
+
 type PostJournalEntryBadRequest Problem
 
 func (*PostJournalEntryBadRequest) postJournalEntryRes() {}
@@ -97063,6 +97137,22 @@ type PurchaseOrder struct {
 	// The `purchase_order` approval request (workflow context) the order waits for while
 	// `pending_approval`; absent otherwise.
 	ReleaseRequestID OptUUID `json:"release_request_id"`
+	// The plant of another company of the tenant that supplies the order, which makes it an intercompany
+	// stock transport order (ADR-0082 As built S2i), fixed at creation; absent for any other order.
+	SupplyingPlantID OptUUID `json:"supplying_plant_id"`
+	// The supplying plant's code; with `supplying_plant_id`.
+	SupplyingPlantCode OptString `json:"supplying_plant_code"`
+	// The supplying plant's name; with `supplying_plant_id`.
+	SupplyingPlantName OptString `json:"supplying_plant_name"`
+	// The code of the supplying plant's company, the supplier's group company; with `supplying_plant_id`.
+	SupplyingCompanyCode OptString `json:"supplying_company_code"`
+	// The material document of the intercompany order's goods issue (movement type `643`, the supplying
+	// company's), once posted (`postIntercompanyGoodsIssue`).
+	IssueDocumentID OptUUID `json:"issue_document_id"`
+	// The goods issue's material document number; with `issue_document_id`.
+	IssueDocumentNumber OptString `json:"issue_document_number"`
+	// The goods issue's posting date, the supplying company's day; with `issue_document_id`.
+	IssueDate OptDate `json:"issue_date"`
 	// How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post
 	// the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr
 	// GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a
@@ -97167,6 +97257,41 @@ func (s *PurchaseOrder) GetRevision() OptInt32 {
 // GetReleaseRequestID returns the value of ReleaseRequestID.
 func (s *PurchaseOrder) GetReleaseRequestID() OptUUID {
 	return s.ReleaseRequestID
+}
+
+// GetSupplyingPlantID returns the value of SupplyingPlantID.
+func (s *PurchaseOrder) GetSupplyingPlantID() OptUUID {
+	return s.SupplyingPlantID
+}
+
+// GetSupplyingPlantCode returns the value of SupplyingPlantCode.
+func (s *PurchaseOrder) GetSupplyingPlantCode() OptString {
+	return s.SupplyingPlantCode
+}
+
+// GetSupplyingPlantName returns the value of SupplyingPlantName.
+func (s *PurchaseOrder) GetSupplyingPlantName() OptString {
+	return s.SupplyingPlantName
+}
+
+// GetSupplyingCompanyCode returns the value of SupplyingCompanyCode.
+func (s *PurchaseOrder) GetSupplyingCompanyCode() OptString {
+	return s.SupplyingCompanyCode
+}
+
+// GetIssueDocumentID returns the value of IssueDocumentID.
+func (s *PurchaseOrder) GetIssueDocumentID() OptUUID {
+	return s.IssueDocumentID
+}
+
+// GetIssueDocumentNumber returns the value of IssueDocumentNumber.
+func (s *PurchaseOrder) GetIssueDocumentNumber() OptString {
+	return s.IssueDocumentNumber
+}
+
+// GetIssueDate returns the value of IssueDate.
+func (s *PurchaseOrder) GetIssueDate() OptDate {
+	return s.IssueDate
 }
 
 // GetValuation returns the value of Valuation.
@@ -97282,6 +97407,41 @@ func (s *PurchaseOrder) SetRevision(val OptInt32) {
 // SetReleaseRequestID sets the value of ReleaseRequestID.
 func (s *PurchaseOrder) SetReleaseRequestID(val OptUUID) {
 	s.ReleaseRequestID = val
+}
+
+// SetSupplyingPlantID sets the value of SupplyingPlantID.
+func (s *PurchaseOrder) SetSupplyingPlantID(val OptUUID) {
+	s.SupplyingPlantID = val
+}
+
+// SetSupplyingPlantCode sets the value of SupplyingPlantCode.
+func (s *PurchaseOrder) SetSupplyingPlantCode(val OptString) {
+	s.SupplyingPlantCode = val
+}
+
+// SetSupplyingPlantName sets the value of SupplyingPlantName.
+func (s *PurchaseOrder) SetSupplyingPlantName(val OptString) {
+	s.SupplyingPlantName = val
+}
+
+// SetSupplyingCompanyCode sets the value of SupplyingCompanyCode.
+func (s *PurchaseOrder) SetSupplyingCompanyCode(val OptString) {
+	s.SupplyingCompanyCode = val
+}
+
+// SetIssueDocumentID sets the value of IssueDocumentID.
+func (s *PurchaseOrder) SetIssueDocumentID(val OptUUID) {
+	s.IssueDocumentID = val
+}
+
+// SetIssueDocumentNumber sets the value of IssueDocumentNumber.
+func (s *PurchaseOrder) SetIssueDocumentNumber(val OptString) {
+	s.IssueDocumentNumber = val
+}
+
+// SetIssueDate sets the value of IssueDate.
+func (s *PurchaseOrder) SetIssueDate(val OptDate) {
+	s.IssueDate = val
 }
 
 // SetValuation sets the value of Valuation.
@@ -97761,6 +97921,16 @@ type PurchaseOrderCreate struct {
 	RequisitionID OptUUID `json:"requisition_id"`
 	// Contract that prices the order.
 	ContractID OptUUID `json:"contract_id"`
+	// A plant of another company of the tenant that supplies the order, making it an intercompany stock
+	// transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`)
+	// of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company
+	// is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock
+	// item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422
+	// `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its
+	// goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the
+	// transfer price. Fixed once created; an intercompany order is not changed once released (409
+	// `procurement.intercompany_order_change`).
+	SupplyingPlantID OptUUID `json:"supplying_plant_id"`
 	// Items.
 	Items []PurchaseOrderItem `json:"items"`
 	// Custom fields.
@@ -97805,6 +97975,11 @@ func (s *PurchaseOrderCreate) GetRequisitionID() OptUUID {
 // GetContractID returns the value of ContractID.
 func (s *PurchaseOrderCreate) GetContractID() OptUUID {
 	return s.ContractID
+}
+
+// GetSupplyingPlantID returns the value of SupplyingPlantID.
+func (s *PurchaseOrderCreate) GetSupplyingPlantID() OptUUID {
+	return s.SupplyingPlantID
 }
 
 // GetItems returns the value of Items.
@@ -97855,6 +98030,11 @@ func (s *PurchaseOrderCreate) SetRequisitionID(val OptUUID) {
 // SetContractID sets the value of ContractID.
 func (s *PurchaseOrderCreate) SetContractID(val OptUUID) {
 	s.ContractID = val
+}
+
+// SetSupplyingPlantID sets the value of SupplyingPlantID.
+func (s *PurchaseOrderCreate) SetSupplyingPlantID(val OptUUID) {
+	s.SupplyingPlantID = val
 }
 
 // SetItems sets the value of Items.
@@ -115290,6 +115470,7 @@ func (*ServiceUnavailableHeaders) pingWebhookSubscriptionRes()               {}
 func (*ServiceUnavailableHeaders) placeInHierarchyRes()                      {}
 func (*ServiceUnavailableHeaders) postBankStatementLineRes()                 {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                      {}
+func (*ServiceUnavailableHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()                      {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()                {}
 func (*ServiceUnavailableHeaders) postRevaluationRunRes()                    {}
@@ -122460,6 +122641,7 @@ func (*TooManyRequestsHeaders) postCreditMemoRequestRes()                 {}
 func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postExpenseReportRes()                     {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
+func (*TooManyRequestsHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
@@ -123438,6 +123620,7 @@ func (*UnauthorizedHeaders) postCreditMemoRequestRes()                 {}
 func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postExpenseReportRes()                     {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
+func (*UnauthorizedHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
@@ -125205,10 +125388,11 @@ func (s *UpdatePurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 	s.Response = val
 }
 
-func (*UpdatePurchaseOrderOKHeaders) cancelPurchaseOrderRes()  {}
-func (*UpdatePurchaseOrderOKHeaders) closePurchaseOrderRes()   {}
-func (*UpdatePurchaseOrderOKHeaders) releasePurchaseOrderRes() {}
-func (*UpdatePurchaseOrderOKHeaders) updatePurchaseOrderRes()  {}
+func (*UpdatePurchaseOrderOKHeaders) cancelPurchaseOrderRes()        {}
+func (*UpdatePurchaseOrderOKHeaders) closePurchaseOrderRes()         {}
+func (*UpdatePurchaseOrderOKHeaders) postIntercompanyGoodsIssueRes() {}
+func (*UpdatePurchaseOrderOKHeaders) releasePurchaseOrderRes()       {}
+func (*UpdatePurchaseOrderOKHeaders) updatePurchaseOrderRes()        {}
 
 type UpdatePurchaseOrderPreconditionFailed Problem
 

@@ -44,9 +44,16 @@ type orderEnv struct {
 
 func setupOrders(t *testing.T) orderEnv {
 	t.Helper()
-	ps := slices.Compact(slices.Sorted(slices.Values(append(append([]string{"procurement.receipt.post", "procurement.order.create",
-		"partner.supplier.read"}, perms...), fixture.InvoicePermissions...))))
-	e := orderEnv{env: env{Env: fixture.NewWith(t, nil, receiving, ps...)}, day: "2026-11-02", receiptSeq: new(int)}
+	return setupOrdersWith(t, receiving)
+}
+
+// setupOrdersWith is setupOrders under the configuration cfg sets, with
+// the permissions more besides.
+func setupOrdersWith(t *testing.T, cfg func(*config.Config), more ...string) orderEnv {
+	t.Helper()
+	ps := slices.Compact(slices.Sorted(slices.Values(append(append(append([]string{"procurement.receipt.post", "procurement.order.create",
+		"partner.supplier.read"}, perms...), fixture.InvoicePermissions...), more...))))
+	e := orderEnv{env: env{Env: fixture.NewWith(t, nil, cfg, ps...)}, day: "2026-11-02", receiptSeq: new(int)}
 	e.p1 = e.orgUnit(t, e.DE, "plant", "P1", nil)
 	e.s1 = e.orgUnit(t, e.DE, "storage_location", "S1", &e.p1)
 	e.s2 = e.orgUnit(t, e.DE, "storage_location", "S2", &e.p1)

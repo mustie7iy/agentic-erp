@@ -2149,6 +2149,10 @@ type PostGoodsReceiptRes interface {
 	postGoodsReceiptRes()
 }
 
+type PostIntercompanyGoodsIssueRes interface {
+	postIntercompanyGoodsIssueRes()
+}
+
 type PostJournalEntryRes interface {
 	postJournalEntryRes()
 }

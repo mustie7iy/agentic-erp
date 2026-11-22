@@ -263,6 +263,12 @@ func loadChange(ctx context.Context, tx pgx.Tx, order, id uuid.UUID, ifMatch fun
 // order's supplier, currency and contract, and keep what a released
 // order's items keep. It returns the proposal and its total.
 func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, base ChangeProposal, in ChangeInput) (ChangeProposal, money.Minor, error) {
+	if o.SupplyingPlantID != nil {
+		// Its goods issue issues the ordered quantities (S2i1): changes of
+		// a released intercompany order are Later.
+		return ChangeProposal{}, 0, problem.Conflict("procurement.intercompany_order_change", "Purchase order "+o.DocumentNumber+
+			" is an intercompany stock transport order; it is not changed once released.")
+	}
 	pr := base
 	if in.OrderDate != nil {
 		pr.OrderDate = *in.OrderDate
@@ -286,7 +292,7 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 			return ChangeProposal{}, 0, err
 		}
 	}
-	h, err := e.header(ctx, tx, le, o.SupplierID, o.Currency, pr.OrderDate, o.ContractID, o.PurchasingOrgID, o.RequisitionID)
+	h, err := e.header(ctx, tx, le, o.SupplierID, o.Currency, pr.OrderDate, o.ContractID, o.PurchasingOrgID, o.RequisitionID, o.SupplyingPlantID)
 	if err != nil {
 		return ChangeProposal{}, 0, err
 	}

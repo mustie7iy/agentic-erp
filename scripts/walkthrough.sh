@@ -16215,6 +16215,141 @@ step_mrp() {
   passed
 }
 
+# step_intercompany_transport is S2i1 (ADR-0082 As built S2i,
+# plan-supply-chain.md §S2i): Ada gives the UAE company, Maple Gulf Trading,
+# the accounts its stock is valued and issued on, a tier 4 change. Mira
+# creates the DL-1 desk lamp, kept in the Sharjah warehouse (step 148) and
+# Toronto's main store; Ines values it in both, Wade enters 50 in Sharjah.
+# Alex records Maple Gulf Trading as a supplier of Maple, the group company
+# it is. Ben orders 20 lamps from it, supplied by the Sharjah warehouse, at
+# CAD 16.00, the transfer price; nothing is received before the supplying
+# company issues it. Wade posts the goods issue (643) of Maple Gulf
+# Trading out of Sharjah against its cost of goods sold, once; the order in
+# transit is not cancelled. Ben receives the lamps into Toronto at the
+# order price against GR/IR. Each company's entry balances.
+step_intercompany_transport() {
+  heading "Step 153 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; each company's entry balances"
+  local ae base cr warehouse store lamp recon term sister po tag doc entry receipt
+  [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
+  accounts
+  as ada
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listOrgUnits -p page_size=200
+  warehouse=$(field '.items[] | select(.kind == "plant" and .code == "P300") | .id')
+  store=$(field '.items[] | select(.kind == "storage_location" and .parent_id == "'"$warehouse"'") | .id')
+  [ -n "$warehouse" ] && [ -n "$store" ] || fail "step 148's Sharjah warehouse is not there"
+  say "Maple Gulf Trading values no stock yet. Ada gives it a stock account (1500) and one for initial entries (3990),"
+  say "and the accounts of valuation class 3100: its stock, initial entries, the pack's cost of goods sold (5000) and"
+  say "price differences (5100). New accounts change the chart, a tier 4 change:"
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Stock accounts of $AE\", rationale: \"The UAE company supplies Maple from its Sharjah warehouse (S2i1)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$AE\" then
+      .chart_of_accounts += [{number: \"1500\", name: \"Inventory - trading goods\", type: \"asset\"},
+        {number: \"3990\", name: \"Initial entries of stock\", type: \"equity\"}]
+      | .account_determination.inventory = [{valuation_class: \"3100\", stock: \"1500\", initial_entry: \"3990\", cost_of_goods_sold: \"5000\",
+        price_difference: \"5100\"}]
+    else . end))}" "$WORK/last.json" >"$WORK/ae-stock.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @ae-stock.json
+  governed "$(field .id)" "the UAE company's stock accounts"
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  cp "$WORK/last.json" "$WORK/ae-accounts.json"
+  as mira
+  say "Mira creates the DL-1 desk lamp, kept in the Sharjah warehouse and in Toronto's main store; Priya approves it:"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Desk lamp DL-1\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"FURNITURE\",
+      \"plants\": [{\"plant_id\": \"$warehouse\", \"storage_location_ids\": [\"$store\"]}, {\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  lamp=$(field .id)
+  approve priya "$(material_request "$lamp")" "Lamps from our Sharjah warehouse."
+  as ines
+  say "Ines values it at a moving price of AED 40.00 in Sharjah and CAD 15.00 in Toronto:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$lamp\", \"plant_id\": \"$warehouse\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"40.00\", \"currency\": \"AED\"}}"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$lamp\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade enters 50 lamps on the Sharjah store's shelves (561), worth AED 2,000.00:"
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$lamp\", \"plant_id\": \"$warehouse\",
+      \"storage_location_id\": \"$store\", \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}}]}"
+  as ben
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  recon=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  term=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .payment_term_code")
+  say "Ben records Maple Gulf Trading as a supplier of Maple, linked to $AE, the group company it is (ADR-0059 §4); Carla"
+  say "approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), group company \(.group_company.code) \(.group_company.name)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Maple Gulf Trading\", \"country_code\": \"AE\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"$term\"}], \"group_company_id\": \"$ae\", \"reason\": \"Our UAE sister supplies Maple from Sharjah\"}"
+  sister=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$sister" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Our own UAE company, checked against the group's companies"
+  as ben
+  say "A supplier that is not the supplying plant's company is refused:"
+  local item="{\"material_id\": \"$lamp\", \"description\": \"Desk lamp DL-1\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"16.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  refused 422 procurement.intercompany_supplier createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\",
+      \"order_date\": \"$TODAY\", \"supplying_plant_id\": \"$warehouse\", \"items\": [$item]}"
+  say "Ben orders 20 lamps from Maple Gulf Trading, supplied by its Sharjah warehouse, at CAD 16.00, the transfer price,"
+  say "into Toronto's main store (SAP's cross-company stock transport order, a purchase order with a supplying plant):"
+  api 201 '"purchase order \(.document_number): \(.status), supplied by \(.supplying_plant_code) \(.supplying_plant_name) of \(.supplying_company_code)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) \(.unit_price.currency) into \(.plant_code)/\(.storage_location_code)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$sister\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\",
+      \"supplying_plant_id\": \"$warehouse\", \"items\": [$item]}"
+  po=$(field .id)
+  expect "the order's supplying plant" "$(field '"\(.supplying_plant_code) \(.supplying_company_code)"')" "P300 $AE"
+  api 200 '"\(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Stock from our UAE sister"
+    as ben
+  fi
+  say "Nothing is received before Maple Gulf Trading issues the lamps:"
+  refused 409 procurement.intercompany_not_issued postGoodsReceipt -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\",
+      \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  expect "the released order" "$(field '"\(.status) \(.valuation)"')" "released gr_ir"
+  tag=$ETAG
+  as wade
+  say "Wade, in Sharjah, lists the orders the warehouse is to issue:"
+  api 200 '.items[] | "  purchase order \(.document_number) of \(.legal_entity_id == "'"$LE"'"), supplied by \(.supplying_plant_code)"' listPurchaseOrders \
+    -p "supplying_plant_id=$warehouse" -p issued=false
+  expect "the orders to issue" "$(field '[.items[] | .id] | join(" ")')" "$po"
+  say "He posts the order's goods issue at the version Ben read: one material document of $AE (643), out of the Sharjah"
+  say "store, valued at its moving price:"
+  api 200 '"purchase order \(.document_number): goods issue \(.issue_document_number) on \(.issue_date)"' postIntercompanyGoodsIssue -p "id=$po" \
+    -if-match "$tag" -body "{\"items\": [{\"po_item_no\": 1, \"storage_location_id\": \"$store\"}]}"
+  doc=$(field .issue_document_id)
+  tag=$ETAG
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)), reference \(.reference)", (.lines[] | "  line \(.line_no): \(.plant_code)/\(.storage_location_code) \(.quantity.value) \(.quantity.unit), worth \(.amount.amount) \(.amount.currency)")' \
+    getMaterialDocument -p "id=$doc"
+  expect "the issue" "$(field '"\(.movement_type) \(.legal_entity_id) \([.lines[] | "\(.quantity.value):\(.amount.amount)"] | join(" "))"')" "643 $ae -20:-800.00"
+  entry=$(field .journal_entry_id)
+  say "Its entry (WA) moves the lamps' value from Maple Gulf Trading's stock (1500) to its cost of goods sold (5000):"
+  api 200 '.lines[] | "  \(.account_id): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  expect "the issue's entry" "$(jq -r --slurpfile a "$WORK/ae-accounts.json" '[.lines[] | . as $l | "\($a[0].items[] | select(.id == $l.account_id) | .number):\(.amount.amount)"] | sort | join(" ")' "$WORK/last.json")" \
+    "1500:-800.00 5000:800.00"
+  say "The lamps are in transit, in neither company's stock: 30 are left in Sharjah, none has reached Toronto:"
+  QUIET=1 api 200 '' listStock -p "material_id=$lamp"
+  expect "the lamps' stock" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | join(", ")')" "P300/SL01 30"
+  say "The order is issued once:"
+  refused 409 procurement.intercompany_issued postIntercompanyGoodsIssue -p "id=$po" -if-match "$tag" \
+    -body "{\"items\": [{\"po_item_no\": 1, \"storage_location_id\": \"$store\"}]}"
+  as ben
+  say "An order whose goods are in transit is not cancelled:"
+  refused 409 procurement.order_in_transit cancelPurchaseOrder -p "id=$po" -if-match "$tag"
+  say "The lamps arrive in Toronto; Ben posts the goods receipt: its WE entry puts them on Maple's stock at the order"
+  say "price, CAD 320.00, against GR/IR:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  receipt=$(field .journal_entry_id)
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$receipt"
+  expect "the receipt's entry" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-320.00 320.00"
+  QUIET=1 api 200 '' listMaterialValuations -p "material_id=$lamp" -p "plant_id=$PLANT"
+  expect "Toronto's valuation" "$(field '.items[0] | "\(.quantity.value) \(.value.amount) \(.value.currency)"')" "20 320.00 CAD"
+  QUIET=1 api 200 '' listStock -p "material_id=$lamp"
+  expect "the lamps' stock after the receipt" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" \
+    "P100/SL01 20, P300/SL01 30"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -18245,7 +18380,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_intercompany_transport step_close'
 
 main() {
   stop_unseen

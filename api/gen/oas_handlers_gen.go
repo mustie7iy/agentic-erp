@@ -98518,6 +98518,14 @@ func (s *Server) handleListPurchaseOrdersRequest(args [0]string, argsEscaped boo
 					In:   "query",
 				}: params.OrderDateTo,
 				{
+					Name: "supplying_plant_id",
+					In:   "query",
+				}: params.SupplyingPlantID,
+				{
+					Name: "issued",
+					In:   "query",
+				}: params.Issued,
+				{
 					Name: "page_size",
 					In:   "query",
 				}: params.PageSize,
@@ -112478,6 +112486,237 @@ func (s *Server) handlePostGoodsReceiptRequest(args [0]string, argsEscaped bool,
 	}
 
 	if err := encodePostGoodsReceiptResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handlePostIntercompanyGoodsIssueRequest handles postIntercompanyGoodsIssue operation.
+//
+// Posts a released intercompany stock transport order's goods issue (ADR-0082 As built S2i; SAP's 643,
+// from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order not
+// `released`, 409 `procurement.invalid_status`; one naming no `supplying_plant_id`, 409
+// `procurement.not_intercompany`; one issued already, 409 `procurement.intercompany_issued`). Every
+// item of the order is issued, its ordered quantity in its unit, from the storage location of the
+// supplying plant `items` names for it (each item once, 422 `procurement.issue_items`), as one
+// material document of movement type `643` of the supplying company (`issue_document_id`), posted on
+// that company's date today in its time zone and numbered from its `material_document` range, its
+// `reference` the order's number. Each item is checked as an outbound delivery's goods issue is: the
+// material active, extended to the supplying plant and kept at the storage location (422
+// `inventory.plant_not_extended`, `inventory.storage_location_not_extended`), valued there (422
+// `inventory.no_valuation`), its quantity exact in its base unit (422 `inventory.inexact_quantity`),
+// the location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical
+// inventory document (409 `inventory.posting_blocked`). The issue takes the stock's value as an issue
+// does and posts it in one WA journal entry of the supplying company, Dr the valuation class's cost of
+// goods sold account, Cr its stock account (422 `inventory.no_inventory_account`; the ledger's
+// refusals, such as 422 `ledger.period_not_open`). The goods are then in neither company's stock until
+// the receiving company posts their goods receipt against the order (`postGoodsReceipt`, at the order
+// price against GR/IR, at most what was issued). The caller acts in both companies: the order's (404
+// otherwise) and the supplying plant's (422 `inventory.plant_invalid`). Audited; the stock moves are
+// published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it
+// left it. Human-only (`x-agent: false`).
+//
+// POST /v1/purchase-orders/{id}:postIntercompanyGoodsIssue
+func (s *Server) handlePostIntercompanyGoodsIssueRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postIntercompanyGoodsIssue"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/purchase-orders/{id}:postIntercompanyGoodsIssue"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), PostIntercompanyGoodsIssueOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: PostIntercompanyGoodsIssueOperation,
+			ID:   "postIntercompanyGoodsIssue",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, PostIntercompanyGoodsIssueOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodePostIntercompanyGoodsIssueParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodePostIntercompanyGoodsIssueRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response PostIntercompanyGoodsIssueRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    PostIntercompanyGoodsIssueOperation,
+			OperationSummary: "Post the goods issue of an intercompany stock transport order",
+			OperationID:      "postIntercompanyGoodsIssue",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *IntercompanyGoodsIssue
+			Params   = PostIntercompanyGoodsIssueParams
+			Response = PostIntercompanyGoodsIssueRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackPostIntercompanyGoodsIssueParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.PostIntercompanyGoodsIssue(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.PostIntercompanyGoodsIssue(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodePostIntercompanyGoodsIssueResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
