@@ -41796,6 +41796,7 @@ components:
             - planning
             - enablement
             - replenishment
+            - count_planning
           maxLength: 50
         model:
           type: string

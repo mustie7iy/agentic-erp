@@ -61,14 +61,16 @@ var Reads = []string{"getMrpRun", "getRequisition", "getMaterial", "listCatalogI
 	"listPurchaseOrders", "getPurchaseOrder", "getBusinessPartner"}
 
 // Never are the operations the agent never calls (ADR-0072): every write
-// of requisitions and purchase orders (their changes included, and a
-// scheduling agreement's schedule lines, whose call-off creates an order,
-// ADR-0070 §4), sourcing
+// of requisitions and purchase orders (their changes included, an
+// intercompany order's goods issue, S2i1, an order's GR/IR clearing and
+// a scheduling agreement's schedule lines, whose call-off creates an
+// order, ADR-0070 §4), sourcing
 // a requisition by an RFQ, a planning run and materials' planning data,
 // which its tools hold none of; the buyer and the planner do these.
 var Never = []string{"createRequisition", "updateRequisition", "submitRequisition", "cancelRequisition",
 	"createPurchaseOrder", "updatePurchaseOrder", "releasePurchaseOrder", "closePurchaseOrder", "cancelPurchaseOrder",
 	"createPurchaseOrderChange", "updatePurchaseOrderChange", "cancelPurchaseOrderChange", "submitPurchaseOrderChange",
+	"postIntercompanyGoodsIssue", "createGrIrClearing",
 	"createScheduleLine", "callOffScheduleLine", "createRfq", "startMrpRun", "createMaterialPlan", "updateMaterialPlan"}
 
 const system = `You review the purchase requisitions a material requirements planning run proposed and recommend, for each, what to

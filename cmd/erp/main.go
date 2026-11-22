@@ -14,7 +14,7 @@
 //	erp capture -legal-entity ID -file F   capture an invoice document (large ones through an upload)
 //	erp capture -order -legal-entity ID -file F -account ID   capture a customer's purchase order into a draft sales order
 //	erp mcp                        the API as MCP tools for an agent host, over stdin and stdout
-//	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles|access-sod|access-review|bid-compare|regulatory-notice|regulatory-draft|support-ask|support-diagnose|support-fix|collections|integration-monitor|savings|control-monitor|risk|plan|enablement-docs|enablement-help|replenish
+//	erp agent invoices|config|migration|test|reconcile|cash-variance|credit-score|access-roles|access-sod|access-review|bid-compare|regulatory-notice|regulatory-draft|support-ask|support-diagnose|support-fix|collections|integration-monitor|savings|control-monitor|risk|plan|enablement-docs|enablement-help|replenish|count-plan
 //	erp metrics | query | ask | report
 //	erp gen-mock-sap | config generate | config validate
 //	erp tenants list|get|create|suspend|resume|offboard   (operators: the control plane)
@@ -180,6 +180,7 @@ agents (ERP_AGENT_TOKEN; models through the cell's gateway, ERP_AGENT_MODEL an a
                  | enablement-docs -process purchase_to_pay|order_to_cash [-out F]
                  | enablement-help -operation ID -field NAME|-problem CODE
                  | replenish -run ID
+                 | count-plan -company CODE -plant CODE
 
 agent hosts (ERP_AGENT_TOKEN):
   mcp            serve the API's operations open to agents as MCP tools over standard input and output

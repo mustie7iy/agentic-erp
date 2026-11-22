@@ -364,7 +364,9 @@ func TestReviewBefore(t *testing.T) {
 
 // TestNever: the agent's tools are reads open to agents and the one
 // recommendation; every write of requisitions, purchase orders, planning
-// runs and planning data is on its never list, and none of the list is
+// runs and planning data is on its never list, by its name or by its
+// path (an intercompany order's goods issue, postIntercompanyGoodsIssue,
+// names no purchase order but is one's action), and none of the list is
 // among its tools (ADR-0072, S2l).
 func TestNever(t *testing.T) {
 	ops := api.MustOperations()
@@ -380,6 +382,11 @@ func TestNever(t *testing.T) {
 		for _, of := range []string{"Requisition", "PurchaseOrder", "ScheduleLine", "MrpRun", "MaterialPlan"} {
 			if writes && strings.Contains(id, of) && !slices.Contains(replenishmentagent.Never, id) {
 				t.Errorf("never list: got %v, want it to hold %s", replenishmentagent.Never, id)
+			}
+		}
+		for _, path := range []string{"/v1/requisitions", "/v1/purchase-orders"} {
+			if writes && strings.HasPrefix(op.Path, path) && !slices.Contains(replenishmentagent.Never, id) {
+				t.Errorf("never list: got %v, want it to hold %s (%s %s)", replenishmentagent.Never, id, op.Method, op.Path)
 			}
 		}
 	}

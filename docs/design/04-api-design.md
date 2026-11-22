@@ -1200,6 +1200,12 @@ contract item valid on the day, a purchase order of it:
 `listPurchaseOrders` and `listContracts` take `material_id`) and that
 source's active supplier, or `source_needed`; the buyer acts through the
 requisition and order operations, none of which it has.
+The count planning agent (`erp agent count-plan -company CODE -plant
+CODE`, agent type `count_planning`, S2e) recommends on a `plant`:
+`count_proposal`, naming the materials due for a count by the lines its
+run computed from the plant's stock, material documents and count
+documents (class, movements, last count); the controller creates the
+count documents (`x-agent: false`, ADR-0082 As built S2e).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

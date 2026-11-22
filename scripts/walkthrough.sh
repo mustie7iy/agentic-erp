@@ -16332,7 +16332,7 @@ step_replenishment_agent() {
 # transit is not cancelled. Ben receives the lamps into Toronto at the
 # order price against GR/IR. Each company's entry balances.
 step_intercompany_transport() {
-  heading "Step 153 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; each company's entry balances"
+  heading "Step 155 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; each company's entry balances"
   local ae base cr warehouse store lamp recon term sister po tag doc entry receipt
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
@@ -16412,7 +16412,7 @@ step_intercompany_transport() {
   tag=$ETAG
   as wade
   say "Wade, in Sharjah, lists the orders the warehouse is to issue:"
-  api 200 '.items[] | "  purchase order \(.document_number) of \(.legal_entity_id == "'"$LE"'"), supplied by \(.supplying_plant_code)"' listPurchaseOrders \
+  api 200 '.items[] | "  purchase order \(.document_number) of \(if .legal_entity_id == "'"$LE"'" then "'"$CC"'" else .legal_entity_id end), supplied by \(.supplying_plant_code)"' listPurchaseOrders \
     -p "supplying_plant_id=$warehouse" -p issued=false
   expect "the orders to issue" "$(field '[.items[] | .id] | join(" ")')" "$po"
   say "He posts the order's goods issue at the version Ben read: one material document of $AE (643), out of the Sharjah"
@@ -16451,6 +16451,96 @@ step_intercompany_transport() {
   QUIET=1 api 200 '' listStock -p "material_id=$lamp"
   expect "the lamps' stock after the receipt" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" \
     "P100/SL01 20, P300/SL01 30"
+  passed
+}
+
+# step_count_agent is S2e (ADR-0072, ADR-0082 As built S2e,
+# plan-supply-chain.md §S2e): the count planning agent, erp agent
+# count-plan, finds before its session the materials in stock at the
+# Toronto plant due for a count (an ABC class by the year's consumption
+# value, their movements, their last posted count; never counted, or not
+# within the class's interval), and proposes them to Ines, the inventory
+# controller. The brackets and bolts step 141 counted today are not due;
+# the H30 hinge of step 152 was never counted. The stand-in model first
+# names the brackets, refused (not a line given), then the hinge by its
+# line. Its own count document is refused (403); Ines accepts, which
+# creates nothing, and Wade counts the hinge himself through the normal
+# operation, closing the count so the hinge moves again.
+step_count_agent() {
+  heading "Step 154 — The count planning agent: the Toronto plant's materials due for a count proposed by their class, movements and last count; a material counted today refused; the agent's own count document refused; the controller accepts and the warehouse counts"
+  local hinge number role got session rec doc book
+  [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] && [ -n "$MATERIAL" ] || fail "step 122's plant and bracket are not there"
+  as ada
+  say "Ada sets up the count planning agent (ADR-0072): an agent principal of type count_planning at autonomy level 1"
+  say "on erp-default. Its role reads the organisation, the materials and the stock with its documents and counts, and"
+  say "records its sessions and recommendations; it holds no permission that counts or moves stock."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "count_planning_agent", "name": "Count planning agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read materials.material.read inventory.stock.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "count-agent", "display_name": "Count planning agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "count_planning", "model": "erp-default", "description": "Proposes the materials to count for an inventory controller to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token count-agent "Count planning agent"
+  as ines
+  QUIET=1 api 200 '' listStock -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE" -p page_size=500
+  hinge=$(field '[.items[] | select(.material_description == "Hinge H30") | .material_id] | first // ""')
+  number=$(field '[.items[] | select(.material_description == "Hinge H30") | .material_number] | first // ""')
+  [ -n "$hinge" ] || fail "step 152's hinge is not in Toronto's main store"
+  QUIET=1 api 200 '' getMaterial -p "id=$MATERIAL"
+  say "The agent runs: erp agent count-plan reads, before its session, the Toronto plant's stock, materials, the year's"
+  say "material documents and its count documents, classes each material by the year's consumption value (A the first 80"
+  say "percent, B the next 15, C the rest), and lists those due: never counted at their storage location, or not within"
+  say "their class's interval (90, 180 or 365 days). The brackets and bolts counted in step 141 today are not due. The model"
+  say "is the stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/count_planning):"
+  say "it first proposes the brackets (refused by the run: no line was given for them), then the hinge by its line."
+  jq -n --arg plant "$PLANT" --arg bracket "$(field .number)" --arg material "$MATERIAL" --arg store "$MAIN_STORE" --arg hinge "$hinge" '
+    {session_id: "{{session}}", object_type: "plant", object_id: $plant, kind: "count_proposal"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})", line: "(Count [A-Z0-9]+ at P100/SL01 \\(material \($hinge), [^\\\\]*)"},
+     turns: [
+      {tool: "listPhysicalInventoryDocuments", input: {plant_id: $plant}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Count \($bracket) at P100/SL01 (material \($material), storage location \($store)): class A, never counted\nThe brackets move most."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "{{line}}\nThe hinge was entered on the main store'"'"'s shelves and has never been counted there; the brackets and bolts were counted today."})}},
+      {final: "Proposed counting the hinge at the main store; the inventory controller decides and the warehouse counts."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent count-plan -company "$CC" -plant P100
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/count-agent") "$ERP" agent count-plan -company "$CC" -plant P100 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent count-plan failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): count_proposal on plant $PLANT .*/\1/p")
+  [ -n "$rec" ] || fail "erp agent count-plan printed no count proposal on the Toronto plant"
+  say "Ines, the inventory controller, reads the proposal on the plant:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$PLANT"
+  expect "the recommendations on the plant, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "its line" "$(field '.items[0].content | split("\n")[0] | test("^Count '"$number"' at P100/SL01 \\(material '"$hinge"', storage location '"$MAIN_STORE"'\\): class [ABC], [0-9]+ movements? since [0-9-]+, never counted$")')" true
+  as count-agent
+  say "Proposing is all it may do: a count document is a person's (x-agent: false), erp agent builds it no tool for it,"
+  say "and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"material_id\": \"$hinge\"}]}"
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listPhysicalInventoryDocuments createRecommendation createRecommendation"
+  as ines
+  say "Ines accepts the proposal. Accepting creates nothing: the hinge has no count document until Wade creates one:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Count the hinge this week."}'
+  QUIET=1 api 200 '' listPhysicalInventoryDocuments -p "material_id=$hinge"
+  expect "the hinge's count documents after the acceptance" "$(field '.items | length')" 0
+  as wade
+  say "Wade counts the hinge (SAP MI01, MI04): the shelves hold the book quantity, so Ines posts no difference and the"
+  say "count is closed, lifting its posting block:"
+  api 201 '"count document \(.number): \(.status), item 1 \(.items[0].material_number) book \(.items[0].book_quantity.value) \(.items[0].book_quantity.unit)"' \
+    createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"material_id\": \"$hinge\"}]}"
+  doc=$(field .id)
+  book=$(field '.items[0].book_quantity.value')
+  api 200 '"\(.status)"' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
+    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$book\", \"unit\": \"EA\"}}]}"
+  as ines
+  api 200 '"count document \(.number): \(.status), difference \(.items[0].difference.value) \(.items[0].difference.unit)"' postPhysicalInventoryDifferences -p "id=$doc" -if-match "$ETAG"
+  expect "the hinge's count" "$(field '"\(.status) \(.items[0].difference.value)"')" "posted 0"
   passed
 }
 
@@ -18484,7 +18574,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_intercompany_transport step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_close'
 
 main() {
   stop_unseen
