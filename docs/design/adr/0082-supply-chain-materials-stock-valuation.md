@@ -1483,8 +1483,9 @@ OMCO, from memory) and computed by the agent's run, not by the model:
   neither batch- nor serial-managed (which counts refuse, As built S2f,
   S2g), and not held by an open count there (`counting`, `counted`,
   `pending_approval`, or a status this version does not know).
-- **Movements** are the lines of the year's material documents moving
-  the material at that storage location, in transit or not counted;
+- **Movements** are the lines of the year's material documents (by
+  posting date) moving the material at that storage location; lines in
+  transit are not counted;
   they rank a class's materials, the most first, then the last count,
   never first, then the oldest.
 

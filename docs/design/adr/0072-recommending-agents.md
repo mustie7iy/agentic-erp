@@ -1248,8 +1248,8 @@ A later slice adds its row here and its section under "As built".
 
 - `internal/countagent`; agent type `count_planning` (in
   `autonomy.Types` and the profile's open enumeration in both
-  contracts). It imports `money` beside the pattern's packages, for the
-  consumption it ranks by (`internal/layout`). ADR-0082 As built S2e
+  contracts). It ranks by consumption with `money`, a shared package
+  that needs no row of its own in `internal/layout`. ADR-0082 As built S2e
   holds the rule of a count due; this section the agent.
 - `erp agent count-plan -company CODE -plant CODE`. Before its session
   the run finds the company (`apitools.LegalEntity`) and the plant among
@@ -1257,8 +1257,10 @@ A later slice adds its row here and its section under "As built".
   company), refusing one it cannot find or that is not active
   (`ErrPlant`); takes the company's date (`apitools.Days.Of`); and reads
   the plant's stock (`listStock`), materials (`listMaterials`), material
-  documents of the year, the latest first up to the first posted before
-  it (`listMaterialDocuments`), and count documents
+  documents (`listMaterialDocuments`, every page, keeping those posted in
+  the year: the list is in creation order, and a goods receipt or a
+  stock take-over is posted on the day its caller names, review:batch88),
+  and count documents
   (`listPhysicalInventoryDocuments`), all by `plant_id`. Any of them the
   agent may not read stops it there.
 - **What is due is computed, not judged** (as T110a's failing objects):
@@ -1278,8 +1280,9 @@ A later slice adds its row here and its section under "As built".
   starting `Count ` is one given (`ErrLine`), in the order given and once
   (`ErrOrder`), at least one (`ErrForm`), and every number of the
   content one the run read (`ErrUnread`, §4: the computed lines are in
-  the prompt; an amount the model cites it reads with a tool). The model
-  may leave out a material given, saying why; it adds the reasons. The
+  the prompt; an amount the model cites it reads with a tool); the
+  prompt tells the model that no line of its reasons starts `Count `. The
+  model may leave out a material given, saying why; it adds the reasons. The
   controller who accepts creates the count documents through the normal
   operation (S2c): nothing happens on acceptance.
 - Its never list is every write of count documents and goods movements

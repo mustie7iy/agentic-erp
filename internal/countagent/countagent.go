@@ -55,8 +55,9 @@ var Reads = []string{"listStock", "listMaterials", "getMaterial", "listMaterialD
 	"getPhysicalInventoryDocument"}
 
 // Never are the operations the agent never calls (ADR-0072, S2e): a count
-// document created, counted or its differences posted, and every goods
-// movement, which its tools hold none of.
+// document created, counted or its differences posted, and a material
+// document posted or reversed. Its tools hold none of them, nor any other
+// write that moves stock: they are reads and createRecommendation.
 var Never = []string{"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences", "createMaterialDocument",
 	"reverseMaterialDocument"}
 
@@ -73,7 +74,8 @@ the material documents that moved them (listMaterialDocuments, getMaterialDocume
 
 Then recommend once, on the plant, kind count_proposal. The content has one line per material you propose to count, each
 exactly as given for it and in the order given, then your reasons: why these are counted now (their class, their movements,
-when they were last counted and what earlier counts found). You may leave out a material given, saying why in the reasons. You
+when they were last counted and what earlier counts found). Start no line of the reasons with "Count ": such a line is taken
+for a material's and refused unless it is one given. You may leave out a material given, saying why in the reasons. You
 do not count, create a count document or move stock yourself: the controller creates the count documents.`
 
 // Agent proposes the materials of a plant to count.

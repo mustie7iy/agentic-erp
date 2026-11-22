@@ -133,7 +133,7 @@ func (s *survey) lines() []string {
 // reading is what the reads before the session gathered.
 type reading struct {
 	plantID     string
-	from        string
+	from, day   string // the year's first and last day
 	stock       []stockRow
 	materials   map[string]material
 	consumption map[string]money.Minor // by material
@@ -151,7 +151,7 @@ func (a *Agent) survey(ctx context.Context, pl plant, day string) (*survey, erro
 	if err != nil {
 		return nil, fmt.Errorf("countagent: the day %q: %w", day, err)
 	}
-	r := &reading{plantID: pl.ID, from: d.AddDate(0, 0, 1-YearDays).Format(time.DateOnly), materials: map[string]material{},
+	r := &reading{plantID: pl.ID, from: d.AddDate(0, 0, 1-YearDays).Format(time.DateOnly), day: day, materials: map[string]material{},
 		consumption: map[string]money.Minor{}, movements: map[place]int{}, last: map[place]lastCount{}, open: map[place]bool{}}
 	q := url.Values{"plant_id": {pl.ID}}
 	if r.stock, err = apitools.List[stockRow](ctx, a.API, "/v1/stock", q); err != nil {
@@ -175,16 +175,16 @@ func (a *Agent) survey(ctx context.Context, pl plant, day string) (*survey, erro
 	return r.rank(pl, d)
 }
 
-// documents reads the plant's material documents of the year, the latest
-// first, up to the first posted before it: a document's posting date is
-// its company's date when it was posted, so none listed after it is of
-// the year but by a change of the company's time zone, a day at most at
-// the year's first day.
+// documents reads the plant's material documents and keeps those of the
+// year. Every page is read: the list is in the order documents were
+// created, and a goods receipt or a stock take-over is posted on the day
+// its caller names, so a document created today may be dated before the
+// year and one dated in it may follow it.
 func (r *reading) documents(ctx context.Context, c *apitools.Client, q url.Values) error {
 	var bad error
 	err := apitools.Each(ctx, c, "/v1/material-documents", q, func(doc document) bool {
-		if doc.PostingDate < r.from {
-			return false
+		if doc.PostingDate < r.from || doc.PostingDate > r.day {
+			return true
 		}
 		bad = r.document(doc)
 		return bad == nil

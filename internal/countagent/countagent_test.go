@@ -74,13 +74,17 @@ func doc(date, movement string, lines ...string) string {
 	return `{"posting_date": "` + date + `", "movement_type": "` + movement + `", "lines": [` + strings.Join(lines, ", ") + `]}`
 }
 
-// documents are the plant's material documents, the latest first: A's
+// documents are the plant's material documents in the order they were
+// created, the latest first: a goods receipt created today but dated
+// before the year and one dated after the day, both left out, then A's
 // issue of 800.00, B's scrapping of 150.00, C's goods issue of 60.00 less
 // a reversal of 10.00, a receipt of C (no consumption), a transfer of A
 // to the other plant whose receipt there is not counted, an in-transit
-// line, then one posted before the year, after which a document in
-// another currency is never read.
+// line, then documents posted before the year, one in another currency,
+// left out whatever they hold.
 var documents = `{"items": [` + strings.Join([]string{
+	doc("2025-11-10", "201", line(matN, main, pl, "-1000.00", false)),
+	doc("2026-11-22", "201", line(matN, main, pl, "-1000.00", false)),
 	doc("2026-11-20", "201", line(matA, main, pl, "-800.00", false)),
 	doc("2026-11-19", "551", line(matB, main, pl, "-150.00", false)),
 	doc("2026-11-18", "602", line(matC, spares, pl, "10.00", false)),
@@ -232,7 +236,7 @@ func agentOn(t *testing.T, a *fakeAPI, model *llmtest.Server) *countagent.Agent 
 // a day ago; the one without consumption never. The batch- and
 // serial-managed, the pending, the one an open count holds, the one
 // counted ten days ago and one that is no material of the plant are
-// left out. A document before the year ends the reading. Its check
+// left out, and so are documents dated outside the year, wherever the list has them. Its check
 // refuses a line not given, lines out of their order or twice, a content
 // naming none, and a number the run did not read; nothing refused
 // reaches the API.

@@ -286,3 +286,10 @@ traces, and CPU and memory saturation.
   cost question for the product owner. The `operation` label holds 606
   values (584 operations of the API, 21 of the control plane and
   "unmatched") of its 768.
+
+## As built: the agent_kind label's ceiling (S2e, batch 88)
+
+- The count planning agent (`count_planning`, ADR-0072 As built S2e)
+  brings `autonomy.Kinds` to 24; the ceiling is the real count, 24, as
+  batch 75 decided. The worst case `Check` computes stays under
+  `MaxSeries` (65,000).
