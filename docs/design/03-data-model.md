@@ -4921,6 +4921,26 @@ erDiagram
   reversal of the clearing entry, one undoing's (the key, tenant and
   reversal). Insert-only. The down migration
   is refused while a clearing or a payment was reset.
+- `receivables.bad_debt_relief` (migration 000446; ADR-0049 As built,
+  bad debt relief): the output tax of a customer invoice a dispute case's
+  write-off wrote off, recovered by an adjustment the return reports. It
+  names the invoice (`bad_debt_relief_invoice_fkey`), the write-off's
+  entry by year, id and number (1 to 40 characters,
+  `bad_debt_relief_write_off_number_check`) and the dispute case
+  (collections context), relieving each write-off of an invoice once
+  (`bad_debt_relief_once`); what was written off and the tax recovered,
+  in the invoice's currency and the company's (`currency`,
+  `local_currency`, both of ref.currency), the tax more than zero
+  (`bad_debt_relief_tax_check`, the local tax not negative,
+  `bad_debt_relief_tax_lc_check`) and less than what was written off
+  (`bad_debt_relief_tax_within`); the adjustment code
+  (`bad_debt_relief_tax_code_check`); the date the customer was notified,
+  where given, no later than the relief (`bad_debt_relief_notified_before`);
+  the posting date and its entry, one relief's (`bad_debt_relief_entry_once`,
+  its number 1 to 40 characters, `bad_debt_relief_entry_number_check`).
+  Insert-only (`bad_debt_relief_immutable`). The entry's lines and tax
+  items are the ledger's. The down migration is refused while a relief
+  is recorded.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
   `CustomerInvoiceReversed`,

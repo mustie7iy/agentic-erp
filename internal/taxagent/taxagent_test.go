@@ -353,7 +353,7 @@ func TestNeverTransitions(t *testing.T) {
 		})
 	}
 	for _, id := range []string{"prepareTaxReturn", "fileTaxReturn", "withdrawTaxReturn", "approveApprovalRequest", "rejectApprovalRequest",
-		"decideRecommendation", "postParkedJournalEntry"} {
+		"decideRecommendation", "postParkedJournalEntry", "createBadDebtRelief"} {
 		t.Run(id, func(t *testing.T) {
 			if ops[id].AgentAllowed {
 				t.Errorf("%s: open to agents, want x-agent: false", id)

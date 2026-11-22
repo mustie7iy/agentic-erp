@@ -281,6 +281,10 @@ type CreateAuditEvidenceExportRes interface {
 	createAuditEvidenceExportRes()
 }
 
+type CreateBadDebtReliefRes interface {
+	createBadDebtReliefRes()
+}
+
 type CreateBatchRes interface {
 	createBatchRes()
 }
@@ -783,6 +787,10 @@ type GetAuditEvidenceExportFileRes interface {
 
 type GetAuditEvidenceExportRes interface {
 	getAuditEvidenceExportRes()
+}
+
+type GetBadDebtReliefRes interface {
+	getBadDebtReliefRes()
 }
 
 type GetBalanceCarryForwardRes interface {
@@ -1431,6 +1439,10 @@ type ListAuditEventsRes interface {
 
 type ListAuditEvidenceExportsRes interface {
 	listAuditEvidenceExportsRes()
+}
+
+type ListBadDebtReliefsRes interface {
+	listBadDebtReliefsRes()
 }
 
 type ListBalanceCarryForwardBalancesRes interface {

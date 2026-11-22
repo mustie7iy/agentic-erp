@@ -13488,6 +13488,468 @@ type AwardRfqUnprocessableEntity Problem
 
 func (*AwardRfqUnprocessableEntity) awardRfqRes() {}
 
+// The output tax of a customer invoice written off as a bad debt, recovered by an adjustment the tax
+// return reports (ADR-0049 As built, bad debt relief). It is recorded once, when it posts, and never
+// changes.
+// Ref: #/components/schemas/BadDebtRelief
+type BadDebtRelief struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The company whose output tax is recovered.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer invoice written off (`GET /v1/customer-invoices/{id}`).
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The invoice's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The invoice's customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The dispute case whose write-off wrote the invoice off (`GET /v1/dispute-cases/{id}`).
+	DisputeCaseID uuid.UUID `json:"dispute_case_id"`
+	// The write-off's journal entry (`GET /v1/journal-entries/{id}`).
+	WriteOffJournalEntryID uuid.UUID `json:"write_off_journal_entry_id"`
+	// The write-off entry's fiscal year.
+	WriteOffJournalEntryYear int32 `json:"write_off_journal_entry_year"`
+	// The write-off entry's document number.
+	WriteOffJournalEntryNumber string `json:"write_off_journal_entry_number"`
+	// The invoice's currency (ISO 4217), which `written_off_amount` and `tax_amount` are in.
+	Currency string `json:"currency"`
+	// What the write-off wrote off of the invoice.
+	WrittenOffAmount Money `json:"written_off_amount"`
+	// The output tax recovered: the share of the invoice's output tax in what was written off.
+	TaxAmount Money `json:"tax_amount"`
+	// What was written off in the company's currency, at the invoice's booked rate.
+	LocalWrittenOffAmount Money `json:"local_written_off_amount"`
+	// The output tax recovered in the company's currency, at the invoice's booked rate: what the return
+	// reports.
+	LocalTaxAmount Money `json:"local_tax_amount"`
+	// The adjustment code the relief was posted under.
+	TaxCode string `json:"tax_code"`
+	// The date the customer was notified of what was written off; absent when none was given.
+	CustomerNotifiedOn OptDate `json:"customer_notified_on"`
+	// The relief's posting date and tax date.
+	PostingDate time.Time `json:"posting_date"`
+	// The relief's journal entry, its lines the tax recovered by emirate (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The relief entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The relief entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When the relief was recorded.
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who recorded it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *BadDebtRelief) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BadDebtRelief) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *BadDebtRelief) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *BadDebtRelief) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *BadDebtRelief) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *BadDebtRelief) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *BadDebtRelief) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *BadDebtRelief) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *BadDebtRelief) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetDisputeCaseID returns the value of DisputeCaseID.
+func (s *BadDebtRelief) GetDisputeCaseID() uuid.UUID {
+	return s.DisputeCaseID
+}
+
+// GetWriteOffJournalEntryID returns the value of WriteOffJournalEntryID.
+func (s *BadDebtRelief) GetWriteOffJournalEntryID() uuid.UUID {
+	return s.WriteOffJournalEntryID
+}
+
+// GetWriteOffJournalEntryYear returns the value of WriteOffJournalEntryYear.
+func (s *BadDebtRelief) GetWriteOffJournalEntryYear() int32 {
+	return s.WriteOffJournalEntryYear
+}
+
+// GetWriteOffJournalEntryNumber returns the value of WriteOffJournalEntryNumber.
+func (s *BadDebtRelief) GetWriteOffJournalEntryNumber() string {
+	return s.WriteOffJournalEntryNumber
+}
+
+// GetCurrency returns the value of Currency.
+func (s *BadDebtRelief) GetCurrency() string {
+	return s.Currency
+}
+
+// GetWrittenOffAmount returns the value of WrittenOffAmount.
+func (s *BadDebtRelief) GetWrittenOffAmount() Money {
+	return s.WrittenOffAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *BadDebtRelief) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetLocalWrittenOffAmount returns the value of LocalWrittenOffAmount.
+func (s *BadDebtRelief) GetLocalWrittenOffAmount() Money {
+	return s.LocalWrittenOffAmount
+}
+
+// GetLocalTaxAmount returns the value of LocalTaxAmount.
+func (s *BadDebtRelief) GetLocalTaxAmount() Money {
+	return s.LocalTaxAmount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *BadDebtRelief) GetTaxCode() string {
+	return s.TaxCode
+}
+
+// GetCustomerNotifiedOn returns the value of CustomerNotifiedOn.
+func (s *BadDebtRelief) GetCustomerNotifiedOn() OptDate {
+	return s.CustomerNotifiedOn
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BadDebtRelief) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *BadDebtRelief) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *BadDebtRelief) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *BadDebtRelief) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *BadDebtRelief) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *BadDebtRelief) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *BadDebtRelief) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BadDebtRelief) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *BadDebtRelief) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *BadDebtRelief) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *BadDebtRelief) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *BadDebtRelief) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *BadDebtRelief) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *BadDebtRelief) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *BadDebtRelief) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetDisputeCaseID sets the value of DisputeCaseID.
+func (s *BadDebtRelief) SetDisputeCaseID(val uuid.UUID) {
+	s.DisputeCaseID = val
+}
+
+// SetWriteOffJournalEntryID sets the value of WriteOffJournalEntryID.
+func (s *BadDebtRelief) SetWriteOffJournalEntryID(val uuid.UUID) {
+	s.WriteOffJournalEntryID = val
+}
+
+// SetWriteOffJournalEntryYear sets the value of WriteOffJournalEntryYear.
+func (s *BadDebtRelief) SetWriteOffJournalEntryYear(val int32) {
+	s.WriteOffJournalEntryYear = val
+}
+
+// SetWriteOffJournalEntryNumber sets the value of WriteOffJournalEntryNumber.
+func (s *BadDebtRelief) SetWriteOffJournalEntryNumber(val string) {
+	s.WriteOffJournalEntryNumber = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *BadDebtRelief) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetWrittenOffAmount sets the value of WrittenOffAmount.
+func (s *BadDebtRelief) SetWrittenOffAmount(val Money) {
+	s.WrittenOffAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *BadDebtRelief) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetLocalWrittenOffAmount sets the value of LocalWrittenOffAmount.
+func (s *BadDebtRelief) SetLocalWrittenOffAmount(val Money) {
+	s.LocalWrittenOffAmount = val
+}
+
+// SetLocalTaxAmount sets the value of LocalTaxAmount.
+func (s *BadDebtRelief) SetLocalTaxAmount(val Money) {
+	s.LocalTaxAmount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *BadDebtRelief) SetTaxCode(val string) {
+	s.TaxCode = val
+}
+
+// SetCustomerNotifiedOn sets the value of CustomerNotifiedOn.
+func (s *BadDebtRelief) SetCustomerNotifiedOn(val OptDate) {
+	s.CustomerNotifiedOn = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BadDebtRelief) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *BadDebtRelief) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *BadDebtRelief) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *BadDebtRelief) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *BadDebtRelief) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *BadDebtRelief) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+func (*BadDebtRelief) getBadDebtReliefRes() {}
+
+// A claim of bad debt relief: the invoice written off, the write-off, the adjustment code and, where
+// the company's country asks for it, when the customer was notified.
+// Ref: #/components/schemas/BadDebtReliefCreate
+type BadDebtReliefCreate struct {
+	// The posted customer invoice written off (`GET /v1/customer-invoices/{id}`).
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The journal entry of the dispute case's write-off that wrote the invoice off
+	// (`write_off_journal_entry_id` of the case's resolution).
+	WriteOffJournalEntryID uuid.UUID `json:"write_off_journal_entry_id"`
+	// The adjustment code (kind `adjustment`) the relief is posted under: an output code levying the
+	// emirate for a UAE company, an input GST/HST code for a Canadian one.
+	TaxCode string `json:"tax_code"`
+	// The date the customer was notified of what was written off; required for a UAE company (Art. 64),
+	// recorded when given for another.
+	CustomerNotifiedOn OptDate `json:"customer_notified_on"`
+	// The relief's posting date and tax date; absent: today, the company's date in its time zone
+	// (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *BadDebtReliefCreate) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetWriteOffJournalEntryID returns the value of WriteOffJournalEntryID.
+func (s *BadDebtReliefCreate) GetWriteOffJournalEntryID() uuid.UUID {
+	return s.WriteOffJournalEntryID
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *BadDebtReliefCreate) GetTaxCode() string {
+	return s.TaxCode
+}
+
+// GetCustomerNotifiedOn returns the value of CustomerNotifiedOn.
+func (s *BadDebtReliefCreate) GetCustomerNotifiedOn() OptDate {
+	return s.CustomerNotifiedOn
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BadDebtReliefCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *BadDebtReliefCreate) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetWriteOffJournalEntryID sets the value of WriteOffJournalEntryID.
+func (s *BadDebtReliefCreate) SetWriteOffJournalEntryID(val uuid.UUID) {
+	s.WriteOffJournalEntryID = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *BadDebtReliefCreate) SetTaxCode(val string) {
+	s.TaxCode = val
+}
+
+// SetCustomerNotifiedOn sets the value of CustomerNotifiedOn.
+func (s *BadDebtReliefCreate) SetCustomerNotifiedOn(val OptDate) {
+	s.CustomerNotifiedOn = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BadDebtReliefCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// BadDebtReliefHeaders wraps BadDebtRelief with response headers.
+type BadDebtReliefHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           BadDebtRelief
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BadDebtReliefHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *BadDebtReliefHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *BadDebtReliefHeaders) GetResponse() BadDebtRelief {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BadDebtReliefHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *BadDebtReliefHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BadDebtReliefHeaders) SetResponse(val BadDebtRelief) {
+	s.Response = val
+}
+
+func (*BadDebtReliefHeaders) createBadDebtReliefRes() {}
+
+// One page of bad debt reliefs.
+// Ref: #/components/schemas/BadDebtReliefPage
+type BadDebtReliefPage struct {
+	// The bad debt reliefs on this page.
+	Items []BadDebtRelief `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BadDebtReliefPage) GetItems() []BadDebtRelief {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BadDebtReliefPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BadDebtReliefPage) SetItems(val []BadDebtRelief) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BadDebtReliefPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BadDebtReliefPage) listBadDebtReliefsRes() {}
+
 // Period totals per account and transaction currency, maintained by a projector from posted entries.
 // Ref: #/components/schemas/Balance
 type Balance struct {
@@ -28313,6 +28775,7 @@ func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
 func (*ConflictHeaders) createAssetTransferRes()                   {}
 func (*ConflictHeaders) createAuditEvidenceExportRes()             {}
+func (*ConflictHeaders) createBadDebtReliefRes()                   {}
 func (*ConflictHeaders) createBatchRes()                           {}
 func (*ConflictHeaders) createBillingDocumentRes()                 {}
 func (*ConflictHeaders) createBusinessPartnerRes()                 {}
@@ -35097,6 +35560,22 @@ func (*CreateAuditEvidenceExportPreconditionRequired) createAuditEvidenceExportR
 type CreateAuditEvidenceExportUnprocessableEntity Problem
 
 func (*CreateAuditEvidenceExportUnprocessableEntity) createAuditEvidenceExportRes() {}
+
+type CreateBadDebtReliefBadRequest Problem
+
+func (*CreateBadDebtReliefBadRequest) createBadDebtReliefRes() {}
+
+type CreateBadDebtReliefForbidden Problem
+
+func (*CreateBadDebtReliefForbidden) createBadDebtReliefRes() {}
+
+type CreateBadDebtReliefPreconditionRequired Problem
+
+func (*CreateBadDebtReliefPreconditionRequired) createBadDebtReliefRes() {}
+
+type CreateBadDebtReliefUnprocessableEntity Problem
+
+func (*CreateBadDebtReliefUnprocessableEntity) createBadDebtReliefRes() {}
 
 type CreateBatchBadRequest Problem
 
@@ -51008,6 +51487,18 @@ func (*GetAuditEvidenceExportForbidden) getAuditEvidenceExportRes() {}
 type GetAuditEvidenceExportNotFound Problem
 
 func (*GetAuditEvidenceExportNotFound) getAuditEvidenceExportRes() {}
+
+type GetBadDebtReliefBadRequest Problem
+
+func (*GetBadDebtReliefBadRequest) getBadDebtReliefRes() {}
+
+type GetBadDebtReliefForbidden Problem
+
+func (*GetBadDebtReliefForbidden) getBadDebtReliefRes() {}
+
+type GetBadDebtReliefNotFound Problem
+
+func (*GetBadDebtReliefNotFound) getBadDebtReliefRes() {}
 
 type GetBalanceCarryForwardBadRequest Problem
 
@@ -67503,6 +67994,14 @@ func (*ListAuditEvidenceExportsBadRequest) listAuditEvidenceExportsRes() {}
 type ListAuditEvidenceExportsForbidden Problem
 
 func (*ListAuditEvidenceExportsForbidden) listAuditEvidenceExportsRes() {}
+
+type ListBadDebtReliefsBadRequest Problem
+
+func (*ListBadDebtReliefsBadRequest) listBadDebtReliefsRes() {}
+
+type ListBadDebtReliefsForbidden Problem
+
+func (*ListBadDebtReliefsForbidden) listBadDebtReliefsRes() {}
 
 type ListBalanceCarryForwardBalancesBadRequest Problem
 
@@ -122223,6 +122722,7 @@ func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()                   {}
 func (*TooManyRequestsHeaders) createAuditEvidenceExportRes()             {}
+func (*TooManyRequestsHeaders) createBadDebtReliefRes()                   {}
 func (*TooManyRequestsHeaders) createBatchRes()                           {}
 func (*TooManyRequestsHeaders) createBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()                 {}
@@ -122349,6 +122849,7 @@ func (*TooManyRequestsHeaders) getAssetScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getAssetTransferRes()                      {}
 func (*TooManyRequestsHeaders) getAuditEvidenceExportFileRes()            {}
 func (*TooManyRequestsHeaders) getAuditEvidenceExportRes()                {}
+func (*TooManyRequestsHeaders) getBadDebtReliefRes()                      {}
 func (*TooManyRequestsHeaders) getBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                        {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()                    {}
@@ -122511,6 +123012,7 @@ func (*TooManyRequestsHeaders) listAssetTransfersRes()                    {}
 func (*TooManyRequestsHeaders) listAssetsRes()                            {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEvidenceExportsRes()              {}
+func (*TooManyRequestsHeaders) listBadDebtReliefsRes()                    {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardsRes()              {}
 func (*TooManyRequestsHeaders) listBalancesRes()                          {}
@@ -123202,6 +123704,7 @@ func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
 func (*UnauthorizedHeaders) createAssetTransferRes()                   {}
 func (*UnauthorizedHeaders) createAuditEvidenceExportRes()             {}
+func (*UnauthorizedHeaders) createBadDebtReliefRes()                   {}
 func (*UnauthorizedHeaders) createBatchRes()                           {}
 func (*UnauthorizedHeaders) createBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()                 {}
@@ -123328,6 +123831,7 @@ func (*UnauthorizedHeaders) getAssetScheduleRes()                      {}
 func (*UnauthorizedHeaders) getAssetTransferRes()                      {}
 func (*UnauthorizedHeaders) getAuditEvidenceExportFileRes()            {}
 func (*UnauthorizedHeaders) getAuditEvidenceExportRes()                {}
+func (*UnauthorizedHeaders) getBadDebtReliefRes()                      {}
 func (*UnauthorizedHeaders) getBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) getBankAccountRes()                        {}
 func (*UnauthorizedHeaders) getBankFileContentRes()                    {}
@@ -123490,6 +123994,7 @@ func (*UnauthorizedHeaders) listAssetTransfersRes()                    {}
 func (*UnauthorizedHeaders) listAssetsRes()                            {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEvidenceExportsRes()              {}
+func (*UnauthorizedHeaders) listBadDebtReliefsRes()                    {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardsRes()              {}
 func (*UnauthorizedHeaders) listBalancesRes()                          {}

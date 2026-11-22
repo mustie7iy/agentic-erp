@@ -1692,3 +1692,12 @@ is built for the UAE.
   `TestDiscountsOutOfRange` (ledger),
   batch 85's `TestDiscountOnLeviedJurisdiction` (a company of DE grants
   none). Walkthrough step 156 (`step_uae_cash_discount`).
+
+### As built batch 90: bad debt relief (po:2026-11-21)
+
+A customer invoice a dispute case's write-off wrote off has the output tax
+of what was written off recovered by `createBadDebtRelief`
+(`receivables.bad_debt_relief`, migration 000446): an adjustment entry
+the VAT 201 or the GST34 reports, under the conditions of the company's
+country. The rules, the return lines and every default are in ADR-0049
+As built batch 90.
