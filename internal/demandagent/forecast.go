@@ -260,11 +260,17 @@ func (f *forecast) lines() []string {
 // average is the moving average of the HistoryWeeks weeks from the one at
 // from back, never below nothing.
 func (pf *plantForecast) average(from int) *big.Rat {
+	sum := total(pf.issued[from : from+HistoryWeeks])
+	return money.MaxRat(sum.Quo(sum, big.NewRat(HistoryWeeks, 1)), new(big.Rat))
+}
+
+// total is the weeks' quantities added, exactly.
+func total(weeks []*big.Rat) *big.Rat {
 	sum := new(big.Rat)
-	for _, q := range pf.issued[from : from+HistoryWeeks] {
+	for _, q := range weeks {
 		sum.Add(sum, q)
 	}
-	return money.MaxRat(sum.Quo(sum, big.NewRat(HistoryWeeks, 1)), new(big.Rat))
+	return sum
 }
 
 // weeks are the forecast of each week of the horizon: the greater of the
@@ -303,13 +309,7 @@ func (f *forecast) text(number string, pf *plantForecast) string {
 	for _, q := range pf.weeks() {
 		weeks = append(weeks, plain(q))
 	}
-	issued, ordered := new(big.Rat), new(big.Rat)
-	for _, q := range pf.issued[:HistoryWeeks] {
-		issued.Add(issued, q)
-	}
-	for _, q := range pf.ordered {
-		ordered.Add(ordered, q)
-	}
+	issued, ordered := total(pf.issued[:HistoryWeeks]), total(pf.ordered)
 	acc := fmt.Sprintf("accuracy none over %d weeks: nothing was forecast", AccuracyWeeks)
 	if pct, ok := pf.accuracy(); ok {
 		acc = fmt.Sprintf("accuracy %s%% over %d weeks", pct, AccuracyWeeks)

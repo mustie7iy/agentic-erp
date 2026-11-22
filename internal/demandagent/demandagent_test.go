@@ -105,7 +105,9 @@ func salesOrder(number, plant, ordered, requested string, items ...string) strin
 // boxes (60) asked for on 30 November, the second week, beside a removed
 // item and one of the bracket; 10 ordered on 1 November with none asked
 // for, 4 delivered (6, due in the first week); one delivered in full;
-// one asked for after the horizon. At P300, 2 asked for on 5 December.
+// one asked for after the horizon. At P300, 2 asked for on 5 December, 3
+// on 17 January, the horizon's last day (its eighth week), and 90 on 18
+// January, the day after it, left out.
 // Left out: an order of the other company's plant, and one a page gives
 // that is not confirmed.
 var orders = `{"items": [` + strings.Join([]string{
@@ -115,6 +117,8 @@ var orders = `{"items": [` + strings.Join([]string{
 	salesOrder("SO4", p100, "2026-11-01", "2027-02-01", item(hinge, "90", "EA", "", "")),
 	salesOrder("SO5", p100, "2026-11-01", "", item(hinge, "5", "EA", "5", "")),
 	salesOrder("SO6", p300, "2026-11-20", "2026-12-05", item(hinge, "2", "EA", "", "")),
+	salesOrder("SO8", p300, "2026-11-20", "2027-01-17", item(hinge, "3", "EA", "", "")),
+	salesOrder("SO9", p300, "2026-11-20", "2027-01-18", item(hinge, "90", "EA", "", "")),
 	`{"document_number": "SO7", "status": "draft", "order_date": "2026-11-01", "plant_id": "` + p100 + `", "items": [` + item(hinge, "90", "EA", "", "") + `]}`,
 }, ", ") + `]}`
 
@@ -129,7 +133,7 @@ const (
 		"open orders 66; accuracy -176.47% over 4 weeks"
 	line200 = "Forecast MA1 at P200 (plant " + p200 + "), EA per week from 2026-11-23: 0.538, 0.538, 0.538, 0.538, 0.538, 0.538, 0.538, 0.538; issued 7 " +
 		"in 13 weeks, open orders 0; accuracy -650.00% over 4 weeks"
-	line300 = "Forecast MA1 at P300 (plant " + p300 + "), EA per week from 2026-11-23: 0, 2, 0, 0, 0, 0, 0, 0; issued 0 in 13 weeks, open orders 2; " +
+	line300 = "Forecast MA1 at P300 (plant " + p300 + "), EA per week from 2026-11-23: 0, 2, 0, 0, 0, 0, 0, 3; issued 0 in 13 weeks, open orders 5; " +
 		"accuracy none over 4 weeks: nothing was forecast"
 )
 
@@ -384,8 +388,9 @@ func TestForecastRefusals(t *testing.T) {
 
 // TestNever: the agent's tools are reads and the one recommendation; none
 // is an operation of its never list, which holds every write of goods
-// movements, counts, sales orders and their deliveries, requisitions,
-// purchase orders and planning (ADR-0072, S2m).
+// movements, counts, sales and returns orders and their deliveries,
+// requisitions, purchase orders, schedule lines and planning (ADR-0072,
+// S2m).
 func TestNever(t *testing.T) {
 	ops, err := api.Operations()
 	if err != nil {
@@ -408,7 +413,7 @@ func TestNever(t *testing.T) {
 			continue
 		}
 		for _, of := range []string{"MaterialDocument", "GoodsReceipt", "GoodsIssue", "StockTransport", "PhysicalInventory", "SalesOrder", "SalesDelivery",
-			"OutboundDelivery", "Requisition", "PurchaseOrder", "MrpRun", "MaterialPlan"} {
+			"OutboundDelivery", "ReturnsOrder", "ReturnReceipt", "Requisition", "PurchaseOrder", "ScheduleLine", "GrIrClearing", "MrpRun", "MaterialPlan"} {
 			if strings.Contains(id, of) && !slices.Contains(demandagent.Never, id) {
 				t.Errorf("never list: got %v, want it to hold %s", demandagent.Never, id)
 			}

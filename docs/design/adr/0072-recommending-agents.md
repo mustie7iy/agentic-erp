@@ -218,7 +218,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
 | `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner` | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 | `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
-| `demand_forecast` | `internal/demandagent`, `erp agent demand-forecast -company CODE -material NUMBER` (S2m) | `getMaterial`, `listMaterials`, `listMaterialDocuments`, `getMaterialDocument`, `listSalesOrders`, `getSalesOrder` | on `material`: `demand_forecast` | every goods movement and count (`createMaterialDocument`, `reverseMaterialDocument` and the postings that post one), every write of sales orders and their deliveries, of requisitions and purchase orders, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
+| `demand_forecast` | `internal/demandagent`, `erp agent demand-forecast -company CODE -material NUMBER` (S2m) | `getMaterial`, `listMaterials`, `listMaterialDocuments`, `getMaterialDocument`, `listSalesOrders`, `getSalesOrder` | on `material`: `demand_forecast` | every goods movement and count (`createMaterialDocument`, `reverseMaterialDocument` and the postings that post one), every write of sales and returns orders and their deliveries, the replenishment agent's never list of requisitions and purchase orders (schedule lines and their call-off included), `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -1622,19 +1622,24 @@ A later slice adds its row here and its section under "As built".
   (`updateMaterialPlan`) or runs planning (`startMrpRun`) through the
   normal operations: nothing happens on acceptance.
 - Its never list is every goods movement and count (as the count planning
-  agent's, with `createStockTransportOrder`), every write of sales orders
-  and their deliveries (`createSalesOrder`, `captureSalesOrder`,
+  agent's, with `createStockTransportOrder` and a return's receipt,
+  `confirmReturnReceipt`), every write of sales and returns orders and
+  their deliveries (`createSalesOrder`, `captureSalesOrder`,
   `createSalesOrderUpload`, `confirmSalesOrder`,
   `releaseSalesOrderCreditBlock`, `changeSalesOrder`, `cancelSalesOrder`,
   `confirmSalesDelivery`, `createOutboundDelivery`,
-  `pickOutboundDelivery`), of requisitions and purchase orders (as the
-  replenishment agent's) and planning (`startMrpRun`,
-  `createMaterialPlan`, `updateMaterialPlan`): it never changes stock,
-  orders or planning (the brief's acceptance). `TestNever` keeps it whole
-  against the contract's writes named `MaterialDocument`, `GoodsReceipt`,
-  `GoodsIssue`, `StockTransport`, `PhysicalInventory`, `SalesOrder`,
-  `SalesDelivery`, `OutboundDelivery`, `Requisition`, `PurchaseOrder`,
-  `MrpRun` and `MaterialPlan`.
+  `pickOutboundDelivery`, `createReturnsOrder`, `confirmReturnsOrder`),
+  the replenishment agent's never list of requisitions and purchase
+  orders (their changes, `createRfq`, `createScheduleLine`,
+  `callOffScheduleLine`, which creates an order, and `createGrIrClearing`
+  included) and planning (`startMrpRun`, `createMaterialPlan`,
+  `updateMaterialPlan`): it never changes stock, orders or planning (the
+  brief's acceptance). `TestNever` keeps it whole against the contract's
+  writes named `MaterialDocument`, `GoodsReceipt`, `GoodsIssue`,
+  `StockTransport`, `PhysicalInventory`, `SalesOrder`, `SalesDelivery`,
+  `OutboundDelivery`, `ReturnsOrder`, `ReturnReceipt`, `Requisition`,
+  `PurchaseOrder`, `ScheduleLine`, `GrIrClearing`, `MrpRun` and
+  `MaterialPlan`.
 - `listSalesOrders` gains optional `plant_id` (the orders delivering from
   the plant; an order that names none matches none) and `material_id`
   (the orders with a standing item of the material, each answered whole;

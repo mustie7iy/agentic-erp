@@ -16595,7 +16595,7 @@ step_demand_forecast_agent() {
      turns: [
       {tool: "listSalesOrders", input: {legal_entity_id: $le, status: "confirmed", plant_id: $plant, material_id: $hinge}},
       {tool: "createRecommendation", input: {body: ($on + {content: "Forecast \($number) at P100: 50 a week\nThe order."})}},
-      {tool: "createRecommendation", input: {body: ($on + {content: "{{line}}\nSally'"'"'s confirmed order of 50 for Northwind is due now and makes this week'"'"'s demand; the 4 issued to maintenance today are all the history there is, so the weeks after rest on them, and the accuracy is not known yet. Against a reorder point of 60 the order is the demand to watch."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "{{line}}\nSally'"'"'s confirmed order of 50 for Northwind is due now and makes this week'"'"'s demand; the 4 issued to maintenance today are all the history there is, so the weeks after rest on them, and the accuracy is not known yet: the order is the demand to watch."})}},
       {final: "Forecast the hinge at Toronto; the planner decides."}]}' >"$WORK/model-script.json"
   show ERP_AGENT_TOKEN=… erp agent demand-forecast -company "$CC" -material "$number"
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/demand-agent") "$ERP" agent demand-forecast -company "$CC" -material "$number" 2>"$WORK/stderr") ||

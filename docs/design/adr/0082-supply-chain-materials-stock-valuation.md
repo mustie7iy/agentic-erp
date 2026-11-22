@@ -1632,4 +1632,7 @@ computed by the agent's run, not by the model:
 moving average (exponential smoothing, trend and seasonal models, SAP's
 forecast models from memory), the forecast kept per material and plant
 and read by planning, forecast versions and their accuracy over time,
-promotions and collaborative forecasts.
+promotions and collaborative forecasts; reading only orders with a
+quantity still open (a sales order stays `confirmed` once delivered in
+full, so the run pages a material's delivered orders too, at a cost that
+grows with its history).
