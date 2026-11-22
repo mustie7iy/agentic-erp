@@ -180,7 +180,9 @@ func trnEnding(trn string) string {
 
 // reasonVolumeDiscount is the credit note reason (BTAE-03) of a volume
 // discount, which may name no invoice (IBR-055-AE) and is entered without
-// an order when it names none (ADR-0061 As built batch 89).
+// an order when it names none (ADR-0061 As built batch 89). It mirrors
+// einvoicing.ReasonVolumeDiscount, which payables cannot import (the
+// einvoicing leaf imports no context): change both together.
 const reasonVolumeDiscount = "VD"
 
 // rebateKey is the account determination key a volume discount naming no
@@ -227,7 +229,8 @@ func (e *Endpoints) rebateInput(ctx context.Context, d EInvoice, ext *capture.Ex
 	}
 	if !ok {
 		return Input{}, problem.Unprocessable("payables.capture_needs_account", "The volume discount names no purchase order and the company has "+
-			"no account for discounts received (account determination "+rebateKey+") to credit it to; enter it by hand.")
+			"no account for discounts received (account determination "+rebateKey+") to credit it to; set that account in the company's "+
+			"account determination, or enter the credit memo by hand.")
 	}
 	date, err := documentDate(ext)
 	if err != nil {

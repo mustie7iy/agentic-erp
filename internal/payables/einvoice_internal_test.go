@@ -166,20 +166,32 @@ func TestSellerSupplier(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := (&Endpoints{TaxNumbers: c.numbers, Suppliers: c.suppliers}).sellerSupplier(context.Background(), uuid.Nil, "100555555500003")
-			switch {
-			case c.want == "down":
+			switch c.want {
+			case "down":
 				if !errors.Is(err, down) {
 					t.Errorf("got %v, want the partner's error", err)
 				}
-			case c.want == "one":
-				if err != nil || got != one {
-					t.Errorf("got %s (%v), want the one supplier %s", got, err, one)
+			case "one":
+				if err != nil {
+					t.Fatalf("got %v, want none", err)
+				}
+				if got != one {
+					t.Errorf("got %s, want the one supplier %s", got, one)
 				}
 			default:
 				code, word, _ := strings.Cut(c.want, " ")
-				if p := problem.From(err); p.Code != code || !strings.Contains(p.Detail, word) || !strings.Contains(p.Detail, "ending 0003,") ||
-					strings.Contains(p.Detail, "100555555500003") {
-					t.Errorf("got %v, want %s saying %q, the TRN's last four only", err, code, word)
+				p := problem.From(err)
+				if p.Code != code {
+					t.Errorf("code: got %v, want %s", err, code)
+				}
+				if !strings.Contains(p.Detail, word) {
+					t.Errorf("detail: got %q, want it to say %q", p.Detail, word)
+				}
+				if !strings.Contains(p.Detail, "ending 0003,") {
+					t.Errorf("detail: got %q, want it to name the TRN's last four", p.Detail)
+				}
+				if strings.Contains(p.Detail, "100555555500003") {
+					t.Errorf("detail: got %q, want no TRN in clear", p.Detail)
 				}
 			}
 		})
@@ -220,24 +232,28 @@ func TestRebateInput(t *testing.T) {
 		it := in.Items[0]
 		if got, want := fmt.Sprintf("%s %s %s %s %s %v %s %s %s %v", in.Kind, in.SupplierReference, in.InvoiceDate.Format(time.DateOnly), in.Gross.Value,
 			in.Tax.Value, in.PurchaseOrderID == nil, it.Quantity, it.Unit, it.Amount.Value, *it.AccountID == account),
-			"credit_memo VD-1 2026-03-10 262.50 12.50 true 1 EA 250.00 true"; got != want || in.SupplierID != supplier {
-			t.Errorf("got %s of %s, want %s of the supplier %s", got, in.SupplierID, want, supplier)
+			"credit_memo VD-1 2026-03-10 262.50 12.50 true 1 EA 250.00 true"; got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+		if in.SupplierID != supplier {
+			t.Errorf("supplier: got %s, want %s", in.SupplierID, supplier)
 		}
 	})
 	for name, c := range map[string]struct {
+		numbers  taxNumbers
 		accounts determination
 		change   func(*EInvoice)
 		ext      func(*capture.Extraction)
 		want     string
 	}{
-		"no account":            {determination{}, nil, nil, "payables.capture_needs_account"},
-		"the ledger failing":    {determination{account: &account, err: down}, nil, nil, "down"},
-		"the seller unknown":    {determination{account: &account}, func(d *EInvoice) { d.SellerTRN = "100999999900003" }, nil, "payables.einvoice_seller_unknown"},
-		"no date":               {determination{account: &account}, nil, func(x *capture.Extraction) { x.InvoiceDate = "" }, "payables.unreadable_document"},
-		"a gross amount unread": {determination{account: &account}, nil, func(x *capture.Extraction) { x.GrossAmount = "1.234" }, "payables.unreadable_document"},
-		"no lines":              {determination{account: &account}, func(d *EInvoice) { d.Lines = nil }, nil, "payables.unreadable_document"},
-		"a line amount unread":  {determination{account: &account}, nil, func(x *capture.Extraction) { x.Lines[0].Amount = "x" }, "payables.unreadable_document"},
-		"amounts of both signs": {determination{account: &account}, func(d *EInvoice) { d.Lines[0].Net = -25000 }, nil, "payables.unreadable_document"},
+		"no account":            {numbers, determination{}, nil, nil, "payables.capture_needs_account"},
+		"the ledger failing":    {numbers, determination{account: &account, err: down}, nil, nil, "down"},
+		"the seller unknown":    {taxNumbers{}, determination{account: &account}, nil, nil, "payables.einvoice_seller_unknown"},
+		"no date":               {numbers, determination{account: &account}, nil, func(x *capture.Extraction) { x.InvoiceDate = "" }, "payables.unreadable_document"},
+		"a gross amount unread": {numbers, determination{account: &account}, nil, func(x *capture.Extraction) { x.GrossAmount = "1.234" }, "payables.unreadable_document"},
+		"no lines":              {numbers, determination{account: &account}, func(d *EInvoice) { d.Lines = nil }, nil, "payables.unreadable_document"},
+		"a line amount unread":  {numbers, determination{account: &account}, nil, func(x *capture.Extraction) { x.Lines[0].Amount = "x" }, "payables.unreadable_document"},
+		"amounts of both signs": {numbers, determination{account: &account}, func(d *EInvoice) { d.Lines[0].Net = -25000 }, nil, "payables.unreadable_document"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := note(c.change)
@@ -248,11 +264,7 @@ func TestRebateInput(t *testing.T) {
 			if c.ext != nil {
 				c.ext(ext)
 			}
-			tn := numbers
-			if d.SellerTRN != "100555555500003" {
-				tn = taxNumbers{}
-			}
-			_, err = (&Endpoints{TaxNumbers: tn, Suppliers: known, Accounts: c.accounts}).rebateInput(context.Background(), d, ext)
+			_, err = (&Endpoints{TaxNumbers: c.numbers, Suppliers: known, Accounts: c.accounts}).rebateInput(context.Background(), d, ext)
 			if c.want == "down" {
 				if !errors.Is(err, down) {
 					t.Errorf("got %v, want the ledger's error", err)

@@ -15465,16 +15465,16 @@ evatra_volume_discount() {
     listEInvoices -p "fetch_operation_id=$op"
   expect "entered, not held" "$(field '.items[0] | "\(.message_id) \(.status) \(.problem_code // "-") \(.supplier_name)"')" "EVA-77002 entered - Emirates Workspace Supplies"
   memo=$(field '.items[0].supplier_invoice_id')
-  api 200 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount), order \(.purchase_order_id // "-"), crediting \(.reference_invoice_id // "-")", (.items[] | "  item \(.item_no): \(.quantity) \(.unit), \(.amount.amount), account \(.account_id), code \(.tax_code // "-")"), "  on hold: \(.hold_reason)"' \
+  api 200 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount), order \(.purchase_order_id // "-"), crediting \(.reference_invoice_id // "-")", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit), \(.amount.amount), account \(.account_id), code \(.tax_code // "-")"), "  on hold: \(.hold_reason)"' \
     getSupplierInvoice -p "id=$memo"
   expect "the credit memo without an order" "$(field '"\(.kind) \(.supplier_reference) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \(.purchase_order_id // "-") \(.reference_invoice_id // "-") \(.credit_reason.code)"')" \
     "credit_memo EWS-501 einvoice 262.50 12.50 - - VD"
-  expect "its item, on the account of discounts received" "$(field '.items[] | "\(.quantity) \(.unit) \(.amount.amount) \(.account_id)"')" "1 EA 250.00 $discounts"
+  expect "its item, on the account of discounts received" "$(field '.items[] | "\(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.account_id)"')" "1 EA 250.00 $discounts"
   expect "on hold for its input code" "$(field '"\(.status) \(.hold_reason | contains("V5, VB5"))"')" "on_hold true"
   say "Two input codes charge 5% in category S, V5 and the blocked VB5 (Executive Regulation Art. 53), so the memo waits for"
   say "Alex to choose: he releases it, gives its item V5, as the supplies' VAT was recovered, and posts it:"
   api 200 '"\(.document_number): \(.status)"' releaseSupplierInvoice -p "id=$memo" -if-match "$ETAG" -body '{"comment": "Input code to be chosen by the clerk"}'
-  jq --arg code V5 '{items: [.items[] | {description, quantity: {value: .quantity, unit: .unit}, amount, account_id, tax_code: $code}]}' "$WORK/last.json" >"$WORK/ews-501-items.json"
+  jq --arg code V5 '{items: [.items[] | {description, quantity, amount, account_id, tax_code: $code}]}' "$WORK/last.json" >"$WORK/ews-501-items.json"
   api 200 '"\(.document_number): \(.status), \([.items[].tax_code] | join(","))"' updateSupplierInvoice -p "id=$memo" -if-match "$ETAG" -body @ews-501-items.json
   api 200 '"\(.kind) \(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$memo" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
   expect "the volume discount posted" "$(field '"\(.kind) \(.status) \(.gross_amount.amount) \(.tax_amount.amount)"')" "credit_memo posted 262.50 12.50"

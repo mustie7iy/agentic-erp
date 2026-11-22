@@ -279,8 +279,11 @@ func TestEnterVolumeDiscountWithoutOrder(t *testing.T) {
 	}
 	var detail string
 	pgtest.Scan(t, `SELECT problem_detail FROM einvoicing.einvoice WHERE tenant_id = $1 AND message_id = 'VD-2'`, []any{s.f.Tenant.ID}, &detail)
-	if !strings.Contains(detail, "ending 0003,") || strings.Contains(detail, "100999999900003") {
-		t.Errorf("VD-2's detail: got %q, want the TRN's last four only", detail)
+	if !strings.Contains(detail, "ending 0003,") {
+		t.Errorf("VD-2's detail: got %q, want it to name the TRN's last four", detail)
+	}
+	if strings.Contains(detail, "100999999900003") {
+		t.Errorf("VD-2's detail: got %q, want no TRN in clear", detail)
 	}
 }
 
