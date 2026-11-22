@@ -5415,7 +5415,8 @@ pint_ae_invoice_usd() {
   local xml
   xml=$(pint_ae_invoice "$1" "$AE_TRN" "$2" "$3")
   xml=${xml//currencyID=\"AED\"/currencyID=\"USD\"}
-  xml=${xml//<cbc:DocumentCurrencyCode>AED</<cbc:DocumentCurrencyCode>USD</cbc:DocumentCurrencyCode><cbc:TaxCurrencyCode>AED</}
+  local doc='<cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>'
+  xml=${xml/"$doc"/'<cbc:DocumentCurrencyCode>USD</cbc:DocumentCurrencyCode><cbc:TaxCurrencyCode>AED</cbc:TaxCurrencyCode>'}
   xml=${xml/<\/cac:TaxTotal>/<\/cac:TaxTotal><cac:TaxTotal><cbc:TaxAmount currencyID=\"AED\">183.63</cbc:TaxAmount></cac:TaxTotal>}
   xml=${xml/<cac:Item>/<cac:TaxTotal><cbc:TaxAmount currencyID=\"AED\">183.63</cbc:TaxAmount></cac:TaxTotal><cac:Item>}
   xml=${xml/<\/cac:Price>/<\/cac:Price><cac:ItemPriceExtension><cbc:Amount currencyID=\"AED\">3856.13</cbc:Amount></cac:ItemPriceExtension>}
