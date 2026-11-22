@@ -3,6 +3,7 @@ package inventory_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,6 +117,17 @@ func (e icEnv) issue(t *testing.T, o map[string]any, status int, items ...any) m
 	return got
 }
 
+// listed are the ids of the orders the query lists, joined by spaces.
+func (e icEnv) listed(t *testing.T, query string) string {
+	t.Helper()
+	page, _ := e.Must(200, "GET", orders+"?"+query, "", "")
+	var ids []string
+	for _, o := range rows(t, page, "items") {
+		ids = append(ids, o["id"].(string))
+	}
+	return strings.Join(ids, " ")
+}
+
 // widgetStock is the widget's stock at the storage location, "" for none.
 func (e icEnv) widgetStock(t *testing.T, location uuid.UUID) string {
 	t.Helper()
@@ -144,7 +156,15 @@ func TestIntercompanyStockTransport(t *testing.T) {
 		t.Errorf("the order: got %s, want %s", got, want)
 	}
 	e.Problem(409, "procurement.intercompany_not_issued", "POST", "/v1/goods-receipts", e.receipt(t, po, "", 1, "10"), "")
+	if got, want := e.listed(t, "supplying_plant_id="+e.p3.String()+"&issued=false"), po.String(); got != want {
+		t.Errorf("orders of P3 to issue: got %s, want %s", got, want)
+	}
 	issued := e.issue(t, o, 200)
+	for q, want := range map[string]string{"issued=false": "", "issued=true": po.String(), "supplying_plant_id=" + e.p1.String(): ""} {
+		if got := e.listed(t, q); got != want {
+			t.Errorf("orders %s after the issue: got %q, want %q", q, got, want)
+		}
+	}
 	d, _ := e.Must(200, "GET", docs+"/"+issued["issue_document_id"].(string), "", "")
 	if got, want := fmt.Sprint(d["movement_type"], " ", d["reference"] == o["document_number"], " ", d["legal_entity_id"] == e.US.String(), " ",
 		d["number"] == issued["issue_document_number"], " ", e.lines(t, d)), "643 true true true P3:S4 -10 EA (10 EA)"; got != want {
@@ -170,6 +190,9 @@ func TestIntercompanyStockTransport(t *testing.T) {
 		t.Errorf("the receipt and the valuation: got %s, want %s", got, want)
 	}
 	e.Problem(409, "procurement.over_delivery", "POST", "/v1/goods-receipts", e.receipt(t, po, "", 1, "1"), "")
+	// A return would take the goods out of both companies' stock: stock
+	// items are not returned (S1e), so neither is an intercompany order's.
+	e.Problem(422, "procurement.stock_item_return", "POST", "/v1/goods-receipts", e.receipt(t, po, "122", 1, "1"), "")
 	_, tag = e.Must(200, "GET", orders+"/"+po.String(), "", "")
 	closed, _ := e.Must(200, "POST", orders+"/"+po.String()+":close", "", tag)
 	if closed["status"] != "closed" {

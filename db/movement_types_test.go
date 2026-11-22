@@ -67,6 +67,7 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			args      []any
 		}{
 			{"351", movementTypeDoc, []any{tenant, id(), "351", nil, "TO1"}},
+			{"643", movementTypeDoc, []any{tenant, id(), "643", nil, "PO1"}},
 			{"601", movementTypeDoc, []any{tenant, issue, "601", nil, "OD1"}},
 			{"602", movementTypeDoc, []any{tenant, id(), "602", issue, "OD1"}},
 			{"701", movementTypeDoc, []any{tenant, id(), "701", nil, nil}},
@@ -94,12 +95,28 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			}
 		}
 	}
+	// 000437's down refuses to revert while an intercompany order or a 643
+	// exists (this test's and those other tests committed).
+	if err := all(tx, step("DELETE FROM inventory.material_document WHERE movement_type = '643'"),
+		step("DELETE FROM procurement.purchase_order WHERE supplying_plant_id IS NOT NULL")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"000438_validate_intercompany_transport", "000437_intercompany_transport"} {
+		if err := exec(tx, migrationNamed(t, name).Down); err != nil {
+			t.Fatalf("%s's down: %v", name, err)
+		}
+	}
+	check(t, "after reverting 000438 and 000437", map[string]string{"643": "material_document_movement_type_check"})
+	// 000419's state is validated checks.
+	validated(t, "000438 and 000437", "material_document_movement_type_check", "material_document_reference")
 	down(t, true, "000419_validate_stock_transport", "000418_stock_transport")
-	check(t, "after reverting 000419 and 000418", map[string]string{"351": "material_document_movement_type_check"})
+	check(t, "after reverting 000419 and 000418", map[string]string{"351": "material_document_movement_type_check",
+		"643": "material_document_movement_type_check"})
 	// 000411's state is validated checks.
 	validated(t, "000419 and 000418", "material_document_movement_type_check", "material_document_reference")
 	down(t, false, "000411_validate_goods_issue", "000410_goods_issue")
 	check(t, "after reverting 000411 and 000410", map[string]string{"351": "material_document_movement_type_check",
+		"643": "material_document_movement_type_check",
 		"601": "material_document_movement_type_check", "602": "material_document_movement_type_check",
 		"inventory_cost_of_goods_sold:3000": "account_determination_key_check"})
 	// 000408's state is validated checks, as 000391 left the reversal and

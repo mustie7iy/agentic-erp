@@ -339,10 +339,13 @@ func (e *Endpoints) header(ctx context.Context, tx pgx.Tx, le tenancy.Entity, su
 	if co := doc.Company(le.Code); co != nil {
 		h.tolerance = strconv.Itoa(co.OverDeliveryPercent)
 	}
-	if h.intercompany, err = e.supplyingPlant(ctx, le.ID, supplier, supplying); h.intercompany != nil {
+	if h.intercompany, err = e.supplyingPlant(ctx, le.ID, supplier, supplying); err != nil {
+		return h, err
+	}
+	if h.intercompany != nil {
 		h.tolerance = "0"
 	}
-	return h, err
+	return h, nil
 }
 
 // paymentTerm defaults the terms to the supplier's and requires them to exist.

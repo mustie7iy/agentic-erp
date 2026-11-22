@@ -93140,6 +93140,40 @@ func (c *Client) sendListPurchaseOrders(ctx context.Context, params ListPurchase
 		}
 	}
 	{
+		// Encode "supplying_plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "supplying_plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SupplyingPlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "issued" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "issued",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Issued.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "page_size" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "page_size",

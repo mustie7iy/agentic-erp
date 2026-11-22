@@ -102579,6 +102579,12 @@ type ListPurchaseOrdersParams struct {
 	OrderDateFrom OptDate `json:",omitempty,omitzero"`
 	// Only orders dated on or before this date.
 	OrderDateTo OptDate `json:",omitempty,omitzero"`
+	// Only intercompany stock transport orders supplied by this plant (ADR-0082 As built S2i): the
+	// supplying company's work.
+	SupplyingPlantID OptUUID `json:",omitempty,omitzero"`
+	// Only intercompany stock transport orders whose goods issue is posted (`true`) or not yet (`false`);
+	// orders supplied by no plant match neither.
+	Issued OptBool `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -102648,6 +102654,24 @@ func unpackListPurchaseOrdersParams(packed middleware.Parameters) (params ListPu
 		}
 		if v, ok := packed[key]; ok {
 			params.OrderDateTo = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "supplying_plant_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.SupplyingPlantID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "issued",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Issued = v.(OptBool)
 		}
 	}
 	{
@@ -102969,6 +102993,88 @@ func decodeListPurchaseOrdersParams(args [0]string, argsEscaped bool, r *http.Re
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "order_date_to",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: supplying_plant_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "supplying_plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotSupplyingPlantIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotSupplyingPlantIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.SupplyingPlantID.SetTo(paramsDotSupplyingPlantIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "supplying_plant_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: issued.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "issued",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotIssuedVal bool
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToBool(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotIssuedVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Issued.SetTo(paramsDotIssuedVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "issued",
 			In:   "query",
 			Err:  err,
 		}

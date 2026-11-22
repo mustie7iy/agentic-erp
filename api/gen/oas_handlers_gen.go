@@ -98510,6 +98510,14 @@ func (s *Server) handleListPurchaseOrdersRequest(args [0]string, argsEscaped boo
 					In:   "query",
 				}: params.OrderDateTo,
 				{
+					Name: "supplying_plant_id",
+					In:   "query",
+				}: params.SupplyingPlantID,
+				{
+					Name: "issued",
+					In:   "query",
+				}: params.Issued,
+				{
 					Name: "page_size",
 					In:   "query",
 				}: params.PageSize,

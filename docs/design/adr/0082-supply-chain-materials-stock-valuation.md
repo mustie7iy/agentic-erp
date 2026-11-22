@@ -1211,6 +1211,18 @@ memory, for the specialist) and plan §S2i, which splits it into S2i1
   `procurement.order_in_transit`); a released intercompany order is not
   changed (409 `procurement.intercompany_order_change`), as its issue
   issues the ordered quantities.
+- **A return (122) is refused** as for every stock item (422
+  `procurement.stock_item_return`, S1e): it would take the goods out of
+  the receiving company with nothing bringing them back to the supplying
+  one. The receipt's own reversal (102) puts them back in transit.
+- **The receipt's posting date is the receiving company's**, as any
+  receipt's: it is not held to the issue's day, which is the supplying
+  company's in its own time zone (decided by default: each company books
+  its own document on its own day).
+- **The supplying company's work list**: `GET /v1/purchase-orders`
+  filters by `supplying_plant_id` and by `issued` (review round 1); the
+  material document's `reference` names the order's number, in the API
+  and in MaterialDocumentPosted, whose movement type lists `643`.
 - Walkthrough step `step_intercompany_transport`.
 - **Not built** (Later, plan §S2i): partial and repeated issues, a
   delivery between the companies, the 643's reversal (644), changing a

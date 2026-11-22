@@ -70647,7 +70647,11 @@ type MaterialDocument struct {
 	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods
 	// issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number`
 	// (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409
-	// `inventory.reverse_stock_transport`). Absent on every other document.
+	// `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643,
+	// S2i1, the supplying company's): the purchase order's `document_number`
+	// (`GET /v1/purchase-orders?document_number=`, the receiving company's order), whose WA entry posts
+	// the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on
+	// every other document.
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`

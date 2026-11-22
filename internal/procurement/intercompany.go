@@ -125,9 +125,10 @@ func (e *Endpoints) PostIntercompanyIssue(ctx context.Context, id uuid.UUID, ifM
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
+	// The order's row lock holds what loadOrder read, so the update
+	// takes the row read.
 	if _, err := tx.Exec(ctx, `UPDATE procurement.purchase_order SET issue_document_id = $2, issue_document_number = $3, issue_date = $4,
-		version = version + 1, updated_by = $5 WHERE id = $1 AND issue_document_id IS NULL AND version = $6`, o.ID, d.ID, d.Number, d.PostingDate, p.ID,
-		o.Version); err != nil {
+		version = version + 1, updated_by = $5 WHERE id = $1`, o.ID, d.ID, d.Number, d.PostingDate, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: goods issue of purchase order %s: %w", o.DocumentNumber, err)
 	}
 	issued, err := getOrder(ctx, tx, id, false)
