@@ -5524,9 +5524,13 @@ einvoice_refusals() {
 # illustrative) correcting each invoice CREDITED names (IBG-03: its number,
 # IBT-025, and with @DATE its issue date, IBT-026; none when none is
 # given): one desk of order AE_ORDER's line 1, 250.00 AED with 12.50 VAT
-# at 5%.
+# at 5%. CREDIT_ORDER (set empty: none, and no order line), CREDIT_SELLER
+# and CREDIT_SELLER_NAME (the seller's TRN and name), CREDIT_REASON_TEXT
+# and CREDIT_ITEM (the reason's words and the line's description) change
+# it for another supplier's note (step_evatra_inbound's volume discount).
 pint_ae_credit_note() {
-  local number=$1 reason=$2 credited cited date
+  local number=$1 reason=$2 credited cited date order=${CREDIT_ORDER-$AE_ORDER} seller=${CREDIT_SELLER:-100555555500003}
+  local name=${CREDIT_SELLER_NAME:-Gulf Office Interiors LLC} why=${CREDIT_REASON_TEXT:-Desk damaged in delivery} item=${CREDIT_ITEM:-Oak desk, 160 cm, damaged}
   shift 2
   printf '<?xml version="1.0" encoding="UTF-8"?>\n'
   printf '<!-- Illustrative only: a supplier'"'"'s PINT AE tax credit note. -->\n'
@@ -5534,17 +5538,17 @@ pint_ae_credit_note() {
   printf '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID><cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>'
   printf '<cbc:ProfileExecutionID>00000000</cbc:ProfileExecutionID><cbc:ID>%s</cbc:ID><cbc:IssueDate>%s</cbc:IssueDate>' "$number" "$TODAY"
   printf '<cbc:CreditNoteTypeCode>381</cbc:CreditNoteTypeCode><cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>'
-  printf '<cac:DiscrepancyResponse><cbc:ResponseCode>%s</cbc:ResponseCode><cbc:Description>Desk damaged in delivery</cbc:Description></cac:DiscrepancyResponse>' "$reason"
-  printf '<cac:OrderReference><cbc:ID>%s</cbc:ID></cac:OrderReference>' "$AE_ORDER"
+  printf '<cac:DiscrepancyResponse><cbc:ResponseCode>%s</cbc:ResponseCode><cbc:Description>%s</cbc:Description></cac:DiscrepancyResponse>' "$reason" "$why"
+  [ -z "$order" ] || printf '<cac:OrderReference><cbc:ID>%s</cbc:ID></cac:OrderReference>' "$order"
   for credited in "$@"; do
     cited=${credited%%@*} date=
     [ "$cited" = "$credited" ] || date="<cbc:IssueDate>${credited#*@}</cbc:IssueDate>"
     printf '<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>%s</cbc:ID>%s</cac:InvoiceDocumentReference></cac:BillingReference>' "$cited" "$date"
   done
-  printf '<cac:AccountingSupplierParty><cac:Party><cbc:EndpointID schemeID="0235">1005555555</cbc:EndpointID>'
+  printf '<cac:AccountingSupplierParty><cac:Party><cbc:EndpointID schemeID="0235">%s</cbc:EndpointID>' "${seller:0:10}"
   printf '<cac:PostalAddress><cbc:StreetName>Sheikh Zayed Road</cbc:StreetName><cbc:CityName>Dubai</cbc:CityName><cbc:CountrySubentity>DXB</cbc:CountrySubentity><cac:Country><cbc:IdentificationCode>AE</cbc:IdentificationCode></cac:Country></cac:PostalAddress>'
-  printf '<cac:PartyTaxScheme><cbc:CompanyID>100555555500003</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>'
-  printf '<cac:PartyLegalEntity><cbc:RegistrationName>Gulf Office Interiors LLC</cbc:RegistrationName></cac:PartyLegalEntity></cac:Party></cac:AccountingSupplierParty>'
+  printf '<cac:PartyTaxScheme><cbc:CompanyID>%s</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>' "$seller"
+  printf '<cac:PartyLegalEntity><cbc:RegistrationName>%s</cbc:RegistrationName></cac:PartyLegalEntity></cac:Party></cac:AccountingSupplierParty>' "$name"
   printf '<cac:AccountingCustomerParty><cac:Party><cbc:EndpointID schemeID="0235">%s</cbc:EndpointID>' "$AE_TIN"
   printf '<cac:PostalAddress><cbc:StreetName>Gulf Tower</cbc:StreetName><cbc:CityName>Dubai</cbc:CityName><cbc:CountrySubentity>DXB</cbc:CountrySubentity><cac:Country><cbc:IdentificationCode>AE</cbc:IdentificationCode></cac:Country></cac:PostalAddress>'
   printf '<cac:PartyTaxScheme><cbc:CompanyID>%s</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>' "$AE_TRN"
@@ -5555,8 +5559,8 @@ pint_ae_credit_note() {
   printf '<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="AED">250.00</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="AED">250.00</cbc:TaxExclusiveAmount>'
   printf '<cbc:TaxInclusiveAmount currencyID="AED">262.50</cbc:TaxInclusiveAmount><cbc:PayableAmount currencyID="AED">262.50</cbc:PayableAmount></cac:LegalMonetaryTotal>'
   printf '<cac:CreditNoteLine><cbc:ID>1</cbc:ID><cbc:CreditedQuantity unitCode="C62">1</cbc:CreditedQuantity><cbc:LineExtensionAmount currencyID="AED">250.00</cbc:LineExtensionAmount>'
-  printf '<cac:OrderLineReference><cbc:LineID>1</cbc:LineID></cac:OrderLineReference>'
-  printf '<cac:Item><cbc:Description>Oak desk, 160 cm, damaged</cbc:Description><cbc:Name>Desk</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item>'
+  [ -z "$order" ] || printf '<cac:OrderLineReference><cbc:LineID>1</cbc:LineID></cac:OrderLineReference>'
+  printf '<cac:Item><cbc:Description>%s</cbc:Description><cbc:Name>Desk</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item>' "$item"
   printf '<cac:Price><cbc:PriceAmount currencyID="AED">250.00</cbc:PriceAmount></cac:Price></cac:CreditNoteLine></CreditNote>\n'
 }
 
@@ -15369,9 +15373,11 @@ goods_issue_margin() {
 # document in Base64, and the document is received through the existing
 # path (recorded once, kept write-once, acknowledged locally, since Evatra
 # keeps no acknowledgement); its download is the document; a second fetch
-# leaves it out, recorded and acknowledged.
+# leaves it out, recorded and acknowledged. A supplier without orders sends
+# a volume discount naming no order, entered rather than held
+# (evatra_volume_discount, batch 89).
 step_evatra_inbound() {
-  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, entered as a draft supplier invoice, downloaded as received; a second fetch leaves it out"
+  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, entered as a draft supplier invoice, downloaded as received; a second fetch leaves it out; a volume discount of a supplier without orders entered as a credit memo without an order, its code chosen and posted"
   local connector op doc sum tin
   tin=1001234567
   as ada
@@ -15423,7 +15429,67 @@ step_evatra_inbound() {
   expect "the second fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "0 0"
   QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
   expect "the connector's documents" "$(field '[.items[].message_id] | join(" ")')" "EVA-77001"
+  evatra_volume_discount "$connector"
   passed
+}
+
+# evatra_volume_discount is step_evatra_inbound's volume discount naming no
+# order (ADR-0061 As built batch 89; po:2026-11-21): Alex sets up Emirates
+# Workspace Supplies, a supplier of the UAE company with its TRN and no
+# purchase order, approved by Carla; Evatra receives its tax credit note
+# for a volume discount (BTAE-03 VD) naming no invoice and no order; the
+# fetch enters it as a credit memo without an order or a reference, not
+# held: the supplier the one holding the seller's TRN, its line 1 EA of
+# AED 250.00 on the account of discounts received (4800, cash_discount),
+# its 12.50 VAT as stated, on hold for Alex to choose its input code
+# between V5 and VB5, both charging 5% in category S; he releases it,
+# chooses V5 and posts it.
+evatra_volume_discount() {
+  local connector=$1 ae recon discounts supplier op memo trn=100777777700003
+  as alex
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  recon=$(field '.items[] | select(.number == "2000") | .id')
+  discounts=$(field '.items[] | select(.number == "4800") | .id')
+  say "Emirates Workspace Supplies grants $AE a volume discount on the year's office supplies, bought without purchase"
+  say "orders. Alex sets it up as a supplier of $AE with its TRN (illustrative); Carla approves it:"
+  api 201 '"supplier \(.name), \(.country_code), \(.status)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Emirates Workspace Supplies\", \"country_code\": \"AE\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$ae\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"NT30\"}], \"tax_identifiers\": [{\"scheme\": \"AE_TRN\", \"value\": \"$trn\"}], \"reason\": \"Office supplies of the UAE company, bought without orders\"}"
+  supplier=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$supplier"
+  approve carla "$(field '.items[0].workflow_request_id')" "TRN checked against the FTA's register"
+  say "Evatra receives its tax credit note EWS-501 for 0235:$AE_TIN: a volume discount (BTAE-03 VD) of AED 250.00 with"
+  say "12.50 VAT, naming no invoice (IBR-055-AE allows it) and no purchase order (an illustrative document):"
+  CREDIT_ORDER='' CREDIT_SELLER=$trn CREDIT_SELLER_NAME='Emirates Workspace Supplies LLC' CREDIT_REASON_TEXT='Volume discount on the year' \
+    CREDIT_ITEM='Volume discount, office supplies' pint_ae_credit_note EWS-501 VD >"$WORK/provider/evatra/EVA-77002.xml"
+  printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/evatra/EVA-77002.receiver"
+  as alex
+  say "Alex fetches. A credit memo needs no order (the product owner, 2026-11-21): the volume discount is entered without"
+  say "one, not held, the supplier the one of $AE holding the seller's TRN, its line on the account of discounts received"
+  say "(4800, the account determination's cash_discount), its VAT as stated:"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  op=$(field .id)
+  excerpt '"operation \(.status): recorded \(.result.recorded), entered \(.result.entered), held \(.result.held)"'
+  expect "the volume discount's fetch counts" "$(field '"\(.result.recorded) \(.result.entered) \(.result.held)"')" "1 1 0"
+  api 200 '.items[] | "  \(.message_id) \(.document_kind): \(.status), supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status)) of \(.supplier_name)"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "entered, not held" "$(field '.items[0] | "\(.message_id) \(.status) \(.problem_code // "-") \(.supplier_name)"')" "EVA-77002 entered - Emirates Workspace Supplies"
+  memo=$(field '.items[0].supplier_invoice_id')
+  api 200 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount), order \(.purchase_order_id // "-"), crediting \(.reference_invoice_id // "-")", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit), \(.amount.amount), account \(.account_id), code \(.tax_code // "-")"), "  on hold: \(.hold_reason)"' \
+    getSupplierInvoice -p "id=$memo"
+  expect "the credit memo without an order" "$(field '"\(.kind) \(.supplier_reference) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \(.purchase_order_id // "-") \(.reference_invoice_id // "-") \(.credit_reason.code)"')" \
+    "credit_memo EWS-501 einvoice 262.50 12.50 - - VD"
+  expect "its item, on the account of discounts received" "$(field '.items[] | "\(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.account_id)"')" "1 EA 250.00 $discounts"
+  expect "on hold for its input code" "$(field '"\(.status) \(.hold_reason | contains("V5, VB5"))"')" "on_hold true"
+  say "Two input codes charge 5% in category S, V5 and the blocked VB5 (Executive Regulation Art. 53), so the memo waits for"
+  say "Alex to choose: he releases it, gives its item V5, as the supplies' VAT was recovered, and posts it:"
+  api 200 '"\(.document_number): \(.status)"' releaseSupplierInvoice -p "id=$memo" -if-match "$ETAG" -body '{"comment": "Input code to be chosen by the clerk"}'
+  jq --arg code V5 '{items: [.items[] | {description, quantity, amount, account_id, tax_code: $code}]}' "$WORK/last.json" >"$WORK/ews-501-items.json"
+  api 200 '"\(.document_number): \(.status), \([.items[].tax_code] | join(","))"' updateSupplierInvoice -p "id=$memo" -if-match "$ETAG" -body @ews-501-items.json
+  api 200 '"\(.kind) \(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$memo" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the volume discount posted" "$(field '"\(.kind) \(.status) \(.gross_amount.amount) \(.tax_amount.amount)"')" "credit_memo posted 262.50 12.50"
 }
 
 # step_einvoice_render is E2 (ADR-0061 §9, As built E2; plan

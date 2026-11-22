@@ -230,6 +230,16 @@ func (p Payees) FindCustomers(ctx context.Context, number, taxNumber string) ([]
 	return found, nil
 }
 
+// HoldersOfTaxNumber are the business partners holding a tax identifier
+// of the value, whatever its scheme, each once, as FindCustomers finds
+// them by a tax number alone: an e-invoice's seller found by its TRN when
+// the document names no purchase order whose supplier it would be
+// (ADR-0061 As built batch 89). What they are to the company is the
+// caller's to check.
+func (p Payees) HoldersOfTaxNumber(ctx context.Context, value string) ([]Found, error) {
+	return p.FindCustomers(ctx, "", value)
+}
+
 // HasTaxNumber says whether the business partner holds a tax identifier
 // of the value, whatever its scheme, found through the identifiers' keyed
 // hash without opening one (ADR-0061 §6: an e-invoice's seller TRN held
