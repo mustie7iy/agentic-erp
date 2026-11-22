@@ -27,8 +27,8 @@ import (
 // the queue) and reads its connector, resolves the credentials and sends
 // with no transaction open, and records the outcome in a second
 // transaction, guarded by the row version its claim wrote (ADR-0008). A
-// failed attempt is tried again after wmsBackoff; a refusal (a problem
-// below 500) or the last attempt's failure leaves the message failed, a
+// failed attempt is tried again after wmsBackoff; the warehouse system's
+// refusal or the last attempt's failure leaves the message failed, a
 // worklist (listWMSMessages?status=failed). A claim whose outcome never
 // came (the replica stopped) lapses and is claimed again: the WMS takes a
 // message id it holds as delivered, so the message is sent again safely.
@@ -66,6 +66,9 @@ var maxWMSAttempts = len(wmsBackoff) + 1
 // wmsLease is how long a claim lasts before it lapses: a credentials read
 // and a call, each up to WMSCallTimeout, with room to record.
 const wmsLease = 3 * WMSCallTimeout
+
+// wmsRefused is the warehouse system refusing a message: final.
+const wmsRefused = "integration.wms_refused"
 
 // wmsOutcomeUnknown fails a message whose last attempt's claim lapsed.
 const wmsOutcomeUnknown = "integration.wms_outcome_unknown"
@@ -273,14 +276,18 @@ func (w *WMSExchange) finish(ctx context.Context, tx pgx.Tx, c *wmsClaim, sendEr
 }
 
 // retry queues the message for its next attempt after a failed one, or
-// fails it: on a refusal, which another attempt would meet again, and
-// after the last attempt.
+// fails it: on the warehouse system's refusal, which another attempt
+// would meet again, and after the last attempt. A connector that cannot
+// be used now (disabled, its secret or settings not resolving, the
+// stand-in in production) is a failed attempt like an outage: its
+// administrator may put it right within the attempts' hours, and a
+// message failed for it could not be sent again (Later: by hand).
 func (w *WMSExchange) retry(ctx context.Context, tx pgx.Tx, c *wmsClaim, cause error, now time.Time) error {
 	p := problem.From(cause)
 	if w.Log != nil {
 		w.Log.WarnContext(ctx, "wms message attempt failed", "wms_message", c.id, "attempt", c.attempt, "error", cause)
 	}
-	if p.Status < 500 || c.attempt >= maxWMSAttempts {
+	if p.Code == wmsRefused || c.attempt >= maxWMSAttempts {
 		return failWMS(ctx, tx, c, p)
 	}
 	next := now.Add(wmsBackoff[c.attempt-1])

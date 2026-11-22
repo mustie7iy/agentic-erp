@@ -968,7 +968,7 @@ func TestLoadSchema(t *testing.T) {
 // read as one loopback address and port and the certificate it presents,
 // both or neither; anything else stops the server at start.
 func TestWalkthroughReceiver(t *testing.T) {
-	for _, name := range []string{"ERP_WALKTHROUGH_RECEIVER", "ERP_WALKTHROUGH_PROVIDER"} {
+	for _, name := range []string{"ERP_WALKTHROUGH_RECEIVER", "ERP_WALKTHROUGH_PROVIDER", "ERP_WALKTHROUGH_WMS"} {
 		t.Run(name, func(t *testing.T) { walkthroughStandIn(t, name) })
 	}
 }
@@ -983,13 +983,17 @@ func walkthroughStandIn(t *testing.T, name string) {
 	m[name], m[name+"_CA"] = "127.0.0.1:18443", ca
 	c := mustLoad(t, m)
 	at, roots := c.Walkthrough.Receiver, c.Walkthrough.Roots
-	if name == "ERP_WALKTHROUGH_PROVIDER" {
+	switch name {
+	case "ERP_WALKTHROUGH_PROVIDER":
 		at, roots = c.Walkthrough.Provider, c.Walkthrough.ProviderRoots
+	case "ERP_WALKTHROUGH_WMS":
+		at, roots = c.Walkthrough.WMS, c.Walkthrough.WMSRoots
 	}
 	if at != netip.MustParseAddrPort("127.0.0.1:18443") || roots == nil {
 		t.Errorf("walkthrough: got %v with roots %v, want 127.0.0.1:18443 and the certificate's", at, roots != nil)
 	}
-	if c := mustLoad(t, valid()); c.Walkthrough.Receiver.IsValid() || c.Walkthrough.Roots != nil || c.Walkthrough.Provider.IsValid() || c.Walkthrough.ProviderRoots != nil {
+	if c := mustLoad(t, valid()); c.Walkthrough.Receiver.IsValid() || c.Walkthrough.Roots != nil || c.Walkthrough.Provider.IsValid() || c.Walkthrough.ProviderRoots != nil ||
+		c.Walkthrough.WMS.IsValid() || c.Walkthrough.WMSRoots != nil {
 		t.Errorf("without it: got %v, want no stand-in", c.Walkthrough)
 	}
 	for label, set := range map[string]struct{ addr, ca, want string }{

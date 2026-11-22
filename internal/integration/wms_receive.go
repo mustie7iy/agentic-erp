@@ -187,7 +187,7 @@ type inbound struct {
 	number                *string
 	body                  []byte
 	status                string
-	problem               *problem.Problem
+	code, detail          *string // refused: the problem's, its detail at most 1000 characters
 	issued                *WMSIssued
 }
 
@@ -251,7 +251,9 @@ func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, raw []by
 	if p.Status >= 500 || p.RetryAfter > 0 {
 		return err
 	}
-	in.status, in.problem = "refused", p
+	code, detail := p.Code, []rune(p.Detail)
+	text := string(detail[:min(len(detail), 1000)])
+	in.status, in.code, in.detail = "refused", &code, &text
 	return nil
 }
 
@@ -324,22 +326,15 @@ func (w *WMSExchange) issue(ctx context.Context, tx pgx.Tx, in *inbound, gi WMSI
 
 // insert writes the recorded confirmation with its audit record.
 func (in inbound) insert(ctx context.Context, tx pgx.Tx, connectorName string) error {
-	var code, detail, docNumber *string
+	var docNumber *string
 	var docID *uuid.UUID
-	if in.problem != nil {
-		d := in.problem.Detail
-		if len([]rune(d)) > 1000 {
-			d = string([]rune(d)[:1000])
-		}
-		code, detail = &in.problem.Code, &d
-	}
 	if in.issued != nil {
 		docID, docNumber = &in.issued.MaterialDocumentID, &in.issued.MaterialDocumentNumber
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, legal_entity_id, document_id,
 			document_number, body, status, problem_code, problem_detail, material_document_id, material_document_number)
 		VALUES (platform.require_tenant(), $1, $2, 'inbound', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		in.id, in.connector, in.messageID, WMSGoodsIssue, in.legalEntity, in.delivery, in.number, in.body, in.status, code, detail, docID, docNumber); err != nil {
+		in.id, in.connector, in.messageID, WMSGoodsIssue, in.legalEntity, in.delivery, in.number, in.body, in.status, in.code, in.detail, docID, docNumber); err != nil {
 		return fmt.Errorf("integration: record wms confirmation %s: %w", in.messageID, err)
 	}
 	action := "integration.wms_message.post"
@@ -348,5 +343,5 @@ func (in inbound) insert(ctx context.Context, tx pgx.Tx, connectorName string) e
 	}
 	return audit.Record(ctx, action, "integration.wms_message", in.id, map[string]any{"connector_id": in.connector, "connector_name": connectorName,
 		"message_id": in.messageID, "outbound_delivery_id": in.delivery, "outbound_delivery_number": in.number, "material_document_number": docNumber,
-		"code": code})
+		"code": in.code})
 }

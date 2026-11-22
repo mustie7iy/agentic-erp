@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // The WMS connector (S2q1; ADR-0082 As built S2q): an external warehouse
@@ -181,13 +180,9 @@ func wmsOf(ctx context.Context, tx pgx.Tx, company, plant string) (wmsConnector,
 // checkWMSActive refuses a wms connector becoming, or staying, active
 // with plants another active one manages; nil for any other kind or for
 // a connector that will not be active.
-func checkWMSActive(ctx context.Context, id uuid.UUID, kind, status string, settings map[string]any) error {
+func checkWMSActive(ctx context.Context, tx pgx.Tx, id uuid.UUID, kind, status string, settings map[string]any) error {
 	if kind != WMS || status != "active" {
 		return nil
-	}
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return err
 	}
 	s, err := wmsSettings(settings)
 	if err != nil {

@@ -103,7 +103,7 @@ func (s *WMSStandIn) Send(ctx context.Context, id string, body []byte) error {
 	case resp.Status >= 200 && resp.Status < 300:
 		return nil
 	case resp.Status >= 400 && resp.Status < 500 && resp.Status != http.StatusRequestTimeout && resp.Status != http.StatusTooManyRequests:
-		return problem.Unprocessable("integration.wms_refused", fmt.Sprintf("The warehouse system refused message %s (HTTP %d).", id, resp.Status))
+		return problem.Unprocessable(wmsRefused, fmt.Sprintf("The warehouse system refused message %s (HTTP %d).", id, resp.Status))
 	}
 	return fmt.Errorf("integration: send message %s to the warehouse system: answered %d", id, resp.Status)
 }
