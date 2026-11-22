@@ -1157,11 +1157,11 @@ memory, for the specialist) and plan §S2i, which splits it into S2i1
   supplier, prices, approval or GR/IR; between companies the order has
   all four, so it is a purchase order: numbered, released (and approved
   by the release strategy) and received as any, its GR/IR positions the
-  ledger's per order item. Migration 000437 adds the supplying plant, set
+  ledger's per order item. Migration 000443 adds the supplying plant, set
   at creation, and the goods issue's material document, number and day,
   under `purchase_order_issue` and the trigger `purchase_order_supply_fixed`
   (schema tests in `db/intercompany_transport_test.go`, the trigger also
-  as the owner, the down's refusal); 000438 validates the widened checks.
+  as the owner, the down's refusal); 000444 validates the widened checks.
 - **Partners.** The order's supplier is the business partner whose group
   company (ADR-0059 §4) is the supplying plant's company (422
   `procurement.intercompany_supplier`; `partner.Supplier.GroupCompanyID`

@@ -2225,7 +2225,7 @@ the supplying plant to one of the receiving plant; insert-only
 (`stock_transport_order_item_insert_only`). Plants, storage locations,
 materials and material documents are other contexts', by id.
 
-Intercompany stock transport orders (S2i1, migrations 000437 and 000438;
+Intercompany stock transport orders (S2i1, migrations 000443 and 000444;
 ADR-0082 As built S2i): between plants of two companies the order is the
 receiving company's `procurement.purchase_order` naming
 `supplying_plant_id`, a plant of another company of the tenant (tenancy
@@ -6880,12 +6880,12 @@ erDiagram
   every line, so stock in transit is the receiving plant's valuated stock
   and no location's. No count blocks a line in transit
   (`count_posting_block` fires only on the others).
-- S2i1 (migrations 000437, 000438): `inventory.material_document` takes
+- S2i1 (migrations 000443, 000444): `inventory.material_document` takes
   the movement type `643`, an intercompany stock transport order's goods
   issue out of the supplying company's stock, which names the order's
   number as its `reference` (`material_document_movement_type_check`,
   `material_document_reference`, widened NOT VALID and validated by
-  000438). It has no line in transit: the goods enter the receiving
+  000444). It has no line in transit: the goods enter the receiving
   company's stock and valuation only with the order's goods receipt (a
   purchase order's `101`).
 - S2f (migrations 000428, 000429): `materials.material.batch_managed`

@@ -5749,7 +5749,7 @@
      {
       "s": "D",
       "t": "S2i1 A planner of one company orders stock from a plant of another company of the tenant: the receiving company's purchase order names the supplying plant and the supplier that is the supplying company; the supplying company's goods issue (643) takes it out of its stock against cost of goods sold, and the receiving company's goods receipt takes it in at the order price, the transfer price, against GR/IR, at most what was issued",
-      "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082 As built S2i · db/migrations/000437, 000438 · procurement.purchase_order.supplying_plant_id, issue_document_id · movement type 643 · POST /v1/purchase-orders (supplying_plant_id) · :postIntercompanyGoodsIssue · inventory.Endpoints.IssueForIntercompany · partner.Supplier.GroupCompanyID · walkthrough step_intercompany_transport",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082 As built S2i · db/migrations/000443, 000444 · procurement.purchase_order.supplying_plant_id, issue_document_id · movement type 643 · POST /v1/purchase-orders (supplying_plant_id) · :postIntercompanyGoodsIssue · inventory.Endpoints.IssueForIntercompany · partner.Supplier.GroupCompanyID · walkthrough step_intercompany_transport",
       "src": "po:2026-11-17",
       "c": []
      },

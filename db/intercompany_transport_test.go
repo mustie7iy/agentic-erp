@@ -25,7 +25,7 @@ func (s icScene) row(plant *uuid.UUID, doc *uuid.UUID, number, day any) stmt {
 	return step(icOrderSQL, s.tenant, s.order, s.company, id(), plant, doc, number, day)
 }
 
-// TestIntercompanyTransportRules (S2i1, migrations 000437 and 000438;
+// TestIntercompanyTransportRules (S2i1, migrations 000443 and 000444;
 // ADR-0082 As built S2i): an order's goods issue is all of its document,
 // number and day or none, only an order with a supplying plant has one,
 // its number is 1 to 40 characters, the supplying plant never changes and
@@ -92,7 +92,7 @@ func TestIntercompanyTransportRules(t *testing.T) {
 	}
 }
 
-// TestIntercompanyTransportTriggerAsOwner (S2i1, migration 000437): past
+// TestIntercompanyTransportTriggerAsOwner (S2i1, migration 000443): past
 // the grants, as the owner, the supplying plant and a goods issue stay as
 // set.
 func TestIntercompanyTransportTriggerAsOwner(t *testing.T) {
@@ -118,7 +118,7 @@ func TestIntercompanyTransportTriggerAsOwner(t *testing.T) {
 	}
 }
 
-// TestIntercompanyTransportDownRefused: 000437's down migration refuses
+// TestIntercompanyTransportDownRefused: 000443's down migration refuses
 // to drop intercompany orders and their goods issues (06 §6.4: a down
 // migration loses no data).
 func TestIntercompanyTransportDownRefused(t *testing.T) {
@@ -142,7 +142,7 @@ func TestIntercompanyTransportDownRefused(t *testing.T) {
 				step(`SELECT set_config('app.tenant_id', '', true)`)); err != nil {
 				t.Fatal(err)
 			}
-			failsWith(t, exec(tx, migrationNamed(t, "000437_intercompany_transport").Down), "intercompany stock transport orders exist")
+			failsWith(t, exec(tx, migrationNamed(t, "000443_intercompany_transport").Down), "intercompany stock transport orders exist")
 		})
 	}
 }
