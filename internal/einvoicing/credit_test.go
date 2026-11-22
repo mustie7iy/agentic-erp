@@ -78,7 +78,8 @@ func (s *entering) credited(t *testing.T, message string) (entered, hold string)
 // is entered without a reference (IBR-055-AE), any other citing none is
 // held for a person (C4: IBG-03, IBT-025), nothing of it entered; one
 // naming GOI-1 twice beside a blank reference names GOI-1 once; a reason
-// code beyond 100 characters is not read, a hold. Run
+// code beyond 100 characters is not read, a hold; two spellings of one
+// invoice's number cite it once. Run
 // twice, the step enters and holds nothing again.
 func TestEnterCreditNotes(t *testing.T) {
 	s := enteringScene(t)
@@ -94,6 +95,7 @@ func TestEnterCreditNotes(t *testing.T) {
 		"CN-7": creditNote("CN-7", "DL", citing("GOI-1", "2026-03-01"), citing("GOI-2", "2026-03-01")),
 		"CN-8": creditNote("CN-8", "DL", citing("GOI-1", "2026-03-02")),
 		"CN-9": creditNote("CN-9", strings.Repeat("V", 101), citing("GOI-1", "")),
+		"CN-A": creditNote("CN-A", "DL", citing("GOI-1", ""), citing("goi 1", "")),
 	}
 	for m, doc := range notes {
 		s.srv.Deliver(m, uaeParticipant, doc)
@@ -101,7 +103,7 @@ func TestEnterCreditNotes(t *testing.T) {
 	op := uuid.Must(uuid.NewV7())
 	s.recordAll(t, op)
 	for run := range 2 {
-		if got, err := s.e.ProcessEInvoices(context.Background(), s.connector, op, s.within()); err != nil || got.Entered != 7 || got.Held != 2 ||
+		if got, err := s.e.ProcessEInvoices(context.Background(), s.connector, op, s.within()); err != nil || got.Entered != 8 || got.Held != 2 ||
 			got.Refused != 0 {
 			t.Fatalf("run %d: got %+v (%v), want all but CN-3 and CN-9 entered, and those held", run+1, got, err)
 		}
@@ -116,6 +118,7 @@ func TestEnterCreditNotes(t *testing.T) {
 		{"CN-7", "entered - credit_memo parked - DL [GOI-1:GOI-1,GOI-2:GOI-2]", ""},
 		{"CN-8", "entered - credit_memo on_hold - DL [GOI-1:-]", "names the invoice GOI-1, which is not a posted invoice"},
 		{"CN-9", "held payables.unreadable_document -", ""},
+		{"CN-A", "entered - credit_memo parked GOI-1 DL [GOI-1:GOI-1]", ""},
 	} {
 		t.Run(c.message, func(t *testing.T) {
 			got, hold := s.credited(t, c.message)
@@ -129,8 +132,8 @@ func TestEnterCreditNotes(t *testing.T) {
 	}
 	var memos int
 	pgtest.Scan(t, `SELECT count(*) FROM payables.supplier_invoice WHERE tenant_id = $1 AND kind = 'credit_memo'`, []any{s.f.Tenant.ID}, &memos)
-	if memos != 7 {
-		t.Errorf("credit memos: got %d, want 7, nothing of CN-3 or CN-9", memos)
+	if memos != 8 {
+		t.Errorf("credit memos: got %d, want 8, nothing of CN-3 or CN-9", memos)
 	}
 	var detail string
 	pgtest.Scan(t, `SELECT problem_detail FROM einvoicing.einvoice WHERE tenant_id = $1 AND message_id = 'CN-3'`, []any{s.f.Tenant.ID}, &detail)

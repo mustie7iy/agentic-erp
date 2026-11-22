@@ -186,26 +186,33 @@ func statedOf(d EInvoice) (stated, error) {
 // citations naming them all for the person who clears it (po:2026-11-21).
 // A number that matches no posted invoice holds the memo, the reason
 // returned naming the numbers, for a person to check rather than have it
-// dropped. A document citing more than maxCitations, or a number longer
+// dropped. Numbers that match one invoice (spelt differently, as the
+// supplier reference's normalised form compares them) cite it once. A
+// document citing more than maxCitations, or a number longer
 // than maxCitedNumber, is not read.
 func citedInvoices(ctx context.Context, tx pgx.Tx, in *Input, cited []Citation) ([]Citation, string, error) {
 	if len(cited) > maxCitations {
 		return nil, "", unreadable(fmt.Sprintf("the credit note cites %d invoices; at most %d are read", len(cited), maxCitations))
 	}
-	out := make([]Citation, len(cited))
+	out := make([]Citation, 0, len(cited))
 	var unmatched []string
-	for i, c := range cited {
+	matched := map[uuid.UUID]bool{}
+	for _, c := range cited {
 		if len([]rune(c.Number)) > maxCitedNumber {
 			return nil, "", unreadable(fmt.Sprintf("the credit note cites an invoice number longer than %d characters", maxCitedNumber))
 		}
 		id, err := postedInvoiceCited(ctx, tx, in, c.Number, c.Date)
-		if err != nil {
+		switch {
+		case err != nil:
 			return nil, "", err
-		}
-		out[i] = Citation{Number: c.Number, Date: c.Date, InvoiceID: id}
-		if id == nil {
+		case id == nil:
 			unmatched = append(unmatched, c.Number)
+		case matched[*id]:
+			continue // the same invoice under another spelling of its number (normalize_ref): cited once
+		default:
+			matched[*id] = true
 		}
+		out = append(out, Citation{Number: c.Number, Date: c.Date, InvoiceID: id})
 	}
 	if len(out) == 1 {
 		in.ReferenceInvoiceID = out[0].InvoiceID

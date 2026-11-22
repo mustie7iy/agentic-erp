@@ -5437,6 +5437,12 @@ einvoice_not_in_aed() {
   supplier=$(field '.items[0].id')
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   expense=$(field '.items[] | select(.number == "6000") | .id')
+  as tom
+  say "Gulf Office Interiors now prices in US dollars. Tom records the dirham's rate to the dollar, illustrative here"
+  say "(the CBUAE's published rate would be used), which an invoice's tax is compared in:"
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"AED\", \"valid_from\": \"$YEAR-01-01\", \"rate\": \"3.6725\", \"source\": \"walkthrough\"}"
+  as ben
   say "Ben orders four more desks from Gulf Office Interiors, priced in US dollars this time:"
   api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' \
     createPurchaseOrder -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"currency\": \"USD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Oak desk, 160 cm\", \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"USD\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
@@ -15617,17 +15623,13 @@ step_einvoice_send() {
 # lines' VAT in AED adding up to the document's (IBT-111).
 einvoice_render_usd() {
   local ae=$1 customer sales invoice rendered xml
-  as tom
-  say "Desert Rose Retail also buys in US dollars. Tom records the dirham's rate to the dollar, illustrative here"
-  say "(the CBUAE's published rate would be used):"
-  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
-    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"AED\", \"valid_from\": \"$YEAR-01-01\", \"rate\": \"3.6725\", \"source\": \"walkthrough\"}"
   as ruth
   QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Desert Rose Retail" -p role=customer
   customer=$(field '.items[0].id')
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   sales=$(field '.items[] | select(.number == "4000") | .id')
-  say "Ruth invoices it USD 1,000.00 of office chairs, standard-rated in Dubai, posts it and renders its e-invoice: in"
+  say "Desert Rose Retail also buys in US dollars (step 43 recorded the rate). Ruth invoices it USD 1,000.00 of office"
+  say "chairs, standard-rated in Dubai, posts it and renders its e-invoice: in"
   say "another currency than AED, each line states its VAT in AED and its amount in AED, so it is valid:"
   api 201 '"customer invoice \(.document_number): gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice \
     -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"USD\", \"items\": [{\"description\": \"Office chairs\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"USD\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"

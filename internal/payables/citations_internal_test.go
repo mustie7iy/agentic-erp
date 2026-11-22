@@ -58,10 +58,13 @@ func TestStoredCitations(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := cs.citations()
-	if len(got) != 2 || got[0].Date == nil || got[0].Date.Format("2006-01-02") != "2026-03-01" || got[0].DocumentNumber != "BYHAND-1" ||
-		got[1].Date != nil || got[1].InvoiceID != nil {
-		t.Errorf("citations: got %+v, want GOI-1 dated and matched, GOI-2 neither", got)
+	if len(got) != 2 {
+		t.Fatalf("citations: got %d, want 2", len(got))
 	}
+	same(t, "GOI-1's date", got[0].Date.Format(time.DateOnly), "2026-03-01")
+	same(t, "GOI-1's match", got[0].DocumentNumber, "BYHAND-1")
+	same(t, "GOI-2 without a date", got[1].Date == nil, true)
+	same(t, "GOI-2 without a match", got[1].InvoiceID == nil, true)
 	if (storedCitations{}).citations() != nil {
 		t.Errorf("no citations: got some, want nil")
 	}
@@ -167,17 +170,30 @@ func TestCreditReasonAndCitationsAPI(t *testing.T) {
 	if creditReasonAPI(nil).Set {
 		t.Error("no reason: got one, want none")
 	}
-	if r := creditReasonAPI(&CreditReason{Code: "VD"}); !r.Set || r.Value.Code != "VD" || r.Value.Text.Set {
-		t.Errorf("a code alone: got %+v, want VD without words", r)
-	}
+	alone := creditReasonAPI(&CreditReason{Code: "VD"})
+	same(t, "a code alone", alone.Value.Code, "VD")
+	same(t, "a code alone's words", alone.Value.Text.Set, false)
 	if r := creditReasonAPI(&CreditReason{Code: "DL", Text: "Damaged"}); r.Value.Text.Value != "Damaged" {
 		t.Errorf("a reason: got %+v, want its words", r)
 	}
 	day := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	invoice := uuid.New()
 	got := citationsAPI([]Citation{{Number: "GOI-1", Date: &day, InvoiceID: &invoice, DocumentNumber: "SI1"}, {Number: "GOI-2"}})
-	if len(got) != 2 || got[0].DocumentNumber.Value != "SI1" || !got[0].InvoiceDate.Set || got[0].InvoiceID.Value != invoice ||
-		got[1].InvoiceID.Set || got[1].DocumentNumber.Set || got[1].InvoiceDate.Set {
-		t.Errorf("citations: got %+v, want GOI-1 dated and matched, GOI-2 neither", got)
+	if len(got) != 2 {
+		t.Fatalf("citations: got %d, want 2", len(got))
+	}
+	same(t, "GOI-1's document number", got[0].DocumentNumber.Value, "SI1")
+	same(t, "GOI-1's date", got[0].InvoiceDate.Set, true)
+	same(t, "GOI-1's invoice", got[0].InvoiceID.Value, invoice)
+	same(t, "GOI-2's invoice", got[1].InvoiceID.Set, false)
+	same(t, "GOI-2's document number", got[1].DocumentNumber.Set, false)
+	same(t, "GOI-2's date", got[1].InvoiceDate.Set, false)
+}
+
+// same checks one value of a test.
+func same[T comparable](t *testing.T, what string, got, want T) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s: got %v, want %v", what, got, want)
 	}
 }
