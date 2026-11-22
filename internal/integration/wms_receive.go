@@ -1,10 +1,12 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -128,8 +130,10 @@ func (w *WMSExchange) pollTenant(ctx context.Context, tenant uuid.UUID) (int, er
 }
 
 // pollConnector records each confirmation the connector's WMS holds, then
-// acknowledges it; it stops at the first that cannot be read or recorded,
-// which the next poll takes again.
+// acknowledges it. One that cannot be read, recorded or acknowledged now
+// is reported and left for the next poll, and the others are taken still;
+// an id the table cannot hold (empty or above 200 characters) is reported
+// and never taken, as no record of it can be kept.
 func (w *WMSExchange) pollConnector(ctx context.Context, tenant uuid.UUID, c usable) (int, error) {
 	wh, err := w.warehouse(ctx, tenant, c)
 	if err != nil {
@@ -140,27 +144,42 @@ func (w *WMSExchange) pollConnector(ctx context.Context, tenant uuid.UUID, c usa
 		return 0, err
 	}
 	n := 0
+	var failed []error
 	for _, id := range ids {
-		raw, readErr := wh.Confirmation(ctx, id)
-		if readErr != nil && problem.From(readErr).Status >= 500 {
-			return n, readErr
-		}
-		var recorded bool
-		if err := w.job(tenant, "record a wms confirmation").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-			var err error
-			recorded, err = w.record(ctx, tx, tenant, c, id, raw, readErr)
-			return err == nil, err
-		}); err != nil {
-			return n, err
-		}
+		recorded, err := w.take(ctx, tenant, wh, c, id)
 		if recorded {
 			n++
 		}
-		if err := w.acknowledge(ctx, tenant, wh, c.id, id); err != nil {
-			return n, err
+		if err != nil {
+			failed = append(failed, fmt.Errorf("confirmation %q: %w", id, err))
 		}
 	}
-	return n, nil
+	return n, errors.Join(failed...)
+}
+
+// maxWMSMessageID is the longest message id integration.wms_message holds.
+const maxWMSMessageID = 200
+
+// take reads, records and acknowledges one confirmation and reports
+// whether it recorded it.
+func (w *WMSExchange) take(ctx context.Context, tenant uuid.UUID, wh Warehouse, c usable, id string) (bool, error) {
+	if id == "" || utf8.RuneCountInString(id) > maxWMSMessageID || !utf8.ValidString(id) || strings.ContainsRune(id, 0) {
+		return false, fmt.Errorf("integration: a confirmation id of %d characters, or holding a NUL or invalid UTF-8, is not one a message can be recorded under",
+			utf8.RuneCountInString(id))
+	}
+	raw, readErr := wh.Confirmation(ctx, id)
+	if readErr != nil && problem.From(readErr).Status >= 500 {
+		return false, readErr
+	}
+	var recorded bool
+	if err := w.job(tenant, "record a wms confirmation").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		var err error
+		recorded, err = w.record(ctx, tx, tenant, c, id, raw, readErr)
+		return err == nil, err
+	}); err != nil {
+		return false, err
+	}
+	return recorded, w.acknowledge(ctx, tenant, wh, c.id, id)
 }
 
 // acknowledge tells the WMS the confirmation is recorded and sets its
@@ -189,6 +208,7 @@ type inbound struct {
 	status                string
 	code, detail          *string // refused: the problem's, its detail at most 1000 characters
 	issued                *WMSIssued
+	sent                  []WMSDeliveryItem // the delivery's items as the WMS was sent them
 }
 
 // record records the confirmation once, under a lock of its connector and
@@ -206,7 +226,11 @@ func (w *WMSExchange) record(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c
 	if exists {
 		return false, nil
 	}
-	in := inbound{id: uuid.Must(uuid.NewV7()), connector: c.id, messageID: id, body: keptBody(raw)}
+	body, asReceived := keptBody(raw)
+	if !asReceived && readErr == nil {
+		readErr = unkept(id)
+	}
+	in := inbound{id: uuid.Must(uuid.NewV7()), connector: c.id, messageID: id, body: body}
 	err := uow.Act(ctx, tx, wmsActor(tenant), w.Now, func(ctx context.Context) error {
 		if err := w.post(ctx, tx, &in, raw, readErr); err != nil {
 			return err
@@ -216,19 +240,24 @@ func (w *WMSExchange) record(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c
 	return err == nil, err
 }
 
-// keptBody is what is kept of a confirmation: its JSON object, or, when it
-// is not one, its text as {"text": ...}, at most 1000 characters of it.
-func keptBody(raw []byte) []byte {
+// keptBody is what is kept of a confirmation and whether it is the
+// confirmation as received: its JSON object; or, when it is not one or
+// holds a NUL (\u0000), which jsonb cannot store, its text as
+// {"text": ...}, NULs and invalid UTF-8 dropped, at most 1000 characters
+// of it.
+func keptBody(raw []byte) ([]byte, bool) {
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) == nil && fields != nil {
-		return raw
+	if json.Unmarshal(raw, &fields) == nil && fields != nil && !bytes.Contains(raw, []byte(`\u0000`)) {
+		return raw, true
 	}
-	text := []rune(string(raw))
-	if !utf8.Valid(raw) {
-		text = []rune("(not text)")
-	}
+	text := []rune(strings.ReplaceAll(strings.ToValidUTF8(string(raw), ""), "\x00", ""))
 	b, _ := json.Marshal(map[string]string{"text": string(text[:min(len(text), 1000)])}) // a map of strings always marshals
-	return b
+	return b, false
+}
+
+// unkept refuses a confirmation that could not be kept as received.
+func unkept(id string) error {
+	return problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON object the ERP can keep as received.")
 }
 
 // post reads the confirmation and posts it, in a savepoint: a refusal
@@ -284,8 +313,9 @@ func readGoodsIssue(id string, raw []byte, readErr error) (WMSIssueReport, error
 func (w *WMSExchange) sentTo(ctx context.Context, tx pgx.Tx, in *inbound, delivery uuid.UUID) error {
 	var le uuid.UUID
 	var number string
-	err := tx.QueryRow(ctx, `SELECT legal_entity_id, document_number FROM integration.wms_message
-		WHERE connector_id = $1 AND direction = 'outbound' AND kind = $2 AND document_id = $3`, in.connector, WMSOutboundDelivery, delivery).Scan(&le, &number)
+	var sent WMSDelivery
+	err := tx.QueryRow(ctx, `SELECT legal_entity_id, document_number, body FROM integration.wms_message
+		WHERE connector_id = $1 AND direction = 'outbound' AND kind = $2 AND document_id = $3`, in.connector, WMSOutboundDelivery, delivery).Scan(&le, &number, &sent)
 	if noRows(err) {
 		return problem.Unprocessable("integration.wms_unknown_delivery",
 			"Confirmation "+in.messageID+" names an outbound delivery this warehouse system was not sent.")
@@ -293,17 +323,32 @@ func (w *WMSExchange) sentTo(ctx context.Context, tx pgx.Tx, in *inbound, delive
 	if err != nil {
 		return fmt.Errorf("integration: the delivery of wms confirmation %s: %w", in.messageID, err)
 	}
-	in.legalEntity, in.delivery, in.number = &le, &delivery, &number
+	in.legalEntity, in.delivery, in.number, in.sent = &le, &delivery, &number, sent.Items
 	return nil
+}
+
+// pickedOf is what the report picked of each item, and nothing of each
+// item it was sent and does not name, so a quantity picked before (by a
+// person) is not issued with it.
+func pickedOf(gi WMSIssueReport, sent []WMSDeliveryItem) []WMSPicked {
+	picked := make([]WMSPicked, 0, len(gi.Items)+len(sent))
+	named := map[int32]bool{}
+	for _, it := range gi.Items {
+		picked = append(picked, WMSPicked{ItemNo: it.ItemNo, Quantity: it.Quantity, Unit: it.Unit})
+		named[it.ItemNo] = true
+	}
+	for _, it := range sent {
+		if !named[it.ItemNo] {
+			picked = append(picked, WMSPicked{ItemNo: it.ItemNo, Quantity: "0", Unit: it.Unit})
+		}
+	}
+	return picked
 }
 
 // issue posts the goods issue in a savepoint, acting for the delivery's
 // company alone.
 func (w *WMSExchange) issue(ctx context.Context, tx pgx.Tx, in *inbound, gi WMSIssueReport) error {
-	picked := make([]WMSPicked, len(gi.Items))
-	for i, it := range gi.Items {
-		picked[i] = WMSPicked{ItemNo: it.ItemNo, Quantity: it.Quantity, Unit: it.Unit}
-	}
+	picked := pickedOf(gi, in.sent)
 	mark := audit.Mark(ctx)
 	if _, err := tx.Exec(ctx, `SAVEPOINT wms_goods_issue`); err != nil {
 		return fmt.Errorf("integration: open the savepoint of wms confirmation %s: %w", in.messageID, err)

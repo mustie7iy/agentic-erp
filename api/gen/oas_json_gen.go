@@ -311049,8 +311049,10 @@ func (s *WMSMessage) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		e.FieldStart("body")
-		s.Body.Encode(e)
+		if len(s.Body) != 0 {
+			e.FieldStart("body")
+			e.Raw(s.Body)
+		}
 	}
 	{
 		e.FieldStart("status")
@@ -311279,7 +311281,9 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 		case "body":
 			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
-				if err := s.Body.Decode(d); err != nil {
+				v, err := d.RawAppend(nil)
+				s.Body = jx.Raw(v)
+				if err != nil {
 					return err
 				}
 				return nil
@@ -311468,64 +311472,6 @@ func (s *WMSMessage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *WMSMessage) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode implements json.Marshaler.
-func (s WMSMessageBody) Encode(e *jx.Encoder) {
-	e.ObjStart()
-	s.encodeFields(e)
-	e.ObjEnd()
-}
-
-// encodeFields implements json.Marshaler.
-func (s WMSMessageBody) encodeFields(e *jx.Encoder) {
-	for k, elem := range s {
-		e.FieldStart(k)
-
-		if len(elem) != 0 {
-			e.Raw(elem)
-		}
-	}
-}
-
-// Decode decodes WMSMessageBody from json.
-func (s *WMSMessageBody) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode WMSMessageBody to nil")
-	}
-	m := s.init()
-	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
-		var elem jx.Raw
-		if err := func() error {
-			v, err := d.RawAppend(nil)
-			elem = jx.Raw(v)
-			if err != nil {
-				return err
-			}
-			return nil
-		}(); err != nil {
-			return errors.Wrapf(err, "decode field %q", k)
-		}
-		m[string(k)] = elem
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "decode WMSMessageBody")
-	}
-
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s WMSMessageBody) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *WMSMessageBody) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

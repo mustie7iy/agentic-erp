@@ -115,14 +115,18 @@ func wmsJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
-// delivery creates a delivery of a confirmed order of Northwind's for
-// boxes of the bracket from the plant's storage location and returns its
+// delivery creates a delivery of a confirmed order of Northwind's of an
+// item per quantity of boxes of the bracket from the plant's storage location and returns its
 // id and number.
-func (e wmsEnv) delivery(t *testing.T, plant, location uuid.UUID, boxes string) (string, string) {
+func (e wmsEnv) delivery(t *testing.T, plant, location uuid.UUID, boxes ...string) (string, string) {
 	t.Helper()
-	o, _ := e.Must(201, "POST", "/v1/sales-orders", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "currency": "EUR", "items": [
-		{"material_id": %q, "quantity": {"value": %q, "unit": "BOX"}, "unit_price": {"amount": "1.00", "currency": "EUR"}, "account_id": %q}]}`,
-		e.DE, e.customer, e.bracket, boxes, e.revenue), "")
+	items := make([]string, len(boxes))
+	for i, b := range boxes {
+		items[i] = fmt.Sprintf(`{"material_id": %q, "quantity": {"value": %q, "unit": "BOX"}, "unit_price": {"amount": "1.00", "currency": "EUR"},
+			"account_id": %q}`, e.bracket, b, e.revenue)
+	}
+	o, _ := e.Must(201, "POST", "/v1/sales-orders", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "currency": "EUR", "items": [%s]}`,
+		e.DE, e.customer, strings.Join(items, ", ")), "")
 	order := o["id"].(string)
 	// Confirmed as an order without a plant was (shipping's tests): the
 	// delivery names its plant.
@@ -248,9 +252,12 @@ func TestWMSDeliveryRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(body, &sent); err != nil {
 		t.Fatalf("what the WMS was sent: %v", err)
 	}
-	if sends != 1 || sent.DeliveryNumber != number || sent.PlantCode != "P1" || sent.StorageLocation != "S1" || len(sent.Items) != 1 ||
-		sent.Items[0].Quantity != "3" || sent.Items[0].Unit != "BOX" || sent.CustomerNumber != "BP70000001" {
-		t.Errorf("what the WMS was sent: got %d sends of %+v, want one of the delivery's 3 BOX from P1/S1", sends, sent)
+	if sends != 1 {
+		t.Errorf("sends: got %d, want 1", sends)
+	}
+	got := fmt.Sprintf("%s %s/%s for %s: %+v", sent.DeliveryNumber, sent.PlantCode, sent.StorageLocation, sent.CustomerNumber, sent.Items)
+	if want := fmt.Sprintf("%s P1/S1 for BP70000001: [{ItemNo:1 MaterialNumber:%s Quantity:3 Unit:BOX}]", number, sent.Items[0].MaterialNumber); got != want {
+		t.Errorf("what the WMS was sent: got %s, want %s", got, want)
 	}
 	if n, err := x.SendOnce(context.Background()); err != nil || n != 0 {
 		t.Errorf("a second round: got %d, %v; want nothing due", n, err)
@@ -304,4 +311,32 @@ func TestWMSDeliveryRoundTrip(t *testing.T) {
 			t.Errorf("messages after the delivery's goods issue event: got %d, want 0", n)
 		}
 	})
+}
+
+// TestWMSReportNamesItsItems: a goods issue the WMS reports issues what it
+// names alone: an item it does not name is picked at nothing, whatever a
+// person picked of it before.
+func TestWMSReportNamesItsItems(t *testing.T) {
+	e := setupWMS(t)
+	id, _ := e.delivery(t, e.p1, e.s1, "1", "1")
+	e.queued(t, id)
+	x := e.exchange(t, time.Now)
+	if _, err := x.SendOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, tag := e.Must(200, "GET", "/v1/outbound-deliveries/"+id, "", "")
+	e.Must(200, "POST", "/v1/outbound-deliveries/"+id+":pick", `{"items": [{"item_no": 2, "quantity": {"value": "1", "unit": "BOX"}}]}`, tag)
+	e.wms.Report("GI-items", goodsIssue("GI-items", id, "1 1 BOX"))
+	if n, err := x.PollOnce(context.Background()); err != nil || n != 1 {
+		t.Fatalf("poll: got %d, %v; want 1 recorded", n, err)
+	}
+	d, _ := e.Must(200, "GET", "/v1/outbound-deliveries/"+id, "", "")
+	for i, want := range []string{"1", "0"} {
+		if p := d["items"].([]any)[i].(map[string]any)["picked_quantity"].(map[string]any)["value"]; p != want {
+			t.Errorf("item %d's picked quantity: got %v, want %s", i+1, p, want)
+		}
+	}
+	if d["status"] != "goods_issued" {
+		t.Errorf("the delivery: got %v, want goods_issued", d["status"])
+	}
 }

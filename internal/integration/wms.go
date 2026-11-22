@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 
@@ -15,8 +16,8 @@ import (
 // The WMS connector (S2q1; ADR-0082 As built S2q): an external warehouse
 // management system a tenant connects for some of its plants. The ERP
 // sends it each outbound delivery created at such a plant to pick
-// (wms_queue.go) and posts the goods issues it reports back, once per
-// message id (wms_exchange.go). The connector names the plants it manages;
+// (wms_queue.go, wms_send.go) and posts the goods issues it reports back,
+// once per message id (wms_receive.go). The connector names the plants it manages;
 // a plant is managed by one active wms connector at most, so a delivery
 // goes to one warehouse system and a goods issue is reported by the one
 // it was sent to. The WMS is reached through a provider-neutral port
@@ -41,7 +42,7 @@ type WMSSettings struct {
 // adapter and its https base URL, and the plants the WMS manages by
 // company code, at least one plant, each once.
 func wmsSettings(settings map[string]any) (WMSSettings, error) {
-	for k := range settings {
+	for _, k := range slices.Sorted(maps.Keys(settings)) { // the first unknown key by name, whatever the map's order
 		if !slices.Contains(wmsKeys, k) {
 			return WMSSettings{}, problem.Invalid("integration.invalid_settings", "settings."+k, "Not a wms setting; credentials go in secret_ref.")
 		}
@@ -126,8 +127,8 @@ func plantsFree(ctx context.Context, tx pgx.Tx, self uuid.UUID, s WMSSettings) e
 		if o.ID == self {
 			continue
 		}
-		for company, plants := range s.Plants {
-			for _, plant := range plants {
+		for _, company := range slices.Sorted(maps.Keys(s.Plants)) { // the first taken plant by company and code
+			for _, plant := range s.Plants[company] {
 				if o.Manages(company, plant) {
 					return problem.Conflict("integration.plant_has_wms",
 						fmt.Sprintf("Plant %s of company %s is managed by the warehouse system of connector %s already.", plant, company, o.Name))

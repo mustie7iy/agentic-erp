@@ -224,3 +224,31 @@ func TestWMSMessagePrivileges(t *testing.T) {
 		})
 	}
 }
+
+// TestWMSConnectorDown: 000445's down refuses, rather than drops, the wms
+// connectors and messages the previous version cannot hold (06 §6.4).
+func TestWMSConnectorDown(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000445_wms_connector").Down
+	for name, seed := range map[string]string{
+		"a wms connector": `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, status, created_by, updated_by)
+			VALUES ($1, gen_random_uuid(), 'wms', 'W', '{}', 'active', $1, $1)`,
+		"a message": `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, body, status, problem_code, problem_detail)
+			VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'inbound', 'M', 'goods_issue', '{}', 'refused', 'c', 'd')`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			tenant := id()
+			if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(`SET LOCAL session_replication_role = replica`),
+				step(seed, tenant), step(`SET LOCAL session_replication_role = origin`), step(`SELECT set_config('app.tenant_id', '', true)`)); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "wms connectors exist")
+		})
+	}
+}

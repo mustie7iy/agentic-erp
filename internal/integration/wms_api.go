@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -141,13 +140,5 @@ func (n wmsNames) toAPI(m WMSMessage) gen.WMSMessage {
 	return out
 }
 
-// wmsBody is a kept body as the contract's object.
-func wmsBody(raw []byte) gen.WMSMessageBody {
-	var fields map[string]json.RawMessage
-	_ = json.Unmarshal(raw, &fields) // the column holds a JSON object (keptBody, queue); anything else shows as none
-	out := make(gen.WMSMessageBody, len(fields))
-	for k, v := range fields {
-		out[k] = jx.Raw(v)
-	}
-	return out
-}
+// wmsBody is a kept body, a JSON object, passed through as stored.
+func wmsBody(raw []byte) jx.Raw { return jx.Raw(raw) }

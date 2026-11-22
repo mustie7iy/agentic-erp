@@ -69141,9 +69141,7 @@ components:
         outbound_delivery_number: {type: string, description: "The outbound delivery's number.", readOnly: true}
         plant_code: {type: string, description: "Outbound: the delivery's plant, which the connector manages.", readOnly: true}
         body:
-          type: object
-          additionalProperties: true
-          description: "The message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as `{\"text\": ...}`, at most 1000 characters of it)."
+          description: "A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as `{\"text\": ...}`, at most 1000 characters of it)."
           readOnly: true
         status:
           type: string

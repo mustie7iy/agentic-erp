@@ -209,7 +209,8 @@ func TestWMSConfirmationOutcomes(t *testing.T) {
 		text string // the body kept as {"text": ...}; "" when kept as sent
 	}{
 		"not JSON":               {[]byte("hello"), "integration.wms_message_unreadable", "hello"},
-		"not text":               {[]byte{0xff, 0xfe}, "integration.wms_message_unreadable", "(not text)"},
+		"not text":               {[]byte{'a', 0xff, 0xfe, 0}, "integration.wms_message_unreadable", "a"},
+		"a NUL in an object":     {[]byte(`{"message_id": "M-nul", "type": "goods_issue", "note": "a\u0000b"}`), "integration.wms_message_unreadable", `{"message_id": "M-nul", "type": "goods_issue", "note": "a\u0000b"}`},
 		"a JSON array":           {[]byte(`[1]`), "integration.wms_message_unreadable", "[1]"},
 		"another type":           {[]byte(`{"message_id": "M-type", "type": "goods_receipt", "outbound_delivery_id": "` + id + `"}`), "integration.wms_message_unreadable", ""},
 		"another message id":     {[]byte(`{"message_id": "M-x", "type": "goods_issue", "outbound_delivery_id": "` + id + `"}`), "integration.wms_message_unreadable", ""},
@@ -221,7 +222,7 @@ func TestWMSConfirmationOutcomes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mid := "M-" + strings.ReplaceAll(name, " ", "-")
 			switch name {
-			case "another type", "no delivery", "a delivery not sent it", "more than delivered", "nothing picked":
+			case "a NUL in an object", "another type", "no delivery", "a delivery not sent it", "more than delivered", "nothing picked":
 				mid = strings.Split(strings.Split(string(c.body), `"message_id": "`)[1], `"`)[0]
 			}
 			e.wms.Report(mid, c.body)
@@ -257,7 +258,8 @@ func TestWMSConfirmationOutcomes(t *testing.T) {
 // credentials that do not resolve record nothing and are reported; an
 // acknowledgement that fails leaves the confirmation recorded, and the
 // next poll acknowledges it; the stand-in in production and a connector
-// without a secret_ref are not polled.
+// without a secret_ref are not polled; an id too long to record is
+// reported and the others are taken still.
 func TestWMSPollFailures(t *testing.T) {
 	e := setupWMS(t)
 	id, _ := e.delivery(t, e.p1, e.s1, "2")
@@ -310,6 +312,12 @@ func TestWMSPollFailures(t *testing.T) {
 	}
 	if in := e.inbound(t, "GI-9"); in["acknowledged_at"] == nil || e.wms.Acknowledged("GI-9") != 1 {
 		t.Errorf("the next poll's acknowledgement: got %v, %d; want acknowledged once", in["acknowledged_at"], e.wms.Acknowledged("GI-9"))
+	}
+	long := strings.Repeat("x", 201)
+	e.wms.Report(long, goodsIssue(long, id, "1 1 BOX"))
+	e.wms.Report("GI-10", goodsIssue("GI-10", uuid.NewString(), "1 1 BOX"))
+	if n, err := x.PollOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "201 characters") || n != 1 {
+		t.Errorf("an id too long beside another: got %d, %v; want the other recorded and the long one reported", n, err)
 	}
 }
 

@@ -127122,9 +127122,9 @@ type WMSMessage struct {
 	OutboundDeliveryNumber OptString `json:"outbound_delivery_number"`
 	// Outbound: the delivery's plant, which the connector manages.
 	PlantCode OptString `json:"plant_code"`
-	// The message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as
-	// `{"text": ...}`, at most 1000 characters of it).
-	Body WMSMessageBody `json:"body"`
+	// A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound;
+	// a body that is not a JSON object is kept as `{"text": ...}`, at most 1000 characters of it).
+	Body jx.Raw `json:"body"`
 	// Outbound: `pending` (queued, or waiting for its next attempt), `sent` or `failed`; inbound: `posted`
 	// or `refused`. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
@@ -127207,7 +127207,7 @@ func (s *WMSMessage) GetPlantCode() OptString {
 }
 
 // GetBody returns the value of Body.
-func (s *WMSMessage) GetBody() WMSMessageBody {
+func (s *WMSMessage) GetBody() jx.Raw {
 	return s.Body
 }
 
@@ -127327,7 +127327,7 @@ func (s *WMSMessage) SetPlantCode(val OptString) {
 }
 
 // SetBody sets the value of Body.
-func (s *WMSMessage) SetBody(val WMSMessageBody) {
+func (s *WMSMessage) SetBody(val jx.Raw) {
 	s.Body = val
 }
 
@@ -127389,19 +127389,6 @@ func (s *WMSMessage) SetCreatedAt(val time.Time) {
 // SetUpdatedAt sets the value of UpdatedAt.
 func (s *WMSMessage) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
-}
-
-// The message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as
-// `{"text": ...}`, at most 1000 characters of it).
-type WMSMessageBody map[string]jx.Raw
-
-func (s *WMSMessageBody) init() WMSMessageBody {
-	m := *s
-	if m == nil {
-		m = map[string]jx.Raw{}
-		*s = m
-	}
-	return m
 }
 
 // One page of messages exchanged with warehouse systems.

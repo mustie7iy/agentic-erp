@@ -106652,16 +106652,17 @@ func (s *Server) handleListVarianceCommentsRequest(args [0]string, argsEscaped b
 // and storage location by code, the delivery by id and number with its sales order's and customer's
 // numbers, and each item's number, material number, quantity and unit), `pending` until the exchange
 // sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried
-// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the warehouse system's,
-// `integration.wms_refused`; the connector disabled or not resolving since,
-// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
-// `integration.invalid_settings`, `integration.not_a_wms`, or the stand-in in production,
-// `integration.adapter_not_certified`) or the sixth attempt's failure is final, and a last attempt
-// whose outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the
-// warehouse system's key: sending it again is not a second delivery. The failed ones are the worklist.
-// Inbound (`goods_issue`): what the warehouse system reports back, polled from each active `wms`
-// connector (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's
-// picked quantities recorded and its goods issue posted (shipping's `pickOutboundDelivery` and
+// again after 1, 5 and 15 minutes, 1 and 4 hours, its code in `last_error_code`: the warehouse system
+// unreachable, or the connector not usable since (`integration.connector_disabled`,
+// `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`,
+// `integration.not_a_wms`, or the stand-in in production, `integration.adapter_not_certified`), which
+// its administrator may put right meanwhile; the warehouse system's refusal
+// (`integration.wms_refused`) or the sixth attempt's failure is final, and a last attempt whose
+// outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the warehouse
+// system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound
+// (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector
+// (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked
+// quantities recorded and its goods issue posted (shipping's `pickOutboundDelivery` and
 // `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's
 // company), naming the material document; or `refused` with the problem that stopped it, nothing of it
 // posted: one that is not a JSON `goods_issue` message naming its own message id and an

@@ -1654,9 +1654,11 @@ specialist):
   shipping's refusal (or an unreadable, too large or other message:
   `integration.wms_message_unreadable`, `integration.wms_message_too_large`)
   is recorded `refused` with its problem, nothing of it kept; a failure of
-  the machinery records nothing and the next poll takes it again. After
-  that commit the WMS is told (`acknowledged_at`); one listed again is
-  acknowledged again, not posted twice.
+  the machinery records nothing and the next poll takes it again, the
+  others taken still (an id over 200 characters, which no row holds, is
+  reported and never taken). After that commit the WMS is told
+  (`acknowledged_at`); one listed again is acknowledged again, not posted
+  twice.
 - **What a message is never changes** (`wms_message_kept`): its
   connector, direction, id, kind, delivery, plant and body; an inbound
   one's outcome; its acknowledgement once set; a sent or failed
