@@ -359,9 +359,9 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 	if err != nil {
 		return nil, err
 	}
-	le, supplier := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID)
+	le, supplier, material := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID), apitypes.Ptr[uuid.UUID](params.MaterialID)
 	before := apitypes.Ptr[time.Time](params.ExpiringBefore)
-	ks, err := e.Pages.Keyset(contractSort, fmt.Sprintf("listContracts|%s|%s|%s|%v|%s", le, supplier, params.Status.Value, before, params.Kind.Value),
+	ks, err := e.Pages.Keyset(contractSort, fmt.Sprintf("listContracts|%s|%s|%s|%v|%s|%s", le, supplier, params.Status.Value, before, params.Kind.Value, material),
 		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -371,8 +371,9 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 		return nil, err
 	}
 	q, args := ks.SQL(contractSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR c.supplier_id = $4) AND ($5 = '' OR c.status = $5) AND ($6::date IS NULL OR c.valid_to < $6) AND ($7 = '' OR c.kind = $7)`,
-		[]any{access.All, access.IDs, le, supplier, params.Status.Value, before, params.Kind.Value})
+		AND ($4::uuid IS NULL OR c.supplier_id = $4) AND ($5 = '' OR c.status = $5) AND ($6::date IS NULL OR c.valid_to < $6) AND ($7 = '' OR c.kind = $7)
+		AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM procurement.contract_item mi WHERE mi.tenant_id = c.tenant_id AND mi.contract_id = c.id AND mi.material_id = $8))`,
+		[]any{access.All, access.IDs, le, supplier, params.Status.Value, before, params.Kind.Value, material})
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Contract, error) { return scanContract(r) })
 	if err != nil {
@@ -504,9 +505,9 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 	if err != nil {
 		return nil, err
 	}
-	le, supplier := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID)
+	le, supplier, material := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID), apitypes.Ptr[uuid.UUID](params.MaterialID)
 	from, to := apitypes.Ptr[time.Time](params.OrderDateFrom), apitypes.Ptr[time.Time](params.OrderDateTo)
-	scope := fmt.Sprintf("listPurchaseOrders|%s|%s|%s|%s|%v|%v", le, supplier, params.Status.Value, params.DocumentNumber.Value, from, to)
+	scope := fmt.Sprintf("listPurchaseOrders|%s|%s|%s|%s|%v|%v|%s", le, supplier, params.Status.Value, params.DocumentNumber.Value, from, to, material)
 	ks, err := e.Pages.Keyset(orderSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -517,8 +518,9 @@ func (e *Endpoints) ListPurchaseOrders(ctx context.Context, params gen.ListPurch
 	}
 	q, args := ks.SQL(orderSelect+` WHERE ($1 OR o.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR o.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR o.supplier_id = $4) AND ($5 = '' OR o.status = $5) AND ($6 = '' OR o.document_number = $6)
-		AND ($7::date IS NULL OR o.order_date >= $7) AND ($8::date IS NULL OR o.order_date <= $8)`,
-		[]any{access.All, access.IDs, le, supplier, params.Status.Value, params.DocumentNumber.Value, from, to})
+		AND ($7::date IS NULL OR o.order_date >= $7) AND ($8::date IS NULL OR o.order_date <= $8)
+		AND ($9::uuid IS NULL OR EXISTS (SELECT 1 FROM procurement.purchase_order_item mi WHERE mi.tenant_id = o.tenant_id AND mi.purchase_order_id = o.id AND mi.material_id = $9))`,
+		[]any{access.All, access.IDs, le, supplier, params.Status.Value, params.DocumentNumber.Value, from, to, material})
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PurchaseOrder, error) { return scanOrder(r) })
 	if err != nil {

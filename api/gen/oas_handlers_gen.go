@@ -80243,6 +80243,10 @@ func (s *Server) handleListContractsRequest(args [0]string, argsEscaped bool, w 
 					In:   "query",
 				}: params.SupplierID,
 				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
+				{
 					Name: "status",
 					In:   "query",
 				}: params.Status,
@@ -98493,6 +98497,10 @@ func (s *Server) handleListPurchaseOrdersRequest(args [0]string, argsEscaped boo
 					Name: "supplier_id",
 					In:   "query",
 				}: params.SupplierID,
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
 				{
 					Name: "status",
 					In:   "query",

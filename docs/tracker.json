@@ -5859,9 +5859,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The replenishment agent recommends what to order, from which supplier and when, from the run's proposals for a buyer to decide",
-      "r": "S2l · docs/design/plan-supply-chain.md §S2l",
+      "r": "S2l · docs/design/plan-supply-chain.md §S2l · ADR-0072 As built S2l · ADR-0084 As built S2l · internal/replenishmentagent · erp agent replenish -run ID · agent type replenishment · listPurchaseOrders, listContracts material_id · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
       "src": "po:2026-11-17",
       "c": []
      },

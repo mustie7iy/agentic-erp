@@ -11254,6 +11254,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
         - $ref: "#/components/parameters/SupplierId"
+        - name: material_id
+          in: query
+          required: false
+          description: "Only purchase orders with an item of this material (`GET /v1/materials/{id}`): the material's purchasing history, which the replenishment agent reads (S2l). Each order is answered whole, all its items with it."
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -12438,6 +12445,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
         - $ref: "#/components/parameters/SupplierId"
+        - name: material_id
+          in: query
+          required: false
+          description: "Only contracts with an item of this material (`GET /v1/materials/{id}`): its outline agreements, which the replenishment agent reads as sources of supply (S2l). Each contract is answered whole, all its items with it."
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -41570,6 +41584,7 @@ components:
             - risk
             - planning
             - enablement
+            - replenishment
           maxLength: 50
         model:
           type: string

@@ -90,6 +90,7 @@ var allowed = map[string][]string{
 	"controlagent":            {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, the matrix it reads before its session and its check
 	"riskagent":               {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, the register it reads before its session and its check
 	"planningagent":           {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
+	"replenishmentagent":      {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"analytics":               {"apitools", "config", "configuration", "llm"}, // llm: its runner of in-process tools (Runner.Params, RunTools; ADR-0072 As built, hardening 3)
 	"apitools":                {"llm"},
 	"app":                     {"countrypack"}, // apitest releases a test's own country packs

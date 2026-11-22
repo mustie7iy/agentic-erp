@@ -232,3 +232,17 @@ as a receipt, having no plant.
   as a person's would, until a purchase order's goods receipt carries
   batches and serial numbers (`procurement.invalid_stock_item` refuses
   such a stock item for now).
+
+### S2l (2026-11-21)
+
+- The replenishment agent (ADR-0072 As built S2l, `erp agent replenish
+  -run ID`) reviews a completed run's proposals through the API, as §5
+  foresaw: it reads `getMrpRun` and each proposal, never starts a run or
+  changes a plan or a requisition. It finds a proposal's supplier in the
+  sources the tenant's data has (catalog items of the material, contracts
+  with an item of it, purchase orders with an item of it); proposals
+  still name no supplier (§6: source determination Later), and a buyer
+  who names one on the requisition takes the proposal over.
+- `listPurchaseOrders` and `listContracts` take an optional
+  `material_id` (procurement's API, additive; no index: an item is found
+  by its order's or contract's key).

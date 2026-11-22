@@ -25,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cashagent"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
+	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authn"
@@ -32,6 +33,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/replenishmentagent"
+	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
 
 // replayCell is a cell in process for replay runs (ADR-0039): the public
@@ -101,6 +104,25 @@ func newReplayCell(t *testing.T, now func() time.Time) replayCell {
 		return is.Token(t, uuid.MustParse(tenant), subject, nil), nil
 	}
 	return c
+}
+
+// planRuns carries out the planning runs the replenishment suite's cases
+// start, as a cell without a workflow engine does (ADR-0084 §3), until the
+// test ends.
+func planRuns(t *testing.T) {
+	t.Helper()
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	planner := &workflows.Planner{Mrps: &workflows.Mrps{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.MRP(app.Config{}),
+		Actors: identity.Actors{}}, Interval: 20 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	go func() {
+		defer close(done)
+		planner.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		stop()
+		<-done
+	})
 }
 
 // replay plays a case's scripted turns as the model, filling them from the
@@ -241,6 +263,9 @@ func TestEvalSuites(t *testing.T) {
 				t.Fatal(err)
 			}
 			c := newReplayCell(t, cellClock(t, s.Agent))
+			if s.Agent == replenishmentagent.Type {
+				planRuns(t)
+			}
 			vars := map[string]string{"ERP_CONTROL_URL": c.control.URL, "ERP_API_URL": c.api.URL}
 			getenv = func(k string) string { return vars[k] }
 			t.Cleanup(func() { getenv = os.Getenv })

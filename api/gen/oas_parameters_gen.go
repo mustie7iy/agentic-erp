@@ -62512,6 +62512,10 @@ type ListContractsParams struct {
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
 	// Only resources of this supplier (business partner id).
 	SupplierID OptUUID `json:",omitempty,omitzero"`
+	// Only contracts with an item of this material (`GET /v1/materials/{id}`): its outline agreements,
+	// which the replenishment agent reads as sources of supply (S2l). Each contract is answered whole, all
+	// its items with it.
+	MaterialID OptUUID `json:",omitempty,omitzero"`
 	// Only contracts in this status.
 	Status OptString `json:",omitempty,omitzero"`
 	// Only contracts of this kind: `contract`, or `scheduling_agreement` (ADR-0070). A value that is no
@@ -62549,6 +62553,15 @@ func unpackListContractsParams(packed middleware.Parameters) (params ListContrac
 		}
 		if v, ok := packed[key]; ok {
 			params.SupplierID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "material_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.MaterialID = v.(OptUUID)
 		}
 	}
 	{
@@ -62697,6 +62710,47 @@ func decodeListContractsParams(args [0]string, argsEscaped bool, r *http.Request
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "supplier_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: material_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotMaterialIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotMaterialIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.MaterialID.SetTo(paramsDotMaterialIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "material_id",
 			In:   "query",
 			Err:  err,
 		}
@@ -102571,6 +102625,10 @@ type ListPurchaseOrdersParams struct {
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
 	// Only resources of this supplier (business partner id).
 	SupplierID OptUUID `json:",omitempty,omitzero"`
+	// Only purchase orders with an item of this material (`GET /v1/materials/{id}`): the material's
+	// purchasing history, which the replenishment agent reads (S2l). Each order is answered whole, all its
+	// items with it.
+	MaterialID OptUUID `json:",omitempty,omitzero"`
 	// Only purchase orders in this status.
 	Status OptString `json:",omitempty,omitzero"`
 	// Only the document with this human document number.
@@ -102612,6 +102670,15 @@ func unpackListPurchaseOrdersParams(packed middleware.Parameters) (params ListPu
 		}
 		if v, ok := packed[key]; ok {
 			params.SupplierID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "material_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.MaterialID = v.(OptUUID)
 		}
 	}
 	{
@@ -102778,6 +102845,47 @@ func decodeListPurchaseOrdersParams(args [0]string, argsEscaped bool, r *http.Re
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "supplier_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: material_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotMaterialIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotMaterialIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.MaterialID.SetTo(paramsDotMaterialIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "material_id",
 			In:   "query",
 			Err:  err,
 		}
