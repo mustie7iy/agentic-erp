@@ -216,7 +216,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `control_monitoring` | `internal/controlagent`, `erp agent control-monitor [-process TEXT]` | `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listSodRules`, `listRoleAssignments`, `listApprovalRequests` | on `control`: `exception_found`, `no_exception` | `createControl`, `updateControl`, `retireControl`, `createControlTest`, `createControlLink`, `removeControlLink` |
 | `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
-| `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner` | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included), `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
+| `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner` | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 
 A later slice adds its row here and its section under "As built".
 
@@ -1451,7 +1451,7 @@ A later slice adds its row here and its section under "As built".
   record or quota arrangement is built (SAP's source determination, from
   memory: Later). `listPurchaseOrders` and `listContracts` gain an
   optional `material_id` (additive): the orders and contracts with an
-  item of the material, each answered whole.
+  item of the material that no change removed, each answered whole.
 - Its check (`replenishmentagent.review.check`): the recommendation is on
   a proposal the run read with `getRequisition` that is still to be
   ordered (`draft`, `pending_approval`, `approved`) and of one item of a
@@ -1471,17 +1471,22 @@ A later slice adds its row here and its section under "As built".
   (§4; a quantity is a text, not an amount, so the first line is left out
   of the figures check rather than refused for a fractional quantity).
   `source_needed` orders nothing and is refused once the run read a
-  source of the material whose supplier it has not read as inactive
-  (`ErrHasSource`). The prompt orders a valid contract before a catalog
+  source an order could use (the same test: the proposal's material and
+  company, valid on the day) whose supplier it has not read as inactive
+  (`ErrHasSource`, naming the first such source by its key), so every
+  proposal still to be ordered has one recommendation the check admits. The prompt orders a valid contract before a catalog
   item before the supplier last ordered from; the check takes any source
   read: which to prefer is the buyer's to judge.
 - Nothing happens on acceptance: the buyer names the supplier or contract
   on the requisition (`updateRequisition`, which takes the proposal over
   from planning, ADR-0084 §3), submits it, sources it by an RFQ, or orders
   it. Its never list is every write of requisitions and purchase orders,
-  their changes included, `createRfq`, `startMrpRun` and materials'
-  planning data (`TestNever` keeps it whole against the contract's writes
-  named `Requisition`, `PurchaseOrder`, `MrpRun` and `MaterialPlan`).
+  their changes included, a scheduling agreement's schedule lines
+  (`createScheduleLine`, and `callOffScheduleLine`, which creates an
+  order, ADR-0070 §4), `createRfq`, `startMrpRun` and materials' planning
+  data (`TestNever` keeps it whole against the contract's writes named
+  `Requisition`, `PurchaseOrder`, `ScheduleLine`, `MrpRun` and
+  `MaterialPlan`).
   Requisitions and orders are `x-autonomy: propose`, so the API refuses
   the agent them by its role, which holds no write (403
   `identity.permission_missing`).

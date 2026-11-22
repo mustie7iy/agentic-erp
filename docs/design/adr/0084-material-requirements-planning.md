@@ -244,5 +244,9 @@ as a receipt, having no plant.
   still name no supplier (§6: source determination Later), and a buyer
   who names one on the requisition takes the proposal over.
 - `listPurchaseOrders` and `listContracts` take an optional
-  `material_id` (procurement's API, additive; no index: an item is found
-  by its order's or contract's key).
+  `material_id` (procurement's API, additive): the orders and contracts
+  with an item of the material that no change removed. No index is
+  added: the filter tests each order or contract of the page's scan by
+  its items' key, so a selective material reads the company's orders
+  page by page; an index of items by material waits for a budget that
+  needs it (no budget test covers these lists).

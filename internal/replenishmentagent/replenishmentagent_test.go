@@ -44,6 +44,7 @@ const (
 	con1    = "01a1aa00-0000-7000-8000-000000000f11" // active, valid this year: item 1 the hinge, item 2 no material
 	con2    = "01a1aa00-0000-7000-8000-000000000f12" // expired
 	con3    = "01a1aa00-0000-7000-8000-000000000f13" // active, valid next year
+	con4    = "01a1aa00-0000-7000-8000-000000000f14" // active, valid next year: the gasket's only source, which no order by its day can use
 	po1     = "01a1aa00-0000-7000-8000-000000000f21" // released, from s3
 	po2     = "01a1aa00-0000-7000-8000-000000000f22" // a draft, from s1
 	po3     = "01a1aa00-0000-7000-8000-000000000f23" // closed, from s1, two items of the hinge
@@ -65,8 +66,10 @@ var answers = map[string]string{
 		catalog(cat3, otherLE, s1, hinge, "active") + `, ` + catalog(cat5, le, s5, hinge, "active") +
 		`, {"id": "01a1aa00-0000-7000-8000-000000000f06", "legal_entity_id": "` + le + `", "supplier_id": "` + s1 + `", "status": "active"}]}`,
 	"/v1/catalog-items/" + cat4: catalog(cat4, le, s4, hinge, "active"),
-	"/v1/contracts":             `{"items": [` + contract(con2, "expired", "2025-01-01", "2025-12-31") + `, ` + contract(con3, "active", "2027-01-01", "2027-12-31") + `]}`,
-	"/v1/contracts/" + con1:     contract(con1, "active", "2026-01-01", "2026-12-31"),
+	"/v1/contracts": `{"items": [` + contract(con2, "expired", "2025-01-01", "2025-12-31") + `, ` + contract(con3, "active", "2027-01-01", "2027-12-31") + `, ` +
+		`{"id": "` + con4 + `", "legal_entity_id": "` + le + `", "supplier_id": "` + s2 + `", "status": "active", "valid_from": "2027-01-01", "valid_to": "2027-12-31",
+		"items": [{"item_no": 1, "material_id": "` + gasket + `", "unit_price": {"amount": "4.00", "currency": "CAD"}}]}]}`,
+	"/v1/contracts/" + con1: contract(con1, "active", "2026-01-01", "2026-12-31"),
 	"/v1/purchase-orders": `{"items": [` + order(po2, s1, "draft", hinge) + `, ` + order(po3, s1, "closed", hinge, hinge) + `, ` +
 		order("01a1aa00-0000-7000-8000-000000000f24", s1, "released", "") + `]}`,
 	"/v1/purchase-orders/" + po1:  order(po1, s3, "released", hinge),
@@ -242,6 +245,7 @@ func TestReview(t *testing.T) {
 		{rb, "source_needed", ordered("2.5", "KG", s1, "2026-11-20", "catalog item "+cat1), replenishmentagent.ErrForm},
 		{rb, "source_needed", none + " It needs 2.75 KG.", replenishmentagent.ErrUnread},
 		{rb, "order", ordered("2.5", "KG", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrWhen},
+		{rb, "order", ordered("2.5", "KG", s2, "2026-11-20", "contract "+con4+" item 1"), replenishmentagent.ErrSource},
 		{rc, "order", ordered("30", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrProposal},
 		{rd, "source_needed", none, replenishmentagent.ErrProposal},
 	}
@@ -373,7 +377,7 @@ func TestNever(t *testing.T) {
 	}
 	for id, op := range ops {
 		writes := op.Method != http.MethodGet && !op.Reads
-		for _, of := range []string{"Requisition", "PurchaseOrder", "MrpRun", "MaterialPlan"} {
+		for _, of := range []string{"Requisition", "PurchaseOrder", "ScheduleLine", "MrpRun", "MaterialPlan"} {
 			if writes && strings.Contains(id, of) && !slices.Contains(replenishmentagent.Never, id) {
 				t.Errorf("never list: got %v, want it to hold %s", replenishmentagent.Never, id)
 			}

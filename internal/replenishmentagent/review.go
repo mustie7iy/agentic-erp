@@ -2,6 +2,7 @@ package replenishmentagent
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -196,7 +197,10 @@ func (rv *review) check(r recommend.Proposed, f *recommend.Figures) error {
 }
 
 // sourceNeeded checks a source_needed: it orders nothing, writes only
-// numbers the run read, and the run read no source of the material.
+// numbers the run read, and the run read no source an order of the
+// proposal could be made from (usable) whose supplier it has not read as
+// inactive. The refusal names the first such source in the order of its
+// key, so a run is told the same one each time.
 func (rv *review) sourceNeeded(p proposal, content, first string, f *recommend.Figures) error {
 	if strings.HasPrefix(first, "Order ") {
 		return fmt.Errorf("%w: not %q", ErrForm, first)
@@ -204,21 +208,36 @@ func (rv *review) sourceNeeded(p proposal, content, first string, f *recommend.F
 	if unread := f.Unread(content); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrUnread, strings.Join(unread, ", "))
 	}
-	for ref, s := range rv.sources {
-		if active, read := rv.suppliers[s.supplier]; s.legalEntity == p.legalEntity && s.material == p.material && (active || !read) {
-			return fmt.Errorf("%w: %s", ErrHasSource, ref)
+	day := rv.day(p)
+	for _, ref := range slices.Sorted(maps.Keys(rv.sources)) {
+		s := rv.sources[ref]
+		if active, read := rv.suppliers[s.supplier]; usable(s, p, day) && (active || !read) {
+			return fmt.Errorf("%w: %s", ErrHasSource, strings.TrimSuffix(ref, " "+s.material))
 		}
 	}
 	return nil
 }
 
+// day is the day an order of the proposal is by: the day it is needed by,
+// or the run's day when it names none.
+func (rv *review) day(p proposal) string {
+	if p.neededBy == "" {
+		return rv.runDate
+	}
+	return p.neededBy
+}
+
+// usable reports whether an order of the proposal by the day can be made
+// from the source: one of the proposal's material in its company, valid
+// on the day. order and source_needed hold to the same test.
+func usable(s source, p proposal, day string) bool {
+	return s.legalEntity == p.legalEntity && s.material == p.material && (s.from == "" || day >= s.from) && (s.to == "" || day <= s.to)
+}
+
 // ordered checks an order's quantity, day, source and supplier against
 // the proposal.
 func (rv *review) ordered(p proposal, qty, unit, supplier, by, ref string) error {
-	day := p.neededBy
-	if day == "" {
-		day = rv.runDate
-	}
+	day := rv.day(p)
 	s, known := rv.sources[ref]
 	if strings.HasPrefix(ref, "purchase order ") {
 		s, known = rv.sources[ref+" "+p.material]
@@ -228,8 +247,7 @@ func (rv *review) ordered(p proposal, qty, unit, supplier, by, ref string) error
 		return fmt.Errorf("%w: not %s %s", ErrQuantity, qty, unit)
 	case by != day:
 		return fmt.Errorf("%w: not %s", ErrWhen, by)
-	case !known || s.legalEntity != p.legalEntity || s.material != p.material || s.supplier != supplier ||
-		s.from != "" && by < s.from || s.to != "" && by > s.to:
+	case !known || !usable(s, p, day) || s.supplier != supplier:
 		return fmt.Errorf("%w: not %s from %s", ErrSource, ref, supplier)
 	case !rv.suppliers[supplier]:
 		return fmt.Errorf("%w: not %s", ErrSupplier, supplier)

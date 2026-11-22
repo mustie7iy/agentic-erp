@@ -399,6 +399,10 @@ func TestListByMaterial(t *testing.T) {
 	both, only := order(poItem("", ""), poItem(bracket, "")), order(poItem(bracket, ""))
 	order(poItem(other, ""))
 	order(poItem("", ""))
+	// An order and a contract whose item of the bracket an update removed
+	// have no item of it.
+	dropped := order(poItem("", ""), poItem(bracket, ""))
+	e.Must(200, "PATCH", "/v1/purchase-orders/"+dropped, `{"items": [`+poItem("", "")+`]}`, `"1"`)
 	contract := func(key, material string) string {
 		c, _ := e.Must(201, "POST", "/v1/contracts", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "valid_from": "2026-01-01",
 			"valid_to": "2026-12-31", "target_value": {"amount": "100.00", "currency": "EUR"}, "items": [{"material_key": "FREE", "description": "X",
@@ -410,6 +414,9 @@ func TestListByMaterial(t *testing.T) {
 	agreement := contract("MA-LIST-1", bracket)
 	contract("MA-LIST-2", other)
 	contract("KEY-ONLY", "")
+	changed := contract("MA-LIST-1", bracket)
+	e.Must(200, "PATCH", "/v1/contracts/"+changed, fmt.Sprintf(`{"items": [{"material_key": "FREE", "description": "X",
+		"unit_price": {"amount": "1.00", "currency": "EUR"}, "uom_code": "EA", "account_id": %q}]}`, e.office), `"1"`)
 	ids := func(path string) []string {
 		page, _ := e.Must(200, "GET", path, "", "")
 		var out []string

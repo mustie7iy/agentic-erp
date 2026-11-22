@@ -61,13 +61,15 @@ var Reads = []string{"getMrpRun", "getRequisition", "getMaterial", "listCatalogI
 	"listPurchaseOrders", "getPurchaseOrder", "getBusinessPartner"}
 
 // Never are the operations the agent never calls (ADR-0072): every write
-// of requisitions and purchase orders (their changes included), sourcing
+// of requisitions and purchase orders (their changes included, and a
+// scheduling agreement's schedule lines, whose call-off creates an order,
+// ADR-0070 §4), sourcing
 // a requisition by an RFQ, a planning run and materials' planning data,
 // which its tools hold none of; the buyer and the planner do these.
 var Never = []string{"createRequisition", "updateRequisition", "submitRequisition", "cancelRequisition",
 	"createPurchaseOrder", "updatePurchaseOrder", "releasePurchaseOrder", "closePurchaseOrder", "cancelPurchaseOrder",
 	"createPurchaseOrderChange", "updatePurchaseOrderChange", "cancelPurchaseOrderChange", "submitPurchaseOrderChange",
-	"createRfq", "startMrpRun", "createMaterialPlan", "updateMaterialPlan"}
+	"createScheduleLine", "callOffScheduleLine", "createRfq", "startMrpRun", "createMaterialPlan", "updateMaterialPlan"}
 
 const system = `You review the purchase requisitions a material requirements planning run proposed and recommend, for each, what to
 order, from which supplier and when, for a buyer to decide.
@@ -89,8 +91,8 @@ with the proposal's quantity and unit as the requisition gives them, the supplie
 (the run's day when it names none), and the source as one of "contract <contract_id> item <item_no>", "catalog item
 <catalog_item_id>" or "purchase order <purchase_order_id>", ids as the tools returned them; then a line of its own
 Why: <reasons>
-saying why this supplier and source, citing what you read (the run's shortage, the source's price, the last order), each
-figure as a tool returned it. source_needed, when nothing you read is a source of the material: say what you looked for, so
+saying why this supplier and source, citing what you read (the source's price, the last order, the supplier's number and
+name), each figure as a tool returned it; a quantity with a fraction stands only in the first line. source_needed, when nothing you read is a source of the material: say what you looked for, so
 that the buyer can source it (for example by a request for quotation). A proposal that is no longer to be ordered gets no
 recommendation: say so in your answer.`
 
