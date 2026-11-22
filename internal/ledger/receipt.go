@@ -55,6 +55,13 @@ type ReceiptApplication struct {
 	// item's account, at the item's rate, with its due date; zero: the
 	// item is paid in full.
 	Residuals []Residual
+	// CashDiscounts, one per item or none, say which items take the cash
+	// discount their payment terms grant for a payment received on
+	// DiscountDate, the receipt's day (receiptdiscount.go): an invoice
+	// paid in full, its discount of its amount in the receipt's currency,
+	// split by its entry's tax so that it reduces the output tax it levied.
+	CashDiscounts []bool
+	DiscountDate  time.Time
 	// Under and Over bound the payment difference the application writes
 	// off (config.PaymentTolerance, T75f): what the items, net of their
 	// residuals, exceed or fall short of the receipt by. Zero limits allow
@@ -102,6 +109,10 @@ type AppliedReceipt struct {
 	// likewise the line of what each item's reason wrote off (T75o).
 	ResidualLines []int32
 	WriteOffLines []int32
+	// Discounts are the cash discount each item took, positive, in the
+	// order of Items, nil when none did; Discount is their total.
+	Discounts []money.Minor
+	Discount  money.Minor
 	// Difference is what the items, net of their residuals, exceed the
 	// receipt by and was written off: positive an underpayment, negative an
 	// overpayment, zero for none.
@@ -123,9 +134,11 @@ type AppliedReceipt struct {
 // residual item, what the receipt leaves on the customer's account
 // (OnAccount) or the payment difference within the tolerance (Under,
 // Over), and the difference in local or group currency on the account
-// determination's fx_gain or fx_loss account (applicationLines). The
-// items, net of their residuals, must total the receipt in its currency
-// but for those (422 ledger.clearing_not_balanced).
+// determination's fx_gain or fx_loss account (applicationLines). An item
+// may take its cash discount (CashDiscounts), whose correction of the
+// output tax writes the entry's tax items (receiptDiscounts). The items,
+// net of their residuals and discounts, must total the receipt in its
+// currency but for those (422 ledger.clearing_not_balanced).
 //
 // The receipt's line and the items are read in one loadItems, under one
 // sorted set of entry locks taken before any number range, as a clearing
@@ -172,7 +185,7 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 	entry, err := e.post(ctx, tx, actor, draft{entity: le, ledgers: ledgers, documentType: in.DocumentType, documentDate: in.PostingDate,
 		postingDate: in.PostingDate, currencyTC: in.Currency, currencyLC: first.currencyLC, currencyGC: first.currencyGC, rateTCLC: first.rateTCLC,
 		rateLCGC: first.rateLCGC, reference: in.Reference, headerText: in.HeaderText, sourceContext: in.SourceContext,
-		sourceDocumentID: &in.SourceDocumentID, lines: lines})
+		sourceDocumentID: &in.SourceDocumentID, lines: lines, sourcedItems: plan.taxItems})
 	if err != nil {
 		return AppliedReceipt{}, err
 	}
@@ -185,8 +198,8 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 		return AppliedReceipt{}, err
 	}
 	out := AppliedReceipt{Entry: entry, Receipt: -first.tc, Items: make([]money.Minor, len(in.Items)), Customers: make([]uuid.UUID, len(in.Items)),
-		ResidualLines: plan.residualLines, WriteOffLines: plan.writeOffLines, Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine,
-		Translations: plan.translations}
+		ResidualLines: plan.residualLines, WriteOffLines: plan.writeOffLines, Discounts: plan.discounts, Discount: plan.discount, Difference: plan.difference,
+		OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine, Translations: plan.translations}
 	for i, it := range items[1:] {
 		out.Items[i], out.Customers[i] = it.tc, *it.partner // a customer's item names its customer (checkCustomerItem)
 	}

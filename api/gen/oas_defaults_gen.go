@@ -123,6 +123,14 @@ func (s *IncomingPaymentCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *IncomingPaymentItemRef) setDefaults() {
+	{
+		val := bool(false)
+		s.CashDiscount.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *JournalEntryCreate) setDefaults() {
 	{
 		val := string("SA")

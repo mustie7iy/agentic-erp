@@ -34,6 +34,12 @@ type application struct {
 	// 0 for none, and writtenOff their total.
 	writeOffLines []int32
 	writtenOff    money.Minor
+	// discounts are each item's cash discount (receiptDiscounts), nil for
+	// none, discount their total and taxItems the tax items their
+	// correction of the output tax writes, nil for none.
+	discounts     []money.Minor
+	discount      money.Minor
+	taxItems      []sourcedTaxItem
 	difference    money.Minor
 	onAccount     money.Minor
 	onAccountLine int32
@@ -57,6 +63,9 @@ func checkApplication(in ReceiptApplication) error {
 	}
 	if len(in.Residuals) != 0 && len(in.Residuals) != len(in.Items) {
 		return fmt.Errorf("ledger: apply a receipt with %d residuals for %d items", len(in.Residuals), len(in.Items))
+	}
+	if len(in.CashDiscounts) != 0 && len(in.CashDiscounts) != len(in.Items) {
+		return fmt.Errorf("ledger: apply a receipt with %d cash discounts for %d items", len(in.CashDiscounts), len(in.Items))
 	}
 	if err := requireDistinct(in.Items); err != nil {
 		return err
@@ -107,8 +116,9 @@ func checkCredit(it item, le uuid.UUID, in ReceiptApplication, customerAccount m
 }
 
 // applicationLines completes the application's lines after the offsets:
-// each item's residual, then what is left over the items, net of their
-// residuals, on the customer's account when the application asks for it,
+// each item's residual, the cash discounts the items take
+// (receiptDiscounts), then what is left over the items, net of their
+// residuals and discounts, on the customer's account when the application asks for it,
 // else the payment difference within the tolerance, then the exchange
 // differences in local and group currency. A residual keeps its item's
 // rate; what is left on account and the difference take the receipt's,
@@ -119,11 +129,14 @@ func applicationLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le 
 	if err := a.residuals(in, receipt, items[1:]); err != nil {
 		return application{}, err
 	}
+	if err := a.receiptDiscounts(ctx, tx, in, le, receipt, items[1:]); err != nil {
+		return application{}, err
+	}
 	tc, _, _, err := lineTotals(a.lines)
 	if err != nil {
 		return application{}, err
 	}
-	d := -tc // what the items, net of their residuals and write-offs, exceed the receipt by
+	d := -tc // what the items, net of their residuals, write-offs and discounts, exceed the receipt by
 	lc, gc, err := receiptRate(receipt, d)
 	if err != nil {
 		return application{}, err

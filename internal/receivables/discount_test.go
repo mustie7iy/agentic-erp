@@ -10,8 +10,9 @@ import (
 // ADR-0049 §7, ADR-0063 T75f and T75o): an invoice under a code that
 // levies its lines' subdivision (AJ, as the UAE's S5 levies each emirate),
 // its item naming DE-BY, with a 2% cash discount term, paid within the
-// discount period less the discount. Receivables grants no cash discount
-// of its own (ADR-0063 T75f, "Not built"): what the customer took off is a
+// discount period less the discount. Its company, of country DE, grants
+// no cash discount (only a UAE company does, TestUAECashDiscount; ADR-0063
+// As built, cash discount granted): what the customer took off is a
 // payment difference, written off gross without a tax code, within the
 // company's tolerance to 680000 or by a reason that writes off to its own
 // account, 690000. So the clearing builds no tax line that would need the
