@@ -269,10 +269,13 @@ func TestEInvoiceProcessing(t *testing.T) {
 		{"processed before it was received", []string{"processed_at = now() - interval '1 hour', processed_fetch_operation_id = gen_random_uuid(), validated_against = 'r'"}, "einvoice_processed"},
 		{"read unprocessed", []string{"document_number = 'GOI-1'"}, "einvoice_read"},
 		{"a currency without its amount", []string{proc + ", currency = 'AED'"}, "einvoice_read"},
-		{"an unknown currency", []string{proc + ", currency = 'XXX', gross_amount = 1"}, "einvoice_currency_fkey"},
+		{"an unknown currency", []string{proc + ", document_kind = 'invoice', currency = 'XXX', gross_amount = 1"}, "einvoice_currency_fkey"},
 		{"another kind", []string{proc + ", document_kind = 'debit_note'"}, "einvoice_read_lengths"},
 		{"a detail too long", []string{"status = 'refused', problem_code = 'c', problem_detail = repeat('d', 2001), " + proc}, "einvoice_read_lengths"},
 		{"a number too long", []string{proc + ", document_number = repeat('9', 201)"}, "einvoice_read_lengths"},
+		// review:batch87 (000437, 000438): the entering branches on the kind.
+		{"processed without its kind", []string{proc}, "einvoice_read_processed"},
+		{"refused without a kind", []string{"status = 'refused', problem_code = 'c', problem_detail = 'd', " + proc}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tenant := id()
@@ -303,6 +306,13 @@ func TestEInvoiceProcessing(t *testing.T) {
 		if err := testDB.QueryRow(context.Background(), `SELECT bool_and(convalidated) FROM pg_constraint WHERE conrelid = 'einvoicing.einvoice'::regclass
 			AND conname IN ('einvoice_status_check', 'einvoice_read_lengths', 'einvoice_processed', 'einvoice_problem', 'einvoice_read')`).Scan(&valid); err != nil || !valid {
 			t.Errorf("got %v %v, want every one validated", valid, err)
+		}
+	})
+	t.Run("the check validated by 000438", func(t *testing.T) {
+		var valid bool
+		if err := testDB.QueryRow(context.Background(), `SELECT convalidated FROM pg_constraint WHERE conrelid = 'einvoicing.einvoice'::regclass
+			AND conname = 'einvoice_read_processed'`).Scan(&valid); err != nil || !valid {
+			t.Errorf("got %v %v, want it validated", valid, err)
 		}
 	})
 }

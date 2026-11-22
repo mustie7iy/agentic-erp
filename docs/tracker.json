@@ -2825,9 +2825,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fix: a CHECK on einvoicing.einvoice that a processed document not refused has its document_kind (einvoice_read keeps it empty before processing; nothing requires it after), since the fetch's entering branches on it (invoice or credit note, T65e), with its schema test",
-        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e",
+        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · db/migrations/000437, 000438 (einvoice_read_processed) · TestEInvoiceProcessing (processed without its kind) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e, batch 88",
         "src": "review:batch87",
         "c": []
        },

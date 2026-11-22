@@ -4623,7 +4623,10 @@ document's hash and key as a captured one does
 (`supplier_invoice_document_hash`, `supplier_invoice_source_check`). T65e
 (migrations 000433, 000434) enters tax credit notes too, as credit memos:
 a fetch lists every `received` document by `einvoice_to_process` (the
-status alone), which replaces `einvoice_to_enter`; no column changes. The
+status alone), which replaces `einvoice_to_enter`; no column changes.
+A processed document that was not refused states its `document_kind`,
+which the entering branches on (`einvoice_read_processed`, migrations
+000437, 000438; review:batch87). The
 other columns below arrive with the slices that write them (T65f;
 the lines and totals read are not stored, the bytes being kept).
 E2 (migration 000415; ADR-0061 As built E2) adds
