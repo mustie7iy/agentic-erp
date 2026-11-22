@@ -32,7 +32,14 @@ type Finding struct {
 	Code string `json:"code,omitempty"`
 }
 
-func (f Finding) String() string { return fmt.Sprintf("[%s] %s: %s", f.Severity, f.Path, f.Message) }
+// String is the finding as an offline check prints it, with its code
+// when it names one, as the API's field error does.
+func (f Finding) String() string {
+	if f.Code != "" {
+		return fmt.Sprintf("[%s] %s (%s): %s", f.Severity, f.Path, f.Code, f.Message)
+	}
+	return fmt.Sprintf("[%s] %s: %s", f.Severity, f.Path, f.Message)
+}
 
 // Note explains a generated setting reviewers should look at: what a
 // draft document generated from SAP (delivery/sapconfig) or a country pack

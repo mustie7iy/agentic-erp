@@ -11,13 +11,14 @@ package luhn
 func Valid(s string) bool {
 	sum, pos := 0, 0 // pos: the digit's place from the right, separators skipped
 	for i := len(s) - 1; i >= 0; i-- {
-		switch c := s[i]; {
+		c := s[i]
+		switch {
 		case c == ' ' || c == '-':
 			continue
 		case c < '0' || c > '9':
 			return false
 		}
-		d := int(s[i] - '0')
+		d := int(c - '0')
 		if pos%2 == 1 {
 			d *= 2
 			if d > 9 {

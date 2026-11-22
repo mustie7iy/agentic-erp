@@ -227,8 +227,8 @@ func TestSetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want(t, "the number sealed", number, "123456789RT0001")
-	want(t, "its fingerprint", print, apitest.Fingerprint(t, e.Tenant.ID, "123456789RT0001"))
+	want(t, "the number sealed", number, "123456782RT0001")
+	want(t, "its fingerprint", print, apitest.Fingerprint(t, e.Tenant.ID, "123456782RT0001"))
 	want(t, "its last four", last4, "0001")
 
 	apply := func(rs ...config.TaxRegistration) {

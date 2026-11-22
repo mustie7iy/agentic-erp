@@ -257,3 +257,16 @@ func TestTaxRegistrationTier(t *testing.T) {
 		t.Errorf("tier: got %v, want %v", changes[0].Tier, TierPostingRelated)
 	}
 }
+
+// TestFindingString: an offline check prints a finding's code when it
+// names one, as the API's field error carries it.
+func TestFindingString(t *testing.T) {
+	for want, f := range map[string]Finding{
+		"[error] a.number (bn_check_digit): mistyped": {Severity: SevError, Path: "a.number", Message: "mistyped", Code: CodeBNCheckDigit},
+		"[warning] a: noted":                          {Severity: SevWarning, Path: "a", Message: "noted"},
+	} {
+		if got := f.String(); got != want {
+			t.Errorf("String: got %q, want %q", got, want)
+		}
+	}
+}
