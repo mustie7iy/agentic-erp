@@ -633,6 +633,23 @@ last count) for an inventory controller to decide.
 
 - **Adds:** an agent package, its type, suite and walkthrough step.
   **Acceptance:** it never creates a count document itself.
+- **Detailed** (lane cntag, 2026-11-21; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2e and ADR-0072 As built
+  S2e): `erp agent count-plan -company CODE -plant CODE`, agent type
+  `count_planning` (`internal/countagent`). Before its session the run
+  reads the plant's stock, materials, the year's material documents and
+  its count documents through inventory's and materials' published reads
+  and computes what is due: an ABC class by the year's consumption value
+  at the plant (A the first 80 percent, B the next 15, C the rest), the
+  material's movements at the storage location and its last posted
+  count there; due when never counted there or not within its class's
+  interval (90, 180, 365 days); batch- and serial-managed materials and
+  those an open count holds left out. The due ones, ranked by class,
+  movements and last count, each with its line, are offered to the
+  model, which proposes those it recommends, in that order, with its
+  reasons, in one `count_proposal` on the plant; nothing due, no
+  session. Never: every write of count documents and goods movements.
+  Suite `evals/count_planning`; walkthrough `step_count_agent`.
 
 **Later for Physical inventory and cycle counting:** cycle counting
 indicators on the plant data, sampling inventory, counts on handling units
@@ -741,6 +758,63 @@ billing's. **Later for Stock transfers and intercompany:** one-step
 transfers between companies, transit stock valuation, cross-border
 customs (S2s).
 
+- **Detailed** (lane icsto, 2026-11-21; decided by default from SAP's
+  cross-company stock transport order, from memory; ADR-0082 As built
+  S2i): three slices, three leaves.
+  - **The order is the receiving company's purchase order** naming the
+    plant of the other company that supplies it (`supplying_plant_id`;
+    SAP's purchasing document with a supplying plant, EKKO-RESWK, document
+    type NB between companies). Unlike S2h's order within a company it
+    has a supplier, prices, a release and GR/IR, so it is not S2h's
+    table.
+  - **Partners.** The receiving company's supplier is the business
+    partner that is the supplying company (its group company, ADR-0059
+    §4; SAP assigns the vendor to the supplying plant, LFA1-WERKS). The
+    supplying company's customer for its billing (S2i2) is the business
+    partner that is the receiving company, a customer in the supplying
+    company (SAP: the receiving plant's internal customer in the stock
+    transport shipping data).
+  - **Transfer price.** The order item's price, in the order's currency,
+    as on any purchase order (entered or from a contract); the billing
+    (S2i2) bills that price, so the transfer price is the billing's and
+    the receiving company's invoice (S2i3) matches its receipt. SAP
+    prices the billing by the supplying side's own conditions (PI01,
+    billing type IV), which may differ: a pricing of its own is Later.
+  - **Receiving valuation.** The goods receipt is the order's 101 at the
+    order price against GR/IR (S1e): a moving price takes it, a standard
+    price puts the difference on price differences.
+  - **S2i1 Intercompany stock transport order** (this lane): the order is
+    created with its supplying plant (stock items only, no over-delivery
+    tolerance) and released as any order; `:postIntercompanyGoodsIssue`
+    (`procurement.stock_transport.post`, a person who acts in both
+    companies) posts the whole order's goods issue once as a `643` of the
+    supplying company, out of a storage location of the supplying plant
+    per item, valued as an issue and posted WA Dr cost of goods sold, Cr
+    stock (SAP's 643 posts the supplying company's cost of goods sold,
+    from memory); the receiving company's goods receipt takes it in, at
+    most what was issued and only after the issue. In between the goods
+    are in neither company's stock or valuation. Cancelling or closing an
+    order in transit is refused; a released one is not changed.
+    **Acceptance:** each company's entry balances, the supplying
+    company's at its stock's value, the receiving company's at the order
+    price. Walkthrough step `step_intercompany_transport`.
+  - **S2i2 Intercompany billing** (leaf): the supplying company bills the
+    posted goods issue to the receiving company's customer at the order's
+    prices (a billing document of the goods issue, not of a sales order),
+    its tax by the supplying company's tax code, posted as a customer
+    invoice (receivable and revenue); once per goods issue.
+  - **S2i3 The receiving company's supplier invoice from the billing**
+    (leaf): the posted intercompany billing is entered as a supplier
+    invoice of the receiving company for the supplier that is the
+    supplying company, at the billing's amounts and tax, against the
+    order's receipts (clearing GR/IR, the matching of S1e), for a person
+    to post.
+  - **Later:** partial and repeated goods issues, a delivery between the
+    companies (SAP's NLCC delivery), the 643's reversal (644; 409
+    `inventory.reverse_stock_transport` until then), changing a released
+    intercompany order, the supplying side's own pricing, one-step
+    transfers (645), transit stock valuation and its list, customs (S2s).
+
 ### S2j Available-to-promise on the sales order
 
 **Capability.** Confirming a sales order item checks the material's
@@ -790,6 +864,19 @@ recommends what to order, from which supplier and when, for a buyer to
 decide. **Later for MRP and replenishment:** lot sizing procedures,
 safety stock calculation, MRP areas, planned orders for production (phase
 5), scheduling with calendars.
+
+- **Detailed and as built** (lane repl, 2026-11-21; ADR-0072 As built
+  S2l, decided by default): `erp agent replenish -run ID` reads a
+  completed run and recommends on each proposed requisition: `order`, the
+  proposal's quantity in its unit, by the day it is needed, from a source
+  of the material the run read (an active catalog item, an active
+  contract item valid on that day, or a released or closed purchase
+  order's item: the source data and purchasing history that exist) and
+  its active supplier, or `source_needed` when there is none. The buyer
+  acts through the requisition and order operations; the agent has none
+  of them. `listPurchaseOrders` and `listContracts` filter by
+  `material_id`. No migration; walkthrough step 153
+  (`step_replenishment_agent`), suite `evals/replenishment`.
 
 ### S2m Demand forecasting agent
 

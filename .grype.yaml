@@ -30,3 +30,35 @@ ignore:
       name: libcares2
       type: deb
       version: 1.34.5-1+deb13u1
+  # libc6 (erp-analytics's runtime base, distroless cc-debian13:nonroot
+  # sha256:cb87acc5..., deploy/images/erp-analytics.Dockerfile) and libc-bin
+  # (the pinned PgBouncer 1.26.1-202611121015-trixie, arm64 sha256:2df7fa82...)
+  # 2.41-12+deb13u4; Debian 13 fixes CVE-2026-19499 and CVE-2026-5435 (High)
+  # in 2.41-12+deb13u5, but neither image has a build carrying it yet (the
+  # cc-debian13:nonroot tag still names the pinned digest on 2026-11-22).
+  # glibc is loaded by both, so this is a posture decision, not a "nothing
+  # loads it" exception. Accepted by the product owner (2026-11-22): nothing is
+  # deployed (AWS deferred) and the release runs this scan again before it
+  # copies or signs any image. Until 2026-11-29, or sooner once images with
+  # glibc 2.41-12+deb13u5 are pinned. The Medium and Low findings of the same
+  # update are below the scan's threshold and need no entry.
+  - vulnerability: CVE-2026-19499
+    package:
+      name: libc6
+      type: deb
+      version: 2.41-12+deb13u4
+  - vulnerability: CVE-2026-19499
+    package:
+      name: libc-bin
+      type: deb
+      version: 2.41-12+deb13u4
+  - vulnerability: CVE-2026-5435
+    package:
+      name: libc6
+      type: deb
+      version: 2.41-12+deb13u4
+  - vulnerability: CVE-2026-5435
+    package:
+      name: libc-bin
+      type: deb
+      version: 2.41-12+deb13u4

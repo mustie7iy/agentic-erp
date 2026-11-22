@@ -28480,6 +28480,7 @@ func (*ConflictHeaders) postCreditMemoRequestRes()                 {}
 func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postExpenseReportRes()                     {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
+func (*ConflictHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
@@ -45853,9 +45854,10 @@ type EInvoice struct {
 	// tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its
 	// entering refused, `problem_code` and `problem_detail` saying why, such as
 	// `payables.capture_needs_order` for one naming no purchase order, or
-	// `einvoicing.credit_note_names_no_invoice` and `einvoicing.credit_note_names_several_invoices` for a
-	// tax credit note naming no invoice it corrects or several, for a person to resolve). The later slices
-	// add dismissed (ADR-0061 §7).
+	// `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that
+	// is not for a volume discount, for a person to resolve;
+	// `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several).
+	// The later slices add dismissed (ADR-0061 §7).
 	Status string `json:"status"`
 	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
 	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
@@ -45867,20 +45869,21 @@ type EInvoice struct {
 	// `PINT AE Billing 1.0.4`. Omitted with `processed_at`.
 	ValidatedAgainst OptString `json:"validated_against"`
 	// Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice
-	// met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED,
-	// whose VAT in AED the entering does not keep yet, einvoicing.credit_note_names_no_invoice for a tax
-	// credit note naming no invoice it corrects, IBG-03 and IBT-025, or
-	// einvoicing.credit_note_names_several_invoices for one naming more than one, which a credit memo
-	// cannot, T65e). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never
-	// expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following
-	// PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by
-	// its business term), amount_precision (an amount with more decimals than its currency's minor unit),
-	// totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to
-	// the total with VAT, or the VAT subtotals not to the VAT total, with the figures),
-	// not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic
-	// address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA
-	// registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1.
+	// met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that
+	// does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax
+	// credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount
+	// (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one
+	// naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable
+	// (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a
+	// UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP
+	// reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an
+	// amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not
+	// summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT
+	// subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the
+	// connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its
+	// buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
 	ProblemCode OptString `json:"problem_code"`
 	// What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted
 	// unless refused or held.
@@ -59890,6 +59893,51 @@ func (s *IntercompanyDifferenceTotal) SetDifference(val OptMoney) {
 	s.Difference = val
 }
 
+// Where each item of an intercompany stock transport order is issued from: a storage location of the
+// supplying plant per item, each item once.
+// Ref: #/components/schemas/IntercompanyGoodsIssue
+type IntercompanyGoodsIssue struct {
+	// Each of the order's items once.
+	Items []IntercompanyGoodsIssueItemsItem `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyGoodsIssue) GetItems() []IntercompanyGoodsIssueItemsItem {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyGoodsIssue) SetItems(val []IntercompanyGoodsIssueItemsItem) {
+	s.Items = val
+}
+
+type IntercompanyGoodsIssueItemsItem struct {
+	// The order item.
+	PoItemNo int32 `json:"po_item_no"`
+	// The storage location of the supplying plant it is issued from.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *IntercompanyGoodsIssueItemsItem) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *IntercompanyGoodsIssueItemsItem) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *IntercompanyGoodsIssueItemsItem) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *IntercompanyGoodsIssueItemsItem) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/InternalOrder
 type InternalOrder struct {
@@ -70601,7 +70649,11 @@ type MaterialDocument struct {
 	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods
 	// issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number`
 	// (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409
-	// `inventory.reverse_stock_transport`). Absent on every other document.
+	// `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643,
+	// S2i1, the supplying company's): the purchase order's `document_number`
+	// (`GET /v1/purchase-orders?document_number=`, the receiving company's order), whose WA entry posts
+	// the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on
+	// every other document.
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
@@ -84008,6 +84060,52 @@ func (o OptString) Or(d string) string {
 	return d
 }
 
+// NewOptSupplierCreditReason returns new OptSupplierCreditReason with value set to v.
+func NewOptSupplierCreditReason(v SupplierCreditReason) OptSupplierCreditReason {
+	return OptSupplierCreditReason{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSupplierCreditReason is optional SupplierCreditReason.
+type OptSupplierCreditReason struct {
+	Value SupplierCreditReason
+	Set   bool
+}
+
+// IsSet returns true if OptSupplierCreditReason was set.
+func (o OptSupplierCreditReason) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSupplierCreditReason) Reset() {
+	var v SupplierCreditReason
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSupplierCreditReason) SetTo(v SupplierCreditReason) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSupplierCreditReason) Get() (v SupplierCreditReason, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSupplierCreditReason) Or(d SupplierCreditReason) SupplierCreditReason {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptSupplierInvoicePost returns new OptSupplierInvoicePost with value set to v.
 func NewOptSupplierInvoicePost(v SupplierInvoicePost) OptSupplierInvoicePost {
 	return OptSupplierInvoicePost{
@@ -93271,6 +93369,30 @@ type PostGoodsReceiptUnprocessableEntity Problem
 
 func (*PostGoodsReceiptUnprocessableEntity) postGoodsReceiptRes() {}
 
+type PostIntercompanyGoodsIssueBadRequest Problem
+
+func (*PostIntercompanyGoodsIssueBadRequest) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssueForbidden Problem
+
+func (*PostIntercompanyGoodsIssueForbidden) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssueNotFound Problem
+
+func (*PostIntercompanyGoodsIssueNotFound) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssuePreconditionFailed Problem
+
+func (*PostIntercompanyGoodsIssuePreconditionFailed) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssuePreconditionRequired Problem
+
+func (*PostIntercompanyGoodsIssuePreconditionRequired) postIntercompanyGoodsIssueRes() {}
+
+type PostIntercompanyGoodsIssueUnprocessableEntity Problem
+
+func (*PostIntercompanyGoodsIssueUnprocessableEntity) postIntercompanyGoodsIssueRes() {}
+
 type PostJournalEntryBadRequest Problem
 
 func (*PostJournalEntryBadRequest) postJournalEntryRes() {}
@@ -97015,6 +97137,22 @@ type PurchaseOrder struct {
 	// The `purchase_order` approval request (workflow context) the order waits for while
 	// `pending_approval`; absent otherwise.
 	ReleaseRequestID OptUUID `json:"release_request_id"`
+	// The plant of another company of the tenant that supplies the order, which makes it an intercompany
+	// stock transport order (ADR-0082 As built S2i), fixed at creation; absent for any other order.
+	SupplyingPlantID OptUUID `json:"supplying_plant_id"`
+	// The supplying plant's code; with `supplying_plant_id`.
+	SupplyingPlantCode OptString `json:"supplying_plant_code"`
+	// The supplying plant's name; with `supplying_plant_id`.
+	SupplyingPlantName OptString `json:"supplying_plant_name"`
+	// The code of the supplying plant's company, the supplier's group company; with `supplying_plant_id`.
+	SupplyingCompanyCode OptString `json:"supplying_company_code"`
+	// The material document of the intercompany order's goods issue (movement type `643`, the supplying
+	// company's), once posted (`postIntercompanyGoodsIssue`).
+	IssueDocumentID OptUUID `json:"issue_document_id"`
+	// The goods issue's material document number; with `issue_document_id`.
+	IssueDocumentNumber OptString `json:"issue_document_number"`
+	// The goods issue's posting date, the supplying company's day; with `issue_document_id`.
+	IssueDate OptDate `json:"issue_date"`
 	// How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post
 	// the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr
 	// GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a
@@ -97119,6 +97257,41 @@ func (s *PurchaseOrder) GetRevision() OptInt32 {
 // GetReleaseRequestID returns the value of ReleaseRequestID.
 func (s *PurchaseOrder) GetReleaseRequestID() OptUUID {
 	return s.ReleaseRequestID
+}
+
+// GetSupplyingPlantID returns the value of SupplyingPlantID.
+func (s *PurchaseOrder) GetSupplyingPlantID() OptUUID {
+	return s.SupplyingPlantID
+}
+
+// GetSupplyingPlantCode returns the value of SupplyingPlantCode.
+func (s *PurchaseOrder) GetSupplyingPlantCode() OptString {
+	return s.SupplyingPlantCode
+}
+
+// GetSupplyingPlantName returns the value of SupplyingPlantName.
+func (s *PurchaseOrder) GetSupplyingPlantName() OptString {
+	return s.SupplyingPlantName
+}
+
+// GetSupplyingCompanyCode returns the value of SupplyingCompanyCode.
+func (s *PurchaseOrder) GetSupplyingCompanyCode() OptString {
+	return s.SupplyingCompanyCode
+}
+
+// GetIssueDocumentID returns the value of IssueDocumentID.
+func (s *PurchaseOrder) GetIssueDocumentID() OptUUID {
+	return s.IssueDocumentID
+}
+
+// GetIssueDocumentNumber returns the value of IssueDocumentNumber.
+func (s *PurchaseOrder) GetIssueDocumentNumber() OptString {
+	return s.IssueDocumentNumber
+}
+
+// GetIssueDate returns the value of IssueDate.
+func (s *PurchaseOrder) GetIssueDate() OptDate {
+	return s.IssueDate
 }
 
 // GetValuation returns the value of Valuation.
@@ -97234,6 +97407,41 @@ func (s *PurchaseOrder) SetRevision(val OptInt32) {
 // SetReleaseRequestID sets the value of ReleaseRequestID.
 func (s *PurchaseOrder) SetReleaseRequestID(val OptUUID) {
 	s.ReleaseRequestID = val
+}
+
+// SetSupplyingPlantID sets the value of SupplyingPlantID.
+func (s *PurchaseOrder) SetSupplyingPlantID(val OptUUID) {
+	s.SupplyingPlantID = val
+}
+
+// SetSupplyingPlantCode sets the value of SupplyingPlantCode.
+func (s *PurchaseOrder) SetSupplyingPlantCode(val OptString) {
+	s.SupplyingPlantCode = val
+}
+
+// SetSupplyingPlantName sets the value of SupplyingPlantName.
+func (s *PurchaseOrder) SetSupplyingPlantName(val OptString) {
+	s.SupplyingPlantName = val
+}
+
+// SetSupplyingCompanyCode sets the value of SupplyingCompanyCode.
+func (s *PurchaseOrder) SetSupplyingCompanyCode(val OptString) {
+	s.SupplyingCompanyCode = val
+}
+
+// SetIssueDocumentID sets the value of IssueDocumentID.
+func (s *PurchaseOrder) SetIssueDocumentID(val OptUUID) {
+	s.IssueDocumentID = val
+}
+
+// SetIssueDocumentNumber sets the value of IssueDocumentNumber.
+func (s *PurchaseOrder) SetIssueDocumentNumber(val OptString) {
+	s.IssueDocumentNumber = val
+}
+
+// SetIssueDate sets the value of IssueDate.
+func (s *PurchaseOrder) SetIssueDate(val OptDate) {
+	s.IssueDate = val
 }
 
 // SetValuation sets the value of Valuation.
@@ -97713,6 +97921,16 @@ type PurchaseOrderCreate struct {
 	RequisitionID OptUUID `json:"requisition_id"`
 	// Contract that prices the order.
 	ContractID OptUUID `json:"contract_id"`
+	// A plant of another company of the tenant that supplies the order, making it an intercompany stock
+	// transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`)
+	// of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company
+	// is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock
+	// item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422
+	// `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its
+	// goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the
+	// transfer price. Fixed once created; an intercompany order is not changed once released (409
+	// `procurement.intercompany_order_change`).
+	SupplyingPlantID OptUUID `json:"supplying_plant_id"`
 	// Items.
 	Items []PurchaseOrderItem `json:"items"`
 	// Custom fields.
@@ -97757,6 +97975,11 @@ func (s *PurchaseOrderCreate) GetRequisitionID() OptUUID {
 // GetContractID returns the value of ContractID.
 func (s *PurchaseOrderCreate) GetContractID() OptUUID {
 	return s.ContractID
+}
+
+// GetSupplyingPlantID returns the value of SupplyingPlantID.
+func (s *PurchaseOrderCreate) GetSupplyingPlantID() OptUUID {
+	return s.SupplyingPlantID
 }
 
 // GetItems returns the value of Items.
@@ -97807,6 +98030,11 @@ func (s *PurchaseOrderCreate) SetRequisitionID(val OptUUID) {
 // SetContractID sets the value of ContractID.
 func (s *PurchaseOrderCreate) SetContractID(val OptUUID) {
 	s.ContractID = val
+}
+
+// SetSupplyingPlantID sets the value of SupplyingPlantID.
+func (s *PurchaseOrderCreate) SetSupplyingPlantID(val OptUUID) {
+	s.SupplyingPlantID = val
 }
 
 // SetItems sets the value of Items.
@@ -115242,6 +115470,7 @@ func (*ServiceUnavailableHeaders) pingWebhookSubscriptionRes()               {}
 func (*ServiceUnavailableHeaders) placeInHierarchyRes()                      {}
 func (*ServiceUnavailableHeaders) postBankStatementLineRes()                 {}
 func (*ServiceUnavailableHeaders) postGoodsReceiptRes()                      {}
+func (*ServiceUnavailableHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*ServiceUnavailableHeaders) postJournalEntryRes()                      {}
 func (*ServiceUnavailableHeaders) postParkedJournalEntryRes()                {}
 func (*ServiceUnavailableHeaders) postRevaluationRunRes()                    {}
@@ -118296,6 +118525,36 @@ func (s *SupplierCompanyInput) SetPlanningGroup(val OptString) {
 	s.PlanningGroup = val
 }
 
+// A credit memo's reason as its e-invoice states it (BTAE-03).
+// Ref: #/components/schemas/SupplierCreditReason
+type SupplierCreditReason struct {
+	// The reason's code as the credit note states it, such as `VD` (volume discount).
+	Code string `json:"code"`
+	// The reason's words as the credit note states them, a longer text shortened to 1,000 characters
+	// ending in an ellipsis. Absent when it states none.
+	Text OptString `json:"text"`
+}
+
+// GetCode returns the value of Code.
+func (s *SupplierCreditReason) GetCode() string {
+	return s.Code
+}
+
+// GetText returns the value of Text.
+func (s *SupplierCreditReason) GetText() OptString {
+	return s.Text
+}
+
+// SetCode sets the value of Code.
+func (s *SupplierCreditReason) SetCode(val string) {
+	s.Code = val
+}
+
+// SetText sets the value of Text.
+func (s *SupplierCreditReason) SetText(val OptString) {
+	s.Text = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/SupplierInvoice
 type SupplierInvoice struct {
@@ -118330,6 +118589,14 @@ type SupplierInvoice struct {
 	GrossAmount Money `json:"gross_amount"`
 	// Tax amount.
 	TaxAmount Money `json:"tax_amount"`
+	// The tax in the company's currency as the supplier's e-invoice states it, for one not in that
+	// currency (a UAE e-invoice's VAT in AED, the sum of its lines' BTAE-08; ADR-0061 §5 C5, As built
+	// batch 88): posting keeps it as the local amount of the tax the supplier charges, shared among its
+	// codes by their converted tax, instead of converting the tax at the tax date's rate, so the VAT 201
+	// reports it as stated; a stated tax its charged codes cannot take is refused when the invoice posts
+	// (422 `payables.local_tax_mismatch`). A change of the invoice's currency or tax drops it. Absent on
+	// every other invoice.
+	StatedLocalTax OptMoney `json:"stated_local_tax"`
 	// Purchase order (PO-based invoices).
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
 	// What the document is, as SAP's invoice verification transactions: `invoice`, `credit_memo` (the
@@ -118339,7 +118606,8 @@ type SupplierInvoice struct {
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind OptString `json:"kind"`
 	// The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal
-	// entity and currency); never on an invoice.
+	// entity and currency); never on an invoice. A credit memo entered from an e-invoice credit note
+	// citing several invoices names none (they are its `cited_invoices`).
 	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
 	// Lifecycle status: `parked`, `on_hold` (`:hold`/`:release`), `posted` (`:post`), `cancelled`
 	// (`:cancel`, unposted only), `reversed` (`:reverse`), or `rejected` when the approval request for an
@@ -118382,6 +118650,17 @@ type SupplierInvoice struct {
 	// may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming
 	// no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed.
 	DocumentaryWarnings []DocumentaryWarning `json:"documentary_warnings"`
+	// A credit memo's reason as the supplier's e-invoice credit note states it (BTAE-03; ADR-0061 As built
+	// batch 88), such as `VD` for a volume discount. Absent on a document entered otherwise and on every
+	// invoice.
+	CreditReason OptSupplierCreditReason `json:"credit_reason"`
+	// The invoices a credit memo's e-invoice credit note cites (IBG-03; ADR-0061 As built batch 88,
+	// po:2026-11-21), in its order, each number once: a credit note correcting several invoices is one
+	// credit memo citing them all, its `reference_invoice_id` absent, and the accounts payable clerk
+	// clears it against them; one citing one also names it as its `reference_invoice_id`; one for a volume
+	// discount (`credit_reason` `VD`) may cite none. Empty on a document entered otherwise and on every
+	// invoice.
+	CitedInvoices []SupplierInvoiceCitation `json:"cited_invoices"`
 	// The tax its items' codes' rates give on its tax date, in all and per code, beside the tax it states
 	// (ADR-0052, T73e3): in `getSupplierInvoice`'s answer alone, as it is calculated on each read,
 	// whatever the invoice's status. Absent when no item carries a tax code and an amount, and when the
@@ -118467,6 +118746,11 @@ func (s *SupplierInvoice) GetTaxAmount() Money {
 	return s.TaxAmount
 }
 
+// GetStatedLocalTax returns the value of StatedLocalTax.
+func (s *SupplierInvoice) GetStatedLocalTax() OptMoney {
+	return s.StatedLocalTax
+}
+
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
 func (s *SupplierInvoice) GetPurchaseOrderID() OptUUID {
 	return s.PurchaseOrderID
@@ -118535,6 +118819,16 @@ func (s *SupplierInvoice) GetExtensions() Extensions {
 // GetDocumentaryWarnings returns the value of DocumentaryWarnings.
 func (s *SupplierInvoice) GetDocumentaryWarnings() []DocumentaryWarning {
 	return s.DocumentaryWarnings
+}
+
+// GetCreditReason returns the value of CreditReason.
+func (s *SupplierInvoice) GetCreditReason() OptSupplierCreditReason {
+	return s.CreditReason
+}
+
+// GetCitedInvoices returns the value of CitedInvoices.
+func (s *SupplierInvoice) GetCitedInvoices() []SupplierInvoiceCitation {
+	return s.CitedInvoices
 }
 
 // GetCalculatedTax returns the value of CalculatedTax.
@@ -118622,6 +118916,11 @@ func (s *SupplierInvoice) SetTaxAmount(val Money) {
 	s.TaxAmount = val
 }
 
+// SetStatedLocalTax sets the value of StatedLocalTax.
+func (s *SupplierInvoice) SetStatedLocalTax(val OptMoney) {
+	s.StatedLocalTax = val
+}
+
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *SupplierInvoice) SetPurchaseOrderID(val OptUUID) {
 	s.PurchaseOrderID = val
@@ -118692,6 +118991,16 @@ func (s *SupplierInvoice) SetDocumentaryWarnings(val []DocumentaryWarning) {
 	s.DocumentaryWarnings = val
 }
 
+// SetCreditReason sets the value of CreditReason.
+func (s *SupplierInvoice) SetCreditReason(val OptSupplierCreditReason) {
+	s.CreditReason = val
+}
+
+// SetCitedInvoices sets the value of CitedInvoices.
+func (s *SupplierInvoice) SetCitedInvoices(val []SupplierInvoiceCitation) {
+	s.CitedInvoices = val
+}
+
 // SetCalculatedTax sets the value of CalculatedTax.
 func (s *SupplierInvoice) SetCalculatedTax(val OptCalculatedTax) {
 	s.CalculatedTax = val
@@ -118747,6 +119056,62 @@ func (s *SupplierInvoiceCaptureMultipart) SetDocument(val OptString) {
 // SetUploadID sets the value of UploadID.
 func (s *SupplierInvoiceCaptureMultipart) SetUploadID(val OptUUID) {
 	s.UploadID = val
+}
+
+// A preceding invoice a credit memo's e-invoice cites (IBG-03).
+// Ref: #/components/schemas/SupplierInvoiceCitation
+type SupplierInvoiceCitation struct {
+	// The cited invoice's number as the credit note states it (IBT-025): the supplier's own reference.
+	InvoiceNumber string `json:"invoice_number"`
+	// The cited invoice's issue date as the credit note states it (IBT-026), which the match also
+	// compares. Absent when it states none.
+	InvoiceDate OptDate `json:"invoice_date"`
+	// The supplier's posted invoice of the company, in the memo's currency, whose `supplier_reference` is
+	// the number (and whose `invoice_date` the date, when stated), as found when the memo was entered.
+	// Absent when none was: the memo was entered `on_hold`, its `hold_reason` naming the number.
+	InvoiceID OptUUID `json:"invoice_id"`
+	// That invoice's `document_number`. Absent with `invoice_id`.
+	DocumentNumber OptString `json:"document_number"`
+}
+
+// GetInvoiceNumber returns the value of InvoiceNumber.
+func (s *SupplierInvoiceCitation) GetInvoiceNumber() string {
+	return s.InvoiceNumber
+}
+
+// GetInvoiceDate returns the value of InvoiceDate.
+func (s *SupplierInvoiceCitation) GetInvoiceDate() OptDate {
+	return s.InvoiceDate
+}
+
+// GetInvoiceID returns the value of InvoiceID.
+func (s *SupplierInvoiceCitation) GetInvoiceID() OptUUID {
+	return s.InvoiceID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *SupplierInvoiceCitation) GetDocumentNumber() OptString {
+	return s.DocumentNumber
+}
+
+// SetInvoiceNumber sets the value of InvoiceNumber.
+func (s *SupplierInvoiceCitation) SetInvoiceNumber(val string) {
+	s.InvoiceNumber = val
+}
+
+// SetInvoiceDate sets the value of InvoiceDate.
+func (s *SupplierInvoiceCitation) SetInvoiceDate(val OptDate) {
+	s.InvoiceDate = val
+}
+
+// SetInvoiceID sets the value of InvoiceID.
+func (s *SupplierInvoiceCitation) SetInvoiceID(val OptUUID) {
+	s.InvoiceID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *SupplierInvoiceCitation) SetDocumentNumber(val OptString) {
+	s.DocumentNumber = val
 }
 
 // Enter a supplier invoice. It is created `parked`.
@@ -122276,6 +122641,7 @@ func (*TooManyRequestsHeaders) postCreditMemoRequestRes()                 {}
 func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postExpenseReportRes()                     {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
+func (*TooManyRequestsHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
@@ -123254,6 +123620,7 @@ func (*UnauthorizedHeaders) postCreditMemoRequestRes()                 {}
 func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postExpenseReportRes()                     {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
+func (*UnauthorizedHeaders) postIntercompanyGoodsIssueRes()            {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
@@ -125021,10 +125388,11 @@ func (s *UpdatePurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 	s.Response = val
 }
 
-func (*UpdatePurchaseOrderOKHeaders) cancelPurchaseOrderRes()  {}
-func (*UpdatePurchaseOrderOKHeaders) closePurchaseOrderRes()   {}
-func (*UpdatePurchaseOrderOKHeaders) releasePurchaseOrderRes() {}
-func (*UpdatePurchaseOrderOKHeaders) updatePurchaseOrderRes()  {}
+func (*UpdatePurchaseOrderOKHeaders) cancelPurchaseOrderRes()        {}
+func (*UpdatePurchaseOrderOKHeaders) closePurchaseOrderRes()         {}
+func (*UpdatePurchaseOrderOKHeaders) postIntercompanyGoodsIssueRes() {}
+func (*UpdatePurchaseOrderOKHeaders) releasePurchaseOrderRes()       {}
+func (*UpdatePurchaseOrderOKHeaders) updatePurchaseOrderRes()        {}
 
 type UpdatePurchaseOrderPreconditionFailed Problem
 

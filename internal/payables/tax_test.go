@@ -375,3 +375,77 @@ func TestInvoiceWithoutCodes(t *testing.T) {
 		t.Errorf("items: got %s, want none", got)
 	}
 }
+
+// TestStatedLocalTax (ADR-0061 §5 C5, As built batch 88): an invoice not
+// in the company's currency whose e-invoice stated its tax in the
+// company's currency posts that tax as the tax's local amount, on its tax
+// line and its tax item, rather than the tax date's conversion, the
+// difference to the supplier line's conversion an exchange difference, a
+// partly recovering code recovering its share of it; a
+// stated tax in another currency than the company's is not used; a change
+// of the invoice's tax drops it, audited.
+func TestStatedLocalTax(t *testing.T) {
+	e := setup(t)
+	inputCodes(t, e)
+	e.GRIR(t) // the fx_gain and fx_loss accounts
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	for _, c := range []struct{ name, currency, code, want string }{
+		{"in the company's currency", "EUR", "V1", "140000 1900/1800 9000/1800"},
+		{"in another", "AED", "V1", "140000 1900/1710 9000/1710"},
+		// M5 recovers half: of the stated 18.00 the recovered half, 9.00.
+		{"on a code recovering half", "EUR", "M5", "140000 950/900 9000/1800"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			body := strings.ReplaceAll(e.invoice(e.Supplier, "USD-"+c.currency+c.code, "119.00", "19.00", coded(e, "100.00", c.code)), `"EUR"`, `"USD"`)
+			inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", body, "")
+			pgtest.Exec(t, `UPDATE payables.supplier_invoice SET stated_local_tax = 1800, stated_local_currency = $2, version = version + 1 WHERE id = $1`,
+				id(inv), c.currency)
+			got, _ := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", "")
+			if s, _ := got["stated_local_tax"].(map[string]any); s["amount"] != "18.00" || s["currency"] != c.currency {
+				t.Errorf("stated_local_tax: got %v, want 18.00 %s", got["stated_local_tax"], c.currency)
+			}
+			entry := e.postedEntry(t, inv)
+			var lines string
+			pgtest.Scan(t, `SELECT string_agg(a.number || ' ' || l.amount_tc || '/' || l.amount_lc, ', ') || ' ' ||
+					(SELECT string_agg(base_lc || '/' || tax_lc, '; ') FROM ledger.tax_item WHERE journal_entry_id = $1)
+				FROM ledger.journal_line l JOIN ledger.gl_account a ON a.id = l.account_id WHERE l.journal_entry_id = $1 AND a.number = '140000'`,
+				[]any{entry}, &lines)
+			if lines != c.want {
+				t.Errorf("the tax line and item (tc/lc): got %s, want %s", lines, c.want)
+			}
+		})
+	}
+	t.Run("dropped by a change of the tax", func(t *testing.T) {
+		body := strings.ReplaceAll(e.invoice(e.Supplier, "USD-CHANGED", "119.00", "19.00", accountItem(e.expense, "100.00")), `"EUR"`, `"USD"`)
+		inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", body, "")
+		pgtest.Exec(t, `UPDATE payables.supplier_invoice SET stated_local_tax = 1800, stated_local_currency = 'EUR', version = version + 1 WHERE id = $1`, id(inv))
+		_, tag := e.Must(200, "GET", "/v1/supplier-invoices/"+id(inv), "", "")
+		changed, _ := e.Must(200, "PATCH", "/v1/supplier-invoices/"+id(inv),
+			`{"gross_amount": {"amount": "118.00", "currency": "USD"}, "tax_amount": {"amount": "18.00", "currency": "USD"}}`, tag)
+		if changed["stated_local_tax"] != nil {
+			t.Errorf("stated_local_tax: got %v, want it dropped", changed["stated_local_tax"])
+		}
+		var dropped bool
+		pgtest.Scan(t, `SELECT coalesce((detail->>'stated_local_tax_dropped')::boolean, false) FROM audit.audit_event WHERE tenant_id = $1
+			AND action = 'payables.supplier_invoice.update' AND object_id = $2`, []any{e.Tenant.ID, id(inv)}, &dropped)
+		if !dropped {
+			t.Errorf("the change's audit: got no stated_local_tax_dropped, want it")
+		}
+	})
+}
+
+// TestStatedLocalTaxNothingCharged: a stated local tax that no component
+// the supplier charges can take (a reverse charge is self-assessed) is
+// refused at posting, the invoice left parked.
+func TestStatedLocalTaxNothingCharged(t *testing.T) {
+	e := setup(t)
+	inputCodes(t, e)
+	e.GRIR(t)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	body := strings.ReplaceAll(e.invoice(e.Supplier, "USD-RC", "100.00", "0.00", coded(e, "100.00", "RC")), `"EUR"`, `"USD"`)
+	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", body, "")
+	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET stated_local_tax = 500, stated_local_currency = 'EUR', version = version + 1 WHERE id = $1`, id(inv))
+	e.Problem(422, "payables.local_tax_mismatch", "POST", "/v1/supplier-invoices/"+id(inv)+":post", `{"posting_date": "2026-03-21"}`, e.tag(t, id(inv)))
+}

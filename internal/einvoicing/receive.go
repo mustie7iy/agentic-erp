@@ -243,9 +243,62 @@ func inconsistent(d Document) *Refusal {
 		if subtotals != d.Tax {
 			found = append(found, fmt.Sprintf("the VAT subtotals sum to %s, not the %s stated (IBT-110)", f(subtotals), f(d.Tax)))
 		}
+		found = append(found, inconsistentInAED(d)...)
 	}
 	if len(found) == 0 {
 		return nil
 	}
 	return &Refusal{Code: RefusedInconsistent, Detail: strings.ToUpper(found[0][:1]) + strings.Join(found, "; ")[1:] + "."}
+}
+
+// LineTaxInAED is the VAT in AED a document states per line (BTAE-08),
+// summed, and whether every line states it: what a supplier invoice keeps
+// as its tax in AED for the VAT 201 (ADR-0061 §5 C5, As built batch 88;
+// po:2026-11-21). An exempt line (E) states none (IBR-163-AE, as the
+// coordinator's research read the AE rules), so it is not counted as
+// missing.
+func LineTaxInAED(d Document) (money.Minor, bool, error) {
+	var taxes []money.Minor
+	for _, l := range d.Lines {
+		switch {
+		case l.AccountingTax != nil:
+			taxes = append(taxes, *l.AccountingTax)
+		case l.Category != "E":
+			return 0, false, nil
+		}
+	}
+	sum, err := money.Sum(taxes...)
+	if err != nil {
+		return 0, false, fmt.Errorf("einvoicing: the lines' VAT in AED: %w", err)
+	}
+	return sum, true, nil
+}
+
+// inconsistentInAED names a document whose lines' VAT in AED (BTAE-08),
+// when every line states it, does not sum to its VAT in AED (IBT-111 for
+// a document in another currency, its VAT, IBT-110, for one in AED), or
+// sums to a negative amount, which no supplier invoice keeps.
+func inconsistentInAED(d Document) []string {
+	sum, all, err := LineTaxInAED(d)
+	switch {
+	case err != nil:
+		return []string{"the lines' VAT in AED (BTAE-08) is out of range"}
+	case !all:
+		return nil
+	}
+	want, term := d.Tax, "IBT-110"
+	if d.Currency != accountingCurrency {
+		if d.AccountingTax == nil {
+			return nil // missingTotals names a document not in AED without IBT-111
+		}
+		want, term = *d.AccountingTax, "IBT-111"
+	}
+	switch {
+	case sum != want:
+		return []string{fmt.Sprintf("the lines' VAT in AED (BTAE-08) sums to %s AED, not the %s AED stated (%s)", sum.Format(aedExponent),
+			want.Format(aedExponent), term)}
+	case sum < 0: // amounts are stated in the document's direction, never negative: the VAT a supplier invoice keeps is not
+		return []string{fmt.Sprintf("the VAT in AED (%s, BTAE-08) is negative, %s AED", term, sum.Format(aedExponent))}
+	}
+	return nil
 }

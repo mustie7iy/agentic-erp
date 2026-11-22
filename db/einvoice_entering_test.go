@@ -172,8 +172,8 @@ func TestEInvoiceEnteringDown(t *testing.T) {
 	for name, seed := range map[string]string{
 		"a held e-invoice": `INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref,
 			fetch_operation_id, processed_at, processed_fetch_operation_id, validated_against, problem_code, problem_detail, entry_at,
-			entry_fetch_operation_id, created_by, updated_by) VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'M', 'held', sha256('x'::bytea), 1,
-			'k', gen_random_uuid(), now(), gen_random_uuid(), 'r', 'c', 'd', now(), gen_random_uuid(), $1, $1)`,
+			entry_fetch_operation_id, document_kind, created_by, updated_by) VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'M', 'held',
+			sha256('x'::bytea), 1, 'k', gen_random_uuid(), now(), gen_random_uuid(), 'r', 'c', 'd', now(), gen_random_uuid(), 'invoice', $1, $1)`,
 		"an invoice entered from one": `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id,
 			supplier_reference, invoice_date, currency, gross_amount, tax_amount, status, source, capture_sha256, created_by, updated_by)
 			VALUES ($1, gen_random_uuid(), 'I1', $1, $1, 'R1', current_date, 'AED', 100, 0, 'parked', 'einvoice', sha256('x'::bytea), $1, $1)`,

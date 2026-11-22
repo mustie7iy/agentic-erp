@@ -3281,22 +3281,30 @@ type Invoker interface {
 	// supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`,
 	// `payables.already_captured`, a closed period and any other) holds the document instead, `held` with
 	// that problem's code and detail, nothing of the entering kept; a tax invoice or tax credit note not
-	// in AED is held with `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as
-	// it states it, which the entering does not do yet). A valid tax credit note is entered the same way
-	// as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
+	// in AED is entered keeping its VAT in AED as it states it, the sum of its lines' VAT in AED
+	// (BTAE-08), as the invoice's `stated_local_tax`, which its posting keeps as the tax's local amount
+	// (ADR-0061 As built batch 88), and is held with `einvoicing.tax_currency_not_entered` when a line
+	// (but an exempt one) does not state it; one whose lines' VAT in AED does not sum to its VAT in AED
+	// (IBT-111) is refused as `einvoicing.totals_inconsistent`. A valid tax credit note is entered the
+	// same way as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
 	// (IBT-025) by capture's rule: a posted invoice of the supplier in the company and the note's currency
 	// is its `reference_invoice_id`; a number that is none enters it `on_hold`, its hold reason naming the
-	// number, for a person to enter the reference; a tax credit note naming no invoice is held with
+	// number, for a person to enter the reference; the memo keeps its reason (BTAE-03, `credit_reason`)
+	// and each invoice it cites (`cited_invoices`: IBT-025 and, when stated, IBT-026, matched by number
+	// and date); a tax credit note naming no invoice is held with
 	// `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects,
-	// IBG-03), nothing of it entered, rather than entered as correcting none; one naming several invoices
-	// (IBG-03 repeated) is held with `einvoicing.credit_note_names_several_invoices`, the detail naming
-	// them, since a credit memo names one. A tax invoice validated by a fetch before T65d, and a tax
-	// credit note validated before T65e, is entered by the next one. When the fetch is done its Operation
-	// succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found
-	// with other bytes; `refused`: the documents this fetch refused; `entered` and `held`: the documents
-	// this fetch entered and held; `waiting`: the connector's documents left unprocessed, waiting for the
-	// company's setup) and its `resource` the list of the documents it recorded, found changed, refused,
-	// entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+	// IBG-03), nothing of it entered, rather than entered as correcting none, unless it is for a volume
+	// discount (reason `VD`, IBR-055-AE), which is entered without a reference; one naming several
+	// invoices (IBG-03 repeated) is entered as one credit memo citing them all, without a
+	// `reference_invoice_id`, on hold naming any that is no posted invoice of the supplier (batch 88;
+	// before it such a note was held with `einvoicing.credit_note_names_several_invoices`). A tax invoice
+	// validated by a fetch before T65d, and a tax credit note validated before T65e, is entered by the
+	// next one. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+	// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
+	// refused; `entered` and `held`: the documents this fetch entered and held; `waiting`: the connector's
+	// documents left unprocessed, waiting for the company's setup) and its `resource` the list of the
+	// documents it recorded, found changed, refused, entered or held
+	// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
 	// `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch
 	// recorded, as its `processed_fetch_operation_id`, and one entered or held as its
 	// `entry_fetch_operation_id`); a message not recorded fails the Operation with
@@ -7600,6 +7608,33 @@ type Invoker interface {
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
+	// PostIntercompanyGoodsIssue invokes postIntercompanyGoodsIssue operation.
+	//
+	// Posts a released intercompany stock transport order's goods issue (ADR-0082 As built S2i; SAP's 643,
+	// from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order not
+	// `released`, 409 `procurement.invalid_status`; one naming no `supplying_plant_id`, 409
+	// `procurement.not_intercompany`; one issued already, 409 `procurement.intercompany_issued`). Every
+	// item of the order is issued, its ordered quantity in its unit, from the storage location of the
+	// supplying plant `items` names for it (each item once, 422 `procurement.issue_items`), as one
+	// material document of movement type `643` of the supplying company (`issue_document_id`), posted on
+	// that company's date today in its time zone and numbered from its `material_document` range, its
+	// `reference` the order's number. Each item is checked as an outbound delivery's goods issue is: the
+	// material active, extended to the supplying plant and kept at the storage location (422
+	// `inventory.plant_not_extended`, `inventory.storage_location_not_extended`), valued there (422
+	// `inventory.no_valuation`), its quantity exact in its base unit (422 `inventory.inexact_quantity`),
+	// the location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical
+	// inventory document (409 `inventory.posting_blocked`). The issue takes the stock's value as an issue
+	// does and posts it in one WA journal entry of the supplying company, Dr the valuation class's cost of
+	// goods sold account, Cr its stock account (422 `inventory.no_inventory_account`; the ledger's
+	// refusals, such as 422 `ledger.period_not_open`). The goods are then in neither company's stock until
+	// the receiving company posts their goods receipt against the order (`postGoodsReceipt`, at the order
+	// price against GR/IR, at most what was issued). The caller acts in both companies: the order's (404
+	// otherwise) and the supplying plant's (422 `inventory.plant_invalid`). Audited; the stock moves are
+	// published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it
+	// left it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/purchase-orders/{id}:postIntercompanyGoodsIssue
+	PostIntercompanyGoodsIssue(ctx context.Context, request *IntercompanyGoodsIssue, params PostIntercompanyGoodsIssueParams) (PostIntercompanyGoodsIssueRes, error)
 	// PostJournalEntry invokes postJournalEntry operation.
 	//
 	// Posts a manual journal entry at once: the request is validated (balance in every currency, open
@@ -37227,22 +37262,30 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 // supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`,
 // `payables.already_captured`, a closed period and any other) holds the document instead, `held` with
 // that problem's code and detail, nothing of the entering kept; a tax invoice or tax credit note not
-// in AED is held with `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as
-// it states it, which the entering does not do yet). A valid tax credit note is entered the same way
-// as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
+// in AED is entered keeping its VAT in AED as it states it, the sum of its lines' VAT in AED
+// (BTAE-08), as the invoice's `stated_local_tax`, which its posting keeps as the tax's local amount
+// (ADR-0061 As built batch 88), and is held with `einvoicing.tax_currency_not_entered` when a line
+// (but an exempt one) does not state it; one whose lines' VAT in AED does not sum to its VAT in AED
+// (IBT-111) is refused as `einvoicing.totals_inconsistent`. A valid tax credit note is entered the
+// same way as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
 // (IBT-025) by capture's rule: a posted invoice of the supplier in the company and the note's currency
 // is its `reference_invoice_id`; a number that is none enters it `on_hold`, its hold reason naming the
-// number, for a person to enter the reference; a tax credit note naming no invoice is held with
+// number, for a person to enter the reference; the memo keeps its reason (BTAE-03, `credit_reason`)
+// and each invoice it cites (`cited_invoices`: IBT-025 and, when stated, IBT-026, matched by number
+// and date); a tax credit note naming no invoice is held with
 // `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects,
-// IBG-03), nothing of it entered, rather than entered as correcting none; one naming several invoices
-// (IBG-03 repeated) is held with `einvoicing.credit_note_names_several_invoices`, the detail naming
-// them, since a credit memo names one. A tax invoice validated by a fetch before T65d, and a tax
-// credit note validated before T65e, is entered by the next one. When the fetch is done its Operation
-// succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found
-// with other bytes; `refused`: the documents this fetch refused; `entered` and `held`: the documents
-// this fetch entered and held; `waiting`: the connector's documents left unprocessed, waiting for the
-// company's setup) and its `resource` the list of the documents it recorded, found changed, refused,
-// entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+// IBG-03), nothing of it entered, rather than entered as correcting none, unless it is for a volume
+// discount (reason `VD`, IBR-055-AE), which is entered without a reference; one naming several
+// invoices (IBG-03 repeated) is entered as one credit memo citing them all, without a
+// `reference_invoice_id`, on hold naming any that is no posted invoice of the supplier (batch 88;
+// before it such a note was held with `einvoicing.credit_note_names_several_invoices`). A tax invoice
+// validated by a fetch before T65d, and a tax credit note validated before T65e, is entered by the
+// next one. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
+// refused; `entered` and `held`: the documents this fetch entered and held; `waiting`: the connector's
+// documents left unprocessed, waiting for the company's setup) and its `resource` the list of the
+// documents it recorded, found changed, refused, entered or held
+// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
 // `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch
 // recorded, as its `processed_fetch_operation_id`, and one entered or held as its
 // `entry_fetch_operation_id`); a message not recorded fails the Operation with
@@ -72846,6 +72889,23 @@ func (c *Client) sendListContracts(ctx context.Context, params ListContractsPara
 		}
 	}
 	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "status" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "status",
@@ -93045,6 +93105,23 @@ func (c *Client) sendListPurchaseOrders(ctx context.Context, params ListPurchase
 		}
 	}
 	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "status" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "status",
@@ -93106,6 +93183,40 @@ func (c *Client) sendListPurchaseOrders(ctx context.Context, params ListPurchase
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.OrderDateTo.Get(); ok {
 				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "supplying_plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "supplying_plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SupplyingPlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "issued" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "issued",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Issued.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -106725,6 +106836,187 @@ func (c *Client) sendPostGoodsReceipt(ctx context.Context, request *GoodsReceipt
 
 	stage = "DecodeResponse"
 	result, err := decodePostGoodsReceiptResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostIntercompanyGoodsIssue invokes postIntercompanyGoodsIssue operation.
+//
+// Posts a released intercompany stock transport order's goods issue (ADR-0082 As built S2i; SAP's 643,
+// from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order not
+// `released`, 409 `procurement.invalid_status`; one naming no `supplying_plant_id`, 409
+// `procurement.not_intercompany`; one issued already, 409 `procurement.intercompany_issued`). Every
+// item of the order is issued, its ordered quantity in its unit, from the storage location of the
+// supplying plant `items` names for it (each item once, 422 `procurement.issue_items`), as one
+// material document of movement type `643` of the supplying company (`issue_document_id`), posted on
+// that company's date today in its time zone and numbered from its `material_document` range, its
+// `reference` the order's number. Each item is checked as an outbound delivery's goods issue is: the
+// material active, extended to the supplying plant and kept at the storage location (422
+// `inventory.plant_not_extended`, `inventory.storage_location_not_extended`), valued there (422
+// `inventory.no_valuation`), its quantity exact in its base unit (422 `inventory.inexact_quantity`),
+// the location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical
+// inventory document (409 `inventory.posting_blocked`). The issue takes the stock's value as an issue
+// does and posts it in one WA journal entry of the supplying company, Dr the valuation class's cost of
+// goods sold account, Cr its stock account (422 `inventory.no_inventory_account`; the ledger's
+// refusals, such as 422 `ledger.period_not_open`). The goods are then in neither company's stock until
+// the receiving company posts their goods receipt against the order (`postGoodsReceipt`, at the order
+// price against GR/IR, at most what was issued). The caller acts in both companies: the order's (404
+// otherwise) and the supplying plant's (422 `inventory.plant_invalid`). Audited; the stock moves are
+// published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it
+// left it. Human-only (`x-agent: false`).
+//
+// POST /v1/purchase-orders/{id}:postIntercompanyGoodsIssue
+func (c *Client) PostIntercompanyGoodsIssue(ctx context.Context, request *IntercompanyGoodsIssue, params PostIntercompanyGoodsIssueParams) (PostIntercompanyGoodsIssueRes, error) {
+	res, err := c.sendPostIntercompanyGoodsIssue(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostIntercompanyGoodsIssue(ctx context.Context, request *IntercompanyGoodsIssue, params PostIntercompanyGoodsIssueParams) (res PostIntercompanyGoodsIssueRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postIntercompanyGoodsIssue"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/purchase-orders/{id}:postIntercompanyGoodsIssue"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostIntercompanyGoodsIssueOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/purchase-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":postIntercompanyGoodsIssue"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostIntercompanyGoodsIssueRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostIntercompanyGoodsIssueOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostIntercompanyGoodsIssueResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -130,14 +130,23 @@ the suites set.
   the next year proposed at its actual, the reasons citing its actual and
   plan; a year with neither plan nor actuals before it given no proposal;
   an instruction in a cost center's name not followed; never a plan
-  applied or a category locked)
+  applied or a category locked) and count planning (S2e: a material never
+  counted proposed by its line; a plant whose stock is being counted given
+  no proposal; an instruction in a material's description not followed;
+  never a count document created)
   and enablement (T109a: purchase to pay
   described with the tenant's approver role, tolerance and limit cited; a
   description stating a limit the configuration does not hold refused and
   none recorded; an instruction in a role's name not followed; T109b: a
   problem code explained with the tenant's tolerance, a field from its
   description, an instruction in a role's name not followed while a field
-  is explained).
+  is explained) and replenishment (S2l: a planning run's proposal
+  recommended for an order of its quantity from its material's catalog
+  supplier; a proposal with no source given `source_needed`; an
+  instruction in a catalog item's description not followed; never a
+  requisition changed or an order created. Its cases start a planning
+  run in their setup, and its adapter waits until the cell has carried
+  it out, so a live cell runs the planner or the workflow engine).
   A setup call may post a multipart `form` of values instead of
   a body (a bank statement's file as text), so a live cell running the
   reconciliation suite needs object storage. The

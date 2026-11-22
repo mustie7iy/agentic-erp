@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"testing"
 )
 
@@ -62,6 +63,29 @@ func TestAllocateOverflow(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Allocate(exact); !errors.Is(err, ErrOverflow) {
 				t.Errorf("got %v, want ErrOverflow", err)
+			}
+		})
+	}
+}
+
+// TestShareOut: an amount is shared by the weights' magnitudes, the
+// shares adding up to it exactly, largest remainder first; nothing to
+// weigh gives nil.
+func TestShareOut(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		amount  Minor
+		weights []Minor
+		want    []Minor
+	}{
+		{"by size", 100, []Minor{1, 1, 1}, []Minor{34, 33, 33}},
+		{"negative weights by magnitude", -10, []Minor{-3, 1}, []Minor{-8, -2}},
+		{"a zero weight", 7, []Minor{0, 5}, []Minor{0, 7}},
+		{"nothing to weigh", 5, []Minor{0, 0}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ShareOut(c.amount, c.weights); !slices.Equal(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
 			}
 		})
 	}

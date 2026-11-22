@@ -2225,6 +2225,18 @@ the supplying plant to one of the receiving plant; insert-only
 (`stock_transport_order_item_insert_only`). Plants, storage locations,
 materials and material documents are other contexts', by id.
 
+Intercompany stock transport orders (S2i1, migrations 000443 and 000444;
+ADR-0082 As built S2i): between plants of two companies the order is the
+receiving company's `procurement.purchase_order` naming
+`supplying_plant_id`, a plant of another company of the tenant (tenancy
+context, by id), set at creation and never changed; once its goods issue
+(a `643` of the supplying company) is posted, `issue_document_id`
+(inventory context, by id), `issue_document_number` (1 to 40 characters,
+`purchase_order_issue_document_number_check`) and `issue_date`, all three
+together and only on an order with a supplying plant
+(`purchase_order_issue`); the supplying plant and a goods issue once set
+stay as set (`purchase_order_supply_fixed`, a trigger also for the owner).
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -2407,6 +2419,21 @@ Each kind is matched and posted by its kind (T34c):
   such invoice is entered `on_hold` with the reason, for the reference to
   be entered by hand rather than dropped; an invoice printing one is not
   captured.
+- **E-invoice credit notes** (ADR-0061 As built batch 88; migrations
+  000439, 000440): a credit memo entered from a received tax credit note
+  keeps its reason (`credit_reason_code`, `credit_reason_text`, BTAE-03:
+  only on what credits, the words not without the code, at most 100 and
+  1,000 characters; `supplier_invoice_credit_reason`) and every invoice
+  it cites in `payables.supplier_invoice_citation` (insert-only: the
+  position, the number IBT-025, the date IBT-026 when stated, each number
+  once, and `cited_invoice_id`, the supplier's posted invoice the number
+  and date matched when it was entered, none when none did). One citing
+  one invoice names it as `reference_invoice_id` too; one citing several
+  names none; a volume discount (VD) may cite none. An invoice entered
+  from one not in AED keeps the VAT it states in AED
+  (`stated_local_tax` with `stated_local_currency`, together or neither,
+  never negative; `supplier_invoice_stated_local_tax`, migrations 000441,
+  000442), which its posting keeps as the tax's local amount.
 - **Payment terms** (T36b): a document posts with the payment terms SAP's
   invoice verification would give it, kept in `supplier_invoice_terms`
   (migration 000068, insert-only) and passed to the ledger for its open
@@ -4623,7 +4650,10 @@ document's hash and key as a captured one does
 (`supplier_invoice_document_hash`, `supplier_invoice_source_check`). T65e
 (migrations 000433, 000434) enters tax credit notes too, as credit memos:
 a fetch lists every `received` document by `einvoice_to_process` (the
-status alone), which replaces `einvoice_to_enter`; no column changes. The
+status alone), which replaces `einvoice_to_enter`; no column changes.
+A processed document that was not refused states its `document_kind`,
+which the entering branches on (`einvoice_read_processed`, migrations
+000437, 000438; review:batch87). The
 other columns below arrive with the slices that write them (T65f;
 the lines and totals read are not stored, the bytes being kept).
 E2 (migration 000415; ADR-0061 As built E2) adds
@@ -6850,6 +6880,14 @@ erDiagram
   every line, so stock in transit is the receiving plant's valuated stock
   and no location's. No count blocks a line in transit
   (`count_posting_block` fires only on the others).
+- S2i1 (migrations 000443, 000444): `inventory.material_document` takes
+  the movement type `643`, an intercompany stock transport order's goods
+  issue out of the supplying company's stock, which names the order's
+  number as its `reference` (`material_document_movement_type_check`,
+  `material_document_reference`, widened NOT VALID and validated by
+  000444). It has no line in transit: the goods enter the receiving
+  company's stock and valuation only with the order's goods receipt (a
+  purchase order's `101`).
 - S2f (migrations 000428, 000429): `materials.material.batch_managed`
   (SAP MARA's XCHPF, from memory), fixed once created (`material_fixed`).
   `inventory.batch` (SAP MCH1, batch level material): a batch of a

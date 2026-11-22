@@ -59,6 +59,26 @@ type DeliveryItem struct {
 // transaction. What each line took from the stock is its cost (the line's
 // amount, negative).
 func (e *Endpoints) IssueForDelivery(ctx context.Context, reference string, in []DeliveryItem) (Document, error) {
+	return e.issueAgainstCost(ctx, "601", reference, in)
+}
+
+// IssueForIntercompany posts an intercompany stock transport order's goods
+// issue (643, S2i1; SAP's goods issue for a cross-company stock transport
+// order, from memory) as a material document in the request's
+// transaction, its reference the order's number: each item out of a
+// storage location of the supplying plant, checked, valued and posted as
+// IssueForDelivery's are, against the valuation class's cost of goods
+// sold account, in the supplying company. The stock leaves the supplying
+// company; it enters the receiving company's only with its goods receipt
+// (a purchase order's 101), so in between it is in no company's stock or
+// valuation (transit valuation is Later, ADR-0082 As built S2i).
+func (e *Endpoints) IssueForIntercompany(ctx context.Context, reference string, in []DeliveryItem) (Document, error) {
+	return e.issueAgainstCost(ctx, "643", reference, in)
+}
+
+// issueAgainstCost posts a goods issue of movement type mt against cost
+// of goods sold, its reference the document it issues for.
+func (e *Endpoints) issueAgainstCost(ctx context.Context, mt, reference string, in []DeliveryItem) (Document, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Document{}, err
@@ -71,7 +91,7 @@ func (e *Endpoints) IssueForDelivery(ctx context.Context, reference string, in [
 	if err != nil {
 		return Document{}, err
 	}
-	company, lines, err := e.items(items, movementTypes["601"], r)
+	company, lines, err := e.items(items, movementTypes[mt], r)
 	if err != nil {
 		return Document{}, err
 	}
@@ -79,7 +99,7 @@ func (e *Endpoints) IssueForDelivery(ctx context.Context, reference string, in [
 	if err != nil {
 		return Document{}, err
 	}
-	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: "601", day: c.day.Date, reference: &reference, lines: lines, items: items}, r)
+	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: mt, day: c.day.Date, reference: &reference, lines: lines, items: items}, r)
 	if err != nil {
 		return Document{}, err
 	}

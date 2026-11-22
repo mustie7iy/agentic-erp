@@ -52,7 +52,16 @@ type Sale struct {
 	Lines                   []SaleLine
 	LocalTax                money.Minor
 	LocalCurrency, Location string // the company's currency and country
+	// LocalCodes are, per tax code, the base and the tax the posted
+	// entry's output tax items carry in the company's currency, as the
+	// posting converted them (magnitudes; the base once per code, the tax
+	// of its components summed): what each line's VAT and amount in AED
+	// (BTAE-08, BTAE-10) are shared out of. nil before posting.
+	LocalCodes map[string]LocalAmounts
 }
+
+// LocalAmounts are a code's base and tax in the company's currency.
+type LocalAmounts struct{ Base, Tax money.Minor }
 
 // SaleLine is an item: its number, description, net amount and tax, and
 // its tax code with the code's UN/CEFACT category and rate on the

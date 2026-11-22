@@ -262,16 +262,11 @@ func creditedInvoice(ctx context.Context, tx pgx.Tx, in *Input, number string) (
 	if in.Kind != KindCreditMemo {
 		return "", unreadable("an invoice credits no invoice, but the document names " + number)
 	}
-	var id uuid.UUID
-	err := tx.QueryRow(ctx, `SELECT id FROM payables.supplier_invoice WHERE supplier_id = $1 AND supplier_reference_norm = platform.normalize_ref($2)
-		AND legal_entity_id = $3 AND currency = $4 AND kind = 'invoice' AND status = 'posted'`, in.SupplierID, number, in.LegalEntityID, in.Gross.Currency).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "The credit memo names the invoice " + number + ", which is not a posted invoice of the supplier; enter its reference by hand.", nil
+	id, err := postedInvoiceCited(ctx, tx, in, number, nil)
+	if err != nil || id == nil {
+		return unmatchedReason([]string{number}, 1), err
 	}
-	if err != nil {
-		return "", fmt.Errorf("payables: capture: find the credited invoice %s: %w", number, err)
-	}
-	in.ReferenceInvoiceID = &id
+	in.ReferenceInvoiceID = id
 	return "", nil
 }
 

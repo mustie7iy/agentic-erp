@@ -209,7 +209,8 @@ func check(t *testing.T, what string, got, want any) {
 // TestRenderTaxInvoice: a posted AED invoice of standard-rated (S5 in
 // Dubai) and zero-rated items is rendered as a valid tax invoice 380,
 // its XML kept and read back with the seller's and buyer's TRNs, their
-// endpoints and emirates and the VAT per category; a second render
+// endpoints and emirates, the VAT per category and each line's VAT and
+// amount in AED (BTAE-08, a zero-rated line's 0, and BTAE-10); a second render
 // answers it unchanged; the render is audited and published.
 func TestRenderTaxInvoice(t *testing.T) {
 	s := uaeSetup(t, dubai)
@@ -232,6 +233,11 @@ func TestRenderTaxInvoice(t *testing.T) {
 	check(t, "VAT breakdown", strings.Join(breakdown, ", "), "S 5 1000000 50000, Z 0 200000 0")
 	check(t, "lines", words(len(d.Lines), d.Lines[0].Category, d.Lines[0].Percent, d.Lines[0].Quantity, d.Lines[0].Unit), "2 S 5 1 C62")
 	check(t, "no AED total on an AED invoice", words(d.TaxCurrency == "", d.AccountingTax == nil), "true true")
+	var inAED []string
+	for _, l := range d.Lines {
+		inAED = append(inAED, words(l.Category, int64(*l.AccountingTax), int64(*l.AccountingAmount))) // BTAE-08, BTAE-10 on every line (IBR-194-AE)
+	}
+	check(t, "each line's VAT and amount in AED", strings.Join(inAED, ", "), "S 50000 1050000, Z 0 200000")
 	again := s.render(t, 200, fmt.Sprintf(`{"customer_invoice_id": %q}`, invoice))
 	check(t, "a second render", words(again["id"], again["version"], again["sha256"]), words(got["id"], got["version"], got["sha256"]))
 	var events, audits int
@@ -315,9 +321,12 @@ func TestRenderInvalidThenValid(t *testing.T) {
 	check(t, "the second event's status before", before, "invalid")
 }
 
-// TestRenderForeignCurrency: an invoice in USD stays invalid, naming the
-// AED line amounts the format does not render yet (BTAE-08, BTAE-10); its
-// e-invoice names the billing document it posted from.
+// TestRenderForeignCurrency: an invoice in USD is a valid tax invoice
+// whose line states its VAT in AED (BTAE-08), the entry's, which is the
+// document's VAT in AED (IBT-111), and its amount with VAT in AED
+// (BTAE-10), the entry's local base (1,000.00 USD at 3.6725) and that VAT
+// (ADR-0061 As built batch 88); its e-invoice names the billing document
+// it posted from.
 func TestRenderForeignCurrency(t *testing.T) {
 	s := uaeSetup(t, dubai)
 	invoice, billing := s.posted(t, s.customer, "", "USD", s.item("1000.00", "USD", "S5@AE-DU")), uuid.New()
@@ -335,12 +344,13 @@ func TestRenderForeignCurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := s.render(t, 201, fmt.Sprintf(`{"customer_invoice_id": %q}`, invoice))
-	check(t, "status and source", words(got["status"], got["source_document_id"], got["source_document_number"]), words("invalid", billing, "BD100001"))
-	var terms []string
-	for _, p := range got["problems"].([]any) {
-		terms = append(terms, p.(map[string]any)["term"].(string))
+	check(t, "status and source", words(got["status"], got["source_document_id"], got["source_document_number"]), words("valid", billing, "BD100001"))
+	d := s.content(t, got["id"].(string))
+	if d.AccountingTax == nil || d.Lines[0].AccountingTax == nil || d.Lines[0].AccountingAmount == nil {
+		t.Fatalf("got IBT-111 %v, BTAE-08 %v, BTAE-10 %v, want all three", d.AccountingTax, d.Lines[0].AccountingTax, d.Lines[0].AccountingAmount)
 	}
-	check(t, "problems", terms, "[BTAE-08 BTAE-10]")
+	check(t, "the line's VAT in AED, the document's", words(*d.Lines[0].AccountingTax), words(*d.AccountingTax))
+	check(t, "the line's amount in AED", words(*d.Lines[0].AccountingAmount), words(367250+*d.AccountingTax))
 }
 
 // TestRenderRefusals: what the format does not render is refused before

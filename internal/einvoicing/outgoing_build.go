@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // The values E2 renders that no ERP field supplies (ADR-0061 As built
@@ -70,25 +72,35 @@ func buildDocument(s Sale, seller Seller, buyer Buyer, reason *Reason) (Document
 		found = append(found, Finding{Rule: "einvoicing.pint_ae.buyer", Term: "IBG-07", Message: "the customer's personal data is blocked"})
 	}
 	d.Lines, d.Subtotals = linesOf(s)
+	inAED(d.Lines, s)
 	return d, append(found, unrendered(d)...)
 }
 
 // unrendered names the mandatory terms a document needs that the format
-// does not render yet (ADR-0061 As built E2, questions for the tax
+// does not render (ADR-0061 As built E2, questions for the tax
 // specialist), so such a document stays invalid rather than be kept as a
-// valid, final tax invoice the provider would reject: a document not in
-// AED needs each line's VAT in AED (BTAE-08) and its amount in AED
-// (BTAE-10; the Ministry's field list #48 and #49, C5), one finding each
-// as each is a term of its own, and an exempt, out-of-scope or
-// reverse-charge line its exemption reason, as text or as a code (IBT-120
-// or IBT-121, one finding: either term carries it).
+// valid, final tax invoice the provider would reject: a line without its
+// VAT in AED (BTAE-08, but an exempt line, which states none, IBR-163-AE)
+// or its amount in AED (BTAE-10, every line, IBR-194-AE; the Ministry's
+// field list #48 and #49, C5), which a document not in AED lacks when its
+// entry's local amounts of the line's code are not known, one finding per
+// term; and an exempt, out-of-scope or reverse-charge line its exemption
+// reason, as text or as a code (IBT-120 or IBT-121, one finding: either
+// term carries it).
 func unrendered(d Document) []Finding {
 	var out []Finding
-	if d.Currency != accountingCurrency {
+	var noTax, noAmount bool
+	for _, l := range d.Lines {
+		noTax = noTax || (l.AccountingTax == nil && l.Category != "E")
+		noAmount = noAmount || l.AccountingAmount == nil
+	}
+	if noTax {
 		out = append(out, Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "BTAE-08",
-			Message: "a document not in AED needs each line's VAT in AED (BTAE-08), which the ERP does not render yet"},
-			Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "BTAE-10",
-				Message: "a document not in AED needs each line's amount in AED (BTAE-10), which the ERP does not render yet"})
+			Message: "a line's VAT in AED (BTAE-08) is not known: its tax code has no posted local amounts"})
+	}
+	if noAmount {
+		out = append(out, Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "BTAE-10",
+			Message: "a line's amount in AED (BTAE-10) is not known: its tax code has no posted local amounts"})
 	}
 	for i, l := range d.Lines {
 		if l.Category == "E" || l.Category == "O" || l.Category == "AE" {
@@ -97,6 +109,53 @@ func unrendered(d Document) []Finding {
 		}
 	}
 	return out
+}
+
+// inAED gives each line its VAT in AED (BTAE-08) and its amount with VAT
+// in AED (BTAE-10; IBG-39, which PINT AE lists on every line, IBR-194-AE,
+// as the coordinator's research of 21 Nov read the AE rules;
+// po:2026-11-21): in a document in AED, its own tax and net plus tax; in
+// another currency, each code's local base and tax as the posting
+// converted them (Sale.LocalCodes) shared out among the code's lines by
+// their net and their tax (money.ShareOut), so the lines' VAT in AED adds
+// up to the entry's, IBT-111, exactly. An exempt line (E) states no VAT
+// in AED (IBR-163-AE); a zero-rated or reverse-charge one states 0
+// (IBR-162-AE, IBR-165-AE), its tax being 0. A line whose code has no
+// local amounts keeps neither, which unrendered names.
+func inAED(lines []Line, s Sale) {
+	byCode := map[string][]int{}
+	for i, it := range s.Lines {
+		byCode[it.TaxCode] = append(byCode[it.TaxCode], i)
+	}
+	for code, at := range byCode {
+		nets, taxes := make([]money.Minor, len(at)), make([]money.Minor, len(at))
+		for k, i := range at {
+			nets[k], taxes[k] = s.Lines[i].Net, s.Lines[i].Tax
+		}
+		if s.Currency != accountingCurrency {
+			local, ok := s.LocalCodes[code]
+			if !ok {
+				continue
+			}
+			nets, taxes = shared(local.Base, nets), shared(local.Tax, taxes)
+		}
+		for k, i := range at {
+			tax, amount := taxes[k], nets[k]+taxes[k] // a line's net and tax in AED: within the entry's bigint amounts
+			if lines[i].Category != "E" {
+				lines[i].AccountingTax = &tax
+			}
+			lines[i].AccountingAmount = &amount
+		}
+	}
+}
+
+// shared is total shared out by the weights (money.ShareOut), all zero
+// when they weigh nothing.
+func shared(total money.Minor, weights []money.Minor) []money.Minor {
+	if out := money.ShareOut(total, weights); out != nil {
+		return out
+	}
+	return make([]money.Minor, len(weights))
 }
 
 // tin is the first ten digits of a TRN, the TIN of the electronic address

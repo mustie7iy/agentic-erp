@@ -11254,6 +11254,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
         - $ref: "#/components/parameters/SupplierId"
+        - name: material_id
+          in: query
+          required: false
+          description: "Only purchase orders with an item of this material (`GET /v1/materials/{id}`): the material's purchasing history, which the replenishment agent reads (S2l). Each order is answered whole, all its items with it."
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -11282,6 +11289,19 @@ paths:
           schema:
             type: string
             format: date
+        - name: supplying_plant_id
+          in: query
+          required: false
+          description: "Only intercompany stock transport orders supplied by this plant (ADR-0082 As built S2i): the supplying company's work."
+          schema:
+            type: string
+            format: uuid
+        - name: issued
+          in: query
+          required: false
+          description: "Only intercompany stock transport orders whose goods issue is posted (`true`) or not yet (`false`); orders supplied by no plant match neither."
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -11318,6 +11338,9 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11333,6 +11356,8 @@ paths:
         - procurement.requisition_mismatch
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -11425,6 +11450,9 @@ paths:
         - procurement.account_not_postable
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11439,6 +11467,8 @@ paths:
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -11565,6 +11595,7 @@ paths:
       x-problem-codes:
         - procurement.change_open
         - procurement.invalid_status
+        - procurement.order_in_transit
         - procurement.requisition_ordered
         - request.version_mismatch
         - workflow.request_pending
@@ -11575,6 +11606,155 @@ paths:
       responses:
         "200":
           description: The purchase order after closePurchaseOrder.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/purchase-orders/{id}:postIntercompanyGoodsIssue":
+    post:
+      operationId: postIntercompanyGoodsIssue
+      tags:
+        - procurement
+      summary: Post the goods issue of an intercompany stock transport order
+      description: "Posts a released intercompany stock transport order's goods issue (ADR-0082 As built S2i; SAP's 643, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order not `released`, 409 `procurement.invalid_status`; one naming no `supplying_plant_id`, 409 `procurement.not_intercompany`; one issued already, 409 `procurement.intercompany_issued`). Every item of the order is issued, its ordered quantity in its unit, from the storage location of the supplying plant `items` names for it (each item once, 422 `procurement.issue_items`), as one material document of movement type `643` of the supplying company (`issue_document_id`), posted on that company's date today in its time zone and numbered from its `material_document` range, its `reference` the order's number. Each item is checked as an outbound delivery's goods issue is: the material active, extended to the supplying plant and kept at the storage location (422 `inventory.plant_not_extended`, `inventory.storage_location_not_extended`), valued there (422 `inventory.no_valuation`), its quantity exact in its base unit (422 `inventory.inexact_quantity`), the location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical inventory document (409 `inventory.posting_blocked`). The issue takes the stock's value as an issue does and posts it in one WA journal entry of the supplying company, Dr the valuation class's cost of goods sold account, Cr its stock account (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). The goods are then in neither company's stock until the receiving company posts their goods receipt against the order (`postGoodsReceipt`, at the order price against GR/IR, at most what was issued). The caller acts in both companies: the order's (404 otherwise) and the supplying plant's (422 `inventory.plant_invalid`). Audited; the stock moves are published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.serial_in_stock
+        - inventory.serial_not_allowed
+        - inventory.serial_not_in_stock
+        - inventory.serial_not_supported
+        - inventory.serial_quantity
+        - inventory.serial_repeated
+        - inventory.serial_required
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - procurement.intercompany_issued
+        - procurement.invalid_status
+        - procurement.issue_items
+        - procurement.not_intercompany
+        - procurement.requisition_ordered
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntercompanyGoodsIssue"
+      responses:
+        "200":
+          description: The purchase order after its goods issue.
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -11616,6 +11796,7 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.invalid_status
+        - procurement.order_in_transit
         - procurement.order_invoiced
         - procurement.order_received
         - procurement.requisition_ordered
@@ -11869,6 +12050,10 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_order_change
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11882,6 +12067,8 @@ paths:
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -11976,6 +12163,10 @@ paths:
         - procurement.amount_too_large
         - procurement.change_open
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_order_change
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -11989,6 +12180,8 @@ paths:
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -12112,6 +12305,10 @@ paths:
         - procurement.change_open
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_order_change
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -12126,6 +12323,8 @@ paths:
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -12438,6 +12637,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
         - $ref: "#/components/parameters/SupplierId"
+        - name: material_id
+          in: query
+          required: false
+          description: "Only contracts with an item of this material (`GET /v1/materials/{id}`): its outline agreements, which the replenishment agent reads as sources of supply (S2l). Each contract is answered whole, all its items with it."
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -13008,6 +13214,9 @@ paths:
         - procurement.agreement_not_valid
         - procurement.amount_too_large
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -13025,6 +13234,8 @@ paths:
         - procurement.requisition_ordered
         - procurement.schedule_line_called_off
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -13392,6 +13603,9 @@ paths:
         - procurement.contract_renewed
         - procurement.currency_mismatch
         - procurement.duplicate_material_key
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -13414,6 +13628,8 @@ paths:
         - procurement.requisition_ordered
         - procurement.rfq_from_requisition
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unknown_currency
         - procurement.unknown_payment_term
         - procurement.unknown_tax_code
@@ -13771,6 +13987,7 @@ paths:
         - ledger.unknown_unit
         - ledger.zero_amount
         - ledger.zero_tax_base
+        - procurement.intercompany_not_issued
         - procurement.invalid_movement_type
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
@@ -14267,6 +14484,7 @@ paths:
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
         - payables.invalid_tax_code
+        - payables.local_tax_mismatch
         - payables.mixed_purchase_orders
         - payables.negative_amount
         - payables.no_tax_rate
@@ -14701,6 +14919,7 @@ paths:
         - payables.invalid_status
         - payables.invalid_tax_code
         - payables.legal_entity_not_found
+        - payables.local_tax_mismatch
         - payables.match_outdated
         - payables.match_required
         - payables.negative_amount
@@ -24721,7 +24940,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
+            x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -28467,7 +28686,7 @@ paths:
       tags:
         - einvoicing
       summary: Fetch e-invoices from the provider now
-      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. Then the fetch processes every document of the connector not processed yet, oldest first (T65c, ADR-0061 §5): it reads it as PINT AE (no DTD, no entity expanded) and refuses it, `refused` with its `problem_code` and `problem_detail`, an audit record and EInvoiceChanged, when it is unreadable, not a tax invoice 380 or tax credit note 381 following PINT AE, lacks a field the ERP reads, states an amount with more decimals than its currency has, does not add up without any tax rule, or is not addressed to the company (its buyer's electronic address IBT-049 the company's participant, its buyer's TRN IBT-048 the company's FTA registration on its issue date); a valid one stays `received`, with what was read (number, kind, issue date, currency, gross, specification) and the release validated against, and a valid tax invoice is then entered (T65d, ADR-0061 §6) as a supplier invoice of source `einvoice` by capture's rules without a model: the purchase order its order reference (IBT-013) names, whose supplier must hold the seller's TRN (IBT-031) as a tax identifier; its items by order line (IBT-132) or by position, each with its order item's unit and tax code where that code has the line's VAT category (IBT-151) and charges its rate (IBT-152), else the one input code that does, else the invoice on hold for a person to choose; parked, or on hold with capture's reasons; its document the e-invoice's bytes (`getSupplierInvoiceDocument`), published as SupplierInvoiceCaptured. The document becomes `entered`, naming the invoice, with an audit record and EInvoiceChanged. Any refusal of the entering (no order: `payables.capture_needs_order`; an unknown order or item, the seller's TRN not the supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`, `payables.already_captured`, a closed period and any other) holds the document instead, `held` with that problem's code and detail, nothing of the entering kept; a tax invoice or tax credit note not in AED is held with `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as it states it, which the entering does not do yet). A valid tax credit note is entered the same way as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites (IBT-025) by capture's rule: a posted invoice of the supplier in the company and the note's currency is its `reference_invoice_id`; a number that is none enters it `on_hold`, its hold reason naming the number, for a person to enter the reference; a tax credit note naming no invoice is held with `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects, IBG-03), nothing of it entered, rather than entered as correcting none; one naming several invoices (IBG-03 repeated) is held with `einvoicing.credit_note_names_several_invoices`, the detail naming them, since a credit memo names one. A tax invoice validated by a fetch before T65d, and a tax credit note validated before T65e, is entered by the next one. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`: the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed, waiting for the company's setup) and its `resource` the list of the documents it recorded, found changed, refused, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch recorded, as its `processed_fetch_operation_id`, and one entered or held as its `entry_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded, since its bytes cannot be kept), which the next fetch meets again. A failure processing the documents fails the Operation with `platform.unavailable`, the documents recorded and left for the next fetch to process; a document whose stored bytes are gone or differ fails it with `einvoicing.document_changed` naming it, the others processed. A document whose company the connector no longer names, or which is dated before the company's FTA registration, is left unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector naming a `secret_ref` is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`); so is, in production, the provider's stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`). Its credentials are resolved from the vault by the fetch's first step, with no transaction open (ADR-0061 As built E3), not by this request: credentials that do not resolve, or an Evatra connector's that are not a JSON object with `apiKey` and `email`, fail the Operation with `integration.secret_unavailable`. An Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. Then the fetch processes every document of the connector not processed yet, oldest first (T65c, ADR-0061 §5): it reads it as PINT AE (no DTD, no entity expanded) and refuses it, `refused` with its `problem_code` and `problem_detail`, an audit record and EInvoiceChanged, when it is unreadable, not a tax invoice 380 or tax credit note 381 following PINT AE, lacks a field the ERP reads, states an amount with more decimals than its currency has, does not add up without any tax rule, or is not addressed to the company (its buyer's electronic address IBT-049 the company's participant, its buyer's TRN IBT-048 the company's FTA registration on its issue date); a valid one stays `received`, with what was read (number, kind, issue date, currency, gross, specification) and the release validated against, and a valid tax invoice is then entered (T65d, ADR-0061 §6) as a supplier invoice of source `einvoice` by capture's rules without a model: the purchase order its order reference (IBT-013) names, whose supplier must hold the seller's TRN (IBT-031) as a tax identifier; its items by order line (IBT-132) or by position, each with its order item's unit and tax code where that code has the line's VAT category (IBT-151) and charges its rate (IBT-152), else the one input code that does, else the invoice on hold for a person to choose; parked, or on hold with capture's reasons; its document the e-invoice's bytes (`getSupplierInvoiceDocument`), published as SupplierInvoiceCaptured. The document becomes `entered`, naming the invoice, with an audit record and EInvoiceChanged. Any refusal of the entering (no order: `payables.capture_needs_order`; an unknown order or item, the seller's TRN not the supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`, `payables.already_captured`, a closed period and any other) holds the document instead, `held` with that problem's code and detail, nothing of the entering kept; a tax invoice or tax credit note not in AED is entered keeping its VAT in AED as it states it, the sum of its lines' VAT in AED (BTAE-08), as the invoice's `stated_local_tax`, which its posting keeps as the tax's local amount (ADR-0061 As built batch 88), and is held with `einvoicing.tax_currency_not_entered` when a line (but an exempt one) does not state it; one whose lines' VAT in AED does not sum to its VAT in AED (IBT-111) is refused as `einvoicing.totals_inconsistent`. A valid tax credit note is entered the same way as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites (IBT-025) by capture's rule: a posted invoice of the supplier in the company and the note's currency is its `reference_invoice_id`; a number that is none enters it `on_hold`, its hold reason naming the number, for a person to enter the reference; the memo keeps its reason (BTAE-03, `credit_reason`) and each invoice it cites (`cited_invoices`: IBT-025 and, when stated, IBT-026, matched by number and date); a tax credit note naming no invoice is held with `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects, IBG-03), nothing of it entered, rather than entered as correcting none, unless it is for a volume discount (reason `VD`, IBR-055-AE), which is entered without a reference; one naming several invoices (IBG-03 repeated) is entered as one credit memo citing them all, without a `reference_invoice_id`, on hold naming any that is no posted invoice of the supplier (batch 88; before it such a note was held with `einvoicing.credit_note_names_several_invoices`). A tax invoice validated by a fetch before T65d, and a tax credit note validated before T65e, is entered by the next one. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`: the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed, waiting for the company's setup) and its `resource` the list of the documents it recorded, found changed, refused, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch recorded, as its `processed_fetch_operation_id`, and one entered or held as its `entry_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded, since its bytes cannot be kept), which the next fetch meets again. A failure processing the documents fails the Operation with `platform.unavailable`, the documents recorded and left for the next fetch to process; a document whose stored bytes are gone or differ fails it with `einvoicing.document_changed` naming it, the others processed. A document whose company the connector no longer names, or which is dated before the company's FTA registration, is left unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector naming a `secret_ref` is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`); so is, in production, the provider's stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`). Its credentials are resolved from the vault by the fetch's first step, with no transaction open (ADR-0061 As built E3), not by this request: credentials that do not resolve, or an Evatra connector's that are not a JSON object with `apiKey` and `email`, fail the Operation with `integration.secret_unavailable`. An Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
       x-permission: einvoicing.einvoice.manage
       x-agent: false
       x-problem-codes:
@@ -38772,6 +38991,10 @@ paths:
         - procurement.amount_too_large
         - procurement.contract_exceeded
         - procurement.currency_mismatch
+        - procurement.intercompany_item_not_stock
+        - procurement.intercompany_not_issued
+        - procurement.intercompany_over_delivery
+        - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
         - procurement.invalid_change
@@ -38798,6 +39021,8 @@ paths:
         - procurement.stock_item_not_valued
         - procurement.stock_item_return
         - procurement.supplier_not_usable
+        - procurement.supplying_plant_invalid
+        - procurement.supplying_plant_own_company
         - procurement.unit_mismatch
         - procurement.unknown_currency
         - procurement.unknown_order_item
@@ -41570,6 +41795,8 @@ components:
             - risk
             - planning
             - enablement
+            - replenishment
+            - count_planning
           maxLength: 50
         model:
           type: string
@@ -53698,6 +53925,37 @@ components:
               format: uuid
               description: "The `purchase_order` approval request (workflow context) the order waits for while `pending_approval`; absent otherwise."
               readOnly: true
+            supplying_plant_id:
+              type: string
+              format: uuid
+              description: "The plant of another company of the tenant that supplies the order, which makes it an intercompany stock transport order (ADR-0082 As built S2i), fixed at creation; absent for any other order."
+              readOnly: true
+            supplying_plant_code:
+              type: string
+              description: The supplying plant's code; with `supplying_plant_id`.
+              readOnly: true
+            supplying_plant_name:
+              type: string
+              description: The supplying plant's name; with `supplying_plant_id`.
+              readOnly: true
+            supplying_company_code:
+              type: string
+              description: "The code of the supplying plant's company, the supplier's group company; with `supplying_plant_id`."
+              readOnly: true
+            issue_document_id:
+              type: string
+              format: uuid
+              description: "The material document of the intercompany order's goods issue (movement type `643`, the supplying company's), once posted (`postIntercompanyGoodsIssue`)."
+              readOnly: true
+            issue_document_number:
+              type: string
+              description: The goods issue's material document number; with `issue_document_id`.
+              readOnly: true
+            issue_date:
+              type: string
+              format: date
+              description: The goods issue's posting date, the supplying company's day; with `issue_document_id`.
+              readOnly: true
             valuation:
               type: string
               description: "How the order's receipts and invoices are booked, fixed when it is released: `direct` (invoices post the order item's account; receipts do not post) or `gr_ir` (receipts post Dr the item's account / Cr GR/IR at the order price, invoices clear GR/IR). An order is `gr_ir` when its legal entity has a GR/IR account (account determination `gr_ir`) at release. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -53749,6 +54007,32 @@ components:
             currency: EUR
           extensions:
             cost_object_hint: MKT-2026
+    IntercompanyGoodsIssue:
+      type: object
+      description: "Where each item of an intercompany stock transport order is issued from: a storage location of the supplying plant per item, each item once."
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          description: Each of the order's items once.
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            required:
+              - po_item_no
+              - storage_location_id
+            properties:
+              po_item_no:
+                type: integer
+                format: int32
+                minimum: 1
+                description: The order item.
+              storage_location_id:
+                type: string
+                format: uuid
+                description: The storage location of the supplying plant it is issued from.
     PurchaseOrderCreate:
       type: object
       description: Create a draft purchase order.
@@ -53792,6 +54076,10 @@ components:
           type: string
           format: uuid
           description: Contract that prices the order.
+        supplying_plant_id:
+          type: string
+          format: uuid
+          description: "A plant of another company of the tenant that supplies the order, making it an intercompany stock transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`) of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422 `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the transfer price. Fixed once created; an intercompany order is not changed once released (409 `procurement.intercompany_order_change`)."
         items:
           type: array
           items:
@@ -55999,6 +56287,39 @@ components:
           pending_sign_off: false
           unassessed: false
           message: "The supplier has no tax identifier of the company's country; its registration number must be on the document for the input tax of a document of 100.00 CAD or more to be recovered (SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number)."
+    SupplierCreditReason:
+      type: object
+      description: "A credit memo's reason as its e-invoice states it (BTAE-03)."
+      required: [code]
+      properties:
+        code:
+          type: string
+          maxLength: 100
+          description: "The reason's code as the credit note states it, such as `VD` (volume discount)."
+        text:
+          type: string
+          maxLength: 1000
+          description: "The reason's words as the credit note states them, a longer text shortened to 1,000 characters ending in an ellipsis. Absent when it states none."
+    SupplierInvoiceCitation:
+      type: object
+      description: "A preceding invoice a credit memo's e-invoice cites (IBG-03)."
+      required: [invoice_number]
+      properties:
+        invoice_number:
+          type: string
+          maxLength: 200
+          description: "The cited invoice's number as the credit note states it (IBT-025): the supplier's own reference."
+        invoice_date:
+          type: string
+          format: date
+          description: "The cited invoice's issue date as the credit note states it (IBT-026), which the match also compares. Absent when it states none."
+        invoice_id:
+          type: string
+          format: uuid
+          description: "The supplier's posted invoice of the company, in the memo's currency, whose `supplier_reference` is the number (and whose `invoice_date` the date, when stated), as found when the memo was entered. Absent when none was: the memo was entered `on_hold`, its `hold_reason` naming the number."
+        document_number:
+          type: string
+          description: "That invoice's `document_number`. Absent with `invoice_id`."
     SupplierInvoice:
       description: A supplier invoice (accounts payable).
       allOf:
@@ -56055,6 +56376,10 @@ components:
             tax_amount:
               $ref: "#/components/schemas/Money"
               description: Tax amount.
+            stated_local_tax:
+              $ref: "#/components/schemas/Money"
+              description: "The tax in the company's currency as the supplier's e-invoice states it, for one not in that currency (a UAE e-invoice's VAT in AED, the sum of its lines' BTAE-08; ADR-0061 §5 C5, As built batch 88): posting keeps it as the local amount of the tax the supplier charges, shared among its codes by their converted tax, instead of converting the tax at the tax date's rate, so the VAT 201 reports it as stated; a stated tax its charged codes cannot take is refused when the invoice posts (422 `payables.local_tax_mismatch`). A change of the invoice's currency or tax drops it. Absent on every other invoice."
+              readOnly: true
             purchase_order_id:
               type: string
               format: uuid
@@ -56071,7 +56396,7 @@ components:
             reference_invoice_id:
               type: string
               format: uuid
-              description: "The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal entity and currency); never on an invoice."
+              description: "The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal entity and currency); never on an invoice. A credit memo entered from an e-invoice credit note citing several invoices names none (they are its `cited_invoices`)."
             status:
               type: string
               description: "Lifecycle status: `parked`, `on_hold` (`:hold`/`:release`), `posted` (`:post`), `cancelled` (`:cancel`, unposted only), `reversed` (`:reverse`), or `rejected` when the approval request for an invoice exception is rejected. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -56134,6 +56459,17 @@ components:
               items:
                 $ref: "#/components/schemas/DocumentaryWarning"
               description: "What the invoice's document may lack for its input tax to be recovered, by the company's documentary requirements (its `tax_settings`, from the country pack: Canada's $100 and $500 tiers, the UAE's threshold), recorded when the invoice posts (ADR-0049 §6). Warnings, never refusals: the business may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed."
+              readOnly: true
+            credit_reason:
+              $ref: "#/components/schemas/SupplierCreditReason"
+              description: "A credit memo's reason as the supplier's e-invoice credit note states it (BTAE-03; ADR-0061 As built batch 88), such as `VD` for a volume discount. Absent on a document entered otherwise and on every invoice."
+              readOnly: true
+            cited_invoices:
+              type: array
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/SupplierInvoiceCitation"
+              description: "The invoices a credit memo's e-invoice credit note cites (IBG-03; ADR-0061 As built batch 88, po:2026-11-21), in its order, each number once: a credit note correcting several invoices is one credit memo citing them all, its `reference_invoice_id` absent, and the accounts payable clerk clears it against them; one citing one also names it as its `reference_invoice_id`; one for a volume discount (`credit_reason` `VD`) may cite none. Empty on a document entered otherwise and on every invoice."
               readOnly: true
             calculated_tax:
               $ref: "#/components/schemas/CalculatedTax"
@@ -65540,7 +65876,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
+          x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
@@ -65553,7 +65889,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
-        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on every other document.", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409 `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643, S2i1, the supplying company's): the purchase order's `document_number` (`GET /v1/purchase-orders?document_number=`, the receiving company's order), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on every other document.", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}
@@ -67373,14 +67709,14 @@ components:
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company of that participant; null when the document is addressed to none of them."}
         company_code: {type: [string, 'null'], description: "The company's code; null with `legal_entity_id`."}
         company_name: {type: [string, 'null'], description: "The company's name; null with `legal_entity_id`."}
-        status: {type: string, description: "Open enum: received (recorded; once processed, read as a PINT AE document and found valid, until it is entered or held), refused (T65c: read and refused by validation, `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as `payables.capture_needs_order` for one naming no purchase order, or `einvoicing.credit_note_names_no_invoice` and `einvoicing.credit_note_names_several_invoices` for a tax credit note naming no invoice it corrects or several, for a person to resolve). The later slices add dismissed (ADR-0061 §7)."}
+        status: {type: string, description: "Open enum: received (recorded; once processed, read as a PINT AE document and found valid, until it is entered or held), refused (T65c: read and refused by validation, `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as `payables.capture_needs_order` for one naming no purchase order, or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that is not for a volume discount, for a person to resolve; `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several). The later slices add dismissed (ADR-0061 §7)."}
         processed_at: {type: string, format: date-time, description: "When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing it or leaving it received. Omitted until then; every fetch processes the documents of its connector not processed yet."}
         processed_fetch_operation_id: {type: string, format: uuid, description: "The fetch that processed it: its Operation's id. Omitted with `processed_at`."}
         validated_against: {type: string, description: "The release of the PINT AE rules it was validated against (ADR-0061 §5 C2), such as `PINT AE Billing 1.0.4`. Omitted with `processed_at`."}
         problem_code:
           type: string
           x-extensible-enum: [einvoicing.unreadable, einvoicing.unsupported_document, einvoicing.missing_field, einvoicing.amount_precision, einvoicing.totals_inconsistent, einvoicing.not_addressed_to_company, einvoicing.tax_currency_not_entered, einvoicing.credit_note_names_no_invoice, einvoicing.credit_note_names_several_invoices, payables.capture_needs_order, payables.unreadable_document, payables.einvoice_seller_unknown, payables.duplicate_invoice, payables.already_captured]
-          description: "Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED, whose VAT in AED the entering does not keep yet, einvoicing.credit_note_names_no_invoice for a tax credit note naming no invoice it corrects, IBG-03 and IBT-025, or einvoicing.credit_note_names_several_invoices for one naming more than one, which a credit memo cannot, T65e). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
         problem_detail: {type: string, maxLength: 2000, description: "What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted unless refused or held."}
         document_number: {type: string, description: "The document's number as it states it (IBT-001). Omitted until processed, and for a document that could not be read."}
         document_kind:

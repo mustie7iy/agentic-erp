@@ -29,7 +29,7 @@
 367 internal/assets
 364 internal/web/e2e
 360 internal/payments
-331 internal/payables
+335 internal/payables
 400 internal/procurement
 270 internal/sales
 178 internal/closing
@@ -86,6 +86,14 @@
 # packages at a time, took 246 s, 179 s, 323 s and 36 s, against 623 s
 # for internal/web (weighted 514), so some 1.2 times a runner's: about
 # 205 s, 150 s, 270 s and 30 s a run.
-205 internal/inventory
-150 internal/einvoicing
+# internal/inventory, internal/einvoicing and internal/payables (batch 88,
+# S2i1's intercompany issue, the e-invoices not in AED and the memos
+# citing several invoices): one local race run of the batch, two packages
+# at a time, took 254 s, 189 s and 399 s, against 619 s for internal/web
+# (weighted 514), so some 1.2 times a runner's: about 210 s, 160 s and
+# 335 s a run. internal/procurement (363 s) stayed within its 400; the new
+# internal/countagent and internal/replenishmentagent (5 s and 6 s) are
+# below 20 s and counted as 10 s.
+210 internal/inventory
+160 internal/einvoicing
 30 internal/mrp

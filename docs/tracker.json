@@ -1303,6 +1303,13 @@
       "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Finance / Payments and bank communication: customer side, with AR)",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A cash discount a UAE customer takes reduces the output tax (product owner 2026-11-21, as T36d's correction reduces input tax on the supplier side): a payment within the discount period of an invoice whose codes levy VAT corrects the output tax per tax item in proportion, with the item's jurisdiction (emirate), so the VAT 201 reports the reduced tax; today receivables writes what the customer took off as a payment difference without a tax code (ADR-0063 T75f, Not built). A Canadian cash discount keeps making no GST/HST adjustment (ETA s.161, Musto 2026-11-21)",
+      "r": "ADR-0049 As built batch 88 · ADR-0063 T75f · TestDiscountOnLeviedJurisdiction",
+      "src": "po:2026-11-21",
+      "c": []
      }
     ]
    },
@@ -2755,6 +2762,13 @@
         "c": []
        }
       ]
+     },
+     {
+      "s": "T",
+      "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt recovered by an adjustment in the return, never by a plain write-off or a short payment (no tax correction on those) and never by a dispute's price cut, which is a tax credit note (T86d's credit memo): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 (the supply made and its tax paid, six months past the date of supply, written off in the accounts and the customer notified), for a Canadian one under the Excise Tax Act s.231 (the account written off as bad); its evidence (the write-off entry, the notice) kept with the adjustment, the reversal when the customer pays later; tax-relevant, so a person posts it (Musto, UAE and Canada tax specialist, 2026-11-21; conditions as the coordinator's research of 21 Nov states them, to read in the law's text before the slice)",
+      "r": "ADR-0049 As built batch 88 · ADR-0065 (write-offs) · T86d",
+      "src": "po:2026-11-21",
+      "c": []
      }
     ]
    },
@@ -2811,10 +2825,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "E-invoices not in AED entered with their VAT in AED as stated: a received tax invoice in another currency entered as a supplier invoice keeping its VAT in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax at the tax date's rate; T65d holds such a document with einvoicing.tax_currency_not_entered (UAE tax specialist, po:2026-11-09, C5; BTAE-08's and BTAE-10's UBL paths to confirm)",
-        "r": "ADR-0061 §5 (C5), §6 · ADR-0061 As built T65d · ADR-0049 §8",
-        "src": "split:T65d · po:2026-11-09",
+        "s": "D",
+        "t": "E-invoices not in AED entered with their VAT in AED as stated: a received tax invoice in another currency entered as a supplier invoice keeping its VAT in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax at the tax date's rate; T65d holds such a document with einvoicing.tax_currency_not_entered (UAE tax specialist, po:2026-11-09, C5; po:2026-11-21: the VAT in AED the lines state, BTAE-08, held only when a line does not state it; the send side fills BTAE-08 and BTAE-10 on every line from the posting's local amounts per code, IBR-162/163/165/194-AE; BTAE-08's and BTAE-10's UBL paths from memory, for the specialist)",
+        "r": "ADR-0061 §5 (C5), §6 · ADR-0061 As built T65d, batch 88 · ADR-0049 §8 · db/migrations/000441, 000442 (stated_local_tax) · payables.statedLocalTax, payables.local_tax_mismatch · money.ShareOut · einvoicing.LineTaxInAED, inconsistentInAED, inAED · SupplierInvoice.stated_local_tax · TestEnterNotInAED · TestStatedLocalTax · TestRenderForeignCurrency · TestLinesInAED",
+        "src": "split:T65d · po:2026-11-09 · po:2026-11-21",
         "c": []
        },
        {
@@ -2825,9 +2839,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
+        "t": "E-invoice credit notes as one credit memo (fix of T65e): a received tax credit note for a volume discount (BTAE-03 VD) naming no invoice is valid (IBR-055-AE) and entered as a supplier credit memo without a reference; only one for another reason naming none is held (einvoicing.credit_note_names_no_invoice); a credit note citing several invoices (IBG-03 repeated) is entered as ONE credit memo citing them all, its reference_invoice_id none, the accounts payable clerk clearing it (the VAT 201 reports it by the credit note's date, no per-invoice split); the memo keeps the reason (BTAE-03) and each cited invoice's number and date (IBT-025, IBT-026), matched to the supplier's posted invoice by supplier and number and, when stated, date, an unmatched one holding the memo naming it; the outgoing rule lets a VD tax credit note name no invoice; walkthrough: GOI-2103, a VD credit note without reference, entered; GOI-2104 citing two invoices entered as one memo citing both",
+        "r": "ADR-0061 §6 · ADR-0061 As built batch 88 · db/migrations/000439, 000440 (supplier_invoice_citation, supplier_invoice_credit_reason) · payables.citedInvoices, statedOf, Citation, CreditReason · SupplierInvoice.credit_reason, cited_invoices · einvoicing.Cited, ReasonVolumeDiscount · TestEnterCreditNotes · TestSupplierInvoiceCitations · walkthrough step_einvoice (einvoice_credit_note_vd, einvoice_credit_note_citing_two)",
+        "src": "po:2026-11-21",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "fix: a CHECK on einvoicing.einvoice that a processed document not refused has its document_kind (einvoice_read keeps it empty before processing; nothing requires it after), since the fetch's entering branches on it (invoice or credit note, T65e), with its schema test",
-        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e",
+        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · db/migrations/000437, 000438 (einvoice_read_processed) · TestEInvoiceProcessing (processed without its kind) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e, batch 88",
         "src": "review:batch87",
         "c": []
        },
@@ -2902,7 +2923,7 @@
          },
          {
           "s": "T",
-          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider; PINT AE: non-AED documents and E/O/AE lines (BTAE-08/10/20, IBT-120/121), once the specialist confirms the terms (ADR-0061 As built E2)",
+          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider; PINT AE: E/O/AE lines (IBT-120/121) and BTAE-20, once the specialist confirms the terms (ADR-0061 As built E2; non-AED documents' BTAE-08/10 built in batch 88)",
           "r": "coordinator plan einvoicing-evatra Later",
           "src": "po:2026-11-19",
           "c": []
@@ -5649,9 +5670,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The count planning agent recommends the materials to count this period for an inventory controller to decide; it never creates a count document",
-      "r": "S2e · docs/design/plan-supply-chain.md §S2e · ADR-0082",
+      "r": "S2e · docs/design/plan-supply-chain.md §S2e · ADR-0082 As built S2e · ADR-0072 §7 and As built S2e · internal/countagent (countagent.Agent.Plan, survey.check, due.go: ABC class by the year's consumption value, movements, last count; intervals 90/180/365) · agent type count_planning · erp agent count-plan -company -plant (cmd/erp/countplan.go) · evals/count_planning · TestPlan, TestPlanMaxLines, TestPlanNothingDue, TestPlanRefusals, TestNever, TestAgentCountPlan · walkthrough step_count_agent (step 154) · 04-api-design · ADR-0039",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5726,10 +5747,24 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "A stock transfer between plants of two companies with intercompany billing and the receiving company's supplier invoice",
-      "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082",
+      "s": "D",
+      "t": "S2i1 A planner of one company orders stock from a plant of another company of the tenant: the receiving company's purchase order names the supplying plant and the supplier that is the supplying company; the supplying company's goods issue (643) takes it out of its stock against cost of goods sold, and the receiving company's goods receipt takes it in at the order price, the transfer price, against GR/IR, at most what was issued",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082 As built S2i · db/migrations/000443, 000444 · procurement.purchase_order.supplying_plant_id, issue_document_id · movement type 643 · POST /v1/purchase-orders (supplying_plant_id) · :postIntercompanyGoodsIssue · inventory.Endpoints.IssueForIntercompany · partner.Supplier.GroupCompanyID · walkthrough step_intercompany_transport (step 155)",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "S2i2 Intercompany billing: the supplying company bills an intercompany stock transport order's posted goods issue to the business partner that is the receiving company, at the order's prices, its tax by the supplying company's tax code, posted as a customer invoice, once per goods issue",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i2) · ADR-0082 As built S2i",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "S2i3 The receiving company's supplier invoice from the intercompany billing: the posted billing entered as a supplier invoice of the receiving company for the supplier that is the supplying company, at the billing's amounts and tax, matched to the order's receipts (clearing GR/IR), for a person to post",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i3) · ADR-0082 As built S2i",
+      "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
      {
@@ -5859,9 +5894,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The replenishment agent recommends what to order, from which supplier and when, from the run's proposals for a buyer to decide",
-      "r": "S2l · docs/design/plan-supply-chain.md §S2l",
+      "r": "S2l · docs/design/plan-supply-chain.md §S2l · ADR-0072 As built S2l · ADR-0084 As built S2l · internal/replenishmentagent · erp agent replenish -run ID · agent type replenishment · listPurchaseOrders, listContracts material_id · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -12865,6 +12900,13 @@
       "t": "Pin a PgBouncer image carrying libcares2 >= 1.34.9-1~deb13u1 and remove the .grype.yaml libcares2 entries; by 2026-11-29 (CVE-2026-33630 and CVE-2026-69184, High, in libcares2 1.34.5 of the pinned PgBouncer 1.26.1-202611121015-trixie; accepted by the product owner on 2026-11-15 until then because no PgBouncer build carries Debian's fix: PgBouncer loads libcares for its DNS lookups)",
       "r": "deploy/images/upstream.txt · scripts/failover.sh · deploy/helm/erp-cell/tests/values.yaml · .grype.yaml · ADR-0032 As built",
       "src": "review:batch73",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Pin images carrying glibc 2.41-12+deb13u5 (erp-analytics's distroless cc-debian13:nonroot base and PgBouncer) and remove the .grype.yaml libc6/libc-bin entries; by 2026-11-29 (CVE-2026-19499 and CVE-2026-5435, High, in glibc 2.41-12+deb13u4; accepted by the product owner on 2026-11-22 until then because neither image has a build carrying Debian's fix)",
+      "r": "deploy/images/erp-analytics.Dockerfile · deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
+      "src": "po:2026-11-22",
       "c": []
      },
      {

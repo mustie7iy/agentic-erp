@@ -25,7 +25,8 @@ func sale() Sale {
 	return Sale{ID: uuid.New(), Number: "CI100001", Kind: saleInvoice, Status: salePosted, IssueDate: time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC),
 		DueDate: &due, Currency: "USD", Exponent: 2, Net: 300000, Tax: 10000, Gross: 310000, LocalTax: 36725, LocalCurrency: "AED", Location: "AE",
 		Lines: []SaleLine{{No: 1, Description: "Chairs", Net: 200000, Tax: 10000, TaxCode: "S5", Category: "S", Percent: "5.000000"},
-			{No: 2, Description: "Export freight", Net: 100000, TaxCode: "Z0", Category: "Z", Percent: "0.000000"}}}
+			{No: 2, Description: "Export freight", Net: 100000, TaxCode: "Z0", Category: "Z", Percent: "0.000000"}},
+		LocalCodes: map[string]LocalAmounts{"S5": {Base: 734500, Tax: 36725}, "Z0": {Base: 367250}}}
 }
 
 func seller() Seller {
@@ -37,20 +38,20 @@ func buyer() Buyer {
 	return Buyer{Number: "BP1", Name: "Desert Rose", TRN: "100987654300003", Address: &Address{Line1: "Al Wasl Road", City: "Dubai", Subentity: "dxb", Country: "AE"}}
 }
 
-// valid is sale's document, which passes every rule; its only finding is
-// the terms not rendered yet of a document not in AED.
+// valid is sale's document, which passes every rule and has no finding:
+// its lines state their VAT and amount in AED (BTAE-08, BTAE-10) from the
+// entry's local amounts per code.
 func valid(t *testing.T) Document {
 	t.Helper()
 	d, found := buildDocument(sale(), seller(), buyer(), nil)
 	if f := Check(d); len(f) > 0 {
 		t.Fatalf("Check of the valid document: got %v, want none", f)
 	}
-	var terms []string
-	for _, f := range found {
-		terms = append(terms, f.Term)
+	if len(found) > 0 {
+		t.Fatalf("its findings: got %v, want none", found)
 	}
-	if got := strings.Join(terms, " "); got != "BTAE-08 BTAE-10" {
-		t.Fatalf("its findings: got %s, want BTAE-08 BTAE-10", got)
+	if got := words(int64(*d.Lines[0].AccountingTax), int64(*d.Lines[0].AccountingAmount), int64(*d.Lines[1].AccountingTax), int64(*d.Lines[1].AccountingAmount)); got != "36725 771225 0 367250" {
+		t.Fatalf("its lines in AED: got %s, want 36725 771225 0 367250", got)
 	}
 	if d.AccountingTax == nil {
 		t.Fatal("its VAT in AED: got none, want 36725")
@@ -162,15 +163,23 @@ func TestBuildFindings(t *testing.T) {
 	for _, f := range found {
 		got = append(got, f.Term)
 	}
-	if strings.Join(got, " ") != "IBT-034 IBG-07 BTAE-08 BTAE-10" {
-		t.Errorf("findings: got %v, want IBT-034 IBG-07 BTAE-08 BTAE-10", got)
+	if strings.Join(got, " ") != "IBT-034 IBG-07" {
+		t.Errorf("findings: got %v, want IBT-034 IBG-07", got)
+	}
+	unposted := sale()
+	unposted.LocalCodes = nil
+	if _, found := buildDocument(unposted, seller(), buyer(), nil); len(found) != 2 || found[0].Term != "BTAE-08" || found[1].Term != "BTAE-10" {
+		t.Errorf("a document not in AED without local amounts: got %v, want BTAE-08 and BTAE-10 not rendered", found)
 	}
 	exempt := sale()
 	exempt.Currency = "AED"
 	exempt.Lines = append(exempt.Lines, SaleLine{No: 3, Description: "Bare land", Net: 1, TaxCode: "E0", Category: "E", Percent: "0"})
-	_, found = buildDocument(exempt, seller(), buyer(), nil)
+	ex, found := buildDocument(exempt, seller(), buyer(), nil)
 	if got := words(len(found), found[0].Term, strings.HasPrefix(found[0].Message, "line 3:")); got != "1 IBT-120 true" {
 		t.Errorf("an exempt line: got %s, want 1 IBT-120 true", got)
+	}
+	if l := ex.Lines[2]; l.AccountingTax != nil || l.AccountingAmount == nil || *l.AccountingAmount != 1 {
+		t.Errorf("an exempt line in AED: got BTAE-08 %v BTAE-10 %v, want no VAT in AED (IBR-163-AE) and its amount", l.AccountingTax, l.AccountingAmount)
 	}
 	if got := words(d.Seller.Endpoint == "", d.Buyer.Endpoint == "", d.Buyer.Address.Country == ""); got != "true true true" {
 		t.Errorf("no seller endpoint, no buyer endpoint, no buyer address: got %s, want true true true", got)
