@@ -14267,6 +14267,7 @@ paths:
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
         - payables.invalid_tax_code
+        - payables.local_tax_mismatch
         - payables.mixed_purchase_orders
         - payables.negative_amount
         - payables.no_tax_rate
@@ -14701,6 +14702,7 @@ paths:
         - payables.invalid_status
         - payables.invalid_tax_code
         - payables.legal_entity_not_found
+        - payables.local_tax_mismatch
         - payables.match_outdated
         - payables.match_required
         - payables.negative_amount
