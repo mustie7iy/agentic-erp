@@ -1,9 +1,14 @@
 package payables
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -70,18 +75,21 @@ func TestStoredCitations(t *testing.T) {
 }
 
 // TestUnmatchedReason: the hold of a memo citing numbers that match no
-// posted invoice names them.
+// posted invoice names them: one citing one asks for its reference by
+// hand, one citing several for a check with the supplier.
 func TestUnmatchedReason(t *testing.T) {
 	for _, c := range []struct {
 		numbers []string
+		of      int
 		want    string
 	}{
-		{nil, ""},
-		{[]string{"GOI-9"}, "names the invoice GOI-9, which is not a posted invoice"},
-		{[]string{"GOI-8", "GOI-9"}, "names the invoices GOI-8, GOI-9, which are not posted invoices"},
+		{nil, 2, ""},
+		{[]string{"GOI-9"}, 1, "names the invoice GOI-9, which is not a posted invoice of the supplier; enter its reference by hand"},
+		{[]string{"GOI-9"}, 2, "names the invoice GOI-9, which is not a posted invoice of the supplier, beside the others it cites"},
+		{[]string{"GOI-8", "GOI-9"}, 2, "names the invoices GOI-8, GOI-9, which are not posted invoices"},
 	} {
-		t.Run(strings.Join(c.numbers, ","), func(t *testing.T) {
-			if got := unmatchedReason(c.numbers); (c.want == "" && got != "") || !strings.Contains(got, c.want) {
+		t.Run(fmt.Sprint(c.numbers, c.of), func(t *testing.T) {
+			if got := unmatchedReason(c.numbers, c.of); (c.want == "" && got != "") || !strings.Contains(got, c.want) {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
@@ -97,8 +105,8 @@ func component(key string, taxLC, recoverableLC money.Minor) tax.ComponentTax {
 
 // TestStatedLocalTaxShares: the stated local tax replaces the charged
 // components' converted local tax, its difference shared by their local
-// tax: to the recovered part of one recovering all, to the part not
-// recovered otherwise; a self-assessed component keeps its conversion; no
+// tax, each share between the recovered part and the part not recovered
+// by their local amounts; a self-assessed component keeps its conversion; no
 // charged tax to take a difference, or a share turning a component's
 // sign, is refused; out of range is too large; none stated, or stated in
 // another currency, leaves the calculation.
@@ -112,8 +120,8 @@ func TestStatedLocalTaxShares(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s := []string{got[0].Local.Tax.Plain(0), got[0].Local.Recoverable.Plain(0), got[1].Local.Tax.Plain(0), got[1].Local.Recoverable.Plain(0),
-		got[1].Local.NonRecoverable.Plain(0), got[2].Local.Tax.Plain(0)}; strings.Join(s, " ") != "1100 1100 1100 500 600 300" {
-		t.Errorf("shares: got %v, want 1100 1100 1100 500 600 300", s)
+		got[1].Local.NonRecoverable.Plain(0), got[2].Local.Tax.Plain(0)}; strings.Join(s, " ") != "1100 1100 1100 550 550 300" {
+		t.Errorf("shares: got %v, want 1100 1100 1100 550 550 300", s)
 	}
 	for name, c := range map[string]struct {
 		v     Invoice
@@ -137,5 +145,39 @@ func TestStatedLocalTaxShares(t *testing.T) {
 				t.Errorf("got %v (%v), want the calculation unchanged", got, err)
 			}
 		})
+	}
+}
+
+// TestCitedInvoicesBounds: a document citing more than 100 invoices, or a
+// number beyond 200 characters, is not read, before anything is matched.
+func TestCitedInvoicesBounds(t *testing.T) {
+	many := make([]Citation, maxCitations+1)
+	for name, cited := range map[string][]Citation{"too many": many, "a long number": {{Number: strings.Repeat("9", maxCitedNumber+1)}}} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := citedInvoices(context.Background(), nil, &Input{}, cited); problem.From(err).Code != "payables.unreadable_document" {
+				t.Errorf("got %v, want payables.unreadable_document", err)
+			}
+		})
+	}
+}
+
+// TestCreditReasonAndCitationsAPI: the resource shows a reason with and
+// without its words and each citation with its date and match, or without.
+func TestCreditReasonAndCitationsAPI(t *testing.T) {
+	if creditReasonAPI(nil).Set {
+		t.Error("no reason: got one, want none")
+	}
+	if r := creditReasonAPI(&CreditReason{Code: "VD"}); !r.Set || r.Value.Code != "VD" || r.Value.Text.Set {
+		t.Errorf("a code alone: got %+v, want VD without words", r)
+	}
+	if r := creditReasonAPI(&CreditReason{Code: "DL", Text: "Damaged"}); r.Value.Text.Value != "Damaged" {
+		t.Errorf("a reason: got %+v, want its words", r)
+	}
+	day := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	invoice := uuid.New()
+	got := citationsAPI([]Citation{{Number: "GOI-1", Date: &day, InvoiceID: &invoice, DocumentNumber: "SI1"}, {Number: "GOI-2"}})
+	if len(got) != 2 || got[0].DocumentNumber.Value != "SI1" || !got[0].InvoiceDate.Set || got[0].InvoiceID.Value != invoice ||
+		got[1].InvoiceID.Set || got[1].DocumentNumber.Set || got[1].InvoiceDate.Set {
+		t.Errorf("citations: got %+v, want GOI-1 dated and matched, GOI-2 neither", got)
 	}
 }

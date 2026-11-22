@@ -67,6 +67,10 @@ func TestLinesInAED(t *testing.T) {
 			big := money.Minor(1 << 62)
 			d.Lines[0].AccountingTax, d.Lines[1].AccountingTax = &big, &big
 		}, "out of range"},
+		"negative": {func(d *Document) {
+			neg, zero := money.Minor(-36725), money.Minor(0)
+			d.Lines[0].AccountingTax, d.Lines[1].AccountingTax, d.AccountingTax = &neg, &zero, &neg
+		}, "is negative, -367.25 AED"},
 		"a line without it":     {func(d *Document) { d.Lines[1].AccountingTax = nil }, ""},
 		"an exempt one without": {func(d *Document) { d.Lines[1].AccountingTax, d.Lines[1].Category = nil, "E" }, ""},
 		"without IBT-111":       {func(d *Document) { d.AccountingTax = nil }, ""},

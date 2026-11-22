@@ -30,9 +30,9 @@ type newInvoice struct {
 	holdReason *string
 	sha        []byte
 	objectRef  string // where the captured document is kept; "" records sha256:<hex>
-	// stated is what an e-invoice credit note states that an invoice
-	// keeps (ADR-0061 As built batch 88): its reason and the invoices it
-	// cites; zero for any other document.
+	// stated is what an invoice keeps of its e-invoice (ADR-0061 As built
+	// batch 88): its tax in the company's currency as stated, a credit
+	// memo's reason and the invoices it cites; zero for any other document.
 	stated stated
 }
 

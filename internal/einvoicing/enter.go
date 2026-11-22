@@ -89,7 +89,7 @@ type entering struct {
 // database raised nor the entering's partial writes survive and the hold
 // is written in the outer transaction, which commits; only infrastructure
 // errors fail the step. A credit note is entered as a credit memo naming
-// the invoice it cites by capture's rule (T65e: a posted invoice of the
+// the invoice it cites as payables matches it (T65e: a posted invoice of the
 // supplier, or on hold naming the number), or one citing several as one
 // credit memo citing them all; one citing none is held unless it is for a
 // volume discount (heldBefore). Entering a parked invoice or credit memo opens no

@@ -275,8 +275,9 @@ func LineTaxInAED(d Document) (money.Minor, bool, error) {
 }
 
 // inconsistentInAED names a document whose lines' VAT in AED (BTAE-08),
-// when every line states it, does not sum to its VAT in AED: IBT-111 for
-// a document in another currency, its VAT (IBT-110) for one in AED.
+// when every line states it, does not sum to its VAT in AED (IBT-111 for
+// a document in another currency, its VAT, IBT-110, for one in AED), or
+// sums to a negative amount, which no supplier invoice keeps.
 func inconsistentInAED(d Document) []string {
 	sum, all, err := LineTaxInAED(d)
 	switch {
@@ -292,9 +293,12 @@ func inconsistentInAED(d Document) []string {
 		}
 		want, term = *d.AccountingTax, "IBT-111"
 	}
-	if sum == want {
-		return nil
+	switch {
+	case sum != want:
+		return []string{fmt.Sprintf("the lines' VAT in AED (BTAE-08) sums to %s AED, not the %s AED stated (%s)", sum.Format(aedExponent),
+			want.Format(aedExponent), term)}
+	case sum < 0: // amounts are stated in the document's direction, never negative: the VAT a supplier invoice keeps is not
+		return []string{fmt.Sprintf("the VAT in AED (%s, BTAE-08) is negative, %s AED", term, sum.Format(aedExponent))}
 	}
-	return []string{fmt.Sprintf("the lines' VAT in AED (BTAE-08) sums to %s AED, not the %s AED stated (%s)", sum.Format(aedExponent),
-		want.Format(aedExponent), term)}
+	return nil
 }

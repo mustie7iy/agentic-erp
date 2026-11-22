@@ -557,8 +557,8 @@ func (e *Endpoints) taxPostings(ctx context.Context, v Invoice, taxDate time.Tim
 // BTAE-08, which the VAT 201 reports as stated rather than converted at
 // the tax date's rate). The difference to the converted local tax is
 // shared out among the charged components by their local tax (money.ShareOut),
-// added to the part recovered of a component recovering all of it and to
-// the part not recovered otherwise; self-assessed components, which the
+// and each component's share between its recovered part and the part not
+// recovered by their local amounts; self-assessed components, which the
 // supplier does not charge, keep their conversion. An invoice without a
 // stated local tax, or with one in another currency than the company's,
 // is left as calculated. A stated tax that no charged component can take
@@ -593,10 +593,12 @@ func statedLocalTax(v Invoice, local string, items []tax.ComponentTax) ([]tax.Co
 	out := slices.Clone(items)
 	for k, i := range at {
 		c := &out[i]
-		if c.Local.Recoverable == c.Local.Tax {
-			c.Local.Recoverable += shares[k]
-		} else {
-			c.Local.NonRecoverable += shares[k]
+		// The component's share divides between its recovered part and the
+		// part not recovered as its local tax does (its recoverable share),
+		// so a partly recovering code recovers its share of the stated tax.
+		if parts := money.ShareOut(shares[k], []money.Minor{c.Local.Recoverable, c.Local.NonRecoverable}); parts != nil {
+			c.Local.Recoverable += parts[0]
+			c.Local.NonRecoverable += parts[1]
 		}
 		c.Local.Tax += shares[k]
 		if !sameSide(items[i].Local.Tax, c.Local.Tax, c.Local.Recoverable) || !sameSide(items[i].Local.Tax, c.Local.Tax, c.Local.NonRecoverable) {

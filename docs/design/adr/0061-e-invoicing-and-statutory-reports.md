@@ -1939,7 +1939,15 @@ coordinator's memory po-2026-11-21-uae-vat-research). Built:
   credit memo without a reference; GOI-2104, citing GOI-2001 (dated) and
   GOI-2005 (no posted invoice), is entered as one memo citing both, on
   hold naming GOI-2005; GOI-2102 (reason other than VD, naming none) is
-  held as before.
+  held as before. `einvoice_not_in_aed`: GOI-2201, a tax invoice in USD
+  on a dollar order stating its VAT in AED on its line (BTAE-08, AED
+  183.63), is entered with that `stated_local_tax`. `step_einvoice_send`
+  (step 146, `einvoice_render_usd`): a UAE customer invoice in USD is
+  rendered valid, its line stating BTAE-08 and BTAE-10.
+- **A partly recovering code** takes its share of the stated tax's
+  difference between its recovered part and the part not recovered as
+  its converted local tax divides (review round 1), as the recoverable
+  share of its code says.
 - **For the specialist:** the BTAE-03 code list (the walkthrough's and
   tests' `DL` is illustrative; only `VD` is acted on); the UBL paths of
   IBT-026, BTAE-08 and BTAE-10 (from memory); whether IBR-162/163/165-AE

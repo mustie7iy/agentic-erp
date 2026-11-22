@@ -43,8 +43,9 @@ const (
 	clippedTextSuffix = "…"
 )
 
-// stated is what an e-invoice credit note states that its credit memo
-// keeps: its reason and the invoices it cites.
+// stated is what an invoice keeps of its e-invoice: its tax in the
+// company's currency as stated, and a credit memo's reason and the
+// invoices it cites.
 type stated struct {
 	credit    *CreditReason
 	citations []Citation
@@ -135,6 +136,13 @@ func putCitations(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, cs []Cit
 	for i, c := range cs {
 		numbers[i], dates[i], invoices[i] = c.Number, c.Date, c.InvoiceID
 	}
+	// The foreign keys share-lock the cited invoices (FOR KEY SHARE); taken
+	// first in id order, so two memos citing the same invoices in other
+	// orders, or a later step locking several of them, never wait in a
+	// cycle (BRIEF 17b).
+	if _, err := tx.Exec(ctx, `SELECT FROM payables.supplier_invoice WHERE id = ANY($1) ORDER BY id FOR KEY SHARE`, invoices); err != nil {
+		return fmt.Errorf("payables: lock the invoices invoice %s cites: %w", id, err)
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice_citation (tenant_id, supplier_invoice_id, position, invoice_number, invoice_date,
 			cited_invoice_id)
 		SELECT $1, $2, c.position, c.number, c.date, c.invoice FROM unnest($3::text[], $4::date[], $5::uuid[]) WITH ORDINALITY
@@ -190,34 +198,52 @@ func citedInvoices(ctx context.Context, tx pgx.Tx, in *Input, cited []Citation) 
 		if len([]rune(c.Number)) > maxCitedNumber {
 			return nil, "", unreadable(fmt.Sprintf("the credit note cites an invoice number longer than %d characters", maxCitedNumber))
 		}
-		out[i] = Citation{Number: c.Number, Date: c.Date}
-		var id uuid.UUID
-		err := tx.QueryRow(ctx, `SELECT id FROM payables.supplier_invoice WHERE supplier_id = $1 AND supplier_reference_norm = platform.normalize_ref($2)
-			AND legal_entity_id = $3 AND currency = $4 AND kind = 'invoice' AND status = 'posted' AND ($5::date IS NULL OR invoice_date = $5)`,
-			in.SupplierID, c.Number, in.LegalEntityID, in.Gross.Currency, c.Date).Scan(&id)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
+		id, err := postedInvoiceCited(ctx, tx, in, c.Number, c.Date)
+		if err != nil {
+			return nil, "", err
+		}
+		out[i] = Citation{Number: c.Number, Date: c.Date, InvoiceID: id}
+		if id == nil {
 			unmatched = append(unmatched, c.Number)
-		case err != nil:
-			return nil, "", fmt.Errorf("payables: find the invoice %s a credit note cites: %w", c.Number, err)
-		default:
-			out[i].InvoiceID = &id
 		}
 	}
 	if len(out) == 1 {
 		in.ReferenceInvoiceID = out[0].InvoiceID
 	}
-	return out, unmatchedReason(unmatched), nil
+	return out, unmatchedReason(unmatched, len(out)), nil
 }
 
-// unmatchedReason is the hold reason of a credit memo whose cited numbers
-// match no posted invoice of the supplier, "" for none.
-func unmatchedReason(numbers []string) string {
-	switch len(numbers) {
-	case 0:
+// postedInvoiceCited is the posted invoice of the memo's supplier in its
+// company and currency whose supplier reference is number (supplier
+// references are unique per supplier among posted invoices) and, when
+// date is given, whose invoice date it is; nil for none.
+func postedInvoiceCited(ctx context.Context, tx pgx.Tx, in *Input, number string, date *time.Time) (*uuid.UUID, error) {
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT id FROM payables.supplier_invoice WHERE supplier_id = $1 AND supplier_reference_norm = platform.normalize_ref($2)
+		AND legal_entity_id = $3 AND currency = $4 AND kind = 'invoice' AND status = 'posted' AND ($5::date IS NULL OR invoice_date = $5)`,
+		in.SupplierID, number, in.LegalEntityID, in.Gross.Currency, date).Scan(&id)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("payables: find the invoice %s a credit memo names: %w", number, err)
+	}
+	return &id, nil
+}
+
+// unmatchedReason is the hold reason of a credit memo citing of
+// invoices, whose numbers listed match no posted invoice of the supplier;
+// "" for none. A memo citing one has its reference entered by hand; one
+// citing several is checked with the supplier.
+func unmatchedReason(numbers []string, of int) string {
+	switch {
+	case len(numbers) == 0:
 		return ""
-	case 1:
+	case of == 1:
 		return "The credit memo names the invoice " + numbers[0] + ", which is not a posted invoice of the supplier; enter its reference by hand."
+	case len(numbers) == 1:
+		return "The credit memo names the invoice " + numbers[0] + ", which is not a posted invoice of the supplier, beside the others it cites; " +
+			"check it with the supplier."
 	}
 	return "The credit memo names the invoices " + strings.Join(numbers, ", ") + ", which are not posted invoices of the supplier; check them with " +
 		"the supplier."

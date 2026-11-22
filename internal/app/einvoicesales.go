@@ -110,16 +110,15 @@ func localTax(ctx context.Context, entry uuid.UUID) (money.Minor, map[string]ein
 	var lc money.Minor
 	codes := map[string]einvoicing.LocalAmounts{}
 	for _, t := range items {
-		if t.Direction != "output" {
-			continue
+		if t.Direction == "output" {
+			lc += t.TaxLC // bounded by the entry's receivable line (above)
+			c, seen := codes[t.Code]
+			if !seen {
+				c.Base = t.BaseLC.Abs()
+			}
+			c.Tax += t.TaxLC.Abs() // bounded likewise
+			codes[t.Code] = c
 		}
-		lc += t.TaxLC // bounded by the entry's receivable line (above)
-		c, seen := codes[t.Code]
-		if !seen {
-			c.Base = t.BaseLC.Abs()
-		}
-		c.Tax += t.TaxLC.Abs() // bounded likewise
-		codes[t.Code] = c
 	}
 	return lc, codes, err
 }

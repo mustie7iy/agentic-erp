@@ -5360,6 +5360,7 @@ step_einvoice() {
   einvoice_original "$connector" "$doc" "$sum"
   einvoice_refusals "$connector" "$doc"
   einvoice_credit_notes "$connector" "$doc"
+  einvoice_not_in_aed "$connector"
   passed
 }
 
@@ -5403,6 +5404,65 @@ pint_ae_invoice() {
   [ -z "$line" ] || printf '<cac:OrderLineReference><cbc:LineID>%s</cbc:LineID></cac:OrderLineReference>' "$line"
   printf '<cac:Item><cbc:Description>Oak desk, 160 cm</cbc:Description><cbc:Name>Desk</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item>'
   printf '<cac:Price><cbc:PriceAmount currencyID="AED">250.00</cbc:PriceAmount></cac:Price></cac:InvoiceLine></Invoice>\n'
+}
+
+# pint_ae_invoice_usd writes pint_ae_invoice's tax invoice NUMBER for
+# ORDER's line LINE in USD (1,000.00 net, 50.00 VAT): its VAT in AED
+# stated in all (IBT-111) and on its line (BTAE-08), 183.63, with the
+# line's amount with VAT in AED (BTAE-10), 3,856.13, at an illustrative
+# 3.6725 AED to the dollar.
+pint_ae_invoice_usd() {
+  local xml
+  xml=$(pint_ae_invoice "$1" "$AE_TRN" "$2" "$3")
+  xml=${xml//currencyID=\"AED\"/currencyID=\"USD\"}
+  xml=${xml//<cbc:DocumentCurrencyCode>AED</<cbc:DocumentCurrencyCode>USD</cbc:DocumentCurrencyCode><cbc:TaxCurrencyCode>AED</}
+  xml=${xml/<\/cac:TaxTotal>/<\/cac:TaxTotal><cac:TaxTotal><cbc:TaxAmount currencyID=\"AED\">183.63</cbc:TaxAmount></cac:TaxTotal>}
+  xml=${xml/<cac:Item>/<cac:TaxTotal><cbc:TaxAmount currencyID=\"AED\">183.63</cbc:TaxAmount></cac:TaxTotal><cac:Item>}
+  xml=${xml/<\/cac:Price>/<\/cac:Price><cac:ItemPriceExtension><cbc:Amount currencyID=\"AED\">3856.13</cbc:Amount></cac:ItemPriceExtension>}
+  printf '%s\n' "$xml"
+}
+
+# einvoice_not_in_aed is split:T65d's part of step_einvoice (ADR-0061 §5
+# C5, As built batch 88; po:2026-11-21): Ben orders four desks from Gulf
+# Office Interiors in US dollars; its tax invoice GOI-2201 in USD states
+# its VAT in AED on each line (BTAE-08), which the next fetch enters as
+# the supplier invoice's stated local tax, kept for the VAT 201 as the
+# document states it rather than converted.
+einvoice_not_in_aed() {
+  local connector=$1 ae supplier expense po order
+  as ben
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Gulf Office Interiors" -p role=supplier
+  supplier=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  expense=$(field '.items[] | select(.number == "6000") | .id')
+  say "Ben orders four more desks from Gulf Office Interiors, priced in US dollars this time:"
+  api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"currency\": \"USD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Oak desk, 160 cm\", \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"USD\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
+  po=$(field .id)
+  order=$(field .document_number)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Office fit-out budgeted"
+  fi
+  as ada
+  say "Its tax invoice GOI-2201 is in USD, 1,000.00 with 50.00 VAT; a UAE document in another currency states its VAT in"
+  say "AED too, in all (IBT-111) and on each line (BTAE-08): AED 183.63 (illustrative). The fetch enters it, keeping that"
+  say "VAT in AED as the document states it, for the VAT 201, rather than converting the dollars at its own rate:"
+  pint_ae_invoice_usd GOI-2201 "$order" 1 >"$WORK/provider/inbox/GOI-2201.xml"
+  printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/inbox/GOI-2201.receiver"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), refused \(.result.refused), entered \(.result.entered), held \(.result.held)"'
+  expect "the dollar invoice's fetch counts" "$(field '"\(.result.recorded) \(.result.refused) \(.result.entered) \(.result.held)"')" "1 0 1 0"
+  api 200 '.items[] | "  \(.message_id): \(.status), supplier invoice \(.supplier_invoice_number)"' listEInvoices -p "fetch_operation_id=$(field .id)"
+  as alex
+  api 200 '"\(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount), VAT in AED as stated \(.stated_local_tax.amount) \(.stated_local_tax.currency)"' \
+    getSupplierInvoice -p "id=$(field '.items[0].supplier_invoice_id')"
+  expect "the dollar invoice" "$(field '"\(.supplier_reference) \(.status) \(.gross_amount.amount) \(.gross_amount.currency) \(.stated_local_tax.amount) \(.stated_local_tax.currency)"')" \
+    "GOI-2201 parked 1050.00 USD 183.63 AED"
+  as ada
 }
 
 # einvoice_refusals is T65c's part of step_einvoice (ADR-0061 §5): the
@@ -15546,7 +15606,44 @@ step_einvoice_send() {
   api 202 '"operation \(.kind): \(.status)"' withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
   wait_einvoice "$invoice" '.transmission.tax_data_status' WITHDRAW_SEND
   api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  einvoice_render_usd "$ae"
   passed
+}
+
+# einvoice_render_usd is batch 88's sending part of split:T65d (ADR-0061
+# As built batch 88; po:2026-11-21): a UAE tax invoice in US dollars is a
+# valid e-invoice whose line states its VAT in AED (BTAE-08) and its
+# amount with VAT in AED (BTAE-10), from the posting's local amounts, the
+# lines' VAT in AED adding up to the document's (IBT-111).
+einvoice_render_usd() {
+  local ae=$1 customer sales invoice rendered xml
+  as tom
+  say "Desert Rose Retail also buys in US dollars. Tom records the dirham's rate to the dollar, illustrative here"
+  say "(the CBUAE's published rate would be used):"
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"AED\", \"valid_from\": \"$YEAR-01-01\", \"rate\": \"3.6725\", \"source\": \"walkthrough\"}"
+  as ruth
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Desert Rose Retail" -p role=customer
+  customer=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  say "Ruth invoices it USD 1,000.00 of office chairs, standard-rated in Dubai, posts it and renders its e-invoice: in"
+  say "another currency than AED, each line states its VAT in AED and its amount in AED, so it is valid:"
+  api 201 '"customer invoice \(.document_number): gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"USD\", \"items\": [{\"description\": \"Office chairs\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"USD\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"
+  invoice=$(field .id)
+  api 200 '"customer invoice \(.document_number): \(.status)"' postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  api 201 '"e-invoice \(.type_code) of \(.customer_invoice_number): \(.status), \(.problems | length) problems, gross \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$invoice\"}"
+  expect "the dollar e-invoice" "$(field '"\(.status) \(.problems | length) \(.gross_amount.amount) \(.gross_amount.currency)"')" "valid 0 1050.00 USD"
+  rendered=$(field .id)
+  api 200 '' getOutgoingEInvoiceContent -p "id=$rendered" -out "$WORK/einvoice-usd.xml"
+  xml=$(cat "$WORK/einvoice-usd.xml")
+  for want in '<cbc:TaxCurrencyCode>AED</cbc:TaxCurrencyCode>' '<cac:TaxTotal><cbc:TaxAmount currencyID="AED">183.63</cbc:TaxAmount></cac:TaxTotal>' \
+    '<cac:TaxTotal><cbc:TaxAmount currencyID="AED">183.63</cbc:TaxAmount></cac:TaxTotal><cac:Item>' \
+    '<cac:ItemPriceExtension><cbc:Amount currencyID="AED">3856.13</cbc:Amount></cac:ItemPriceExtension>'; do
+    case "$xml" in *"$want"*) say "  $want" ;; *) fail "the dollar e-invoice's XML lacks $want" ;; esac
+  done
 }
 
 # wait_einvoice EINVOICE PATH VALUE waits, up to three minutes, until the
