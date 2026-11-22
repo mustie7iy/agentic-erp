@@ -848,6 +848,19 @@ decide. **Later for MRP and replenishment:** lot sizing procedures,
 safety stock calculation, MRP areas, planned orders for production (phase
 5), scheduling with calendars.
 
+- **Detailed and as built** (lane repl, 2026-11-21; ADR-0072 As built
+  S2l, decided by default): `erp agent replenish -run ID` reads a
+  completed run and recommends on each proposed requisition: `order`, the
+  proposal's quantity in its unit, by the day it is needed, from a source
+  of the material the run read (an active catalog item, an active
+  contract item valid on that day, or a released or closed purchase
+  order's item: the source data and purchasing history that exist) and
+  its active supplier, or `source_needed` when there is none. The buyer
+  acts through the requisition and order operations; the agent has none
+  of them. `listPurchaseOrders` and `listContracts` filter by
+  `material_id`. No migration; walkthrough step 153
+  (`step_replenishment_agent`), suite `evals/replenishment`.
+
 ### S2m Demand forecasting agent
 
 **Capability.** A recommending agent forecasts a material's demand by

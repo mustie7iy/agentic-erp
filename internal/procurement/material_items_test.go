@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -374,5 +376,77 @@ func TestCatalogMappingsWait(t *testing.T) {
 	drained = true
 	if m["mapped_items"] != float64(0) {
 		t.Errorf("the second mapping: got %v mapped, want none (the first mapped the item)", m["mapped_items"])
+	}
+}
+
+// TestListByMaterial: GET /v1/purchase-orders and GET /v1/contracts with
+// material_id answer the orders and contracts with an item of the
+// material, each whole, and none without one (S2l: the material's
+// purchasing history and outline agreements); a page of them stays in
+// the filter.
+func TestListByMaterial(t *testing.T) {
+	e := setup(t)
+	bracket, other := e.material(t, "MA-LIST-1", "active"), e.material(t, "MA-LIST-2", "active")
+	order := func(items ...string) string {
+		o, _ := e.Must(201, "POST", "/v1/purchase-orders", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "order_date": "2026-03-01",
+			"items": [%s]}`, e.DE, e.Supplier, strings.Join(items, ", ")), "")
+		return o["id"].(string)
+	}
+	poItem := func(material, extra string) string {
+		return fmt.Sprintf(`{"description": "Bracket", "quantity": {"value": "2", "unit": "EA"}, "unit_price": {"amount": "1.00", "currency": "EUR"},
+			"account_id": %q%s}`, e.office, map[bool]string{true: `, "material_id": "` + material + `"`, false: ""}[material != ""]+extra)
+	}
+	both, only := order(poItem("", ""), poItem(bracket, "")), order(poItem(bracket, ""))
+	order(poItem(other, ""))
+	order(poItem("", ""))
+	// An order and a contract whose item of the bracket an update removed
+	// have no item of it.
+	dropped := order(poItem("", ""), poItem(bracket, ""))
+	e.Must(200, "PATCH", "/v1/purchase-orders/"+dropped, `{"items": [`+poItem("", "")+`]}`, `"1"`)
+	contract := func(key, material string) string {
+		c, _ := e.Must(201, "POST", "/v1/contracts", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR", "valid_from": "2026-01-01",
+			"valid_to": "2026-12-31", "target_value": {"amount": "100.00", "currency": "EUR"}, "items": [{"material_key": "FREE", "description": "X",
+			"unit_price": {"amount": "1.00", "currency": "EUR"}, "uom_code": "EA", "account_id": %q}, {"material_key": %q, "description": "Bracket",
+			"unit_price": {"amount": "1.00", "currency": "EUR"}, "uom_code": "EA", "account_id": %q%s}]}`, e.DE, e.Supplier, e.office, key, e.office,
+			map[bool]string{true: `, "material_id": "` + material + `"`, false: ""}[material != ""]), "")
+		return c["id"].(string)
+	}
+	agreement := contract("MA-LIST-1", bracket)
+	contract("MA-LIST-2", other)
+	contract("KEY-ONLY", "")
+	changed := contract("MA-LIST-1", bracket)
+	e.Must(200, "PATCH", "/v1/contracts/"+changed, fmt.Sprintf(`{"items": [{"material_key": "FREE", "description": "X",
+		"unit_price": {"amount": "1.00", "currency": "EUR"}, "uom_code": "EA", "account_id": %q}]}`, e.office), `"1"`)
+	ids := func(path string) []string {
+		page, _ := e.Must(200, "GET", path, "", "")
+		var out []string
+		for _, it := range page["items"].([]any) {
+			out = append(out, it.(map[string]any)["id"].(string))
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		path string
+		want []string
+	}{
+		"orders of the bracket":      {"/v1/purchase-orders?order_by=document_number&material_id=" + bracket, []string{both, only}},
+		"a page of them":             {"/v1/purchase-orders?order_by=document_number&page_size=1&material_id=" + bracket, []string{both}},
+		"orders of no such material": {"/v1/purchase-orders?material_id=" + uuid.NewString(), nil},
+		"contracts of the bracket":   {"/v1/contracts?material_id=" + bracket, []string{agreement}},
+		"contracts of no such one":   {"/v1/contracts?material_id=" + uuid.NewString(), nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := ids(c.path); !slices.Equal(got, c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+	page, _ := e.Must(200, "GET", "/v1/purchase-orders?order_by=document_number&material_id="+bracket, "", "")
+	if n := len(page["items"].([]any)[0].(map[string]any)["items"].([]any)); n != 2 {
+		t.Errorf("the first order's items: got %d, want 2: an order is answered whole", n)
+	}
+	page, _ = e.Must(200, "GET", "/v1/contracts?material_id="+bracket, "", "")
+	if n := len(page["items"].([]any)[0].(map[string]any)["items"].([]any)); n != 2 {
+		t.Errorf("the contract's items: got %d, want 2: a contract is answered whole", n)
 	}
 }

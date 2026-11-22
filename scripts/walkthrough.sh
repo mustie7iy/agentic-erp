@@ -16212,6 +16212,110 @@ step_mrp() {
   expect "the proposal taken over" "$(field .status)" draft
   QUIET=1 api 200 '' getRequisition -p "id=$own"
   expect "Ben's own requisition" "$(field '"\(.status) \(.version)"')" "draft $own_version"
+  HINGE=$hinge
+  passed
+}
+
+# step_replenishment_agent is S2l (ADR-0072 As built S2l,
+# plan-supply-chain.md §S2l): the replenishment agent, erp agent replenish
+# through the model stand-in answering from a script of turns (its
+# suite's replay, evals/replenishment), reviews a planning run's proposal.
+# Priya loads Tyrell's H30 hinges into Maple's catalog at 1.10 CAD; Mira
+# raises the hinge's reorder point at Toronto to 60, and Ben's run of the
+# plant counts the 40 in stock and the 40 of the proposal he took over
+# (step_mrp) against the order's 50, and proposes 30. The agent reads the
+# run, the proposal, the hinge's catalog items, contracts and purchase
+# orders, and Tyrell; an order of another quantity than the proposal's is
+# refused by the run; it recommends ordering the 30 from Tyrell's catalog
+# item by the day the proposal is needed. Changing the proposal itself is
+# refused (403: its role holds no permission that writes a requisition);
+# Ben accepts and names Tyrell on the proposal himself.
+step_replenishment_agent() {
+  heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts"
+  local role item plan run proposal number day got session rec version want
+  [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
+  as ada
+  say "Ada sets up the replenishment agent (ADR-0072): an agent principal of type replenishment at autonomy level 1 on"
+  say "erp-default. Its role reads planning runs, requisitions, the catalog, contracts, purchase orders, suppliers and"
+  say "materials and records its sessions; it holds no permission that writes a requisition or an order, or plans."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "replenishment_agent", "name": "Replenishment agent"}'
+  role=$(field .id)
+  grant "$role" mrp.plan.read procurement.requisition.read procurement.catalog.read procurement.contract.read procurement.order.read \
+    partner.supplier.read materials.material.read agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model)"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "replenishment-agent", "display_name": "Replenishment agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "replenishment", "model": "erp-default", "description": "Recommends what to order, from which supplier and when, for a planning run'"'"'s proposals (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token replenishment-agent "Replenishment agent"
+  as priya
+  say "Priya loads Tyrell's H30 hinges into Maple's catalog at 1.10 CAD each:"
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit)"' \
+    createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"material_id\": \"$HINGE\", \"unit\": \"EA\",
+      \"unit_price\": {\"amount\": \"1.10\", \"currency\": \"CAD\"}}"
+  item=$(field .id) number=$(field .item_key)
+  as mira
+  say "Mira raises the hinge's reorder point at Toronto to 60:"
+  QUIET=1 api 200 '' listMaterialPlans -p "plant_id=$PLANT" -p "material_id=$HINGE"
+  plan=$(field '.items[0].id')
+  QUIET=1 api 200 '' getMaterialPlan -p "id=$plan"
+  api 200 '"\(.material_number) at \(.plant_code): reorder point \(.reorder_point.value) \(.reorder_point.unit)"' updateMaterialPlan -p "id=$plan" -if-match "$ETAG" \
+    -body '{"reorder_point": "60"}'
+  as ben
+  say "Ben runs planning for Toronto: the 40 in stock and the 40 of the proposal he took over less the order's 50 leave"
+  say "30, 30 short of 60; the run proposes 30:"
+  api 202 '"\(.kind) \(.status)"' startMrpRun -body "{\"plant_id\": \"$PLANT\"}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '(.lines[] | select(.material_id == "'"$HINGE"'") | "  \(.material_number): demand \(.demand.value), stock \(.stock.value), receipts \(.receipts.value), shortage \(.shortage.value) \(.shortage.unit) \(.requisition_number)")' \
+    getMrpRun -p "id=$run"
+  expect "the run's hinge" "$(field '.lines[] | select(.material_id == "'"$HINGE"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value)"')" "50 40 40 30"
+  proposal=$(field '.lines[] | select(.material_id == "'"$HINGE"'") | .requisition_id')
+  QUIET=1 api 200 '' getRequisition -p "id=$proposal"
+  day=$(field .needed_by) version=$(field .version)
+  jq -n --arg run "$run" --arg req "$proposal" --arg le "$LE" --arg hinge "$HINGE" --arg number "$number" --arg s "$SUPPLIER" --arg item "$item" --arg day "$day" '
+    {session_id: "{{session}}", object_type: "requisition", object_id: $req, kind: "order"} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getMrpRun", input: {id: $run}},
+      {tool: "getRequisition", input: {id: $req}},
+      {tool: "listCatalogItems", input: {legal_entity_id: $le, text: $number}},
+      {tool: "listContracts", input: {legal_entity_id: $le, material_id: $hinge, status: "active"}},
+      {tool: "listPurchaseOrders", input: {legal_entity_id: $le, material_id: $hinge}},
+      {tool: "getBusinessPartner", input: {id: $s}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Order 40 EA from supplier \($s) by \($day): catalog item \($item)\nWhy: round it up."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Order 30 EA from supplier \($s) by \($day): catalog item \($item)\nWhy: the run'"'"'s shortage of the hinge is 30 EA; Tyrell offers it in the company'"'"'s catalog at 1.10 CAD, and no contract or purchase order of it exists."})}},
+      {final: "Recommended ordering the hinge'"'"'s proposal from Tyrell'"'"'s catalog item; the buyer decides."}]}' >"$WORK/model-script.json"
+  say "Ben runs the agent: erp agent replenish reads the run before its session, then, through the stand-in's script"
+  say "(its suite's replay, evals/replenishment), reads the proposal and the hinge's sources, asks for 40 (refused by the"
+  say "run: an order is of the proposal's quantity) and recommends the 30 from Tyrell's catalog item."
+  show ERP_AGENT_TOKEN=… erp agent replenish -run "$run"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/replenishment-agent") "$ERP" agent replenish -run "$run" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent replenish failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): order on requisition $proposal .*/\\1/p")
+  [ -n "$rec" ] || fail "erp agent replenish printed no order on the proposal"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  want="Order 30 EA from supplier $SUPPLIER by $day: catalog item $item"
+  expect "the order's first line" "$(field '.content | split("\n")[0]')" "$want"
+  expect "made in its session" "$(field .session_id)" "$session"
+  as replenishment-agent
+  api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"
+  say "Recommending is all it may do: its role writes no requisition, so the API refuses it naming Tyrell on the proposal:"
+  QUIET=1 api 200 '' getRequisition -p "id=$proposal"
+  refused 403 identity.permission_missing updateRequisition -p "id=$proposal" -if-match "$ETAG" -body "{\"supplier_id\": \"$SUPPLIER\"}"
+  as ben
+  QUIET=1 api 200 '' getRequisition -p "id=$proposal"
+  expect "the proposal, as the run left it" "$(field '"\(.status) \(.version) \(.supplier_id // "none")"')" "draft $version none"
+  say "Ben accepts the recommendation, which changes nothing by itself, and names Tyrell on the proposal himself:"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  QUIET=1 api 200 '' getRequisition -p "id=$proposal"
+  expect "the proposal after the decision" "$(field .version)" "$version"
+  api 200 '"requisition \(.document_number): \(.status), suggested supplier \(.supplier_id == "'"$SUPPLIER"'")"' updateRequisition -p "id=$proposal" -if-match "$ETAG" \
+    -body "{\"supplier_id\": \"$SUPPLIER\"}"
   passed
 }
 
@@ -18380,7 +18484,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_intercompany_transport step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_intercompany_transport step_close'
 
 main() {
   stop_unseen
