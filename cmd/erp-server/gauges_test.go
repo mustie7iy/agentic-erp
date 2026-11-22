@@ -104,9 +104,9 @@ func gaugeFixtures(t *testing.T) {
 		// Only the held e-invoice counts as held, not the three received.
 		`INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref, fetch_operation_id,
 			received_at, acknowledged_at, processed_at, processed_fetch_operation_id, validated_against, problem_code, problem_detail, entry_at,
-			entry_fetch_operation_id, created_by, updated_by)
+			entry_fetch_operation_id, document_kind, created_by, updated_by)
 			VALUES ($1, gen_random_uuid(), $2, 'M4', 'held', sha256('M4'), 1, 'k', $2, now(), now(), now(), $2, 'r', 'payables.capture_needs_order',
-			'No order', now(), $2, $2, $2)`,
+			'No order', now(), $2, 'invoice', $2, $2)`,
 		// Only the open normal period past its end counts: not the closed
 		// one, the one still running, or the special period.
 		`INSERT INTO ledger.fiscal_period (tenant_id, calendar_id, fiscal_year, period, start_date, end_date, is_special) VALUES
