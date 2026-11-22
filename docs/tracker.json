@@ -12903,6 +12903,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "Pin images carrying glibc 2.41-12+deb13u5 (erp-analytics's distroless cc-debian13:nonroot base and PgBouncer) and remove the .grype.yaml libc6/libc-bin entries; by 2026-11-29 (CVE-2026-19499 and CVE-2026-5435, High, in glibc 2.41-12+deb13u4; accepted by the product owner on 2026-11-22 until then because neither image has a build carrying Debian's fix)",
+      "r": "deploy/images/erp-analytics.Dockerfile · deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
+      "src": "po:2026-11-22",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The race suite three times shuffled, the coverage gate and fuzzing run on GitHub for every pull request and for main's full run, as parallel jobs in shards computed from go list (a check fails when a package or a test of a split package is in no shard); make ci-local-light runs the other gates locally, and merge-pr.sh merges on its report only when the pull request's run held the three; a manual run on main is no longer cancelled by a newer one, and nothing but the fix forward merges while main's full run is red or still going",
       "r": ".github/workflows/ci.yml · scripts/ci-shards.sh · scripts/ci-shard-weights.txt · scripts/coverage.sh · scripts/ci-local.sh · scripts/merge-pr.sh · scripts/test-ci-shards.sh · scripts/test-coverage-gate.sh · scripts/test-merge-pr.sh · Makefile · 06 §6.5 · ADR-0053 As built",
