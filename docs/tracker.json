@@ -2755,6 +2755,13 @@
         "c": []
        }
       ]
+     },
+     {
+      "s": "T",
+      "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt recovered by an adjustment in the return, never by a plain write-off or a short payment (no tax correction on those) and never by a dispute's price cut, which is a tax credit note (T86d's credit memo): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 (the supply made and its tax paid, six months past the date of supply, written off in the accounts and the customer notified), for a Canadian one under the Excise Tax Act s.231 (the account written off as bad); its evidence (the write-off entry, the notice) kept with the adjustment, the reversal when the customer pays later; tax-relevant, so a person posts it (Musto, UAE and Canada tax specialist, 2026-11-21; conditions as the coordinator's research of 21 Nov states them, to read in the law's text before the slice)",
+      "r": "ADR-0049 As built batch 88 · ADR-0065 (write-offs) · T86d",
+      "src": "po:2026-11-21",
+      "c": []
      }
     ]
    },
@@ -2822,6 +2829,13 @@
         "t": "E-invoice credit notes: entered as credit memos naming the invoice they cite by capture's rule (none, a posted invoice of the supplier, or on_hold naming the number); credit notes left received by T65d processed by the next fetch; walkthrough: a credit note citing the e-invoice of T65d entered as a credit memo referencing that invoice; a credit note naming no invoice is held for a person rather than entered as correcting none (UAE tax specialist, po:2026-11-09, C4 [M]: a UAE tax credit note must name the invoice it corrects, IBG-03 and IBT-025)",
         "r": "ADR-0061 §6 · T65e · ADR-0061 §5 (answered, C4) · db/migrations/000433, 000434 (einvoice_to_process) · einvoicing.HeldNoInvoice (einvoicing.credit_note_names_no_invoice) · payables.EInvoice.Kind, CreditedNumber · TestEnterCreditNotes · TestEnterCreditNoteValidatedBefore · walkthrough step_einvoice (einvoice_credit_notes) · ADR-0061 As built T65e",
         "src": "adr:ADR-0061 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "E-invoice credit notes as one credit memo (fix of T65e): a received tax credit note for a volume discount (BTAE-03 VD) naming no invoice is valid (IBR-055-AE) and entered as a supplier credit memo without a reference; only one for another reason naming none is held (einvoicing.credit_note_names_no_invoice); a credit note citing several invoices (IBG-03 repeated) is entered as ONE credit memo citing them all, its reference_invoice_id none, the accounts payable clerk clearing it (the VAT 201 reports it by the credit note's date, no per-invoice split); the memo keeps the reason (BTAE-03) and each cited invoice's number and date (IBT-025, IBT-026), matched to the supplier's posted invoice by supplier and number and, when stated, date, an unmatched one holding the memo naming it; the outgoing rule lets a VD tax credit note name no invoice; walkthrough: GOI-2103, a VD credit note without reference, entered; GOI-2104 citing two invoices entered as one memo citing both",
+        "r": "ADR-0061 §6 · ADR-0061 As built batch 88 · db/migrations/000439, 000440 (supplier_invoice_citation, supplier_invoice_credit_reason) · payables.citedInvoices, statedOf, Citation, CreditReason · SupplierInvoice.credit_reason, cited_invoices · einvoicing.Cited, ReasonVolumeDiscount · TestEnterCreditNotes · TestSupplierInvoiceCitations · walkthrough step_einvoice (einvoice_credit_note_vd, einvoice_credit_note_citing_two)",
+        "src": "po:2026-11-21",
         "c": []
        },
        {

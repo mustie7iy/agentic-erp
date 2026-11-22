@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -14,31 +13,39 @@ import (
 // ublDocument is a UBL 2.1 Invoice or CreditNote as PINT AE's syntax
 // binding places the fields Document holds (ADR-0061 §5 C3, C5; the
 // paths of BTAE-02, BTAE-03 and the endpoints from memory, for the
-// specialist: ADR-0061 As built E2). Elements are matched by local name;
+// specialist: ADR-0061 As built E2; IBT-026 and each line's BTAE-08 and
+// BTAE-10 likewise, As built batch 88). Elements are matched by local name;
 // the root's namespace says which document it is. A credit note's
 // CreditNoteTypeCode and CreditNoteLine land in the same fields.
 type ublDocument struct {
 	XMLName         xml.Name
-	Customization   string      `xml:"CustomizationID"`
-	Profile         string      `xml:"ProfileID"`
-	ProfileExec     string      `xml:"ProfileExecutionID"`
-	ID              string      `xml:"ID"`
-	IssueDate       string      `xml:"IssueDate"`
-	DueDate         string      `xml:"DueDate"`
-	InvoiceType     string      `xml:"InvoiceTypeCode"`
-	CreditNoteType  string      `xml:"CreditNoteTypeCode"`
-	Currency        string      `xml:"DocumentCurrencyCode"`
-	TaxCurrency     string      `xml:"TaxCurrencyCode"`
-	Discrepancy     *ublReason  `xml:"DiscrepancyResponse"`
-	BillingRefs     []string    `xml:"BillingReference>InvoiceDocumentReference>ID"`
-	OrderRef        string      `xml:"OrderReference>ID"`
-	Seller          ublParty    `xml:"AccountingSupplierParty>Party"`
-	Buyer           ublParty    `xml:"AccountingCustomerParty>Party"`
-	PaymentMeans    string      `xml:"PaymentMeans>PaymentMeansCode"`
-	TaxTotals       []ublTaxTot `xml:"TaxTotal"`
-	Totals          ublTotals   `xml:"LegalMonetaryTotal"`
-	InvoiceLines    []ublLine   `xml:"InvoiceLine"`
-	CreditNoteLines []ublLine   `xml:"CreditNoteLine"`
+	Customization   string          `xml:"CustomizationID"`
+	Profile         string          `xml:"ProfileID"`
+	ProfileExec     string          `xml:"ProfileExecutionID"`
+	ID              string          `xml:"ID"`
+	IssueDate       string          `xml:"IssueDate"`
+	DueDate         string          `xml:"DueDate"`
+	InvoiceType     string          `xml:"InvoiceTypeCode"`
+	CreditNoteType  string          `xml:"CreditNoteTypeCode"`
+	Currency        string          `xml:"DocumentCurrencyCode"`
+	TaxCurrency     string          `xml:"TaxCurrencyCode"`
+	Discrepancy     *ublReason      `xml:"DiscrepancyResponse"`
+	BillingRefs     []ublBillingRef `xml:"BillingReference>InvoiceDocumentReference"`
+	OrderRef        string          `xml:"OrderReference>ID"`
+	Seller          ublParty        `xml:"AccountingSupplierParty>Party"`
+	Buyer           ublParty        `xml:"AccountingCustomerParty>Party"`
+	PaymentMeans    string          `xml:"PaymentMeans>PaymentMeansCode"`
+	TaxTotals       []ublTaxTot     `xml:"TaxTotal"`
+	Totals          ublTotals       `xml:"LegalMonetaryTotal"`
+	InvoiceLines    []ublLine       `xml:"InvoiceLine"`
+	CreditNoteLines []ublLine       `xml:"CreditNoteLine"`
+}
+
+// ublBillingRef is a preceding invoice reference (IBG-03): its number
+// (IBT-025) and issue date (IBT-026).
+type ublBillingRef struct {
+	ID        string `xml:"ID"`
+	IssueDate string `xml:"IssueDate"`
 }
 
 type ublReason struct {
@@ -107,6 +114,10 @@ type ublLine struct {
 	Category    string      `xml:"Item>ClassifiedTaxCategory>ID"`
 	Percent     string      `xml:"Item>ClassifiedTaxCategory>Percent"`
 	Price       ublAmount   `xml:"Price>PriceAmount"`
+	// The line's VAT in AED (BTAE-08) and amount with VAT in AED
+	// (BTAE-10): their paths from memory, for the specialist.
+	AccountingTax    ublAmount `xml:"TaxTotal>TaxAmount"`
+	AccountingAmount ublAmount `xml:"ItemPriceExtension>Amount"`
 }
 
 // amounts parses a document's amounts, each in the document's currency,
@@ -166,17 +177,37 @@ func parseAmount(raw string, exp int) (money.Minor, error) {
 	return m, nil
 }
 
-// distinctRefs are the invoice numbers IBG-03 states, trimmed, each once,
-// in their order, blanks left out: a number repeated or an empty reference
-// beside one names that one invoice.
-func distinctRefs(refs []string) []string {
-	var out []string
+// distinctRefs are the invoices IBG-03 states, their numbers trimmed,
+// each number once, in their order, blanks left out: a number repeated or
+// an empty reference beside one names that one invoice, with the first
+// date stated for it (IBT-026). A date that is not one is a malformed
+// field.
+func distinctRefs(refs []ublBillingRef) ([]Cited, error) {
+	var out []Cited
+	at := map[string]int{}
 	for _, r := range refs {
-		if r = strings.TrimSpace(r); r != "" && !slices.Contains(out, r) {
-			out = append(out, r)
+		number := strings.TrimSpace(r.ID)
+		if number == "" {
+			continue
+		}
+		var date *time.Time
+		if s := strings.TrimSpace(r.IssueDate); s != "" {
+			d, err := time.Parse(time.DateOnly, s)
+			if err != nil {
+				return nil, &FieldError{Term: "IBT-026", Err: err}
+			}
+			date = &d
+		}
+		i, ok := at[number]
+		switch {
+		case !ok:
+			at[number] = len(out)
+			out = append(out, Cited{Number: number, Date: date})
+		case out[i].Date == nil:
+			out[i].Date = date
 		}
 	}
-	return out
+	return out, nil
 }
 
 // document turns the UBL into a Document.
@@ -188,8 +219,12 @@ func (u ublDocument) document(exponent func(string) (int, bool)) (Document, erro
 	d := Document{Number: u.ID, Currency: u.Currency, TaxCurrency: u.TaxCurrency, Customization: u.Customization, Profile: u.Profile,
 		TransactionType: u.ProfileExec, OrderReference: u.OrderRef, Seller: u.Seller.party(), Buyer: u.Buyer.party(),
 		PaymentMeans: u.PaymentMeans, Exponent: exp}
-	if d.Cited = distinctRefs(u.BillingRefs); len(d.Cited) > 0 {
-		d.Reference = d.Cited[0]
+	var err error
+	if d.Cited, err = distinctRefs(u.BillingRefs); err != nil {
+		return Document{}, err
+	}
+	if len(d.Cited) > 0 {
+		d.Reference = d.Cited[0].Number
 	}
 	d.Kind, d.TypeCode = KindTaxInvoice, u.InvoiceType
 	lines := u.InvoiceLines
@@ -199,14 +234,17 @@ func (u ublDocument) document(exponent func(string) (int, bool)) (Document, erro
 	if u.Discrepancy != nil {
 		d.Reason = &Reason{Code: u.Discrepancy.Code, Text: u.Discrepancy.Text}
 	}
-	var err error
 	if d.IssueDate, d.DueDate, err = u.dates(); err != nil {
 		return Document{}, err
 	}
 	a := &amounts{currency: u.Currency, exp: exp}
 	d.Lines = make([]Line, len(lines))
+	aed := &amounts{currency: accountingCurrency, exp: aedExponent}
 	for i, l := range lines {
-		d.Lines[i] = l.line(a, d.Kind)
+		d.Lines[i] = l.line(a, aed, d.Kind)
+	}
+	if aed.err != nil {
+		return Document{}, aed.err
 	}
 	if err := u.taxes(&d, a, exponent); err != nil {
 		return Document{}, err
@@ -265,11 +303,23 @@ func (p ublParty) party() Party {
 			Subentity: p.Address.Subentity, Country: p.Address.Country}}
 }
 
-func (l ublLine) line(a *amounts, kind string) Line {
+// line reads a line, its amounts in the document's currency (a) and its
+// BTAE-08 and BTAE-10 in AED (aed), each nil when not stated.
+func (l ublLine) line(a, aed *amounts, kind string) Line {
 	q := l.Invoiced
 	if kind == KindTaxCreditNote {
 		q = l.Credited
 	}
 	return Line{ID: l.ID, OrderLine: l.OrderLine, Quantity: q.Value, Unit: q.Unit, Net: a.of(l.Net, "IBT-131"), Price: a.of(l.Price, "IBT-146"),
-		Name: l.Name, Description: l.Description, Category: l.Category, Percent: l.Percent}
+		Name: l.Name, Description: l.Description, Category: l.Category, Percent: l.Percent,
+		AccountingTax: aed.stated(l.AccountingTax, "BTAE-08"), AccountingAmount: aed.stated(l.AccountingAmount, "BTAE-10")}
+}
+
+// stated is an amount the document may leave out: nil when it does.
+func (a *amounts) stated(v ublAmount, term string) *money.Minor {
+	if strings.TrimSpace(v.Value) == "" {
+		return nil
+	}
+	m := a.of(v, term)
+	return &m
 }

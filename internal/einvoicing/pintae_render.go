@@ -13,6 +13,12 @@ import (
 // ADR-0061 §5 C5).
 const accountingCurrency = "AED"
 
+// aedExponent is AED's minor-unit digits (ISO 4217: the fils, two; as
+// ref.currency seeds it): the VAT and amounts a document states in AED
+// (IBT-111, BTAE-08, BTAE-10) are written and read with them whatever the
+// document's own currency's digits.
+const aedExponent = 2
+
 // RenderPINTAE writes the Document as UBL 2.1 XML in PINT AE's element
 // order (ADR-0061 §9, As built E2): an Invoice for a tax invoice, a
 // CreditNote for a tax credit note. The XML carries no time of rendering,
@@ -44,10 +50,13 @@ func RenderPINTAE(d Document) []byte {
 		w.text("cbc:Description", d.Reason.Text)
 		w.close("cac:DiscrepancyResponse")
 	}
-	if d.Reference != "" {
+	for _, c := range citedOf(d) {
 		w.open("cac:BillingReference")
 		w.open("cac:InvoiceDocumentReference")
-		w.text("cbc:ID", d.Reference)
+		w.text("cbc:ID", c.Number)
+		if c.Date != nil {
+			w.text("cbc:IssueDate", c.Date.Format(time.DateOnly))
+		}
 		w.close("cac:InvoiceDocumentReference")
 		w.close("cac:BillingReference")
 	}
@@ -63,6 +72,18 @@ func RenderPINTAE(d Document) []byte {
 	}
 	w.close(root)
 	return w.buf.Bytes()
+}
+
+// citedOf is the preceding invoices a document cites (IBG-03): Cited,
+// else its Reference alone, else none.
+func citedOf(d Document) []Cited {
+	switch {
+	case len(d.Cited) > 0:
+		return d.Cited
+	case d.Reference != "":
+		return []Cited{{Number: d.Reference}}
+	}
+	return nil
 }
 
 // ublWriter writes elements in order, escaping their text.
@@ -101,6 +122,11 @@ func (w *ublWriter) optional(tag, value string) {
 
 func (w *ublWriter) amount(tag string, m money.Minor, currency string) {
 	w.text(tag, m.Plain(w.exp), "currencyID", currency)
+}
+
+// aed writes an amount stated in AED, with AED's digits.
+func (w *ublWriter) aed(tag string, m money.Minor) {
+	w.text(tag, m.Plain(aedExponent), "currencyID", accountingCurrency)
 }
 
 func (w *ublWriter) party(tag string, p Party) {
@@ -159,7 +185,7 @@ func (w *ublWriter) taxTotals(d Document) {
 	w.close("cac:TaxTotal")
 	if d.AccountingTax != nil {
 		w.open("cac:TaxTotal")
-		w.amount("cbc:TaxAmount", *d.AccountingTax, d.AccountingCurrency)
+		w.aed("cbc:TaxAmount", *d.AccountingTax)
 		w.close("cac:TaxTotal")
 	}
 }
@@ -178,6 +204,11 @@ func (w *ublWriter) line(tag, quantityTag, currency string, l Line) {
 	w.text("cbc:ID", l.ID)
 	w.text(quantityTag, l.Quantity, "unitCode", l.Unit)
 	w.amount("cbc:LineExtensionAmount", l.Net, currency)
+	if l.AccountingTax != nil {
+		w.open("cac:TaxTotal")
+		w.aed("cbc:TaxAmount", *l.AccountingTax)
+		w.close("cac:TaxTotal")
+	}
 	w.open("cac:Item")
 	w.text("cbc:Description", l.Description)
 	w.text("cbc:Name", l.Name)
@@ -186,5 +217,10 @@ func (w *ublWriter) line(tag, quantityTag, currency string, l Line) {
 	w.open("cac:Price")
 	w.amount("cbc:PriceAmount", l.Price, currency)
 	w.close("cac:Price")
+	if l.AccountingAmount != nil {
+		w.open("cac:ItemPriceExtension")
+		w.aed("cbc:Amount", *l.AccountingAmount)
+		w.close("cac:ItemPriceExtension")
+	}
 	w.close(tag)
 }

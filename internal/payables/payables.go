@@ -284,18 +284,27 @@ type Invoice struct {
 	// DocumentaryWarnings are what its document may lack for its input
 	// tax to be recovered, recorded when it posted (ADR-0049 §6).
 	DocumentaryWarnings []DocumentaryWarning
-	Items               []Item
-	Version             int32
-	CreatedAt           time.Time
-	CreatedBy           uuid.UUID
-	UpdatedAt           time.Time
-	UpdatedBy           uuid.UUID
+	// CreditReason is a credit memo's reason as its e-invoice states it
+	// (BTAE-03), nil for none; Citations the invoices it cites (IBG-03),
+	// in the document's order (ADR-0061 As built batch 88).
+	CreditReason *CreditReason
+	Citations    []Citation
+	Items        []Item
+	Version      int32
+	CreatedAt    time.Time
+	CreatedBy    uuid.UUID
+	UpdatedAt    time.Time
+	UpdatedBy    uuid.UUID
 }
 
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
 		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
 		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.extensions_schema, i.kind, i.reference_invoice_id,
-		i.tax_date, i.documentary_warnings, i.payment_method,
+		i.tax_date, i.documentary_warnings, i.payment_method, i.credit_reason_code, i.credit_reason_text,
+		coalesce((SELECT json_agg(json_build_object('number', c.invoice_number, 'date', c.invoice_date, 'invoice_id', c.cited_invoice_id,
+			'document_number', (SELECT r.document_number FROM payables.supplier_invoice r WHERE r.tenant_id = c.tenant_id AND r.id = c.cited_invoice_id))
+			ORDER BY c.position)
+		 FROM payables.supplier_invoice_citation c WHERE c.tenant_id = i.tenant_id AND c.supplier_invoice_id = i.id), '[]'),
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
 			'account_id', t.account_id, 'cost_center_id', t.cost_center_id, 'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
@@ -307,11 +316,14 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supp
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
 	var terms storedTerms
+	var reason storedReason
+	var cited storedCitations
 	err := row.Scan(append(append([]any{&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate,
 		&v.PostingDate, &v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256,
 		&v.CaptureObjectRef, &v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
-		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.DocumentaryWarnings, &v.PaymentMethod, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
-	v.Terms = terms.terms()
+		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.DocumentaryWarnings, &v.PaymentMethod, &reason.code, &reason.text,
+		&cited, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
+	v.Terms, v.CreditReason, v.Citations = terms.terms(), reason.reason(), cited.citations()
 	return v, errs.Wrapf(err, "scan invoice")
 }
 

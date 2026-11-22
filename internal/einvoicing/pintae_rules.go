@@ -71,7 +71,7 @@ var rules = []rule{
 	}},
 	{"einvoicing.pint_ae.tax_currency", "IBT-006", taxCurrency},
 	{"einvoicing.pint_ae.credited_invoice", "IBT-025", func(d Document) []string {
-		if d.Kind == KindTaxCreditNote {
+		if d.Kind == KindTaxCreditNote && !d.volumeDiscount() { // IBR-055-AE: a volume discount (VD) may name none
 			return required(d.Reference, "the invoice the credit note corrects")
 		}
 		return nil

@@ -1846,3 +1846,62 @@ condition too, which implies it). Decided by default:
   assumed here from the mandate's summary [secondary, plan
   einvoicing-evatra.md], and so whether entering one memo per invoice is
   what the VAT 201 expects.
+
+### Batch 88: credit notes as one memo, VAT in AED as stated (po:2026-11-21 · review:batch87)
+
+The product owner approved on 2026-11-21 the coordinator's research of
+the open UAE questions (sources: OpenPeppol's PINT AE Billing pages, the
+AE specific rules and the business process, read 21 Nov; recorded in the
+coordinator's memory po-2026-11-21-uae-vat-research). Built:
+
+- **A volume discount may name no invoice (IBR-055-AE).** A received tax
+  credit note whose reason (BTAE-03) is `VD` and that cites no invoice is
+  valid and entered as a supplier credit memo without a reference (it
+  corrects no one invoice; its tax date is its own, `taxDateOf`); only a
+  credit note for another reason citing none is held
+  (`einvoicing.credit_note_names_no_invoice`, its detail naming the VD
+  exception). The outgoing rule (`einvoicing.pint_ae.credited_invoice`)
+  lets a VD tax credit note name no invoice too. This corrects T65e,
+  which held every one (C4 had assumed IBG-03 always mandatory).
+- **Several invoices, one memo.** A credit note citing several invoices
+  (IBG-03 repeated, which PINT AE's business process allows) is entered
+  as ONE credit memo citing them all, rather than held
+  (`einvoicing.credit_note_names_several_invoices` is no longer given;
+  documents held with it before stay held, and the value stays in the
+  contract's open enumeration). Its `reference_invoice_id` is none, since
+  no one invoice is what it corrects: its tax date is its own date, the
+  VAT 201 reporting it by the credit note's date with no per-invoice
+  split; it posts within no single invoice's credit limit (the limit,
+  product owner 2026-11-10, is one named invoice's gross, and a memo
+  naming none has none); the accounts payable clerk clears it against the
+  invoices. Decided by default, for the product owner to overrule.
+- **What the memo keeps.** `payables.supplier_invoice_citation`
+  (migration 000439, insert-only): each cited invoice's number (IBT-025),
+  its issue date when stated (IBT-026, `cac:BillingReference/
+  cac:InvoiceDocumentReference/cbc:IssueDate`, path from memory [M]) and
+  the supplier's posted invoice it matched; and the reason's code and
+  words (`credit_reason_code`, `credit_reason_text`, BTAE-03, words beyond
+  1,000 characters shortened, a code beyond 100 or more than 100 cited
+  invoices not read: a hold). The resource shows them as `credit_reason`
+  and `cited_invoices` (with the matched invoice's `document_number`).
+  Not copied into audit details or events: the reason's words are the
+  supplier's free text (ADR-0079).
+- **Matching.** Each cited number is matched to the supplier's posted
+  invoice in the company and the memo's currency by its supplier
+  reference, and by its invoice date when the note states IBT-026
+  (`citedInvoices`); a memo citing one names it as `reference_invoice_id`
+  as before; any number matching none enters the memo `on_hold`, its hold
+  reason naming the numbers. A number repeated is cited once, with the
+  first date stated for it.
+- **The CHECK review:batch87 asked for.** `einvoice_read_processed`
+  (migrations 000437, 000438): a processed document not refused states its
+  `document_kind`, which the entering branches on.
+- **The walkthrough.** `step_einvoice` (step 43, `einvoice_credit_notes`):
+  GOI-2103, a VD credit note naming no invoice, is entered as a parked
+  credit memo without a reference; GOI-2104, citing GOI-2001 (dated) and
+  GOI-2005 (no posted invoice), is entered as one memo citing both, on
+  hold naming GOI-2005; GOI-2102 (reason other than VD, naming none) is
+  held as before.
+- **For the specialist:** the BTAE-03 code list (the walkthrough's and
+  tests' `DL` is illustrative; only `VD` is acted on); the UBL path of
+  IBT-026.

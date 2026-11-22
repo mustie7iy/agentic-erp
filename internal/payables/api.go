@@ -58,6 +58,7 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 	if v.Terms != nil {
 		out.PaymentTerms.SetTo(ledger.TermsToAPI(*v.Terms))
 	}
+	out.CreditReason, out.CitedInvoices = creditReasonAPI(v.CreditReason), citationsAPI(v.Citations)
 	out.PurchaseOrderID, out.JournalEntryID, out.ReversalEntryID, out.WorkflowRequestID =
 		apitypes.OptUUID(v.PurchaseOrderID), apitypes.OptUUID(v.JournalEntryID), apitypes.OptUUID(v.ReversalEntryID), apitypes.OptUUID(v.WorkflowRequestID)
 	for i, it := range v.Items {
@@ -399,4 +400,30 @@ func (e *Endpoints) ListMatchResults(ctx context.Context, params gen.ListMatchRe
 		return pagination.Instant(m.EvaluatedAt), m.ID
 	}, matchToAPI)
 	return &gen.MatchResultPage{Items: items, NextPageToken: next}, nil
+}
+
+// creditReasonAPI is a credit memo's reason as the API shows it, absent
+// without one.
+func creditReasonAPI(r *CreditReason) gen.OptSupplierCreditReason {
+	if r == nil {
+		return gen.OptSupplierCreditReason{}
+	}
+	out := gen.SupplierCreditReason{Code: r.Code}
+	if r.Text != "" {
+		out.Text.SetTo(r.Text)
+	}
+	return gen.NewOptSupplierCreditReason(out)
+}
+
+// citationsAPI are the invoices a credit memo cites as the API shows
+// them, empty for none.
+func citationsAPI(cs []Citation) []gen.SupplierInvoiceCitation {
+	out := make([]gen.SupplierInvoiceCitation, len(cs))
+	for i, c := range cs {
+		out[i] = gen.SupplierInvoiceCitation{InvoiceNumber: c.Number, InvoiceDate: apitypes.OptDate(c.Date), InvoiceID: apitypes.OptUUID(c.InvoiceID)}
+		if c.DocumentNumber != "" {
+			out[i].DocumentNumber.SetTo(c.DocumentNumber)
+		}
+	}
+	return out
 }

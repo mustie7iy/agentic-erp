@@ -59,16 +59,16 @@ func TestSellerOf(t *testing.T) {
 }
 
 // TestExtractionOf: an e-invoice reads as capture's extraction, amounts
-// in its currency's digits, a credit note as a credit memo naming the
-// invoice it cites; an order line that is no item number is refused,
-// quoting at most 40 characters of it.
+// in its currency's digits, a credit note as a credit memo whose cited
+// invoices capture's single number leaves to citedInvoices; an order line
+// that is no item number is refused, quoting at most 40 characters of it.
 func TestExtractionOf(t *testing.T) {
-	credit, err := extractionOf(EInvoice{Kind: KindCreditMemo, Number: "GOI-7", CreditedNumber: "GOI-1", Currency: "AED", Exponent: 2})
+	credit, err := extractionOf(EInvoice{Kind: KindCreditMemo, Number: "GOI-7", Cited: []Citation{{Number: "GOI-1"}}, Currency: "AED", Exponent: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := credit.DocumentKind + " " + credit.InvoiceNumber + " " + credit.CreditedInvoiceNumber; got != "credit_memo GOI-7 GOI-1" {
-		t.Errorf("a credit note: got %s, want credit_memo GOI-7 GOI-1", got)
+	if got := credit.DocumentKind + " " + credit.InvoiceNumber + " [" + credit.CreditedInvoiceNumber + "]"; got != "credit_memo GOI-7 []" {
+		t.Errorf("a credit note: got %s, want credit_memo GOI-7 []", got)
 	}
 	d := EInvoice{Kind: KindInvoice, Number: "GOI-1", IssueDate: time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC), Currency: "AED", Exponent: 2, OrderReference: "4500000001",
 		Lines: []EInvoiceLine{{OrderLine: "10", Description: "Desk", Quantity: "4", Net: 100000, Category: "S", Percent: "5"}}, Tax: 5000, Gross: 105000}

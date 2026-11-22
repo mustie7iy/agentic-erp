@@ -44,15 +44,22 @@ func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvo
 		lines[i] = payables.EInvoiceLine{OrderLine: l.OrderLine, Description: l.Description, Quantity: l.Quantity, Net: l.Net, Category: l.Category,
 			Percent: l.Percent}
 	}
-	// Only a credit note names the invoice it credits: an invoice may state
-	// a preceding invoice (IBG-03), which capture would refuse it for.
-	kind, credited := payables.KindInvoice, ""
+	// Only a credit note names the invoices it credits and its reason: an
+	// invoice may state a preceding invoice (IBG-03), which capture would
+	// refuse it for.
+	e := payables.EInvoice{LegalEntityID: in.LegalEntityID, Kind: payables.KindInvoice, Number: d.Number, IssueDate: d.IssueDate, Currency: d.Currency,
+		Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines, Tax: d.Tax, Gross: d.TaxInclusive,
+		SHA256: in.SHA256, ObjectRef: in.ContentRef}
 	if d.Kind == einvoicing.KindTaxCreditNote {
-		kind, credited = payables.KindCreditMemo, d.Reference
+		e.Kind = payables.KindCreditMemo
+		for _, c := range d.Cited {
+			e.Cited = append(e.Cited, payables.Citation{Number: c.Number, Date: c.Date})
+		}
+		if d.Reason != nil {
+			e.Reason = &payables.CreditReason{Code: d.Reason.Code, Text: d.Reason.Text}
+		}
 	}
-	v, err := a.e.EnterEInvoice(ctx, payables.EInvoice{LegalEntityID: in.LegalEntityID, Kind: kind, Number: d.Number, CreditedNumber: credited,
-		IssueDate: d.IssueDate, Currency: d.Currency, Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines,
-		Tax: d.Tax, Gross: d.TaxInclusive, SHA256: in.SHA256, ObjectRef: in.ContentRef})
+	v, err := a.e.EnterEInvoice(ctx, e)
 	return einvoicing.Entered{InvoiceID: v.ID, SupplierID: v.SupplierID}, err
 }
 

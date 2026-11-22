@@ -55999,6 +55999,39 @@ components:
           pending_sign_off: false
           unassessed: false
           message: "The supplier has no tax identifier of the company's country; its registration number must be on the document for the input tax of a document of 100.00 CAD or more to be recovered (SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number)."
+    SupplierCreditReason:
+      type: object
+      description: "A credit memo's reason as its e-invoice states it (BTAE-03)."
+      required: [code]
+      properties:
+        code:
+          type: string
+          maxLength: 100
+          description: "The reason's code as the credit note states it, such as `VD` (volume discount)."
+        text:
+          type: string
+          maxLength: 1000
+          description: "The reason's words as the credit note states them, a longer text shortened to 1,000 characters ending in an ellipsis. Absent when it states none."
+    SupplierInvoiceCitation:
+      type: object
+      description: "A preceding invoice a credit memo's e-invoice cites (IBG-03)."
+      required: [invoice_number]
+      properties:
+        invoice_number:
+          type: string
+          maxLength: 200
+          description: "The cited invoice's number as the credit note states it (IBT-025): the supplier's own reference."
+        invoice_date:
+          type: string
+          format: date
+          description: "The cited invoice's issue date as the credit note states it (IBT-026), which the match also compares. Absent when it states none."
+        invoice_id:
+          type: string
+          format: uuid
+          description: "The supplier's posted invoice of the company, in the memo's currency, whose `supplier_reference` is the number (and whose `invoice_date` the date, when stated), as found when the memo was entered. Absent when none was: the memo was entered `on_hold`, its `hold_reason` naming the number."
+        document_number:
+          type: string
+          description: "That invoice's `document_number`. Absent with `invoice_id`."
     SupplierInvoice:
       description: A supplier invoice (accounts payable).
       allOf:
@@ -56071,7 +56104,7 @@ components:
             reference_invoice_id:
               type: string
               format: uuid
-              description: "The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal entity and currency); never on an invoice."
+              description: "The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal entity and currency); never on an invoice. A credit memo entered from an e-invoice credit note citing several invoices names none (they are its `cited_invoices`)."
             status:
               type: string
               description: "Lifecycle status: `parked`, `on_hold` (`:hold`/`:release`), `posted` (`:post`), `cancelled` (`:cancel`, unposted only), `reversed` (`:reverse`), or `rejected` when the approval request for an invoice exception is rejected. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -56134,6 +56167,17 @@ components:
               items:
                 $ref: "#/components/schemas/DocumentaryWarning"
               description: "What the invoice's document may lack for its input tax to be recovered, by the company's documentary requirements (its `tax_settings`, from the country pack: Canada's $100 and $500 tiers, the UAE's threshold), recorded when the invoice posts (ADR-0049 §6). Warnings, never refusals: the business may post and decide not to claim. Empty before posting, for an invoice or subsequent debit claiming no tax, for a credit memo or subsequent credit, and for invoices posted before the check existed."
+              readOnly: true
+            credit_reason:
+              $ref: "#/components/schemas/SupplierCreditReason"
+              description: "A credit memo's reason as the supplier's e-invoice credit note states it (BTAE-03; ADR-0061 As built batch 88), such as `VD` for a volume discount. Absent on a document entered otherwise and on every invoice."
+              readOnly: true
+            cited_invoices:
+              type: array
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/SupplierInvoiceCitation"
+              description: "The invoices a credit memo's e-invoice credit note cites (IBG-03; ADR-0061 As built batch 88, po:2026-11-21), in its order, each number once: a credit note correcting several invoices is one credit memo citing them all, its `reference_invoice_id` absent, and the accounts payable clerk clears it against them; one citing one also names it as its `reference_invoice_id`; one for a volume discount (`credit_reason` `VD`) may cite none. Empty on a document entered otherwise and on every invoice."
               readOnly: true
             calculated_tax:
               $ref: "#/components/schemas/CalculatedTax"
