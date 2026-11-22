@@ -699,8 +699,10 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   batch 85 a sales document's items and the invoice its billing posts:
   ADR-0067 As built, "The emirate on a sales item";
   `TaxCode.CheckJurisdiction` is the one check of a line's and an item's.
-  A cash discount's correction and a down payment's transfer still carry
-  none.) **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead
+  A down payment's transfer still carries none; a cash discount's
+  correction names the subdivision each source item named, supplier's
+  and customer's alike, since the customer's cash discount of 2026-11-22:
+  ADR-0063 As built, cash discount granted.) **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead
   of the code; an instance of the previous release posting a code that
   levies its lines' subdivision fails the trigger (409), and its parked
   line upserts leave `tax_jurisdiction` as it was, so
@@ -1982,3 +1984,13 @@ po-2026-11-21-uae-vat-research), and answered one open question:
   built"), so the output tax is **not** reduced today. No test was added
   claiming otherwise; the correction of output tax on a UAE customer's
   cash discount is a tracker leaf (src po:2026-11-21) for receivables.
+- **Built 2026-11-22 (batch 89, cdisc):** a UAE company's invoice paid
+  within its discount period takes its cash discount
+  (`items[].cash_discount` of `createIncomingPayment`), and T36d's split
+  (`ledger.discountTax`, shared, not copied) corrects the output tax of
+  each of the invoice's tax items in proportion to its gross, keeping its
+  emirate: the correction's lines name it and its tax items reduce the
+  VAT 201's box of that emirate (`TestUAECashDiscount` reads the boxes:
+  1a, 1b and the zero-rated box 4). A Canadian company's discount stays a
+  payment difference without tax (`TestCanadianCashDiscount`). ADR-0063
+  As built, cash discount granted, has the rest.

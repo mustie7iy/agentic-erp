@@ -137,6 +137,17 @@ func TestApplyReceiptResidualRefusals(t *testing.T) {
 			t.Errorf("got %v, want the internal error naming the counts", err)
 		}
 	})
+	t.Run("cash discounts that are not one per item", func(t *testing.T) {
+		in := r.application(receipt, north, "EUR", "2026-03-21", invoice, credit)
+		in.CashDiscounts = []bool{true}
+		err := apitest.InRequest(t, r.ten, r.ten.Human, func(ctx context.Context) error {
+			_, err := postings().ApplyReceipt(ctx, in)
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "1 cash discounts for 2 items") {
+			t.Errorf("got %v, want the internal error naming the counts", err)
+		}
+	})
 }
 
 // TestApplyReceiptDifference (T75f): a difference between the items and

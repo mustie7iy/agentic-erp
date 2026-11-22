@@ -237,8 +237,9 @@ type Handler interface {
 	// with its number. The payment's `version` moves with each application (`ETag`), and the answer is the
 	// payment with the application, which its `applications` list last. Audited, and published as
 	// IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
-	// with the same `Idempotency-Key` answers the payment as the first answered it. Human-only
-	// (`x-agent: false`).
+	// with the same `Idempotency-Key` answers the payment as the first answered it. A cash discount is not
+	// granted here (422 `receivables.cash_discount_not_granted` naming `items[i].cash_discount`): an item
+	// takes its discount when a receipt pays it (`createIncomingPayment`). Human-only (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments/{id}/applications
 	ApplyIncomingPaymentOnAccount(ctx context.Context, req *IncomingPaymentApplicationCreate, params ApplyIncomingPaymentOnAccountParams) (ApplyIncomingPaymentOnAccountRes, error)
@@ -1940,18 +1941,29 @@ type Handler interface {
 	// `write_off` writes it off instead, a debit line of the clearing entry on the reason's account at the
 	// receipt's rate, shown as the item's `write_off` (422 `receivables.no_write_off_account` when the
 	// company's chart no longer has that account), and what reasons write off counts with the payment
-	// difference against the payment tolerance. Together the items, net of their residuals and of what
-	// their reasons wrote off, equal the receipt, but for a payment difference within the company's
-	// payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in
-	// the company's currency and a percent of the items applied, the lower binding; none configured, none
-	// allowed), what reasons write off included; anything more is refused, 422
-	// `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One
-	// clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every
-	// item at the amounts they were booked at and clears them all; each residual is a new open item of the
-	// customer, a debit line of that entry on the item's account at the item's rate, with the item's
-	// payment terms but no cash discount tier, so it falls due when the item did; a difference is a line
-	// on the company's `payment_difference_expense` account (an underpayment) or
-	// `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+	// difference against the payment tolerance. Together the items, net of their residuals, of what their
+	// reasons wrote off and of their cash discounts (below), equal the receipt, but for a payment
+	// difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP
+	// OBA3: per direction an amount in the company's currency and a percent of the items applied, the
+	// lower binding; none configured, none allowed), what reasons write off included; anything more is
+	// refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. An invoice paid
+	// within the discount period of its payment terms, counted on the receipt's posting date, may take its
+	// cash discount (`items[i].cash_discount`, ADR-0063: cash discount granted) in a company of the United
+	// Arab Emirates (the product owner, 2026-11-21): it is then paid net of the discount, the tier's
+	// percent of its amount, and the discount is a debit of the clearing entry split by the invoice's tax
+	// items in proportion to its gross, as a supplier's cash discount is (T36d): its net on the company's
+	// `payment_difference_expense` account with each tax code and emirate of the base it reduces, its tax
+	// share on each output tax line's account with its code and the emirate the invoice's item named, all
+	// at the receipt's rate, writing tax items that reduce the output tax the VAT 201 reports in that
+	// emirate (422 `ledger.no_payment_difference_account` without the account). A company of another
+	// country grants none: what a customer takes off is a payment difference without tax (a Canadian cash
+	// discount makes no GST/HST adjustment, ETA s.161), and an item asking for one is refused, 422
+	// `receivables.cash_discount_not_granted`. One clearing entry, document type `DZ`, `source_context`
+	// `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them
+	// all; each residual is a new open item of the customer, a debit line of that entry on the item's
+	// account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due
+	// when the item did; a difference is a line on the company's `payment_difference_expense` account (an
+	// underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
 	// `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
 	// receipt and items having been booked at different rates, is a realized exchange difference on the
 	// company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date

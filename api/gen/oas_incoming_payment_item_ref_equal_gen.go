@@ -32,5 +32,14 @@ func (a IncomingPaymentItemRef) Equal(b IncomingPaymentItemRef, depth int) bool 
 			return false
 		}
 	}
+	// Compare optional field: CashDiscount
+	if a.CashDiscount.Set != b.CashDiscount.Set {
+		return false
+	}
+	if a.CashDiscount.Set {
+		if a.CashDiscount.Value != b.CashDiscount.Value {
+			return false
+		}
+	}
 	return true
 }
