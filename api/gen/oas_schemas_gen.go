@@ -28662,7 +28662,13 @@ type Connector struct {
 	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 	// are refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+	// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+	// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+	// by company code: a list of plant codes for each company, at least one plant, each once); its
+	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+	// connector at most: creating, changing or enabling one naming a plant another active one manages
+	// answers 409 `integration.plant_has_wms`.
 	Settings ConnectorSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28819,7 +28825,13 @@ type ConnectorCreate struct {
 	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 	// are refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+	// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+	// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+	// by company code: a list of plant codes for each company, at least one plant, each once); its
+	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+	// connector at most: creating, changing or enabling one naming a plant another active one manages
+	// answers 409 `integration.plant_has_wms`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28895,7 +28907,13 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 // credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 // are refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+// by company code: a list of plant codes for each company, at least one plant, each once); its
+// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+// connector at most: creating, changing or enabling one naming a plant another active one manages
+// answers 409 `integration.plant_has_wms`.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -29027,7 +29045,13 @@ func (*ConnectorPage) listConnectorsRes() {}
 // a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 // credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 // are refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+// by company code: a list of plant codes for each company, at least one plant, each once); its
+// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+// connector at most: creating, changing or enabling one naming a plant another active one manages
+// answers 409 `integration.plant_has_wms`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -29065,7 +29089,13 @@ type ConnectorUpdate struct {
 	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 	// are refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+	// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+	// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+	// by company code: a list of plant codes for each company, at least one plant, each once); its
+	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+	// connector at most: creating, changing or enabling one naming a plant another active one manages
+	// answers 409 `integration.plant_has_wms`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -29126,7 +29156,13 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 // credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 // are refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+// by company code: a list of plant codes for each company, at least one plant, each once); its
+// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+// connector at most: creating, changing or enabling one naming a plant another active one manages
+// answers 409 `integration.plant_has_wms`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -68858,6 +68894,14 @@ func (*ListVarianceCommentsBadRequest) listVarianceCommentsRes() {}
 type ListVarianceCommentsForbidden Problem
 
 func (*ListVarianceCommentsForbidden) listVarianceCommentsRes() {}
+
+type ListWMSMessagesBadRequest Problem
+
+func (*ListWMSMessagesBadRequest) listWMSMessagesRes() {}
+
+type ListWMSMessagesForbidden Problem
+
+func (*ListWMSMessagesForbidden) listWMSMessagesRes() {}
 
 type ListWebhookDeliveriesBadRequest Problem
 
@@ -122614,6 +122658,7 @@ func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()               {}
 func (*TooManyRequestsHeaders) listTaxReturnsRes()                        {}
 func (*TooManyRequestsHeaders) listUnappliedReceiptsRes()                 {}
 func (*TooManyRequestsHeaders) listVarianceCommentsRes()                  {}
+func (*TooManyRequestsHeaders) listWMSMessagesRes()                       {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()                 {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()              {}
 func (*TooManyRequestsHeaders) listYearClosesRes()                        {}
@@ -123593,6 +123638,7 @@ func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()               {}
 func (*UnauthorizedHeaders) listTaxReturnsRes()                        {}
 func (*UnauthorizedHeaders) listUnappliedReceiptsRes()                 {}
 func (*UnauthorizedHeaders) listVarianceCommentsRes()                  {}
+func (*UnauthorizedHeaders) listWMSMessagesRes()                       {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()                 {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()              {}
 func (*UnauthorizedHeaders) listYearClosesRes()                        {}
@@ -127046,6 +127092,348 @@ func (*VerifyAuditChainPreconditionRequired) verifyAuditChainRes() {}
 type VerifyAuditChainUnprocessableEntity Problem
 
 func (*VerifyAuditChainUnprocessableEntity) verifyAuditChainRes() {}
+
+// A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, S2q1):
+// an outbound delivery sent to pick, or a goods issue it reported back.
+// Ref: #/components/schemas/WMSMessage
+type WMSMessage struct {
+	// Message id.
+	ID uuid.UUID `json:"id"`
+	// The `wms` connector (`getConnector`).
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The connector's name.
+	ConnectorName string `json:"connector_name"`
+	// `outbound` (to the warehouse system) or `inbound` (reported back). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Direction string `json:"direction"`
+	// The message's id at the warehouse system: an outbound message's own id, which the warehouse system
+	// deduplicates on; an inbound one's, the warehouse system's.
+	MessageID string `json:"message_id"`
+	// `outbound_delivery` (outbound) or `goods_issue` (inbound). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The delivery's company; absent on an inbound message refused before its delivery was known.
+	LegalEntityID OptUUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode OptString `json:"company_code"`
+	// The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.
+	OutboundDeliveryID OptUUID `json:"outbound_delivery_id"`
+	// The outbound delivery's number.
+	OutboundDeliveryNumber OptString `json:"outbound_delivery_number"`
+	// Outbound: the delivery's plant, which the connector manages.
+	PlantCode OptString `json:"plant_code"`
+	// The message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as
+	// `{"text": ...}`, at most 1000 characters of it).
+	Body WMSMessageBody `json:"body"`
+	// Outbound: `pending` (queued, or waiting for its next attempt), `sent` or `failed`; inbound: `posted`
+	// or `refused`. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Status string `json:"status"`
+	// Outbound: the attempts made to send it; inbound: 0.
+	Attempts int32 `json:"attempts"`
+	// Pending: when it is next sent.
+	NextAttemptAt OptDateTime `json:"next_attempt_at"`
+	// Outbound: the problem code of the last failed attempt; absent when none failed.
+	LastErrorCode OptString `json:"last_error_code"`
+	// Outbound: when the warehouse system took it.
+	SentAt OptDateTime `json:"sent_at"`
+	// Refused: the problem that stopped its posting.
+	ProblemCode OptString `json:"problem_code"`
+	// Refused: the problem's detail.
+	ProblemDetail OptString `json:"problem_detail"`
+	// Posted: the goods issue's material document (`getMaterialDocument`).
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// Posted: the material document's number.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
+	// Inbound: when the warehouse system was told it is recorded.
+	AcknowledgedAt OptDateTime `json:"acknowledged_at"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *WMSMessage) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *WMSMessage) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *WMSMessage) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetDirection returns the value of Direction.
+func (s *WMSMessage) GetDirection() string {
+	return s.Direction
+}
+
+// GetMessageID returns the value of MessageID.
+func (s *WMSMessage) GetMessageID() string {
+	return s.MessageID
+}
+
+// GetKind returns the value of Kind.
+func (s *WMSMessage) GetKind() string {
+	return s.Kind
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *WMSMessage) GetLegalEntityID() OptUUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *WMSMessage) GetCompanyCode() OptString {
+	return s.CompanyCode
+}
+
+// GetOutboundDeliveryID returns the value of OutboundDeliveryID.
+func (s *WMSMessage) GetOutboundDeliveryID() OptUUID {
+	return s.OutboundDeliveryID
+}
+
+// GetOutboundDeliveryNumber returns the value of OutboundDeliveryNumber.
+func (s *WMSMessage) GetOutboundDeliveryNumber() OptString {
+	return s.OutboundDeliveryNumber
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *WMSMessage) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetBody returns the value of Body.
+func (s *WMSMessage) GetBody() WMSMessageBody {
+	return s.Body
+}
+
+// GetStatus returns the value of Status.
+func (s *WMSMessage) GetStatus() string {
+	return s.Status
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *WMSMessage) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetNextAttemptAt returns the value of NextAttemptAt.
+func (s *WMSMessage) GetNextAttemptAt() OptDateTime {
+	return s.NextAttemptAt
+}
+
+// GetLastErrorCode returns the value of LastErrorCode.
+func (s *WMSMessage) GetLastErrorCode() OptString {
+	return s.LastErrorCode
+}
+
+// GetSentAt returns the value of SentAt.
+func (s *WMSMessage) GetSentAt() OptDateTime {
+	return s.SentAt
+}
+
+// GetProblemCode returns the value of ProblemCode.
+func (s *WMSMessage) GetProblemCode() OptString {
+	return s.ProblemCode
+}
+
+// GetProblemDetail returns the value of ProblemDetail.
+func (s *WMSMessage) GetProblemDetail() OptString {
+	return s.ProblemDetail
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *WMSMessage) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *WMSMessage) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
+}
+
+// GetAcknowledgedAt returns the value of AcknowledgedAt.
+func (s *WMSMessage) GetAcknowledgedAt() OptDateTime {
+	return s.AcknowledgedAt
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *WMSMessage) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *WMSMessage) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *WMSMessage) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *WMSMessage) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *WMSMessage) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *WMSMessage) SetDirection(val string) {
+	s.Direction = val
+}
+
+// SetMessageID sets the value of MessageID.
+func (s *WMSMessage) SetMessageID(val string) {
+	s.MessageID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *WMSMessage) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *WMSMessage) SetLegalEntityID(val OptUUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *WMSMessage) SetCompanyCode(val OptString) {
+	s.CompanyCode = val
+}
+
+// SetOutboundDeliveryID sets the value of OutboundDeliveryID.
+func (s *WMSMessage) SetOutboundDeliveryID(val OptUUID) {
+	s.OutboundDeliveryID = val
+}
+
+// SetOutboundDeliveryNumber sets the value of OutboundDeliveryNumber.
+func (s *WMSMessage) SetOutboundDeliveryNumber(val OptString) {
+	s.OutboundDeliveryNumber = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *WMSMessage) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetBody sets the value of Body.
+func (s *WMSMessage) SetBody(val WMSMessageBody) {
+	s.Body = val
+}
+
+// SetStatus sets the value of Status.
+func (s *WMSMessage) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *WMSMessage) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetNextAttemptAt sets the value of NextAttemptAt.
+func (s *WMSMessage) SetNextAttemptAt(val OptDateTime) {
+	s.NextAttemptAt = val
+}
+
+// SetLastErrorCode sets the value of LastErrorCode.
+func (s *WMSMessage) SetLastErrorCode(val OptString) {
+	s.LastErrorCode = val
+}
+
+// SetSentAt sets the value of SentAt.
+func (s *WMSMessage) SetSentAt(val OptDateTime) {
+	s.SentAt = val
+}
+
+// SetProblemCode sets the value of ProblemCode.
+func (s *WMSMessage) SetProblemCode(val OptString) {
+	s.ProblemCode = val
+}
+
+// SetProblemDetail sets the value of ProblemDetail.
+func (s *WMSMessage) SetProblemDetail(val OptString) {
+	s.ProblemDetail = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *WMSMessage) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *WMSMessage) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
+}
+
+// SetAcknowledgedAt sets the value of AcknowledgedAt.
+func (s *WMSMessage) SetAcknowledgedAt(val OptDateTime) {
+	s.AcknowledgedAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *WMSMessage) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *WMSMessage) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// The message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as
+// `{"text": ...}`, at most 1000 characters of it).
+type WMSMessageBody map[string]jx.Raw
+
+func (s *WMSMessageBody) init() WMSMessageBody {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}
+
+// One page of messages exchanged with warehouse systems.
+// Ref: #/components/schemas/WMSMessagePage
+type WMSMessagePage struct {
+	// The messages on this page, newest first.
+	Items []WMSMessage `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *WMSMessagePage) GetItems() []WMSMessage {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *WMSMessagePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *WMSMessagePage) SetItems(val []WMSMessage) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *WMSMessagePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*WMSMessagePage) listWMSMessagesRes() {}
 
 // One event sent, or to be sent, to a subscription's endpoint (ADR-0041). Kept 30 days.
 // Ref: #/components/schemas/WebhookDelivery

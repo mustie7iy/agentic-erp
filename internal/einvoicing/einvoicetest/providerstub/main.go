@@ -30,19 +30,12 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
-	"math/big"
 	"net"
 	"net/http"
 	"net/netip"
@@ -56,6 +49,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing/einvoicetest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 )
 
 func main() {
@@ -93,7 +87,7 @@ func run(ctx context.Context, addr, ca, tokenFile, inbox string, evatra evatraFi
 	if err != nil {
 		return err
 	}
-	cert, certPEM, err := selfSigned(ap.Addr())
+	cert, certPEM, err := tlstest.SelfSigned(ap.Addr(), "walkthrough e-invoicing provider")
 	if err != nil {
 		return err
 	}
@@ -147,24 +141,6 @@ func handler(store dir, token string, evatra evatraFiles) (http.Handler, error) 
 	mux.Handle("/evatra/", http.StripPrefix("/evatra", (&einvoicetest.Evatra{Store: dir(evatra.inbox), Outbox: outbox(evatra.outbox),
 		Account: einvoicetest.EvatraAccount{APIKey: account.APIKey, Email: account.Email, CompanyID: account.CompanyID}}).Handler()))
 	return mux, nil
-}
-
-// selfSigned is a certificate for ip, a day long, and its PEM.
-func selfSigned(ip netip.Addr) (tls.Certificate, []byte, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, nil, fmt.Errorf("key: %w", err)
-	}
-	now := time.Now()
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(now.UnixNano()), Subject: pkix.Name{CommonName: "walkthrough e-invoicing provider"},
-		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(24 * time.Hour), IPAddresses: []net.IP{ip.AsSlice()},
-		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true, IsCA: true}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		return tls.Certificate{}, nil, fmt.Errorf("certificate: %w", err)
-	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
 }
 
 // dir is the inbox directory as the stand-in's store.

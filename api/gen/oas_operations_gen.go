@@ -516,6 +516,7 @@ const (
 	ListTaxReturnsOperation                        OperationName = "ListTaxReturns"
 	ListUnappliedReceiptsOperation                 OperationName = "ListUnappliedReceipts"
 	ListVarianceCommentsOperation                  OperationName = "ListVarianceComments"
+	ListWMSMessagesOperation                       OperationName = "ListWMSMessages"
 	ListWebhookDeliveriesOperation                 OperationName = "ListWebhookDeliveries"
 	ListWebhookSubscriptionsOperation              OperationName = "ListWebhookSubscriptions"
 	ListYearClosesOperation                        OperationName = "ListYearCloses"

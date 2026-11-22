@@ -7125,6 +7125,39 @@ type Invoker interface {
 	//
 	// GET /v1/variance-comments
 	ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error)
+	// ListWMSMessages invokes listWMSMessages operation.
+	//
+	// The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As
+	// built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who
+	// may act in every company, inbound ones refused before their delivery was known. Outbound
+	// (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in
+	// its `plants` is queued once as a message giving the warehouse system the delivery to pick (its
+	// `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant
+	// and storage location by code, the delivery by id and number with its sales order's and customer's
+	// numbers, and each item's number, material number, quantity and unit), `pending` until the exchange
+	// sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried
+	// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the warehouse system's,
+	// `integration.wms_refused`; the connector disabled or not resolving since,
+	// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
+	// `integration.invalid_settings`, `integration.not_a_wms`, or the stand-in in production,
+	// `integration.adapter_not_certified`) or the sixth attempt's failure is final, and a last attempt
+	// whose outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the
+	// warehouse system's key: sending it again is not a second delivery. The failed ones are the worklist.
+	// Inbound (`goods_issue`): what the warehouse system reports back, polled from each active `wms`
+	// connector (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's
+	// picked quantities recorded and its goods issue posted (shipping's `pickOutboundDelivery` and
+	// `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's
+	// company), naming the material document; or `refused` with the problem that stopped it, nothing of it
+	// posted: one that is not a JSON `goods_issue` message naming its own message id and an
+	// `outbound_delivery_id` (`integration.wms_message_unreadable`), larger than 1 MiB
+	// (`integration.wms_message_too_large`), of a delivery the connector was not sent
+	// (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`,
+	// `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse
+	// system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not
+	// posted twice. Filters: connector, direction, status and the outbound delivery.
+	//
+	// GET /v1/wms-messages
+	ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (ListWMSMessagesRes, error)
 	// ListWebhookDeliveries invokes listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:
@@ -102087,6 +102120,252 @@ func (c *Client) sendListVarianceComments(ctx context.Context, params ListVarian
 
 	stage = "DecodeResponse"
 	result, err := decodeListVarianceCommentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListWMSMessages invokes listWMSMessages operation.
+//
+// The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As
+// built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who
+// may act in every company, inbound ones refused before their delivery was known. Outbound
+// (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in
+// its `plants` is queued once as a message giving the warehouse system the delivery to pick (its
+// `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant
+// and storage location by code, the delivery by id and number with its sales order's and customer's
+// numbers, and each item's number, material number, quantity and unit), `pending` until the exchange
+// sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried
+// again after 1, 5 and 15 minutes, 1 and 4 hours; a refusal (the warehouse system's,
+// `integration.wms_refused`; the connector disabled or not resolving since,
+// `integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`,
+// `integration.invalid_settings`, `integration.not_a_wms`, or the stand-in in production,
+// `integration.adapter_not_certified`) or the sixth attempt's failure is final, and a last attempt
+// whose outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the
+// warehouse system's key: sending it again is not a second delivery. The failed ones are the worklist.
+// Inbound (`goods_issue`): what the warehouse system reports back, polled from each active `wms`
+// connector (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's
+// picked quantities recorded and its goods issue posted (shipping's `pickOutboundDelivery` and
+// `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's
+// company), naming the material document; or `refused` with the problem that stopped it, nothing of it
+// posted: one that is not a JSON `goods_issue` message naming its own message id and an
+// `outbound_delivery_id` (`integration.wms_message_unreadable`), larger than 1 MiB
+// (`integration.wms_message_too_large`), of a delivery the connector was not sent
+// (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`,
+// `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse
+// system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not
+// posted twice. Filters: connector, direction, status and the outbound delivery.
+//
+// GET /v1/wms-messages
+func (c *Client) ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (ListWMSMessagesRes, error) {
+	res, err := c.sendListWMSMessages(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (res ListWMSMessagesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listWMSMessages"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/wms-messages"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListWMSMessagesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/wms-messages"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "connector_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "connector_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ConnectorID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "direction" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "direction",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Direction.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "outbound_delivery_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "outbound_delivery_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OutboundDeliveryID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListWMSMessagesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListWMSMessagesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

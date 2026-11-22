@@ -274,6 +274,7 @@ type server struct {
 	tls          *tlsconf.Store  // nil: no TLS material configured (development)
 	gateway      *agents.Gateway // nil: no model provider configured
 	egress       *egress.Client  // posts webhooks (webhookClient)
+	wms          *egress.Client  // calls warehouse systems (wmsClient)
 	apiCfg       app.Config
 	apiHandler   http.Handler
 	simulator    *configuration.SimulationWorker
@@ -702,6 +703,9 @@ func (s *server) newAPI() error {
 	if s.apiCfg.Providers, err = providerClient(cfg); err != nil {
 		return err
 	}
+	if s.wms, err = wmsClient(cfg); err != nil {
+		return err
+	}
 	s.apiCfg.EvatraHosts = evatraHosts(cfg)
 	if s.apiCfg.SFTPControl, err = egress.DialControl(cfg.Walkthrough.SFTP); err != nil { // config.Load refuses a stand-in outside development
 		return fmt.Errorf("erp-server: the walkthrough's SFTP stand-in: %w", err)
@@ -745,6 +749,21 @@ func providerClient(cfg config.Config) (*egress.Client, error) {
 	client, err := einvoicing.NewClient(egress.WalkthroughReceiver(cfg.Walkthrough.Provider, cfg.Walkthrough.ProviderRoots))
 	if err != nil {
 		return nil, fmt.Errorf("erp-server: the walkthrough's e-invoicing provider: %w", err)
+	}
+	return client, nil
+}
+
+// wmsClient is the client warehouse systems are called through (ADR-0082
+// As built S2q): to public addresses only, and, in the walkthrough alone,
+// to its warehouse system's stand-in (ERP_WALKTHROUGH_WMS, which
+// config.Load refuses outside development).
+func wmsClient(cfg config.Config) (*egress.Client, error) {
+	if !cfg.Walkthrough.WMS.IsValid() {
+		return integration.NewWMSClient()
+	}
+	client, err := integration.NewWMSClient(egress.WalkthroughReceiver(cfg.Walkthrough.WMS, cfg.Walkthrough.WMSRoots))
+	if err != nil {
+		return nil, fmt.Errorf("erp-server: the walkthrough's warehouse system: %w", err)
 	}
 	return client, nil
 }
@@ -813,7 +832,17 @@ func (s *server) startWorkers(runCtx context.Context) {
 	s.startMaintenance(runCtx)
 	s.startAudit(runCtx)
 	s.startWebhooks(runCtx)
+	s.startWMS(runCtx)
 	s.startAnalytics(runCtx)
+}
+
+// startWMS starts the exchange with warehouse systems (ADR-0082 As built
+// S2q): it sends what the wms queue recorded and polls the active wms
+// connectors, so it runs with or without a bus.
+func (s *server) startWMS(runCtx context.Context) {
+	exchange := app.WMS(s.apiCfg, s.wms)
+	exchange.Pool, exchange.AppRole, exchange.WorkerRole, exchange.Log = s.pool, s.cfg.AppRole, s.cfg.WorkerRole, s.log
+	s.spawn("wms exchange", func() { exchange.Run(runCtx) })
 }
 
 // startWebhooks starts the webhook dispatcher (ADR-0041): it delivers what
@@ -1025,14 +1054,17 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	if err := bus.EnsureStreams(ctx, s.cfg.Cell); err != nil {
 		return err
 	}
-	// Events offered to webhooks become deliveries (ADR-0041), and a
+	// Events offered to webhooks become deliveries (ADR-0041), a
 	// confirmed sales order's event its revenue contract (ADR-0068 §4),
-	// each in its tenant's transaction, so neither consumer needs a role
+	// and an outbound delivery's creation its message to the warehouse
+	// system managing its plant (ADR-0082 As built S2q), each in its
+	// tenant's transaction, so neither consumer needs a role
 	// beyond the app's. The durable consumers are created before the relay
 	// starts: a new one is given only the events published after it, so
 	// what the outbox still holds must not reach the bus before them.
 	fanout := &integration.Fanout{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
 	contracts := &revenue.Consumer{Endpoints: app.Revenue(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+	wmsQueue := &integration.WMSQueue{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
 	for _, c := range []struct {
 		name, durable string
 		contexts      []string
@@ -1040,6 +1072,7 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	}{
 		{"webhook fan-out", integration.FanoutConsumer, integration.WebhookContexts(), fanout.Handle},
 		{"revenue contracts", revenue.ContractConsumer, revenue.ConsumedContexts(), contracts.Handle},
+		{"wms queue", integration.WMSConsumer, integration.WMSContexts(), wmsQueue.Handle},
 	} {
 		consumer, err := bus.Consume(ctx, s.cfg.Cell, c.durable, c.contexts, c.handle)
 		if err != nil {
