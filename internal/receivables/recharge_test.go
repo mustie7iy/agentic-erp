@@ -237,7 +237,8 @@ func (e discountEnv) receiptIn(t *testing.T, amount int64, currency, day string)
 // written off and its 5.00 relieved, the customer pays 100.00, the 5.00
 // short written off within the company's tolerance: what it paid is
 // 100.00, so 4.76 of the VAT is charged again (5.00 x 100.00 / 105.00),
-// not the whole.
+// not the whole; an underpayment beside a credit is shared over the
+// debits alone.
 func TestBadDebtRechargeOfAnUnderpayment(t *testing.T) {
 	e := reliefEnv(t)
 	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
@@ -249,6 +250,19 @@ func TestBadDebtRechargeOfAnUnderpayment(t *testing.T) {
 	}
 	if r, want := recharges(t, got), "0 false 100.00 AED 4.76 AED 4.76 AED"; r != want {
 		t.Errorf("the charge: got %s, want %s", r, want)
+	}
+	// Applied beside a credit of 100.00, a receipt of 4.80 leaves 0.20
+	// short: it is shared over the debits alone, so 104.80 was paid of the
+	// invoice and 4.99 charged again (5.00 x 104.80 / 105.00).
+	beside := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+	e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(beside, e.writtenOff(t, beside, "105.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-10"), "")
+	got, _ = e.Must(201, "POST", "/v1/incoming-payments", e.paying(e.receipt(t, 480, "2026-09-15").ID, "2026-09-15",
+		itemRef(beside["journal_entry_id"], 1), e.credited(t, 10000, "2026-03-10")), "")
+	if a := amount(t, got, "difference"); a != "0.20 AED" {
+		t.Fatalf("the second payment's difference: got %s, want 0.20 AED", a)
+	}
+	if r, want := recharges(t, got), "0 false 104.80 AED 4.99 AED 4.99 AED"; r != want {
+		t.Errorf("the charge beside a credit: got %s, want %s", r, want)
 	}
 }
 

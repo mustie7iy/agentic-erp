@@ -191,14 +191,14 @@ func (e *Endpoints) reliefStateOf(ctx context.Context, tx pgx.Tx, v Invoice) (re
 // residual item is a line of the clearing entry of the application that
 // left it. An underpayment an application wrote off within the company's
 // tolerance (its difference, T75f) was not paid: its share of what the
-// application applied of the invoice, in proportion to all it applied,
-// rounded half away from zero, is not counted (an overpayment kept as
-// revenue adds nothing to what the items were paid).
+// application applied of the invoice's debits, in proportion to all the
+// debits it applied (so never more than the difference, whatever credits
+// it applied beside them), rounded half away from zero (partOf), is not
+// counted; an overpayment kept as revenue adds nothing to what the items
+// were paid.
 func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef) (money.Minor, bool, error) {
 	years, entries, lines := ledger.ItemColumns(credits)
-	var paid money.Minor
-	var foreign bool
-	err := tx.QueryRow(ctx, `WITH RECURSIVE applied AS (
+	rows, _ := tx.Query(ctx, `WITH RECURSIVE applied AS (
 			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, `+itemPaid+` AS paid,
 				coalesce(a.clearing_entry_year, p.clearing_entry_year) AS cy, coalesce(a.clearing_entry_id, p.clearing_entry_id) AS ce,
 				coalesce(a.difference, p.difference) AS difference
@@ -218,21 +218,31 @@ func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef)
 			LEFT JOIN receivables.incoming_payment_application a ON a.tenant_id = t.tenant_id AND a.incoming_payment_id = t.incoming_payment_id
 				AND a.application_no = t.application_no),
 		per AS (
-			SELECT l.incoming_payment_id, l.application_no, sum(l.paid) AS paid, max(l.difference) AS difference,
-				bool_or(l.item_currency IS NOT NULL) AS translated,
-				(SELECT sum(`+itemPaid+`) FROM receivables.incoming_payment_item t
+			SELECT l.incoming_payment_id, l.application_no, sum(l.paid) AS paid, coalesce(sum(l.paid) FILTER (WHERE l.paid > 0), 0) AS debits,
+				max(l.difference) AS difference, bool_or(l.item_currency IS NOT NULL) AS translated,
+				(SELECT coalesce(sum(`+itemPaid+`) FILTER (WHERE t.amount > 0), 0) FROM receivables.incoming_payment_item t
 				 WHERE t.incoming_payment_id = l.incoming_payment_id AND t.application_no = l.application_no) AS whole
 			FROM applied l
 			WHERE NOT EXISTS (SELECT FROM receivables.incoming_payment_reset r WHERE r.incoming_payment_id = l.incoming_payment_id
 				AND coalesce(r.application_no, 0) = l.application_no)
 			GROUP BY l.incoming_payment_id, l.application_no)
-		SELECT coalesce(sum(paid - CASE WHEN difference > 0 AND whole > 0 THEN round(difference::numeric * paid / whole) ELSE 0 END), 0)::bigint,
-			coalesce(bool_or(translated), false)
-		FROM per`, *v.EntryID, *v.EntryYear, years, entries, lines).Scan(&paid, &foreign)
+		SELECT paid::bigint, debits::bigint, difference, whole::bigint, translated FROM per ORDER BY incoming_payment_id, application_no`,
+		*v.EntryID, *v.EntryYear, years, entries, lines)
+	var paid, debits, difference, whole, total money.Minor
+	var translated, foreign bool
+	_, err := pgx.ForEachRow(rows, []any{&paid, &debits, &difference, &whole, &translated}, func() error {
+		// Applied amounts of one invoice's items and the debits beside them: in range.
+		total += paid
+		if difference > 0 && whole > 0 {
+			total -= partOf(difference, debits, whole) // debits are some of whole: at most the difference
+		}
+		foreign = foreign || translated
+		return nil
+	})
 	if err != nil {
 		return 0, false, fmt.Errorf("receivables: what was paid of customer invoice %s: %w", v.DocumentNumber, err)
 	}
-	return paid, foreign, nil
+	return total, foreign, nil
 }
 
 // itemPaid is what an incoming payment item t paid of its item: its

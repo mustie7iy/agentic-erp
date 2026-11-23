@@ -2132,8 +2132,9 @@ owner's digest and the tax specialist:
   customer, line 2n of its n-th accepted item, read through
   `receivables.WriteOffs`), less an underpayment an application wrote
   off within the company's tolerance (its `difference`), in the share of
-  what it applied of the invoice in all it applied, rounded half away
-  from zero (100.00 paid of a 105.00 invoice, 5.00 written off, recovers
+  what it applied of the invoice's debits in all the debits it applied
+  (never more than the difference, whatever credits beside them),
+  rounded half away from zero (100.00 paid of a 105.00 invoice, 5.00 written off, recovers
   100.00: 4.76 of a 5.00 relief); *recovered* is paid beyond the gross less
   what the reliefs wrote off, from nothing to that; the tax charged is
   the reliefs' tax times recovered over written off, rounded once half
