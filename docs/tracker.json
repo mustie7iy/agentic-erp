@@ -5957,7 +5957,7 @@
     "ph": 4,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "An external warehouse system receives deliveries and receipts to pick and put away and reports the movements back through a connector",
       "r": "S2q · docs/design/plan-supply-chain.md §S2q",
       "src": "po:2026-11-17",
@@ -5970,9 +5970,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An external warehouse system is sent the receipts expected at a plant it manages to put away, and the goods receipt it reports back is posted once by its message id",
-        "r": "S2q2 · docs/design/plan-supply-chain.md §S2q2",
+        "r": "S2q2 · docs/design/plan-supply-chain.md §S2q2 · ADR-0082 As built S2q2",
         "src": "po:2026-11-17",
         "c": []
        }

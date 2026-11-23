@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-faster/jx"
@@ -62,16 +63,18 @@ func (e *Endpoints) ListWMSMessages(ctx context.Context, params gen.ListWMSMessa
 		return nil, err
 	}
 	// An unset id filter is the nil UUID in the scope, which no row has.
-	scope := fmt.Sprintf("listWMSMessages|%s|%s|%s|%s", params.ConnectorID.Value, params.Direction.Value, params.Status.Value, params.OutboundDeliveryID.Value)
+	scope := fmt.Sprintf("listWMSMessages|%s|%s|%s|%s|%s", params.ConnectorID.Value, params.Direction.Value, params.Status.Value, params.OutboundDeliveryID.Value,
+		params.PurchaseOrderID.Value)
 	ks, err := e.Pages.Keyset(wmsMessageSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
 	q, args := ks.SQL(`SELECT `+wmsMessageColumns+` FROM integration.wms_message
-		WHERE ($1::uuid IS NULL OR connector_id = $1) AND ($2 = '' OR direction = $2) AND ($3 = '' OR status = $3) AND ($4::uuid IS NULL OR document_id = $4)
+		WHERE ($1::uuid IS NULL OR connector_id = $1) AND ($2 = '' OR direction = $2) AND ($3 = '' OR status = $3)
+		  AND ($4::uuid IS NULL OR document_id = $4 AND kind = ANY($7)) AND ($8::uuid IS NULL OR document_id = $8 AND kind = ANY($9))
 		  AND ($5 OR legal_entity_id = ANY($6))`,
 		[]any{apitypes.Ptr[uuid.UUID](params.ConnectorID), params.Direction.Value, params.Status.Value, apitypes.Ptr[uuid.UUID](params.OutboundDeliveryID),
-			access.All, access.IDs})
+			access.All, access.IDs, deliveryKinds, apitypes.Ptr[uuid.UUID](params.PurchaseOrderID), orderKinds})
 	rows, _ := tx.Query(ctx, q, args...)
 	ms, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (WMSMessage, error) { return scanWMSMessage(r) })
 	if err != nil {
@@ -125,17 +128,28 @@ func (e *Endpoints) wmsNames(ctx context.Context, tx pgx.Tx, ms []WMSMessage) (w
 	return n, err
 }
 
+// The kinds whose document is an outbound delivery, and those whose
+// document is a purchase order (S2q2).
+var (
+	deliveryKinds = []string{WMSOutboundDelivery, WMSGoodsIssue}
+	orderKinds    = []string{WMSInboundReceipt, WMSGoodsReceipt}
+)
+
 func (n wmsNames) toAPI(m WMSMessage) gen.WMSMessage {
 	out := gen.WMSMessage{ID: m.ID, ConnectorID: m.ConnectorID, ConnectorName: n.connectors[m.ConnectorID], Direction: m.Direction, MessageID: m.MessageID,
 		Kind: m.Kind, Body: wmsBody(m.Body), Status: m.Status, Attempts: m.Attempts, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
-		LegalEntityID: apitypes.OptUUID(m.LegalEntityID), OutboundDeliveryID: apitypes.OptUUID(m.DocumentID),
-		OutboundDeliveryNumber: apitypes.OptString(m.DocumentNumber), PlantCode: apitypes.OptString(m.PlantCode),
+		LegalEntityID: apitypes.OptUUID(m.LegalEntityID), PlantCode: apitypes.OptString(m.PlantCode),
 		NextAttemptAt: apitypes.OptDateTime(m.NextAttemptAt), SentAt: apitypes.OptDateTime(m.SentAt),
 		AcknowledgedAt: apitypes.OptDateTime(m.AckedAt), LastErrorCode: apitypes.OptString(m.LastError),
 		ProblemCode: apitypes.OptString(m.ProblemCode), ProblemDetail: apitypes.OptString(m.Detail),
 		MaterialDocumentID: apitypes.OptUUID(m.MaterialDocumentID), MaterialDocumentNumber: apitypes.OptString(m.MaterialDocumentNumber)}
 	if m.LegalEntityID != nil {
 		out.CompanyCode.SetTo(n.companies[*m.LegalEntityID])
+	}
+	if slices.Contains(orderKinds, m.Kind) {
+		out.PurchaseOrderID, out.PurchaseOrderNumber = apitypes.OptUUID(m.DocumentID), apitypes.OptString(m.DocumentNumber)
+	} else {
+		out.OutboundDeliveryID, out.OutboundDeliveryNumber = apitypes.OptUUID(m.DocumentID), apitypes.OptString(m.DocumentNumber)
 	}
 	return out
 }

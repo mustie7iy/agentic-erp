@@ -216,7 +216,7 @@ func TestWMSConfirmationOutcomes(t *testing.T) {
 		"not text":               {[]byte{'a', 0xff, 0xfe, 0}, "integration.wms_message_unreadable", "a"},
 		"a NUL in an object":     {[]byte(`{"message_id": "M-nul", "type": "goods_issue", "note": "a\u0000b"}`), "integration.wms_message_unreadable", `{"message_id": "M-nul", "type": "goods_issue", "note": "a\u0000b"}`},
 		"a JSON array":           {[]byte(`[1]`), "integration.wms_message_unreadable", "[1]"},
-		"another type":           {[]byte(`{"message_id": "M-type", "type": "goods_receipt", "outbound_delivery_id": "` + id + `"}`), "integration.wms_message_unreadable", ""},
+		"another type":           {[]byte(`{"message_id": "M-type", "type": "putaway", "outbound_delivery_id": "` + id + `"}`), "integration.wms_message_unreadable", ""},
 		"another message id":     {[]byte(`{"message_id": "M-x", "type": "goods_issue", "outbound_delivery_id": "` + id + `"}`), "integration.wms_message_unreadable", ""},
 		"no delivery":            {[]byte(`{"message_id": "M-none", "type": "goods_issue"}`), "integration.wms_message_unreadable", ""},
 		"items not a list":       {[]byte(`{"message_id": "M-items", "type": "goods_issue", "items": "all"}`), "integration.wms_message_unreadable", ""},
@@ -329,13 +329,14 @@ func TestWMSPollFailures(t *testing.T) {
 // failingDeliveries is shipping's port, failing with err.
 type failingDeliveries struct{ err error }
 
-func (f failingDeliveries) IssueReported(context.Context, uuid.UUID, []integration.WMSPicked) (integration.WMSIssued, error) {
-	return integration.WMSIssued{}, f.err
+func (f failingDeliveries) IssueReported(context.Context, uuid.UUID, []integration.WMSPicked) (integration.WMSPosted, error) {
+	return integration.WMSPosted{}, f.err
 }
 
 // TestWMSDatabaseFailures: each statement of the queue's, the send's and
 // the poll's transactions failing, and each commit, is reported, and the
-// work is done once nothing fails; Run stops with its context.
+// work is done once nothing fails, for deliveries and orders' receipts
+// alike; Run stops with its context.
 func TestWMSDatabaseFailures(t *testing.T) {
 	e := setupWMS(t)
 	pool := pgtest.Pool(t)
@@ -415,6 +416,19 @@ func TestWMSDatabaseFailures(t *testing.T) {
 		_, err := x.PollOnce(context.Background())
 		return err
 	}, func() bool { return e.inbound(t, "GI-db-refused")["acknowledged_at"] != nil })
+	po := e.receiptOrder(t, "4500000020")
+	until(t, "the queue of an order", func(begin database.BeginFunc) error {
+		q := e.queue(t, &log)
+		q.Begin = begin
+		return q.Handle(context.Background(), e.releasedEvent(po, "4500000020"))
+	}, func() bool { return len(e.orderMessages(t, po, "")) == 1 })
+	until(t, "the poll of a goods receipt", func(begin database.BeginFunc) error {
+		e.wms.Report("GR-db", goodsReceipt("GR-db", po, "1 1 EA"))
+		x := e.exchange(t, time.Now)
+		x.Begin = begin
+		_, err := x.PollOnce(context.Background())
+		return err
+	}, func() bool { return e.inbound(t, "GR-db")["acknowledged_at"] != nil })
 	t.Run("the worker role's reads", func(t *testing.T) {
 		x := e.exchange(t, time.Now)
 		x.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, pgtest.ErrInjected }

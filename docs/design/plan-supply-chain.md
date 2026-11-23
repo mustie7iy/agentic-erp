@@ -1012,11 +1012,31 @@ once, as a warehouse clerk's would be.
 #### S2q2 Inbound receipts to the WMS and their goods receipt reported back
 
 **Capability.** The warehouse system is sent each released purchase
-order's (and stock transport order's) items for a plant it manages, as
-receipts expected to put away, and the goods receipt it reports back is
-posted once by its message id through procurement's published API.
-Built on S2q1's connector, table, port and exchange (a message kind each
-way).
+order's stock items for a plant it manages, as receipts expected to put
+away, and the goods receipt it reports back is posted once by its
+message id through procurement's published API. Built on S2q1's
+connector, table, port and exchange (a message kind each way).
+
+- **Adds:** the kinds `inbound_receipt` (outbound) and `goods_receipt`
+  (inbound) of `integration.wms_message` (000447, validated by 000448);
+  the bus consumer `wms-outbound` reading procurement's
+  PurchaseOrderReleased too and queueing the order's message once (its
+  stock items at the plant of the first one a WMS manages); the port
+  `integration.WMSOrders` (procurement's order read and goods receipt,
+  `app.WMSOrders`); the goods receipt posted (101) by the poll;
+  `GET /v1/wms-messages?purchase_order_id=` and the message's
+  `purchase_order_id` and `purchase_order_number`; the connector's
+  change lock lowered to `FOR NO KEY UPDATE` (the wms backlog).
+- **Walkthrough:** `step_wms`, extended.
+- **Acceptance:** a released order with a stock item at a WMS plant is
+  sent once, whatever reads its event twice, naming only its stock items
+  at that plant still to receive; the goods receipt the WMS reports is
+  posted once by its message id as a 101 (listed again, acknowledged,
+  not posted); one of an order the connector was not sent, naming an item
+  it was not sent, or that procurement refuses, is recorded refused and
+  posts nothing.
+- **As built** (2026-11-22): ADR-0082 As built S2q2. Stock transport
+  orders within a company and a message per plant are Later (below).
 
 **Later for the WMS connector:** a vendor's adapter (when the pilot or
 a customer names one; until then the stand-in alone, refused in
@@ -1025,7 +1045,10 @@ again, by hand; a person's pick or goods issue refused on a delivery a
 WMS holds (SAP's decentralised WMS locks the delivery, from memory);
 changes and cancellations of a sent delivery; handling units, bins and
 serial or batch numbers in the messages; a push endpoint for a WMS that
-cannot be polled (security posture, the product owner's).
+cannot be polled (security posture, the product owner's); for receipts
+(S2q2), a message per plant of an order whose stock items are at
+several, stock transport orders within a company, changes and
+cancellations of a sent order, and returns reported by the WMS.
 
 ### S2r TMS connector
 

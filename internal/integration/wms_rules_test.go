@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -335,4 +336,32 @@ func wmsPages(t *testing.T) *pagination.Codec {
 		t.Fatal(err)
 	}
 	return pages
+}
+
+// TestWMSConnectorEditDoesNotStallQueue: a change of a wms connector's
+// settings holds its row FOR NO KEY UPDATE, which leaves the key share
+// the queue's insert takes for its foreign key free, so a delivery is
+// queued for the connector while the change is still open (FOR UPDATE
+// held the queue up until the change ended).
+func TestWMSConnectorEditDoesNotStallQueue(t *testing.T) {
+	e := setupWMS(t)
+	id, _ := e.delivery(t, e.p1, e.s1, "1")
+	m := e.busEvent(t, id)
+	h := app.Integration(app.Config{Pages: wmsPages(t)})
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		if _, err := h.UpdateConnector(ctx, &gen.ConnectorUpdate{Settings: gen.NewOptConnectorUpdateSettings(gen.ConnectorUpdateSettings(decoded(t,
+			`{`+wmsBase+`, "plants": {"2000": ["P1", "P7"]}}`)))}, gen.UpdateConnectorParams{ID: uuid.MustParse(e.conn), IfMatch: etag.Format(1)}); err != nil {
+			return err
+		}
+		qctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var log pgtest.SyncBuffer
+		return e.queue(t, &log).Handle(qctx, m)
+	})
+	if err != nil {
+		t.Fatalf("the queue while the change was open: got %v, want queued", err)
+	}
+	if got := e.message(t, id)["status"]; got != "pending" {
+		t.Errorf("the delivery's message: got %v, want pending", got)
+	}
 }

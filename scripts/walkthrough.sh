@@ -16581,11 +16581,18 @@ step_count_agent() {
 # and the goods issue (601) once by the message's id and acknowledges it;
 # the acknowledgement lost, the confirmation listed again is acknowledged
 # again, not posted twice; a confirmation of a delivery the warehouse
-# system was not sent is recorded refused. Ada disables the connector,
-# so later deliveries at the plant stay Wade's.
+# system was not sent is recorded refused. S2q2 (ADR-0082 As built
+# S2q2): Ben releases a purchase order of brackets into the main store;
+# its release's event, read from the bus, queues the message giving the
+# warehouse system the receipt expected there to put away, sent once.
+# The warehouse system reports the goods receipt; the exchange posts it
+# (101) once by the message's id through procurement and acknowledges it;
+# listed again, it is acknowledged, not posted twice; one naming an item
+# the warehouse system was not sent is refused. Ada disables the
+# connector, so later deliveries and receipts at the plant stay people's.
 step_wms() {
-  heading "Step 156 — WMS connector: the Toronto plant's warehouse system is sent the outbound delivery created there to pick, once; the goods issue it reports back is posted once by its message id and acknowledged; reported again, it is acknowledged, not posted twice; one of a delivery it was not sent is refused; a plant has one warehouse system"
-  local connector order delivery number message i
+  heading "Step 156 — WMS connector: the Toronto plant's warehouse system is sent the outbound delivery created there to pick, once; the goods issue it reports back is posted once by its message id and acknowledged; reported again, it is acknowledged, not posted twice; one of a delivery it was not sent is refused; a plant has one warehouse system; a released purchase order's receipt is sent to put away and the goods receipt it reports posted once"
+  local connector order delivery number message i po ponumber
   [ -n "$MATERIAL" ] && [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
   accounts
   as ada
@@ -16663,7 +16670,8 @@ step_wms() {
   wms_acknowledged WMS-GI-2
   api 200 '.items[] | "  \(.message_id): \(.status), \(.problem_code)"' listWMSMessages -p "connector_id=$connector" -p status=refused
   expect "the refused confirmation" "$(field '[.items[] | "\(.message_id) \(.problem_code)"] | join(", ")')" "WMS-GI-2 integration.wms_unknown_delivery"
-  say "Ada disables the connector, so the later deliveries at P100 stay Wade's:"
+  wms_receipt "$connector"
+  say "Ada disables the connector, so the later deliveries and receipts at P100 stay people's:"
   QUIET=1 api 200 '' getConnector -p "id=$connector"
   api 200 '"connector \(.name): \(.status)"' disableConnector -p "id=$connector" -if-match "$ETAG" -body '{"reason": "The walkthrough goes on without the warehouse system"}'
   passed
@@ -16671,6 +16679,72 @@ step_wms() {
 
 # wms_acknowledged ID waits for the exchange to acknowledge the warehouse
 # system's confirmation ID to the stand-in, which polls every 10 s.
+# wms_receipt is step_wms's S2q2 part: a released purchase order's receipt
+# sent to the warehouse system of connector $1 and its goods receipt
+# reported back.
+wms_receipt() {
+  local connector=$1 po ponumber message i
+  as ben
+  say "Ben orders 12 brackets from Tyrell into the Toronto plant's main store and 3 sheets of paper, which are"
+  say "not kept in stock, and releases the order. Procurement knows nothing of warehouse systems: the release"
+  say "publishes PurchaseOrderReleased, which the integration context reads from the bus and, since a wms"
+  say "connector manages P100, queues the message giving its warehouse system the receipt expected there:"
+  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) into \(.plant_code // "no plant")")' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"2.50\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"},
+      {\"description\": \"Copy paper\", \"quantity\": {\"value\": \"3\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"5.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\"}]}"
+  po=$(field .id) ponumber=$(field .document_number)
+  api 200 '"\(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Stock replenishment"
+  fi
+  as ada
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listWMSMessages -p "purchase_order_id=$po" -p direction=outbound
+    if [ "$(field '.items[0].status // ""')" = sent ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id[0:8])… to \(.connector_name) for \(.company_code)/\(.plant_code): \(.purchase_order_number), \(.status)"' \
+    listWMSMessages -p "purchase_order_id=$po" -p direction=outbound
+  expect "the order's message (after $i checks)" "$(field '[.items[] | "\(.kind) \(.status) \(.purchase_order_number)"] | join(", ")')" "inbound_receipt sent $ponumber"
+  message=$(field '.items[0].message_id')
+  [ -s "$WORK/wms/received/$message.json" ] || fail "the warehouse system's stand-in holds no message $message"
+  say "What the warehouse system received: the order and its supplier's number, the plant, and the stock item"
+  say "still to receive with its material number and storage location (the paper is not sent):"
+  jq -r '"  \(.type) v\(.schema_version): \(.purchase_order_number) from \(.supplier_number) into \(.company_code)/\(.plant_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.quantity) \(.unit) into \(.storage_location_code)")' \
+    "$WORK/wms/received/$message.json"
+  expect "the items sent" "$(jq -r '[.items[] | "\(.item_no) \(.quantity)"] | join(", ")' "$WORK/wms/received/$message.json")" "1 12"
+  say "The brackets arrive; the warehouse puts them away and reports the goods receipt, a goods_receipt message of"
+  say "its own id naming the order; the exchange polls it, records it once by its id, posts the goods receipt"
+  say "(101) through procurement as its system principal, and acknowledges it after the commit:"
+  printf '{"message_id": "WMS-GR-1", "type": "goods_receipt", "purchase_order_id": "%s", "items": [{"item_no": 1, "quantity": "12", "unit": "EA"}]}\n' \
+    "$po" >"$WORK/wms/confirmations/WMS-GR-1.json"
+  wms_acknowledged WMS-GR-1
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id): \(.status), \(.purchase_order_number), material document \(.material_document_number)"' \
+    listWMSMessages -p "purchase_order_id=$po" -p direction=inbound
+  expect "the goods receipt reported" "$(field '[.items[] | "\(.message_id) \(.kind) \(.status)"] | join(", ")')" "WMS-GR-1 goods_receipt posted"
+  as ben
+  api 200 '.items[] | "  item \(.item_no): \(.received_quantity.value) \(.received_quantity.unit) received"' getPurchaseOrder -p "id=$po"
+  expect "the bracket received" "$(field '.items[0].received_quantity.value')" 12
+  QUIET=1 api 200 '' listGoodsReceipts -p "purchase_order_id=$po"
+  expect "the order's goods receipts" "$(field '[.items[] | "\(.movement_type) \(.reference) \(.items[0].quantity.value)"] | join(", ")')" "101 WMS-GR-1 12"
+  say "Listed again, its acknowledgement lost, WMS-GR-1 is acknowledged again and posts nothing twice; a goods receipt"
+  say "naming the paper, which the warehouse system was not sent, is refused:"
+  rm "$WORK/wms/confirmations/WMS-GR-1.acknowledged"
+  wms_acknowledged WMS-GR-1
+  printf '{"message_id": "WMS-GR-2", "type": "goods_receipt", "purchase_order_id": "%s", "items": [{"item_no": 2, "quantity": "3", "unit": "EA"}]}\n' \
+    "$po" >"$WORK/wms/confirmations/WMS-GR-2.json"
+  wms_acknowledged WMS-GR-2
+  as ada
+  api 200 '.items[] | "  \(.message_id): \(.status)\(if .problem_code then ", \(.problem_code)" else "" end)"' listWMSMessages -p "purchase_order_id=$po" -p direction=inbound
+  expect "the inbound messages of the order" "$(field '[.items[] | "\(.message_id) \(.status) \(.problem_code // "")"] | join(", ")')" "WMS-GR-2 refused integration.wms_item_not_sent, WMS-GR-1 posted "
+  as ben
+  QUIET=1 api 200 '' listGoodsReceipts -p "purchase_order_id=$po"
+  expect "the order's goods receipts after both" "$(field '.items | length')" 1
+}
+
 wms_acknowledged() {
   local i
   for i in $(seq 1 240); do

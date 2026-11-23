@@ -73,10 +73,16 @@ func scanConnector(row pgx.Row) (Connector, error) {
 	return c, errs.Wrapf(err, "scan connector")
 }
 
+// getConnector reads a connector, locked when lock is set: FOR NO KEY
+// UPDATE, as a change takes it, which leaves the key share a foreign key
+// takes free (ADR-0008), so a change of a wms connector's settings or
+// status does not hold up the messages queued for it meanwhile
+// (wms_message's foreign key); a rename, whose UPDATE names a unique key's
+// column (tenant_id, name), takes the key lock there, as PostgreSQL does.
 func getConnector(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Connector, error) {
 	q := `SELECT ` + connectorColumns + ` FROM integration.connector WHERE id = $1`
 	if lock {
-		q += ` FOR UPDATE`
+		q += ` FOR NO KEY UPDATE`
 	}
 	c, err := scanConnector(tx.QueryRow(ctx, q, id))
 	if noRows(err) {
@@ -356,7 +362,12 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 	if err := ifMatch(c.Version); err != nil {
 		return Connector{}, err
 	}
-	if ch.Name != nil {
+	// The name is set only when it changes: an UPDATE naming a column of a
+	// unique key (tenant_id, name) takes the key lock under the touch
+	// trigger, whatever the value, which would hold up the key shares of
+	// the foreign keys to the connector (getConnector).
+	renamed := ch.Name != nil && *ch.Name != c.Name
+	if renamed {
 		c.Name = *ch.Name
 	}
 	if ch.Settings != nil {
@@ -374,8 +385,11 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		}
 		c.SecretRef = *ch.SecretRef
 	}
-	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET name = $2, settings = $3, secret_ref = $4, version = version + 1,
-		updated_by = $5 WHERE id = $1 RETURNING `+connectorColumns, id, c.Name, c.Settings, c.SecretRef, p.ID))
+	q, args := `UPDATE integration.connector SET settings = $2, secret_ref = $3, version = version + 1, updated_by = $4`, []any{id, c.Settings, c.SecretRef, p.ID}
+	if renamed {
+		q, args = q+`, name = $5`, append(args, c.Name)
+	}
+	updated, err := scanConnector(tx.QueryRow(ctx, q+` WHERE id = $1 RETURNING `+connectorColumns, args...))
 	if err != nil {
 		return Connector{}, fmt.Errorf("integration: update connector %s: %w", id, err)
 	}

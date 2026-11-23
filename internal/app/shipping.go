@@ -29,12 +29,13 @@ func Shipping(cfg Config) *shipping.Endpoints {
 // WMS is the exchange with warehouse systems (ADR-0082 As built S2q) as
 // the server runs it: its messages sent and its warehouse systems polled
 // through client (integration.NewWMSClient), their credentials resolved
-// by cfg.Secrets, and the goods issues they report posted through
-// shipping's published API (wmsDeliveries), so integration does not
-// import shipping, a leaf. The server sets the pool and roles.
+// by cfg.Secrets, the goods issues they report posted through
+// shipping's published API (wmsDeliveries) and the goods receipts through
+// procurement's (WMSOrders, S2q2), so integration imports neither. The
+// server sets the pool and roles.
 func WMS(cfg Config, client *egress.Client) *integration.WMSExchange {
 	return &integration.WMSExchange{Secrets: resolver(cfg.Secrets), Adapter: integration.WMSAdapters(client), Deliveries: wmsDeliveries{Shipping(cfg)},
-		RefuseStandIn: cfg.RefuseEBICS, Now: cfg.Now}
+		Orders: WMSOrders(cfg), RefuseStandIn: cfg.RefuseEBICS, Now: cfg.Now}
 }
 
 // wmsDeliveries posts what a warehouse system reports of a delivery: its
@@ -43,20 +44,20 @@ func WMS(cfg Config, client *egress.Client) *integration.WMSExchange {
 // lock).
 type wmsDeliveries struct{ e *shipping.Endpoints }
 
-func (a wmsDeliveries) IssueReported(ctx context.Context, delivery uuid.UUID, picked []integration.WMSPicked) (integration.WMSIssued, error) {
+func (a wmsDeliveries) IssueReported(ctx context.Context, delivery uuid.UUID, picked []integration.WMSPicked) (integration.WMSPosted, error) {
 	anyVersion := func(int32) error { return nil }
 	in := make([]shipping.PickInput, len(picked))
 	for i, p := range picked {
 		in[i] = shipping.PickInput{ItemNo: p.ItemNo, Quantity: p.Quantity, Unit: p.Unit}
 	}
 	if _, err := a.e.Pick(ctx, delivery, anyVersion, in); err != nil {
-		return integration.WMSIssued{}, err
+		return integration.WMSPosted{}, err
 	}
 	d, err := a.e.PostGoodsIssue(ctx, delivery, anyVersion)
 	if err != nil {
-		return integration.WMSIssued{}, err
+		return integration.WMSPosted{}, err
 	}
 	// A posted goods issue names its material document (shipping's
 	// outbound_delivery check).
-	return integration.WMSIssued{MaterialDocumentID: *d.MaterialDocumentID, MaterialDocumentNumber: *d.MaterialDocumentNumber}, nil
+	return integration.WMSPosted{MaterialDocumentID: *d.MaterialDocumentID, MaterialDocumentNumber: *d.MaterialDocumentNumber}, nil
 }
