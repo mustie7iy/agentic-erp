@@ -75668,6 +75668,7 @@ components:
             - ticketing
             - treasury_export
             - einvoice_provider
+            - wms
         name:
           type: string
           description: Name, unique per tenant.

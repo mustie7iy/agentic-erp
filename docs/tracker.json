@@ -5929,6 +5929,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: a planning run's demand leaves out the intercompany stock transport orders its plant supplies and has not issued (S2i): an MRP run nets only sales orders and the reorder point, so a supplying plant proposes nothing for what another company of the group ordered from it, which the S&OP review counts as demand (procurement.Orders.IntercompanyDue)",
+      "r": "internal/app/mrp.go Demand · internal/mrp runwork.go · procurement.Orders.IntercompanyDue · ADR-0084 As built S2n · S2k",
+      "src": "review:batch90",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The replenishment agent recommends what to order, from which supplier and when, from the run's proposals for a buyer to decide",
       "r": "S2l · docs/design/plan-supply-chain.md §S2l · ADR-0072 As built S2l · ADR-0084 As built S2l · internal/replenishmentagent · erp agent replenish -run ID · agent type replenishment · listPurchaseOrders, listContracts material_id · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
