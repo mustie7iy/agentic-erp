@@ -173,14 +173,18 @@ var orderSort = pagination.Sort{Default: "order_date", Fields: []pagination.Fiel
 }}
 
 // ListSalesOrders implements GET /v1/sales-orders: the orders of the
-// companies the caller may act in.
+// companies the caller may act in. plant_id and material_id (S2m) find a
+// plant's and a material's orders, an order with a standing item of the
+// material answered whole.
 func (e *Endpoints) ListSalesOrders(ctx context.Context, params gen.ListSalesOrdersParams) (gen.ListSalesOrdersRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	le, customer, quotation := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerID), apitypes.Ptr[uuid.UUID](params.QuotationID)
-	scope := fmt.Sprintf("listSalesOrders|%s|%s|%s|%s|%s|%s", le, customer, params.Status.Value, params.DocumentNumber.Value, quotation, params.CreditBlock.Value)
+	plant, material := apitypes.Ptr[uuid.UUID](params.PlantID), apitypes.Ptr[uuid.UUID](params.MaterialID)
+	scope := fmt.Sprintf("listSalesOrders|%s|%s|%s|%s|%s|%s|%s|%s", le, customer, params.Status.Value, params.DocumentNumber.Value, quotation, params.CreditBlock.Value,
+		plant, material)
 	ks, err := e.Pages.Keyset(orderSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("sales: page of sales orders: %w", err)
@@ -191,8 +195,10 @@ func (e *Endpoints) ListSalesOrders(ctx context.Context, params gen.ListSalesOrd
 	}
 	query, args := ks.SQL(orderSelect+` WHERE ($1 OR o.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR o.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR o.customer_id = $4) AND ($5 = '' OR o.status = $5) AND ($6 = '' OR o.document_number = $6)
-		AND ($7::uuid IS NULL OR o.quotation_id = $7) AND ($8 = '' OR o.credit_block = $8)`,
-		[]any{access.All, access.IDs, le, customer, params.Status.Value, params.DocumentNumber.Value, quotation, params.CreditBlock.Value})
+		AND ($7::uuid IS NULL OR o.quotation_id = $7) AND ($8 = '' OR o.credit_block = $8) AND ($9::uuid IS NULL OR o.plant_id = $9)
+		AND ($10::uuid IS NULL OR EXISTS (SELECT 1 FROM sales.sales_order_item mi WHERE mi.tenant_id = o.tenant_id AND mi.sales_order_id = o.id
+			AND mi.material_id = $10 AND mi.removed_in_change IS NULL))`,
+		[]any{access.All, access.IDs, le, customer, params.Status.Value, params.DocumentNumber.Value, quotation, params.CreditBlock.Value, plant, material})
 	rows, _ := tx.Query(ctx, query, args...)
 	orders, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Order, error) { return scanOrder(r) })
 	if err != nil {

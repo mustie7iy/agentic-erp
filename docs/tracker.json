@@ -1305,9 +1305,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A cash discount a UAE customer takes reduces the output tax (product owner 2026-11-21, as T36d's correction reduces input tax on the supplier side): a payment within the discount period of an invoice whose codes levy VAT corrects the output tax per tax item in proportion, with the item's jurisdiction (emirate), so the VAT 201 reports the reduced tax; today receivables writes what the customer took off as a payment difference without a tax code (ADR-0063 T75f, Not built). A Canadian cash discount keeps making no GST/HST adjustment (ETA s.161, Musto 2026-11-21)",
-      "r": "ADR-0049 As built batch 88 · ADR-0063 T75f · TestDiscountOnLeviedJurisdiction",
+      "r": "ADR-0049 As built batch 88 · ADR-0063 T75f, As built cash discount granted (migration 000445) · TestUAECashDiscount · TestCanadianCashDiscount · walkthrough step 156",
       "src": "po:2026-11-21",
       "c": []
      }
@@ -2630,11 +2630,18 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given; the UAE answered by the tax specialist on 2026-11-09 (C12): a TRN is 15 digits, numeric [H], a registered business's typically beginning with 100 [M], its first 10 digits the TIN used in e-invoicing [H], and no check digit is published [L], so length and digits are checked (the FTA's TRN verification on EmaraTax for certainty); the Canadian formats stay open",
-        "r": "config.TaxRegistration · ADR-0049 §10 (answered for the UAE) · after T61g",
-        "src": "split:T61g · po:2026-11-09",
+        "s": "D",
+        "t": "Tax registration number formats of the UAE and the CRA (product owner 2026-11-21): an FTA TRN is exactly 15 digits, no checksum (the tax specialist, 2026-11-09, C12: no check digit is published); a CRA GST/HST number is the 9-digit business number passing the Luhn check, then RT and 4 digits; each refusal a field error code of the activation's 422 config.validation_failed (trn_format, bn_rt_format, bn_check_digit); fixtures, eval suites and the walkthrough moved to a synthesized number passing Luhn",
+        "r": "config.TaxRegistration (taxNumberForm) · config.Finding.Code · internal/platform/luhn · ADR-0049 §10 As built (number formats) · walkthrough step 2 (step_pack: a mistyped business number refused) · after T61g",
+        "src": "split:T61g · po:2026-11-09 · po:2026-11-21",
         "pilot": "po:2026-10-31 · split:T61g",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Tax registration number formats: Revenu Québec's QST number, whose format waits for Revenu Québec (product owner 2026-11-21); until then an RQ number is checked only as given, printable and at most 40 characters (ADR-0049 §10 As built)",
+        "r": "config.TaxRegistration (taxNumberForm) · ADR-0049 §10 · after the TRN and GST/HST formats",
+        "src": "split:T61g · po:2026-11-09",
         "c": []
        },
        {
@@ -2843,6 +2850,20 @@
         "t": "E-invoice credit notes as one credit memo (fix of T65e): a received tax credit note for a volume discount (BTAE-03 VD) naming no invoice is valid (IBR-055-AE) and entered as a supplier credit memo without a reference; only one for another reason naming none is held (einvoicing.credit_note_names_no_invoice); a credit note citing several invoices (IBG-03 repeated) is entered as ONE credit memo citing them all, its reference_invoice_id none, the accounts payable clerk clearing it (the VAT 201 reports it by the credit note's date, no per-invoice split); the memo keeps the reason (BTAE-03) and each cited invoice's number and date (IBT-025, IBT-026), matched to the supplier's posted invoice by supplier and number and, when stated, date, an unmatched one holding the memo naming it; the outgoing rule lets a VD tax credit note name no invoice; walkthrough: GOI-2103, a VD credit note without reference, entered; GOI-2104 citing two invoices entered as one memo citing both",
         "r": "ADR-0061 §6 · ADR-0061 As built batch 88 · db/migrations/000439, 000440 (supplier_invoice_citation, supplier_invoice_credit_reason) · payables.citedInvoices, statedOf, Citation, CreditReason · SupplierInvoice.credit_reason, cited_invoices · einvoicing.Cited, ReasonVolumeDiscount · TestEnterCreditNotes · TestSupplierInvoiceCitations · walkthrough step_einvoice (einvoice_credit_note_vd, einvoice_credit_note_citing_two)",
         "src": "po:2026-11-21",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "E-invoice volume discount without an order (gap of batch 88, ADR-0061 As built batch 88): a received tax credit note for a volume discount (BTAE-03 VD) naming no purchase order (IBT-013) is entered as a supplier credit memo without an order or a reference rather than held with payables.capture_needs_order (a credit memo needs no order, po:2026-11-21): the supplier the one of the company holding the seller's TRN (none payables.einvoice_seller_unknown, several payables.einvoice_seller_ambiguous), each line an item of 1 EA with its net on the account of discounts received (account determination cash_discount; none payables.capture_needs_account), its tax as stated and its codes by category and rate, for the accounts payable clerk to post; a credit note for another reason naming no order stays held; walkthrough: step_evatra_inbound's EWS-501 of a supplier without orders entered, its code chosen and posted",
+        "r": "ADR-0061 §6 · ADR-0061 As built batch 89 · payables.enteredInput, rebateInput, sellerSupplier · partner.Payees.HoldersOfTaxNumber · payables.capture_needs_account, payables.einvoice_seller_ambiguous · TestEnterVolumeDiscountWithoutOrder · TestEnterVolumeDiscountDatabaseFailures · TestRebateInput · TestSellerSupplier · walkthrough step_evatra_inbound (evatra_volume_discount)",
+        "src": "po:2026-11-21",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A dedicated account determination key for supplier rebates, for the credit memos entered from volume discount credit notes (BTAE-03 VD) instead of cash_discount (SAP books vendor rebates through a key of its own, BO1, from memory and unverified); until then they stay on cash_discount (product owner 2026-11-22)",
+        "r": "ADR-0061 As built batch 89 · payables.rebateInput",
+        "src": "po:2026-11-22",
         "c": []
        },
        {
@@ -5922,9 +5943,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "The demand forecasting agent forecasts a material's demand by plant from its goods issues and open orders and states its accuracy",
-      "r": "S2m · docs/design/plan-supply-chain.md §S2m",
+      "r": "S2m · docs/design/plan-supply-chain.md §S2m · ADR-0072 As built S2m · ADR-0082 As built S2m · internal/demandagent · erp agent demand-forecast -company CODE -material NUMBER · agent type demand_forecast · listSalesOrders plant_id, material_id · evals/demand_forecast · walkthrough step_demand_forecast_agent (step 157)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -12897,14 +12918,14 @@
      },
      {
       "s": "T",
-      "t": "Pin a PgBouncer image carrying libcares2 >= 1.34.9-1~deb13u1 and remove the .grype.yaml libcares2 entries; by 2026-11-29 (CVE-2026-33630 and CVE-2026-69184, High, in libcares2 1.34.5 of the pinned PgBouncer 1.26.1-202611121015-trixie; accepted by the product owner on 2026-11-15 until then because no PgBouncer build carries Debian's fix: PgBouncer loads libcares for its DNS lookups)",
+      "t": "Pin a PgBouncer image carrying libcares2 >= 1.34.9-1~deb13u1 and krb5 >= 1.21.3-5+deb13u2 and remove the .grype.yaml libcares2 and Kerberos entries; by 2026-11-29 (CVE-2026-33630 and CVE-2026-69184, High, in libcares2 1.34.5 of the pinned PgBouncer 1.26.1-202611121015-trixie; accepted by the product owner on 2026-11-15 until then because no PgBouncer build carries Debian's fix: PgBouncer loads libcares for its DNS lookups; CVE-2026-112314, CVE-2026-112320, CVE-2026-112321, CVE-2026-112322, CVE-2026-112323 and CVE-2026-119079, High, in its libgssapi-krb5-2, libk5crypto3, libkrb5-3 and libkrb5support0 1.21.3-5+deb13u1, accepted by the product owner on 2026-11-23 until the same date on the same terms)",
       "r": "deploy/images/upstream.txt · scripts/failover.sh · deploy/helm/erp-cell/tests/values.yaml · .grype.yaml · ADR-0032 As built",
-      "src": "review:batch73",
+      "src": "review:batch73 · po:2026-11-23",
       "c": []
      },
      {
       "s": "T",
-      "t": "Pin images carrying glibc 2.41-12+deb13u5 (erp-analytics's distroless cc-debian13:nonroot base and PgBouncer) and remove the .grype.yaml libc6/libc-bin entries; by 2026-11-29 (CVE-2026-19499 and CVE-2026-5435, High, in glibc 2.41-12+deb13u4; accepted by the product owner on 2026-11-22 until then because neither image has a build carrying Debian's fix)",
+      "t": "Pin images carrying glibc 2.41-12+deb13u5 (erp-analytics's distroless cc-debian13:nonroot base and PgBouncer) and remove the .grype.yaml libc6/libc-bin entries; by 2026-11-29 (CVE-2026-19499 and CVE-2026-5435, High, in glibc 2.41-12+deb13u4; accepted by the product owner on 2026-11-22 until then because neither image has a build carrying Debian's fix). erp-analytics's half done on 2026-11-23: its base pinned to cc-debian13:nonroot sha256:532c7a94... (libc6 2.41-12+deb13u5); the libc6/libc-bin entries stay for PgBouncer, which carries both at 2.41-12+deb13u4",
       "r": "deploy/images/erp-analytics.Dockerfile · deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
       "src": "po:2026-11-22",
       "c": []

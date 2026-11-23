@@ -4780,7 +4780,8 @@ erDiagram
     int write_off_line_no "its line in the clearing entry"
     uuid write_off_account_id "ledger: the reason's account"
     text write_off_reason
-    text write_off_reason_text }
+    text write_off_reason_text
+    bigint cash_discount "the cash discount it took" }
   incoming_payment ||--o{ incoming_payment_application : "credit applied"
   incoming_payment_application { int application_no PK
     date posting_date
@@ -4890,6 +4891,16 @@ erDiagram
   (`incoming_payment_item_write_off_reason_length`) and a free text of 1
   to 200 (`incoming_payment_item_write_off_text_length`). The down
   migration is refused while a write-off exists.
+  Cash discount granted (migration 000445, ADR-0063 As built): an
+  item's `cash_discount` is the discount it took by its payment terms,
+  in the payment's currency, more than zero and less than the item,
+  which is an invoice paid in full, never beside a residual or a
+  write-off (`incoming_payment_item_cash_discount`); the discount's lines
+  (its net per code and emirate, its share of each output tax) are lines
+  of the clearing entry with the tax items they write. The items, less
+  their residuals, write-offs and cash discounts, are the payment's
+  amount and `difference`. The down migration is refused while an item
+  took one.
 - `receivables.incoming_payment_application` (T75g): an application of a
   payment's credit on account, numbered from 1 per payment, with the
   credit line it consumed (once, `incoming_payment_application_credit_once`,

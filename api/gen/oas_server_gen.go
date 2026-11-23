@@ -237,8 +237,9 @@ type Handler interface {
 	// with its number. The payment's `version` moves with each application (`ETag`), and the answer is the
 	// payment with the application, which its `applications` list last. Audited, and published as
 	// IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
-	// with the same `Idempotency-Key` answers the payment as the first answered it. Human-only
-	// (`x-agent: false`).
+	// with the same `Idempotency-Key` answers the payment as the first answered it. A cash discount is not
+	// granted here (422 `receivables.cash_discount_not_granted` naming `items[i].cash_discount`): an item
+	// takes its discount when a receipt pays it (`createIncomingPayment`). Human-only (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments/{id}/applications
 	ApplyIncomingPaymentOnAccount(ctx context.Context, req *IncomingPaymentApplicationCreate, params ApplyIncomingPaymentOnAccountParams) (ApplyIncomingPaymentOnAccountRes, error)
@@ -1940,18 +1941,29 @@ type Handler interface {
 	// `write_off` writes it off instead, a debit line of the clearing entry on the reason's account at the
 	// receipt's rate, shown as the item's `write_off` (422 `receivables.no_write_off_account` when the
 	// company's chart no longer has that account), and what reasons write off counts with the payment
-	// difference against the payment tolerance. Together the items, net of their residuals and of what
-	// their reasons wrote off, equal the receipt, but for a payment difference within the company's
-	// payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in
-	// the company's currency and a percent of the items applied, the lower binding; none configured, none
-	// allowed), what reasons write off included; anything more is refused, 422
-	// `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One
-	// clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every
-	// item at the amounts they were booked at and clears them all; each residual is a new open item of the
-	// customer, a debit line of that entry on the item's account at the item's rate, with the item's
-	// payment terms but no cash discount tier, so it falls due when the item did; a difference is a line
-	// on the company's `payment_difference_expense` account (an underpayment) or
-	// `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+	// difference against the payment tolerance. Together the items, net of their residuals, of what their
+	// reasons wrote off and of their cash discounts (below), equal the receipt, but for a payment
+	// difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP
+	// OBA3: per direction an amount in the company's currency and a percent of the items applied, the
+	// lower binding; none configured, none allowed), what reasons write off included; anything more is
+	// refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. An invoice paid
+	// within the discount period of its payment terms, counted on the receipt's posting date, may take its
+	// cash discount (`items[i].cash_discount`, ADR-0063: cash discount granted) in a company of the United
+	// Arab Emirates (the product owner, 2026-11-21): it is then paid net of the discount, the tier's
+	// percent of its amount, and the discount is a debit of the clearing entry split by the invoice's tax
+	// items in proportion to its gross, as a supplier's cash discount is (T36d): its net on the company's
+	// `payment_difference_expense` account with each tax code and emirate of the base it reduces, its tax
+	// share on each output tax line's account with its code and the emirate the invoice's item named, all
+	// at the receipt's rate, writing tax items that reduce the output tax the VAT 201 reports in that
+	// emirate (422 `ledger.no_payment_difference_account` without the account). A company of another
+	// country grants none: what a customer takes off is a payment difference without tax (a Canadian cash
+	// discount makes no GST/HST adjustment, ETA s.161), and an item asking for one is refused, 422
+	// `receivables.cash_discount_not_granted`. One clearing entry, document type `DZ`, `source_context`
+	// `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them
+	// all; each residual is a new open item of the customer, a debit line of that entry on the item's
+	// account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due
+	// when the item did; a difference is a line on the company's `payment_difference_expense` account (an
+	// underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
 	// `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
 	// receipt and items having been booked at different rates, is a realized exchange difference on the
 	// company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
@@ -3273,19 +3285,25 @@ type Handler interface {
 	// and date); a tax credit note naming no invoice is held with
 	// `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects,
 	// IBG-03), nothing of it entered, rather than entered as correcting none, unless it is for a volume
-	// discount (reason `VD`, IBR-055-AE), which is entered without a reference; one naming several
-	// invoices (IBG-03 repeated) is entered as one credit memo citing them all, without a
-	// `reference_invoice_id`, on hold naming any that is no posted invoice of the supplier (batch 88;
-	// before it such a note was held with `einvoicing.credit_note_names_several_invoices`). A tax invoice
-	// validated by a fetch before T65d, and a tax credit note validated before T65e, is entered by the
-	// next one. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
-	// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
-	// refused; `entered` and `held`: the documents this fetch entered and held; `waiting`: the connector's
-	// documents left unprocessed, waiting for the company's setup) and its `resource` the list of the
-	// documents it recorded, found changed, refused, entered or held
-	// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
-	// `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch
-	// recorded, as its `processed_fetch_operation_id`, and one entered or held as its
+	// discount (reason `VD`, IBR-055-AE), which is entered without a reference (batch 89: one for a volume
+	// discount naming no order, IBT-013, is entered without one, as a credit memo needs none: of the one
+	// supplier of the company holding the seller's TRN, else held with `payables.einvoice_seller_unknown`
+	// or `payables.einvoice_seller_ambiguous`; each line an item of 1 `EA` with its net on the account of
+	// discounts received, account determination `cash_discount`, which a person may change while it is
+	// parked, held with `payables.capture_needs_account` when the company has none; its tax as stated, its
+	// codes by its lines' category and rate as for any line; a tax credit note for another reason naming
+	// no order is held with `payables.capture_needs_order` as before); one naming several invoices (IBG-03
+	// repeated) is entered as one credit memo citing them all, without a `reference_invoice_id`, on hold
+	// naming any that is no posted invoice of the supplier (batch 88; before it such a note was held with
+	// `einvoicing.credit_note_names_several_invoices`). A tax invoice validated by a fetch before T65d,
+	// and a tax credit note validated before T65e, is entered by the next one. When the fetch is done its
+	// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
+	// message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`:
+	// the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed,
+	// waiting for the company's setup) and its `resource` the list of the documents it recorded, found
+	// changed, refused, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the
+	// fetch as its `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier
+	// fetch recorded, as its `processed_fetch_operation_id`, and one entered or held as its
 	// `entry_fetch_operation_id`); a message not recorded fails the Operation with
 	// `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 	// error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
@@ -6934,8 +6952,8 @@ type Handler interface {
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
 	// quotation it came from, its net value, its credit block and its items with their ordered, delivered,
-	// billed and returned quantities. Filtered by company, customer, status, credit block, document number
-	// and quotation. Sortable by: `order_date`, `document_number`.
+	// billed and returned quantities. Filtered by company, customer, status, credit block, document
+	// number, quotation, plant and material. Sortable by: `order_date`, `document_number`.
 	//
 	// GET /v1/sales-orders
 	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
@@ -9252,7 +9270,11 @@ type Handler interface {
 	// `invalid` (fix it with PATCH, which returns it to `draft`, or `:withdraw` it) or
 	// `awaiting_evidence`. Once the evidence its tier requires has passed it becomes `pending_approval`
 	// and an approval request is opened; decisions are made on that approval request, which moves the
-	// change to `approved` or `rejected`. Requires status `draft`.
+	// change to `approved` or `rejected`. Requires status `draft`. A configuration the validation refuses
+	// is a 422 `config.validation_failed` whose field errors name each refused field and code it
+	// `invalid`, unless the rule names its reason: a tax registration number of the wrong form is
+	// `trn_format` (an `FTA` number, 15 digits), `bn_rt_format` (a `CRA` number, 9 digits, `RT` and 4
+	// digits) or `bn_check_digit` (the business number fails the Luhn check) (ADR-0049 §10).
 	//
 	// POST /v1/change-requests/{id}:submit
 	SubmitChangeRequest(ctx context.Context, params SubmitChangeRequestParams) (SubmitChangeRequestRes, error)

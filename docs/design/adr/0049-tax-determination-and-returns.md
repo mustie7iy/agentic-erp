@@ -699,8 +699,10 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   batch 85 a sales document's items and the invoice its billing posts:
   ADR-0067 As built, "The emirate on a sales item";
   `TaxCode.CheckJurisdiction` is the one check of a line's and an item's.
-  A cash discount's correction and a down payment's transfer still carry
-  none.) **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead
+  A down payment's transfer still carries none; a cash discount's
+  correction names the subdivision each source item named, supplier's
+  and customer's alike, since the customer's cash discount of 2026-11-22:
+  ADR-0063 As built, cash discount granted.) **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead
   of the code; an instance of the previous release posting a code that
   levies its lines' subdivision fails the trigger (409), and its parked
   line upserts leave `tax_jurisdiction` as it was, so
@@ -954,14 +956,33 @@ companies (all in the tenant, under RLS). A registration change is financial
   (as fieldcrypt normalizes it) on two registrations of one authority
   whose periods overlap, so a return reports an item once (§11). The
   number must be printable ASCII (its last four characters are shown)
-  of at most 40 characters without spaces; its format is not checked: no pack or primary source defines the
-  BN/RT or TRN format here (a tracker item for the tax specialist). For the
+  of at most 40 characters without spaces. For the
   UAE the tax specialist answered on 2026-11-09 (po:2026-11-09, C12): a TRN
   is 15 digits, numeric [H], a registered business's typically beginning
   with `100` [M]; its first 10 digits are the TIN used in e-invoicing [H];
   no check digit is published [L], so length and digits are what to
-  validate, and the FTA's TRN verification on EmaraTax gives certainty
-  (the tracker item records it; Canada's formats stay open). The
+  validate, and the FTA's TRN verification on EmaraTax gives certainty.
+  **As built (number formats, batch 89):** the product owner approved on
+  2026-11-21 (po:2026-11-21): a TRN is 15 digits only, no checksum; a
+  GST/HST number is the 9-digit business number passing the Luhn check,
+  then `RT` and 4 digits; the QST number's format waits for Revenu
+  Québec. The form is chosen by the registration's `authority`, the code
+  the e-invoicing wiring already reads the UAE registration by
+  (`internal/app`, `FTA`): an `FTA` number must be exactly 15 digits
+  (field error code `trn_format`); a `CRA` number must be 9 digits, `RT`
+  and 4 digits (`bn_rt_format`), its 9 digits passing Luhn (`bn_check_digit`, the
+  check shared with the model gateway's card redaction in
+  `internal/platform/luhn`). The number is checked as fieldcrypt
+  normalizes it, so spaces and the case of `rt` are free; a dash is
+  refused. Any other authority (`RQ`, a province's) keeps the checks
+  above alone, and a tenant coding the CRA or FTA otherwise escapes the
+  form check (no list of authorities is held). Each is a finding with its
+  code, so the submission's or tenant creation's 422
+  `config.validation_failed` names the number's field with that code
+  (`config.Finding.Code`; other findings stay `invalid`): activation
+  refuses a bad number. No data migration: nothing is deployed, and the
+  fixtures, eval suites and walkthrough that held `123456789 RT 0001`,
+  which fails Luhn, now hold the synthesized `123456782 RT 0001`. The
   registration is kept by `taxfiling.Setup` in `tax.registration`, the
   number sealed with the tenant's key, fingerprinted and shown by its last
   four characters (fieldcrypt, as tax identifiers and house bank accounts
@@ -1982,3 +2003,17 @@ po-2026-11-21-uae-vat-research), and answered one open question:
   built"), so the output tax is **not** reduced today. No test was added
   claiming otherwise; the correction of output tax on a UAE customer's
   cash discount is a tracker leaf (src po:2026-11-21) for receivables.
+- **Built 2026-11-22 (batch 89, cdisc):** a UAE company's invoice paid
+  within its discount period takes its cash discount
+  (`items[].cash_discount` of `createIncomingPayment`), and T36d's split
+  (`ledger.discountTax`, shared, not copied) corrects the output tax of
+  each of the invoice's tax items in proportion to its gross, keeping its
+  emirate: the correction's lines name it and its tax items reduce the
+  VAT 201's box of that emirate (`TestUAECashDiscount` reads the boxes:
+  1a, 1b and the zero-rated box 4). A Canadian company's discount stays a
+  payment difference without tax (`TestCanadianCashDiscount`). ADR-0063
+  As built, cash discount granted, has the rest. The product owner
+  2026-11-22 (po:2026-11-22) kept it as built: no tax credit note for the
+  discount's VAT (the send side unchanged), box 4's zero-rated base
+  reduced with the tax, the period judged on the receipt's posting date;
+  each for the tax specialist to confirm, without blocking.

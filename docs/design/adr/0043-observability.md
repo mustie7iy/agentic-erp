@@ -287,10 +287,14 @@ traces, and CPU and memory saturation.
   values (584 operations of the API, 21 of the control plane and
   "unmatched") of its 768.
 
-## As built: the agent_kind label's ceiling (S2e and S2l, batch 88)
+## As built: the agent_kind label's ceiling (S2e and S2l, batch 88; S2m, batch 89)
 
 - The replenishment agent (`replenishment`, ADR-0072 As built S2l) and
   the count planning agent (`count_planning`, ADR-0072 As built S2e)
   bring `autonomy.Kinds` to 25 (23 types, "untyped" and "none"); the
   ceiling is the real count, 25, as batch 75 decided. The worst case
   `Check` computes stays under `MaxSeries` (65,000).
+- The demand forecasting agent (`demand_forecast`, ADR-0072 As built
+  S2m) brings `autonomy.Kinds` to 26 (24 types, "untyped" and "none");
+  the ceiling is the real count, 26. The worst case `Check` computes
+  stays under `MaxSeries` (65,000).

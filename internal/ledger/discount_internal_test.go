@@ -158,8 +158,8 @@ func TestDiscountTaxItems(t *testing.T) {
 			if got := render(discountPlan{split: split}.taxItems(bank)); got != c.want {
 				t.Errorf("items: got %q, want %q", got, c.want)
 			}
-			if split.bases["V1"] != c.bases {
-				t.Errorf("V1's base: got %d, want %d", split.bases["V1"], c.bases)
+			if split.bases[codeKey{code: "V1"}] != c.bases {
+				t.Errorf("V1's base: got %d, want %d", split.bases[codeKey{code: "V1"}], c.bases)
 			}
 		})
 	}

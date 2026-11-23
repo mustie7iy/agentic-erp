@@ -29,6 +29,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/configagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/migrationagent"
 	"github.com/mustie7iy/agentic-erp/internal/delivery/testagent"
+	"github.com/mustie7iy/agentic-erp/internal/demandagent"
 	"github.com/mustie7iy/agentic-erp/internal/enablementagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/integrationagent"
@@ -54,7 +55,8 @@ var evalAgents = map[string]eval.Agent{"analytics": analyticsEval, agent.Type: a
 	planningagent.Type:      planningEval,
 	enablementagent.Type:    enablementEval,
 	replenishmentagent.Type: replenishmentEval,
-	countagent.Type:         countPlanningEval}
+	countagent.Type:         countPlanningEval,
+	demandagent.Type:        demandForecastEval}
 
 // analyticsEval asks the task's question as erp ask does, its session
 // reading what the API gives the agent principal and no more. Its reply
@@ -325,6 +327,15 @@ func apExceptions(ctx context.Context, env eval.Env) error {
 // evalModels gives a live run its model; tests replace it with the
 // scripted model, so no test spends.
 var evalModels = func(alias string) eval.Models { return eval.Gateway{Alias: alias} }
+
+// agentDay is the clock the count planning and demand forecasting agents
+// read their run's day (a company's date) from; their replay cells fix it.
+// nil means the wall clock; the eval replays set
+// the replay cell's, so an agent's day is the day the cell posted its
+// documents on (the demand forecasting agent's weeks are counted from it,
+// and on a day of another week than the cell's fixed one its forecast of
+// the case's goods issue moved a week back).
+var agentDay func() time.Time
 
 // evalMint mints the throwaway tenants' tokens: the local cell's
 // development issuer; tests mint from theirs.

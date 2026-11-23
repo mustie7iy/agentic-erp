@@ -27,5 +27,12 @@ func (a IncomingPaymentItemRef) Hash() uint64 {
 	} else {
 		h.Write([]byte{0})
 	}
+	// Hash optional field: CashDiscount
+	if a.CashDiscount.Set {
+		h.Write([]byte{1})
+		h.Write([]byte(fmt.Sprintf("%v", a.CashDiscount.Value)))
+	} else {
+		h.Write([]byte{0})
+	}
 	return h.Sum64()
 }

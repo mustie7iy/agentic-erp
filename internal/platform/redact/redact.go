@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/iban"
+	"github.com/mustie7iy/agentic-erp/internal/platform/luhn"
 )
 
 // The placeholders a redaction leaves.
@@ -229,29 +230,9 @@ func cardFrom(run string, starts []int, g int) (int, bool) {
 		}
 	}
 	for i := len(ends) - 1; i >= 0; i-- {
-		if luhn(run[starts[g]:ends[i]]) {
+		if luhn.Valid(run[starts[g]:ends[i]]) {
 			return ends[i], true
 		}
 	}
 	return 0, false
-}
-
-// luhn checks a card number, spaces and dashes allowed, with the Luhn
-// algorithm.
-func luhn(s string) bool {
-	sum, pos := 0, 0 // pos: the digit's place from the right, separators skipped
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == ' ' || s[i] == '-' {
-			continue
-		}
-		d := int(s[i] - '0')
-		if pos%2 == 1 {
-			d *= 2
-			if d > 9 {
-				d -= 9
-			}
-		}
-		sum, pos = sum+d, pos+1
-	}
-	return sum%10 == 0
 }

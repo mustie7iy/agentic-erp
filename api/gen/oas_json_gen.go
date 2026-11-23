@@ -150040,6 +150040,10 @@ func (s *IncomingPayment) encodeFields(e *jx.Encoder) {
 		s.Difference.Encode(e)
 	}
 	{
+		e.FieldStart("cash_discount")
+		s.CashDiscount.Encode(e)
+	}
+	{
 		if s.OnAccount.Set {
 			e.FieldStart("on_account")
 			s.OnAccount.Encode(e)
@@ -150117,7 +150121,7 @@ func (s *IncomingPayment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfIncomingPayment = [35]string{
+var jsonFieldsNameOfIncomingPayment = [36]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -150138,21 +150142,22 @@ var jsonFieldsNameOfIncomingPayment = [35]string{
 	17: "currency",
 	18: "amount",
 	19: "difference",
-	20: "on_account",
-	21: "applications",
-	22: "receipt_journal_entry_id",
-	23: "receipt_journal_entry_year",
-	24: "receipt_journal_entry_number",
-	25: "receipt_account_id",
-	26: "receipt_account_number",
-	27: "receipt_account_name",
-	28: "receipt_bank_statement_id",
-	29: "receipt_bank_statement_ref",
-	30: "receipt_bank_statement_line_no",
-	31: "journal_entry_id",
-	32: "journal_entry_year",
-	33: "journal_entry_number",
-	34: "items",
+	20: "cash_discount",
+	21: "on_account",
+	22: "applications",
+	23: "receipt_journal_entry_id",
+	24: "receipt_journal_entry_year",
+	25: "receipt_journal_entry_number",
+	26: "receipt_account_id",
+	27: "receipt_account_number",
+	28: "receipt_account_name",
+	29: "receipt_bank_statement_id",
+	30: "receipt_bank_statement_ref",
+	31: "receipt_bank_statement_line_no",
+	32: "journal_entry_id",
+	33: "journal_entry_year",
+	34: "journal_entry_number",
+	35: "items",
 }
 
 // Decode decodes IncomingPayment from json.
@@ -150402,6 +150407,16 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"difference\"")
 			}
+		case "cash_discount":
+			requiredBitSet[2] |= 1 << 4
+			if err := func() error {
+				if err := s.CashDiscount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cash_discount\"")
+			}
 		case "on_account":
 			if err := func() error {
 				s.OnAccount.Reset()
@@ -150413,7 +150428,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"on_account\"")
 			}
 		case "applications":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				s.Applications = make([]IncomingPaymentApplication, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -150431,7 +150446,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"applications\"")
 			}
 		case "receipt_journal_entry_id":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.ReceiptJournalEntryID = v
@@ -150443,7 +150458,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"receipt_journal_entry_id\"")
 			}
 		case "receipt_journal_entry_year":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.ReceiptJournalEntryYear = int32(v)
@@ -150455,7 +150470,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"receipt_journal_entry_year\"")
 			}
 		case "receipt_journal_entry_number":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.ReceiptJournalEntryNumber = string(v)
@@ -150467,7 +150482,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"receipt_journal_entry_number\"")
 			}
 		case "receipt_account_id":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.ReceiptAccountID = v
@@ -150479,7 +150494,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"receipt_account_id\"")
 			}
 		case "receipt_account_number":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.ReceiptAccountNumber = string(v)
@@ -150491,7 +150506,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"receipt_account_number\"")
 			}
 		case "receipt_account_name":
-			requiredBitSet[3] |= 1 << 3
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.ReceiptAccountName = string(v)
@@ -150533,7 +150548,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"receipt_bank_statement_line_no\"")
 			}
 		case "journal_entry_id":
-			requiredBitSet[3] |= 1 << 7
+			requiredBitSet[4] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.JournalEntryID = v
@@ -150545,7 +150560,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
 		case "journal_entry_year":
-			requiredBitSet[4] |= 1 << 0
+			requiredBitSet[4] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int32()
 				s.JournalEntryYear = int32(v)
@@ -150557,7 +150572,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_year\"")
 			}
 		case "journal_entry_number":
-			requiredBitSet[4] |= 1 << 1
+			requiredBitSet[4] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.JournalEntryNumber = string(v)
@@ -150569,7 +150584,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_number\"")
 			}
 		case "items":
-			requiredBitSet[4] |= 1 << 2
+			requiredBitSet[4] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]IncomingPaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -150598,9 +150613,9 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 	for i, mask := range [5]uint8{
 		0b11011111,
 		0b11111110,
-		0b11101111,
-		0b10001111,
-		0b00000111,
+		0b11011111,
+		0b00011111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -151472,9 +151487,15 @@ func (s *IncomingPaymentItem) encodeFields(e *jx.Encoder) {
 			s.WriteOff.Encode(e)
 		}
 	}
+	{
+		if s.CashDiscount.Set {
+			e.FieldStart("cash_discount")
+			s.CashDiscount.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfIncomingPaymentItem = [15]string{
+var jsonFieldsNameOfIncomingPaymentItem = [16]string{
 	0:  "item_no",
 	1:  "customer_id",
 	2:  "customer_number",
@@ -151490,6 +151511,7 @@ var jsonFieldsNameOfIncomingPaymentItem = [15]string{
 	12: "exchange_rate",
 	13: "residual",
 	14: "write_off",
+	15: "cash_discount",
 }
 
 // Decode decodes IncomingPaymentItem from json.
@@ -151671,6 +151693,16 @@ func (s *IncomingPaymentItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"write_off\"")
 			}
+		case "cash_discount":
+			if err := func() error {
+				s.CashDiscount.Reset()
+				if err := s.CashDiscount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cash_discount\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -151755,13 +151787,20 @@ func (s *IncomingPaymentItemRef) encodeFields(e *jx.Encoder) {
 			s.Residual.Encode(e)
 		}
 	}
+	{
+		if s.CashDiscount.Set {
+			e.FieldStart("cash_discount")
+			s.CashDiscount.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfIncomingPaymentItemRef = [4]string{
+var jsonFieldsNameOfIncomingPaymentItemRef = [5]string{
 	0: "fiscal_year",
 	1: "journal_entry_id",
 	2: "line_no",
 	3: "residual",
+	4: "cash_discount",
 }
 
 // Decode decodes IncomingPaymentItemRef from json.
@@ -151770,6 +151809,7 @@ func (s *IncomingPaymentItemRef) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode IncomingPaymentItemRef to nil")
 	}
 	var requiredBitSet [1]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -151818,6 +151858,16 @@ func (s *IncomingPaymentItemRef) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"residual\"")
+			}
+		case "cash_discount":
+			if err := func() error {
+				s.CashDiscount.Reset()
+				if err := s.CashDiscount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cash_discount\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

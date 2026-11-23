@@ -108,10 +108,11 @@ type Suppliers interface {
 }
 
 // TaxNumbers says whether a business partner holds a tax identifier of
-// the value, by its keyed fingerprint, never opening one (partner context,
-// ADR-0061 §6).
+// the value, and which partners hold one, by its keyed fingerprint, never
+// opening one (partner context, ADR-0061 §6, As built batch 89).
 type TaxNumbers interface {
 	HasTaxNumber(ctx context.Context, partnerID uuid.UUID, value string) (bool, error)
+	HoldersOfTaxNumber(ctx context.Context, value string) ([]partner.Found, error)
 }
 
 // Orders is what payables reads about purchase orders (procurement context).

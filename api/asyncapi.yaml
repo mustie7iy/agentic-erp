@@ -6168,7 +6168,7 @@ components:
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company it is addressed to; null when none."}
         legal_entity_code: {type: [string, 'null'], description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; null with it.'}
         status: {type: string, description: "The document's status after the change. Open enum: received, refused (T65c), entered, held (T65d)."}
-        problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`) or held (T65d: the problem its entering met, such as `payables.capture_needs_order`, or `einvoicing.tax_currency_not_entered`; T65e: `einvoicing.credit_note_names_no_invoice`, `einvoicing.credit_note_names_several_invoices`); an open enumeration; null unless refused or held. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
+        problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`) or held (T65d: the problem its entering met, such as `payables.capture_needs_order`, or `einvoicing.tax_currency_not_entered`; batch 89: `payables.capture_needs_account`, `payables.einvoice_seller_ambiguous` for a volume discount naming no order; T65e: `einvoicing.credit_note_names_no_invoice`, `einvoicing.credit_note_names_several_invoices`); an open enumeration; null unless refused or held. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
         supplier_invoice_id: {type: [string, 'null'], format: uuid, description: "The supplier invoice it was entered as (T65d), a credit memo for a tax credit note (T65e); null unless entered. Added within v1, so not required (ADR-0041); every event carries it."}
         status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
         sha256: {type: string, description: "The SHA-256 of its bytes as received, hex."}
@@ -6424,18 +6424,19 @@ components:
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
         item_count: {type: integer, description: "How many open items the payment was applied to, of every customer it paid."}
         residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item of the customer (T75f)."}
-        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals and of what their reasons wrote off, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
+        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals, of what their reasons wrote off and of their cash discounts, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
         on_account_amount: {$ref: '#/components/schemas/Money', description: "What the payment left on the customer's account as a credit (T75g); zero for none."}
+        cash_discount: {$ref: '#/components/schemas/Money', description: "The cash discounts the items took (ADR-0063, cash discount granted: a UAE invoice paid within its discount period, its output tax reduced); zero for none. Absent from events published before it was added."}
         customers:
           type: array
-          description: "Each customer whose items the payment applied (T75h: one receipt for several customers), the payer first, by id and number, never by name, with its part: its items net of their residuals and of what their reasons wrote off."
+          description: "Each customer whose items the payment applied (T75h: one receipt for several customers), the payer first, by id and number, never by name, with its part: its items net of their residuals, of what their reasons wrote off and of their cash discounts."
           items:
             type: object
             required: [customer_id, customer_number, amount]
             properties:
               customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
               customer_number: {type: string, description: "The customer's business partner number."}
-              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals and of what their reasons wrote off."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals, of what their reasons wrote off and of their cash discounts."}
     IncomingPaymentOnAccountAppliedV1:
       type: object
       required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, application_no, posting_date, amount, difference, on_account_amount, journal_entry_id, journal_entry_year, journal_entry_number, item_count, residual_count]
@@ -8739,7 +8740,7 @@ components:
         change: {"type": "string", "description": "Open enum: created, updated."}
         changed_fields: {"type": "array", "items": {"type": "string"}, "description": "Profile fields that changed (all fields on created)."}
         autonomy_level: {"type": "integer", "minimum": 0, "maximum": 3}
-        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax, credit_scoring, access, bid_comparison, regulatory, support, collections, integration, savings, control_monitoring, risk, planning, enablement, replenishment, count_planning."}
+        agent_type: {"type": ["string", "null"], "description": "The agent's type, whose certification bounds its level (ADR-0039); null: none named. Open enum: ap_exceptions, configuration, migration, test, analytics, reconciliation, close, cash_forecast, tax, credit_scoring, access, bid_comparison, regulatory, support, collections, integration, savings, control_monitoring, risk, planning, enablement, replenishment, count_planning, demand_forecast."}
         model: {"type": "string"}
         monthly_budget: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "Null when unlimited."}
         description: {"type": "string"}

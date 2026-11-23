@@ -1953,3 +1953,67 @@ coordinator's memory po-2026-11-21-uae-vat-research). Built:
   IBT-026, BTAE-08 and BTAE-10 (from memory); whether IBR-162/163/165-AE
   say what the coordinator's research summarised (zero-rated and
   reverse-charge lines 0, exempt lines none).
+
+### Batch 89: a volume discount without an order (po:2026-11-21)
+
+Batch 88 entered a volume discount's tax credit note naming no invoice
+only when it named an order: capture's code takes the supplier, the
+currency and the items from the order, so one of a supplier the company
+buys from without orders was still held with
+`payables.capture_needs_order`. The product owner's rule of 2026-11-21 is
+that such a credit note is entered as a credit memo without a reference,
+and a credit memo needs no order. Built (`payables.enteredInput`,
+`rebateInput`):
+
+- **Which documents.** A tax credit note whose reason (BTAE-03) is `VD`
+  and that names no order reference (IBT-013) is entered without an
+  order, whether or not it cites invoices (its citations are matched as
+  batch 88 matches them). Every other document naming no order, a credit
+  note for another reason among them, is held with
+  `payables.capture_needs_order` as before: its account is the corrected
+  invoice's, which an order or a person gives (Later: take it from the
+  cited invoice's items). Decided by default.
+- **The supplier.** The one supplier of the company (the supplier role,
+  with supplier data in the company) holding the seller's TRN (IBT-031)
+  as a tax identifier, found by its keyed fingerprint without opening one
+  (`partner.Payees.HoldersOfTaxNumber`, FindCustomers' lookup by a tax
+  number alone; pending partners excluded). None holds the document with
+  `payables.einvoice_seller_unknown`; several with
+  `payables.einvoice_seller_ambiguous`, naming the suppliers' numbers for
+  a person to keep the TRN on one; both details name the TRN's last four
+  only.
+- **The items.** Each line is an item of quantity 1 `EA` with the line's
+  net amount, as a discount is credited by amount and the document's
+  units are not mapped to the ERP's (§6; the send side writes each line
+  as 1 C62 for the same reason, As built E2), its description the line's.
+  The account is the account determination's `cash_discount`, the
+  discounts received from suppliers (SAP SKE; the AE pack's 4800
+  "Purchase discounts received", a revenue account): a volume discount is
+  a reduction of the price of past purchases received from the supplier,
+  of the same nature, and no key of its own exists (SAP books vendor
+  rebates through its own account key, BO1, from memory [M]; the
+  product owner 2026-11-22 kept `cash_discount` for now, and a key of
+  its own for supplier rebates is a tracker leaf, src po:2026-11-22).
+  The clerk may change the account while the memo is parked. A company
+  without the key holds the document with
+  `payables.capture_needs_account`. Decided by default.
+- **The tax as stated.** The memo's tax and gross are the document's;
+  each line's code is found from its category and rate by capturedTax's
+  rule, so where two input codes charge the rate (the AE pack's V5 and
+  the blocked VB5, Executive Regulation Art. 53) the memo is entered
+  `on_hold` naming them, for the accounts payable clerk to choose, as any
+  line without an order item's code is; a non-AED document keeps its
+  stated VAT in AED (batch 88). The e-invoice is `entered` either way:
+  the memo, not the document, waits for the person.
+- **The walkthrough.** `step_evatra_inbound` (step 144,
+  `evatra_volume_discount`): Alex sets up Emirates Workspace Supplies, a
+  supplier of the UAE company with its TRN and no purchase order; its
+  volume discount EWS-501 (AED 250.00 and 12.50 VAT, no invoice, no
+  order) is received through Evatra and entered by the fetch as a credit
+  memo of source `einvoice` without an order or a reference, its item
+  1 EA on 4800, on hold for its code; Alex releases it, chooses V5 and
+  posts it.
+- **For the specialist:** whether a volume discount's credit note
+  correcting purchases whose input tax was blocked (VB5) needs the
+  blocked code rather than V5 (the walkthrough assumes the supplies'
+  VAT was recovered).

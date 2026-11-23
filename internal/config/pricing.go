@@ -179,14 +179,14 @@ func PricingTransitions(base, proposed *Config) []Finding {
 		now, ok := proposed.Pricing.ConditionType(was.Code)
 		switch {
 		case !ok:
-			out = append(out, Finding{SevError, p, "a condition type cannot be removed once activated"})
+			out = append(out, Finding{Severity: SevError, Path: p, Message: "a condition type cannot be removed once activated"})
 		case now.Kind != was.Kind:
-			out = append(out, Finding{SevError, p + ".kind", "a condition type's kind cannot change once activated"})
+			out = append(out, Finding{Severity: SevError, Path: p + ".kind", Message: "a condition type's kind cannot change once activated"})
 		}
 	}
 	for _, was := range base.Pricing.PriceGroups {
 		if _, ok := proposed.Pricing.PriceGroup(was.Code); !ok {
-			out = append(out, Finding{SevError, "pricing.price_groups[" + was.Code + "]", "a price group cannot be removed once activated"})
+			out = append(out, Finding{Severity: SevError, Path: "pricing.price_groups[" + was.Code + "]", Message: "a price group cannot be removed once activated"})
 		}
 	}
 	return out

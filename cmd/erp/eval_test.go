@@ -25,6 +25,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/cashagent"
 	"github.com/mustie7iy/agentic-erp/internal/controlplane"
 	"github.com/mustie7iy/agentic-erp/internal/countagent"
+	"github.com/mustie7iy/agentic-erp/internal/demandagent"
 	"github.com/mustie7iy/agentic-erp/internal/eval"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
@@ -263,7 +264,10 @@ func TestEvalSuites(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			c := newReplayCell(t, cellClock(t, s.Agent))
+			now := cellClock(t, s.Agent)
+			c := newReplayCell(t, now)
+			agentDay = now
+			t.Cleanup(func() { agentDay = nil })
 			if s.Agent == replenishmentagent.Type {
 				planRuns(t)
 			}
@@ -294,12 +298,13 @@ func TestEvalSuites(t *testing.T) {
 // agent's stands at noon on 2026-11-16 in company 3000's zone,
 // America/Toronto, since its RFQs take numbers of
 // fiscal year 2026 and are due and valid on dates of its own
-// (evals/bid_comparison), and so does the count planning agent's, whose
-// materials take numbers and post documents of 2026 (evals/count_planning);
-// every other suite's is the time.
+// (evals/bid_comparison), and so do the count planning and demand
+// forecasting agents', whose materials take numbers and post documents of
+// 2026 (evals/count_planning, evals/demand_forecast); every other suite's
+// is the time.
 func cellClock(t *testing.T, agent string) func() time.Time {
 	t.Helper()
-	if agent == bidagent.Type || agent == countagent.Type {
+	if agent == bidagent.Type || agent == countagent.Type || agent == demandagent.Type {
 		return func() time.Time { return time.Date(2026, 11, 16, 17, 0, 0, 0, time.UTC) }
 	}
 	if agent != cashagent.Type {

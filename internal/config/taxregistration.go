@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/platform/luhn"
 )
 
 // TaxRegistration is a company's registration with a tax authority
@@ -18,10 +19,11 @@ import (
 // group is one registration across several companies of the tenant: the
 // representative member's, listing the other members.
 //
-// Which numbers, returns and frequencies a company has are its facts; the
-// document holds no rule about them (the format of a BN or TRN included,
-// which is for the tax specialist). The number is sealed where the tax
-// filing context keeps it and shown by its last four characters.
+// Which numbers, returns and frequencies a company has are its facts. The
+// form of a number is checked for the authorities whose form is settled
+// (taxNumberForm, PO 2026-11-21): the FTA's TRN and the CRA's GST/HST
+// number. The number is sealed where the tax filing context keeps it and
+// shown by its last four characters.
 type TaxRegistration struct {
 	// Code names the registration in the tenant, across companies.
 	Code string `yaml:"code" json:"code"`
@@ -113,7 +115,7 @@ func (v *validator) taxRegistrations(p string, co *Company, companies map[string
 		if !taxAuthorityRe.MatchString(r.Authority) {
 			v.err(rp+".authority", "the authority is its code: an upper-case letter, then up to 19 upper-case letters, digits or underscores (CRA, FTA)")
 		}
-		v.taxNumber(rp, r.Number)
+		v.taxNumber(rp, r.Authority, r.Number)
 		if !taxReturnTypeRe.MatchString(r.ReturnType) {
 			v.err(rp+".return_type", "the return type is the country pack's code of the return: 1-20 upper-case letters, digits, dashes or underscores")
 		}
@@ -130,10 +132,9 @@ func (v *validator) taxRegistrations(p string, co *Company, companies map[string
 
 // taxNumber checks that a registration number is given, in printable
 // ASCII (so its last four characters, which are shown, are four bytes)
-// and, as it is sealed, at most maxTaxNumber characters without spaces.
-// Its format is the authority's, which the tax specialist states (T61g
-// leaves it unchecked).
-func (v *validator) taxNumber(rp, number string) {
+// and, as it is sealed, at most maxTaxNumber characters without spaces,
+// then its form where the authority's is settled (taxNumberForm).
+func (v *validator) taxNumber(rp, authority, number string) {
 	n := fieldcrypt.Normalize(number)
 	switch {
 	case n == "":
@@ -142,6 +143,55 @@ func (v *validator) taxNumber(rp, number string) {
 		v.err(rp+".number", "the registration number has a character other than printable ASCII letters, digits and punctuation")
 	case len(n) > maxTaxNumber:
 		v.err(rp+".number", "the registration number has more than %d characters without spaces", maxTaxNumber)
+	default:
+		v.taxNumberForm(rp, authority, n)
+	}
+}
+
+// The authorities whose registration numbers have a form the platform
+// checks, as the configuration codes them (ADR-0049 §10 As built; the
+// e-invoicing wiring reads the UAE's registration by the same "FTA").
+const (
+	authorityFTA = "FTA"
+	authorityCRA = "CRA"
+)
+
+// The field error codes of a number of the wrong form, which a consumer
+// may branch on (an activation's 422 config.validation_failed).
+const (
+	CodeTRNFormat    = "trn_format"
+	CodeBNRTFormat   = "bn_rt_format"
+	CodeBNCheckDigit = "bn_check_digit"
+)
+
+var (
+	trnRe  = regexp.MustCompile(`^[0-9]{15}$`)
+	bnRTRe = regexp.MustCompile(`^([0-9]{9})RT[0-9]{4}$`)
+)
+
+// taxNumberForm checks the normalized number n against its authority's
+// form, as the product owner approved on 2026-11-21: an FTA TRN is
+// exactly 15 digits, with no check digit (none is published: the tax
+// specialist, 2026-11-09, C12); a CRA GST/HST number is the nine-digit
+// business number, passing the Luhn check, then the program identifier
+// RT and the four-digit reference number. Revenu Québec's QST number and
+// other authorities' numbers keep the checks above alone: their form is
+// not settled (the QST's waits for Revenu Québec).
+func (v *validator) taxNumberForm(rp, authority, n string) {
+	switch authority {
+	case authorityFTA:
+		if !trnRe.MatchString(n) {
+			v.errCode(rp+".number", CodeTRNFormat, "an FTA tax registration number (TRN) is exactly 15 digits")
+		}
+	case authorityCRA:
+		m := bnRTRe.FindStringSubmatch(n)
+		switch {
+		case m == nil:
+			v.errCode(rp+".number", CodeBNRTFormat,
+				"a CRA GST/HST number is the 9-digit business number, then RT and the 4-digit reference number (123456782 RT 0001)")
+		case !luhn.Valid(m[1]):
+			v.errCode(rp+".number", CodeBNCheckDigit, "the business number's ninth digit is not its check digit: the number is mistyped")
+		}
 	}
 }
 

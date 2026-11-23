@@ -155,12 +155,9 @@ func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uu
 	if err != nil {
 		return Input{}, "", err
 	}
-	date, err := time.Parse(time.DateOnly, ext.InvoiceDate)
+	date, err := documentDate(ext)
 	if err != nil {
-		return Input{}, "", unreadable("the document date " + ext.InvoiceDate + " is not a date")
-	}
-	if strings.TrimSpace(ext.InvoiceNumber) == "" {
-		return Input{}, "", unreadable("there is no document number")
+		return Input{}, "", err
 	}
 	if ext.Currency != order.Currency {
 		return Input{}, "", unreadable("the document is in " + ext.Currency + " but the order in " + order.Currency)
@@ -171,20 +168,30 @@ func (e *Endpoints) capturedInput(ctx context.Context, tx pgx.Tx, legalEntity uu
 	}
 	a := &printed{exp: exp, currency: order.Currency, credit: kind == KindCreditMemo}
 	in := Input{LegalEntityID: legalEntity, SupplierID: order.SupplierID, SupplierReference: ext.InvoiceNumber, InvoiceDate: date, PurchaseOrderID: &po, Kind: kind}
-	if in.Gross, err = a.amount(ext.GrossAmount, "gross amount"); err != nil {
-		return Input{}, "", err
-	}
-	if in.Tax, err = a.amount(ext.TaxAmount, "tax amount"); err != nil {
+	if err := a.totals(&in, ext); err != nil {
 		return Input{}, "", err
 	}
 	if in.Items, err = capturedItems(ext.Lines, order, a); err != nil {
 		return Input{}, "", err
 	}
-	if a.negative && a.positive {
-		return Input{}, "", unreadable("the credit memo prints amounts of both signs")
+	if err := a.oneSign(); err != nil {
+		return Input{}, "", err
 	}
 	held, err := creditedInvoice(ctx, tx, &in, ext.CreditedInvoiceNumber)
 	return in, held, err
+}
+
+// documentDate is the date a document prints, which must also print its
+// number.
+func documentDate(ext *capture.Extraction) (time.Time, error) {
+	date, err := time.Parse(time.DateOnly, ext.InvoiceDate)
+	if err != nil {
+		return time.Time{}, unreadable("the document date " + ext.InvoiceDate + " is not a date")
+	}
+	if strings.TrimSpace(ext.InvoiceNumber) == "" {
+		return time.Time{}, unreadable("there is no document number")
+	}
+	return date, nil
 }
 
 // capturedKinds are the kinds a document is read as. Subsequent debits and
@@ -235,6 +242,25 @@ func (p *printed) amount(s, what string) (Amount, error) {
 		p.positive = true
 	}
 	return Amount{Value: m.Plain(p.exp), Currency: p.currency}, nil
+}
+
+// totals reads the document's gross and tax amounts into in.
+func (p *printed) totals(in *Input, ext *capture.Extraction) error {
+	var err error
+	if in.Gross, err = p.amount(ext.GrossAmount, "gross amount"); err != nil {
+		return err
+	}
+	in.Tax, err = p.amount(ext.TaxAmount, "tax amount")
+	return err
+}
+
+// oneSign refuses a credit memo that printed amounts of both signs, once
+// all its amounts are read.
+func (p *printed) oneSign() error {
+	if p.negative && p.positive {
+		return unreadable("the credit memo prints amounts of both signs")
+	}
+	return nil
 }
 
 // quantity is a line's quantity as entered: a credit memo's printed

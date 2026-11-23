@@ -1581,3 +1581,58 @@ class and interval kept on the material at the plant rather than
 computed per run, with the tenant's own shares and intervals), materials
 with no stock counted, counts on a calendar, counting by risk learned
 from differences.
+
+### S2m (2026-11-22)
+
+The demand forecasting agent (ADR-0072 As built S2m,
+`internal/demandagent`) forecasts a material's demand at each plant of a
+company it is extended to, for a planner to decide; it reads material
+documents through this ADR's published read and the confirmed sales
+orders through sales' (`listSalesOrders`, which gains `plant_id` and
+`material_id`), adds no direction to §3 and moves no stock
+(x-agent: false). The method, decided by default from the analytics
+context's moving average (ADR-0077 §7, "an arithmetic projection, not a
+statistical forecast"), the cash forecast's accuracy (ADR-0051 §11, 100
+less WAPE, product owner 2026-11-04) and S2k's demand (ADR-0084 §2), and
+computed by the agent's run, not by the model:
+
+- **Weeks** of seven days, the latest ending on the run's day, the
+  company's date, which has passed as a cash forecast's value date has;
+  17 are read (13 for the average, 4 more for its accuracy). The horizon
+  is the 8 weeks from the day after. Weeks, not fiscal months: a run on
+  any day has whole buckets, and S2n's monthly view is its own.
+- **Demand** at a plant is its goods issues of the material: to a cost
+  center (201), a delivery's (601) and an intercompany one (643), less
+  their reversals (202, 602), the lines' base quantities negated, by
+  posting date; scrapping (551), transfers, receipts and count
+  differences are no demand (SAP's consumption, from memory), nor are
+  lines in transit.
+- **The moving average** of the last 13 weeks' demand, never below
+  nothing; a week before the material's first document counts as none.
+- **Open orders** are what the plant's confirmed sales orders ordered of
+  the material and have not delivered (ordered less delivered, per
+  standing item, in the base unit by the material's conversion: S2k's
+  demand), in the week of the horizon it is due: the day the customer
+  asked for, else the order's date; one due before the horizon in its
+  first week, one due after it left out.
+- **The forecast** of each week of the horizon is the greater of the
+  moving average and the open orders due that week: the orders consume
+  the forecast (SAP's planning strategy with consumption, from memory).
+- **Accuracy** is 100 less WAPE over the last 4 weeks, each forecast by
+  the moving average of the 13 weeks before it: Σ|issued − forecast| /
+  Σ|forecast|, the percentage rounded to two decimals half away from
+  zero (as `money.AbsPercentOf`) and taken from 100, so it is negative
+  when the error exceeds the forecast; none when nothing was forecast.
+  The open orders of the past are not known again, so the accuracy is the
+  statistical part's.
+- Quantities stay exact (`big.Rat`); a line writes them to three
+  decimals, half away from zero.
+
+**Later** (the plan's S2m and S2n Later): statistical models beyond the
+moving average (exponential smoothing, trend and seasonal models, SAP's
+forecast models from memory), the forecast kept per material and plant
+and read by planning, forecast versions and their accuracy over time,
+promotions and collaborative forecasts; reading only orders with a
+quantity still open (a sales order stays `confirmed` once delivered in
+full, so the run pages a material's delivered orders too, at a cost that
+grows with its history).

@@ -45853,9 +45853,12 @@ type EInvoice struct {
 	// as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid
 	// tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its
 	// entering refused, `problem_code` and `problem_detail` saying why, such as
-	// `payables.capture_needs_order` for one naming no purchase order, or
-	// `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that
-	// is not for a volume discount, for a person to resolve;
+	// `payables.capture_needs_order` for one naming no purchase order (but a tax credit note for a volume
+	// discount, entered without one; batch 89: held with `payables.capture_needs_account` when the company
+	// has no account for discounts received, `payables.einvoice_seller_unknown` or
+	// `payables.einvoice_seller_ambiguous` when no or several suppliers of the company hold the seller's
+	// TRN), or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it
+	// corrects that is not for a volume discount, for a person to resolve;
 	// `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several).
 	// The later slices add dismissed (ADR-0061 §7).
 	Status string `json:"status"`
@@ -58019,15 +58022,19 @@ type IncomingPayment struct {
 	// The payment's currency (ISO 4217), the receipt's: every amount of the payment is in it, an item in
 	// another currency translated (`items[].item_amount`, T75n).
 	Currency string `json:"currency"`
-	// What was received: the receipt's amount. It is the items' amounts less their residuals and less
-	// `difference`.
+	// What was received: the receipt's amount. It is the items' amounts less their residuals, less
+	// `cash_discount` and less `difference`.
 	Amount Money `json:"amount"`
 	// The payment difference written off within the company's payment tolerance
 	// (`companies[].receivables.payment_tolerance`): what the items applied with the receipt, net of their
-	// residuals and of what their reasons wrote off, exceed it by. Positive: an underpayment, posted to
-	// the company's `payment_difference_expense` account; negative: an overpayment, kept on its
-	// `payment_difference_revenue` account; zero when the items equal the receipt.
+	// residuals, of what their reasons wrote off and of their cash discounts, exceed it by. Positive: an
+	// underpayment, posted to the company's `payment_difference_expense` account; negative: an
+	// overpayment, kept on its `payment_difference_revenue` account; zero when the items equal the
+	// receipt.
 	Difference Money `json:"difference"`
+	// The cash discounts the items applied with the receipt took (`items[].cash_discount`), zero when none
+	// did.
+	CashDiscount Money `json:"cash_discount"`
 	// What the payment left on the customer's account and what of it is still open; absent when it left
 	// nothing.
 	OnAccount OptIncomingPaymentOnAccount `json:"on_account"`
@@ -58161,6 +58168,11 @@ func (s *IncomingPayment) GetAmount() Money {
 // GetDifference returns the value of Difference.
 func (s *IncomingPayment) GetDifference() Money {
 	return s.Difference
+}
+
+// GetCashDiscount returns the value of CashDiscount.
+func (s *IncomingPayment) GetCashDiscount() Money {
+	return s.CashDiscount
 }
 
 // GetOnAccount returns the value of OnAccount.
@@ -58336,6 +58348,11 @@ func (s *IncomingPayment) SetAmount(val Money) {
 // SetDifference sets the value of Difference.
 func (s *IncomingPayment) SetDifference(val Money) {
 	s.Difference = val
+}
+
+// SetCashDiscount sets the value of CashDiscount.
+func (s *IncomingPayment) SetCashDiscount(val Money) {
+	s.CashDiscount = val
 }
 
 // SetOnAccount sets the value of OnAccount.
@@ -58607,10 +58624,11 @@ type IncomingPaymentCreate struct {
 	// (`companies[].time_zone`).
 	PostingDate OptDate `json:"posting_date"`
 	// The open items the payment is applied to (`GET /v1/open-items`), the payer's and the other
-	// customers', invoices and credits, each with a residual item if it is paid in part; together, net of
-	// their residuals and of what their reasons wrote off, they equal the receipt, in its currency, but
-	// for a difference within the company's payment tolerance and, with `on_account`, what is left on
-	// account. Empty only with `on_account`.
+	// customers', invoices and credits, each with a residual item if it is paid in part or its cash
+	// discount if it takes one; together, net of their residuals, of what their reasons wrote off and of
+	// their cash discounts, they equal the receipt, in its currency, but for a difference within the
+	// company's payment tolerance and, with `on_account`, what is left on account. Empty only with
+	// `on_account`.
 	Items []IncomingPaymentItemRef `json:"items"`
 	// Leave what the receipt has left after the items, the whole receipt when there are none, on the
 	// customer's account as a credit of the customer's (T75g): an open item that
@@ -58698,8 +58716,9 @@ type IncomingPaymentCustomer struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// Its part of the receipt: its items applied with the receipt, net of their residuals and of what
-	// their reasons wrote off, in the payment's currency; negative when its credits exceed its invoices.
+	// Its part of the receipt: its items applied with the receipt, net of their residuals, of what their
+	// reasons wrote off and of their cash discounts, in the payment's currency; negative when its credits
+	// exceed its invoices.
 	Amount Money `json:"amount"`
 }
 
@@ -58838,6 +58857,9 @@ type IncomingPaymentItem struct {
 	// What of the item, paid in part, its reason wrote off instead of leaving a residual item (T75o);
 	// absent otherwise.
 	WriteOff OptIncomingPaymentWriteOff `json:"write_off"`
+	// The cash discount the item took (`IncomingPaymentItemRef.cash_discount`), in the payment's currency:
+	// debited with its share of the item's output tax in the clearing entry; absent when it took none.
+	CashDiscount OptMoney `json:"cash_discount"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -58915,6 +58937,11 @@ func (s *IncomingPaymentItem) GetWriteOff() OptIncomingPaymentWriteOff {
 	return s.WriteOff
 }
 
+// GetCashDiscount returns the value of CashDiscount.
+func (s *IncomingPaymentItem) GetCashDiscount() OptMoney {
+	return s.CashDiscount
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *IncomingPaymentItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -58990,6 +59017,11 @@ func (s *IncomingPaymentItem) SetWriteOff(val OptIncomingPaymentWriteOff) {
 	s.WriteOff = val
 }
 
+// SetCashDiscount sets the value of CashDiscount.
+func (s *IncomingPaymentItem) SetCashDiscount(val OptMoney) {
+	s.CashDiscount = val
+}
+
 // An open item an incoming payment is applied to (fiscal_year, journal_entry_id, line_no), with what
 // stays open of it when it is paid in part.
 // Ref: #/components/schemas/IncomingPaymentItemRef
@@ -59001,6 +59033,16 @@ type IncomingPaymentItemRef struct {
 	// The item's line in the entry.
 	LineNo   int32                            `json:"line_no"`
 	Residual OptIncomingPaymentResidualCreate `json:"residual"`
+	// The item takes the cash discount its payment terms grant for a payment received on the receipt's
+	// posting date (ADR-0063, cash discount granted): an invoice paid in full (422
+	// `ledger.invalid_discount` for a credit or an item with a residual), within a discount period of the
+	// terms it was posted with (422 `ledger.no_cash_discount`), its discount the tier's percent of its
+	// amount in the receipt's currency, rounded half away from zero. Only in a company of the United Arab
+	// Emirates, where it reduces the output tax (the product owner, 2026-11-21); elsewhere what the
+	// customer takes off is a payment difference without tax and this is refused, as it is on an
+	// application of a credit on account (422 `receivables.cash_discount_not_granted`). Each refusal names
+	// `items[i].cash_discount`.
+	CashDiscount OptBool `json:"cash_discount"`
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -59023,6 +59065,11 @@ func (s *IncomingPaymentItemRef) GetResidual() OptIncomingPaymentResidualCreate 
 	return s.Residual
 }
 
+// GetCashDiscount returns the value of CashDiscount.
+func (s *IncomingPaymentItemRef) GetCashDiscount() OptBool {
+	return s.CashDiscount
+}
+
 // SetFiscalYear sets the value of FiscalYear.
 func (s *IncomingPaymentItemRef) SetFiscalYear(val int32) {
 	s.FiscalYear = val
@@ -59041,6 +59088,11 @@ func (s *IncomingPaymentItemRef) SetLineNo(val int32) {
 // SetResidual sets the value of Residual.
 func (s *IncomingPaymentItemRef) SetResidual(val OptIncomingPaymentResidualCreate) {
 	s.Residual = val
+}
+
+// SetCashDiscount sets the value of CashDiscount.
+func (s *IncomingPaymentItemRef) SetCashDiscount(val OptBool) {
+	s.CashDiscount = val
 }
 
 // What an incoming payment left on the customer's account (T75g): a credit of the customer's on its

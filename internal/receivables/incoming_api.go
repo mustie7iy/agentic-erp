@@ -114,6 +114,7 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
 		CompanyName: le.Name, CustomerID: v.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name, PostingDate: v.PostingDate,
 		Currency: v.Currency, Amount: apitypes.Money(v.Amount, v.Currency, v.Exponent), Difference: apitypes.Money(v.Difference, v.Currency, v.Exponent),
+		CashDiscount:            apitypes.Money(v.CashDiscount(), v.Currency, v.Exponent),
 		ReceiptJournalEntryID:   v.ReceiptEntryID,
 		ReceiptJournalEntryYear: int32(v.ReceiptYear), ReceiptJournalEntryNumber: refs.numbers[v.ReceiptEntryID], ReceiptAccountID: v.ReceiptAccountID,
 		ReceiptAccountNumber: account.Number, ReceiptAccountName: account.Name, JournalEntryID: v.EntryID, JournalEntryYear: int32(v.EntryYear),
@@ -130,24 +131,7 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		out.ReceiptBankStatementLineNo.SetTo(line.LineNo)
 	}
 	for i, it := range v.Items {
-		named := refs.partners[it.CustomerID]
-		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, ApplicationNo: it.ApplicationNo, CustomerID: it.CustomerID, CustomerNumber: named.Number,
-			CustomerName: named.Name, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID,
-			LineNo: it.LineNo, JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID],
-			Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent), ItemAmount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
-		if it.ItemAmount != nil { // stored with its currency and rate (incoming_payment_item_translation)
-			out.Items[i].ItemAmount = apitypes.Money(*it.ItemAmount, *it.ItemCurrency, *it.ItemExponent)
-			out.Items[i].ExchangeRate.SetTo(gen.Decimal(*it.ExchangeRate))
-		}
-		if it.ResidualAmount != nil { // stored with its line and reason (incoming_payment_item_residual)
-			year, entry := v.clearing(it.ApplicationNo)
-			out.Items[i].Residual.SetTo(gen.IncomingPaymentResidual{Amount: apitypes.Money(*it.ResidualAmount, v.Currency, v.Exponent), Reason: *it.ResidualReason,
-				ReasonText: apitypes.OptString(it.ResidualText), FiscalYear: int32(year), JournalEntryID: entry, JournalEntryNumber: refs.numbers[entry],
-				LineNo: *it.ResidualLineNo})
-		}
-		if it.WriteOffAmount != nil { // stored with its line, account and reason (incoming_payment_item_write_off)
-			out.Items[i].WriteOff.SetTo(writeOffToAPI(v, it, refs))
-		}
+		out.Items[i] = paymentItemToAPI(v, it, refs)
 	}
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, v.Currency, v.Exponent) }
 	for i, a := range v.Applications {
@@ -168,6 +152,34 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 			}
 		}
 		out.OnAccount.SetTo(on)
+	}
+	return out
+}
+
+// paymentItemToAPI is an item of the payment as the API gives it, with
+// what it names by id: its translation, residual item, write-off and cash
+// discount where it has them.
+func paymentItemToAPI(v IncomingPayment, it PaymentItem, refs paymentReferences) gen.IncomingPaymentItem {
+	named := refs.partners[it.CustomerID]
+	out := gen.IncomingPaymentItem{ItemNo: it.ItemNo, ApplicationNo: it.ApplicationNo, CustomerID: it.CustomerID, CustomerNumber: named.Number,
+		CustomerName: named.Name, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID,
+		LineNo: it.LineNo, JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID],
+		Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent), ItemAmount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+	if it.ItemAmount != nil { // stored with its currency and rate (incoming_payment_item_translation)
+		out.ItemAmount = apitypes.Money(*it.ItemAmount, *it.ItemCurrency, *it.ItemExponent)
+		out.ExchangeRate.SetTo(gen.Decimal(*it.ExchangeRate))
+	}
+	if it.ResidualAmount != nil { // stored with its line and reason (incoming_payment_item_residual)
+		year, entry := v.clearing(it.ApplicationNo)
+		out.Residual.SetTo(gen.IncomingPaymentResidual{Amount: apitypes.Money(*it.ResidualAmount, v.Currency, v.Exponent), Reason: *it.ResidualReason,
+			ReasonText: apitypes.OptString(it.ResidualText), FiscalYear: int32(year), JournalEntryID: entry, JournalEntryNumber: refs.numbers[entry],
+			LineNo: *it.ResidualLineNo})
+	}
+	if it.WriteOffAmount != nil { // stored with its line, account and reason (incoming_payment_item_write_off)
+		out.WriteOff.SetTo(writeOffToAPI(v, it, refs))
+	}
+	if it.CashDiscount != nil {
+		out.CashDiscount.SetTo(apitypes.Money(*it.CashDiscount, v.Currency, v.Exponent))
 	}
 	return out
 }
@@ -207,7 +219,7 @@ func (v IncomingPayment) clearing(application int32) (int16, uuid.UUID) {
 func (e *Endpoints) CreateIncomingPayment(ctx context.Context, req *gen.IncomingPaymentCreate, _ gen.CreateIncomingPaymentParams) (gen.CreateIncomingPaymentRes, error) {
 	in := PaymentInput{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, OtherCustomers: req.OtherCustomerIds, ReceiptEntryID: req.ReceiptJournalEntryID,
 		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), OnAccount: req.OnAccount.Or(false)}
-	in.Items, in.Residuals = itemsOf(req.Items)
+	in.Items, in.Residuals, in.CashDiscounts = itemsOf(req.Items)
 	v, err := e.ApplyPayment(ctx, in)
 	if err != nil {
 		return nil, err
@@ -216,16 +228,17 @@ func (e *Endpoints) CreateIncomingPayment(ctx context.Context, req *gen.Incoming
 }
 
 // itemsOf reads the items of a request with their residuals, nil for an
-// item without one.
-func itemsOf(req []gen.IncomingPaymentItemRef) ([]ledger.ItemRef, []*ResidualInput) {
-	items, residuals := make([]ledger.ItemRef, len(req)), make([]*ResidualInput, len(req))
+// item without one, and whether each takes its cash discount.
+func itemsOf(req []gen.IncomingPaymentItemRef) ([]ledger.ItemRef, []*ResidualInput, []bool) {
+	items, residuals, discounts := make([]ledger.ItemRef, len(req)), make([]*ResidualInput, len(req)), make([]bool, len(req))
 	for i, it := range req {
 		items[i] = ledger.ItemRef{FiscalYear: int16(it.FiscalYear), EntryID: it.JournalEntryID, LineNo: it.LineNo} // the contract bounds fiscal_year to 1900..2999
 		if r, ok := it.Residual.Get(); ok {
 			residuals[i] = &ResidualInput{Value: r.Amount.Amount, Currency: r.Amount.Currency, Reason: r.Reason, Text: apitypes.Ptr[string](r.ReasonText)}
 		}
+		discounts[i] = it.CashDiscount.Or(false)
 	}
-	return items, residuals
+	return items, residuals, discounts
 }
 
 // paymentAnswer is the payment created or changed, with its ETag and
@@ -245,7 +258,11 @@ func (e *Endpoints) paymentAnswer(ctx context.Context, v IncomingPayment) (*gen.
 func (e *Endpoints) ApplyIncomingPaymentOnAccount(ctx context.Context, req *gen.IncomingPaymentApplicationCreate,
 	params gen.ApplyIncomingPaymentOnAccountParams) (gen.ApplyIncomingPaymentOnAccountRes, error) {
 	in := CreditInput{PaymentID: params.ID, PostingDate: apitypes.Ptr[time.Time](req.PostingDate)}
-	in.Items, in.Residuals = itemsOf(req.Items)
+	var discounts []bool
+	in.Items, in.Residuals, discounts = itemsOf(req.Items)
+	if err := noCashDiscount(discounts); err != nil {
+		return nil, err
+	}
 	v, err := e.ApplyOnAccount(ctx, in)
 	if err != nil {
 		return nil, err

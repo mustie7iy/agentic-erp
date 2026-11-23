@@ -1144,3 +1144,73 @@ func TestIncomingPaymentWriteOffRevert(t *testing.T) {
 	}
 	failsWith(t, exec(tx, down), "reverting would lose what was written off")
 }
+
+// TestIncomingPaymentCashDiscountRules (migration 000445; ADR-0063 As
+// built, cash discount granted): an item's cash discount is more than zero
+// and less than the item, which the customer owed (a debit) and paid in
+// full: never beside a residual item or a write-off.
+func TestIncomingPaymentCashDiscountRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+		receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, 'IP1', gen_random_uuid(), gen_random_uuid(), 2026, gen_random_uuid(), gen_random_uuid(), '2026-03-21', 'EUR', 9800, 2026,
+			gen_random_uuid(), $1)`
+	const item = `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+		cash_discount, residual_amount, residual_line_no, residual_reason, write_off_amount, write_off_line_no, write_off_account_id, write_off_reason)
+		VALUES ($1, $2, 1, 2026, gen_random_uuid(), 1, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	var none *int64
+	var noLine *int32
+	var noText *string
+	var noAccount *uuid.UUID
+	discount, zero, part, line, reason, account, writeOff := int64(200), int64(0), int64(100), int32(4), "disputed", id(), "bank_charges"
+	cases := []struct {
+		name string
+		args []any // amount, cash discount; residual amount, line, reason; write-off amount, line, account, reason
+		want string
+	}{
+		{"an item paid in full without one", []any{int64(10000), none, none, noLine, noText, none, noLine, noAccount, noText}, ""},
+		{"a discount on an invoice paid in full", []any{int64(10000), &discount, none, noLine, noText, none, noLine, noAccount, noText}, ""},
+		{"a discount of zero", []any{int64(10000), &zero, none, noLine, noText, none, noLine, noAccount, noText}, "incoming_payment_item_cash_discount"},
+		{"a discount of the whole item", []any{int64(200), &discount, none, noLine, noText, none, noLine, noAccount, noText}, "incoming_payment_item_cash_discount"},
+		{"a discount on a credit", []any{int64(-10000), &discount, none, noLine, noText, none, noLine, noAccount, noText}, "incoming_payment_item_cash_discount"},
+		{"a discount beside a residual", []any{int64(10000), &discount, &part, &line, &reason, none, noLine, noAccount, noText}, "incoming_payment_item_cash_discount"},
+		{"a discount beside a write-off", []any{int64(10000), &discount, none, noLine, noText, &part, &line, &account, &writeOff}, "incoming_payment_item_cash_discount"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, step(header, tenant, doc), step(item, append([]any{tenant, doc}, c.args...)...))
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestIncomingPaymentCashDiscountRevert (migration 000445's down): the
+// revert is refused while an item took a cash discount.
+func TestIncomingPaymentCashDiscountRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000445_incoming_payment_cash_discount").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+			receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+			VALUES ($1, $1, 'IP1', $1, $1, 2026, gen_random_uuid(), $1, '2026-03-21', 'EUR', 9800, 2026, gen_random_uuid(), $1)`, tenant),
+		step(`INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+			cash_discount) VALUES ($1, $1, 1, 2026, gen_random_uuid(), 1, 10000, 200)`, tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "reverting would lose them")
+}
