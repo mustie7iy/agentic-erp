@@ -685,6 +685,10 @@ type EndSodRuleRes interface {
 	endSodRuleRes()
 }
 
+type EnterIntercompanySupplierInvoiceRes interface {
+	enterIntercompanySupplierInvoiceRes()
+}
+
 type EnterPhysicalInventoryCountRes interface {
 	enterPhysicalInventoryCountRes()
 }

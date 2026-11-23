@@ -806,11 +806,15 @@ customs (S2s).
     customer invoice (receivable and revenue); once per goods issue.
     `POST /v1/intercompany-billings`; walkthrough step 155.
   - **S2i3 The receiving company's supplier invoice from the billing**
-    (leaf): the posted intercompany billing is entered as a supplier
-    invoice of the receiving company for the supplier that is the
-    supplying company, at the billing's amounts and tax, against the
-    order's receipts (clearing GR/IR, the matching of S1e), for a person
-    to post.
+    (built, lane ics3, 2026-11-22; ADR-0082 As built S2i3): the posted
+    intercompany billing is entered as a supplier invoice of the receiving
+    company for the supplier that is the supplying company, at the
+    billing's amounts and tax, its items the order's at the billing's
+    nets, its codes proposed from the billed rates, parked or held for a
+    person to match against the order's receipts and post (clearing
+    GR/IR, the matching of S1e); once per billing.
+    `POST /v1/supplier-invoices:fromIntercompanyBilling`; walkthrough
+    step 155.
   - **Later:** partial and repeated goods issues, a delivery between the
     companies (SAP's NLCC delivery), the 643's reversal (644; 409
     `inventory.reverse_stock_transport` until then), changing a released

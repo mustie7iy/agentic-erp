@@ -3232,6 +3232,34 @@ type Invoker interface {
 	//
 	// POST /v1/sod-rules/{id}:end
 	EndSodRule(ctx context.Context, request *EndInput, params EndSodRuleParams) (EndSodRuleRes, error)
+	// EnterIntercompanySupplierInvoice invokes enterIntercompanySupplierInvoice operation.
+	//
+	// The receiving company enters the supplying company's posted intercompany billing
+	// (`createIntercompanyBilling`, ADR-0082 As built S2i2, S2i3; SAP's invoice of an intercompany
+	// billing, from memory) as its supplier invoice, `parked` or `on_hold` for a person to post (`:post`).
+	// The billing (`intercompany_billing_id`, `GET /v1/intercompany-billings/{id}`) is one billed to a
+	// company the caller may act in (422 `request.reference_not_found` naming `intercompany_billing_id`
+	// otherwise). The invoice is the receiving company's, for its order's supplier, the business partner
+	// that is the supplying company; its supplier reference is the billing's number, its invoice date the
+	// billing date, its currency, gross and tax amounts the billing's, and its items the order's items,
+	// each with its quantity at the billing item's net amount, so posting it clears the order's GR/IR
+	// (`:match`, three-way against the order's receipts; SAP's MIRO against the receipt). Each item keeps
+	// its order item's input tax code where it charges the rate of the billing item's output tax code (the
+	// supplying company's, on the billing date); otherwise the one input tax code of the company that
+	// charges it is proposed, and with none or several the invoice is `on_hold` naming the item for a
+	// person to choose; an item billed without tax, or at a rate of zero, whose order item has no code
+	// stays without one (nothing is charged, nothing to recover). A stated tax the codes do not bear out
+	// holds it (`payables.tax_mismatch`'s figures), as do the company's rules and missing required custom
+	// fields, as for a captured invoice. A billing is entered once (409
+	// `payables.intercompany_billing_entered` naming the invoice; a rejected, cancelled or reversed
+	// invoice frees it), and the supplier reference once per supplier (409 `payables.duplicate_invoice`).
+	// Source `edi`; the invoice names the billing (`intercompany_billing_id`). Audited
+	// (`payables.supplier_invoice.create`); publishes SupplierInvoiceCaptured, and SupplierInvoiceHeld for
+	// one on hold. A retry with the same `Idempotency-Key` answers the invoice created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/supplier-invoices:fromIntercompanyBilling
+	EnterIntercompanySupplierInvoice(ctx context.Context, request *SupplierInvoiceFromIntercompanyBilling, params EnterIntercompanySupplierInvoiceParams) (EnterIntercompanySupplierInvoiceRes, error)
 	// EnterPhysicalInventoryCount invokes enterPhysicalInventoryCount operation.
 	//
 	// Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`;
@@ -36910,6 +36938,158 @@ func (c *Client) sendEndSodRule(ctx context.Context, request *EndInput, params E
 
 	stage = "DecodeResponse"
 	result, err := decodeEndSodRuleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// EnterIntercompanySupplierInvoice invokes enterIntercompanySupplierInvoice operation.
+//
+// The receiving company enters the supplying company's posted intercompany billing
+// (`createIntercompanyBilling`, ADR-0082 As built S2i2, S2i3; SAP's invoice of an intercompany
+// billing, from memory) as its supplier invoice, `parked` or `on_hold` for a person to post (`:post`).
+// The billing (`intercompany_billing_id`, `GET /v1/intercompany-billings/{id}`) is one billed to a
+// company the caller may act in (422 `request.reference_not_found` naming `intercompany_billing_id`
+// otherwise). The invoice is the receiving company's, for its order's supplier, the business partner
+// that is the supplying company; its supplier reference is the billing's number, its invoice date the
+// billing date, its currency, gross and tax amounts the billing's, and its items the order's items,
+// each with its quantity at the billing item's net amount, so posting it clears the order's GR/IR
+// (`:match`, three-way against the order's receipts; SAP's MIRO against the receipt). Each item keeps
+// its order item's input tax code where it charges the rate of the billing item's output tax code (the
+// supplying company's, on the billing date); otherwise the one input tax code of the company that
+// charges it is proposed, and with none or several the invoice is `on_hold` naming the item for a
+// person to choose; an item billed without tax, or at a rate of zero, whose order item has no code
+// stays without one (nothing is charged, nothing to recover). A stated tax the codes do not bear out
+// holds it (`payables.tax_mismatch`'s figures), as do the company's rules and missing required custom
+// fields, as for a captured invoice. A billing is entered once (409
+// `payables.intercompany_billing_entered` naming the invoice; a rejected, cancelled or reversed
+// invoice frees it), and the supplier reference once per supplier (409 `payables.duplicate_invoice`).
+// Source `edi`; the invoice names the billing (`intercompany_billing_id`). Audited
+// (`payables.supplier_invoice.create`); publishes SupplierInvoiceCaptured, and SupplierInvoiceHeld for
+// one on hold. A retry with the same `Idempotency-Key` answers the invoice created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/supplier-invoices:fromIntercompanyBilling
+func (c *Client) EnterIntercompanySupplierInvoice(ctx context.Context, request *SupplierInvoiceFromIntercompanyBilling, params EnterIntercompanySupplierInvoiceParams) (EnterIntercompanySupplierInvoiceRes, error) {
+	res, err := c.sendEnterIntercompanySupplierInvoice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendEnterIntercompanySupplierInvoice(ctx context.Context, request *SupplierInvoiceFromIntercompanyBilling, params EnterIntercompanySupplierInvoiceParams) (res EnterIntercompanySupplierInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("enterIntercompanySupplierInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/supplier-invoices:fromIntercompanyBilling"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, EnterIntercompanySupplierInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/supplier-invoices:fromIntercompanyBilling"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeEnterIntercompanySupplierInvoiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, EnterIntercompanySupplierInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeEnterIntercompanySupplierInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

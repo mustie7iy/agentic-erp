@@ -5761,9 +5761,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2i3 The receiving company's supplier invoice from the intercompany billing: the posted billing entered as a supplier invoice of the receiving company for the supplier that is the supplying company, at the billing's amounts and tax, matched to the order's receipts (clearing GR/IR), for a person to post",
-      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i3) · ADR-0082 As built S2i",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i3) · ADR-0082 As built S2i, S2i3 · db/migrations/000446, 000447, 000448 · payables.supplier_invoice.intercompany_billing_id · POST /v1/supplier-invoices:fromIntercompanyBilling · payables.IntercompanyBillings · walkthrough step_intercompany_transport (step 155, intercompany_invoice)",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },

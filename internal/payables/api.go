@@ -42,7 +42,8 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate, GrossAmount: apitypes.Money(v.Gross, v.Currency, v.Exponent),
 		TaxAmount: apitypes.Money(v.Tax, v.Currency, v.Exponent), Status: v.Status, Source: v.Source, Extensions: apitypes.EncodeObject(v.Extensions),
 		Kind: gen.NewOptString(v.Kind), ReferenceInvoiceID: apitypes.OptUUID(v.ReferenceInvoiceID), Items: make([]gen.SupplierInvoiceItem, len(v.Items)),
-		DocumentaryWarnings: make([]gen.DocumentaryWarning, len(v.DocumentaryWarnings)), PaymentMethod: apitypes.OptString(v.PaymentMethod)}
+		DocumentaryWarnings: make([]gen.DocumentaryWarning, len(v.DocumentaryWarnings)), PaymentMethod: apitypes.OptString(v.PaymentMethod),
+		IntercompanyBillingID: apitypes.OptUUID(v.IntercompanyBillingID)}
 	for i, w := range v.DocumentaryWarnings {
 		out.DocumentaryWarnings[i] = gen.DocumentaryWarning{Code: w.Code, Requirement: w.Requirement, Threshold: apitypes.Money(w.Threshold, w.Currency, w.Exponent),
 			ThresholdInclusive: w.Inclusive, Source: w.Source, PendingSignOff: w.PendingSignOff, Unassessed: w.Unassessed,
@@ -161,6 +162,18 @@ func (e *Endpoints) CreateSupplierInvoice(ctx context.Context, req *gen.Supplier
 		Extensions: apitypes.DecodeObject(req.Extensions.Value), Kind: req.Kind.Or(KindInvoice), ReferenceInvoiceID: apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID),
 		PaymentMethod: apitypes.Ptr[string](req.PaymentMethod)},
 		req.Source.Or("manual"))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.SupplierInvoiceHeaders{ETag: gen.NewOptString(etag.Format(v.Version)), Location: gen.NewOptString("/v1/supplier-invoices/" + v.ID.String()),
+		Response: toAPI(v)}, nil
+}
+
+// EnterIntercompanySupplierInvoice implements POST
+// /v1/supplier-invoices:fromIntercompanyBilling.
+func (e *Endpoints) EnterIntercompanySupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceFromIntercompanyBilling,
+	_ gen.EnterIntercompanySupplierInvoiceParams) (gen.EnterIntercompanySupplierInvoiceRes, error) {
+	v, err := e.EnterIntercompanyBilling(ctx, req.IntercompanyBillingID)
 	if err != nil {
 		return nil, err
 	}

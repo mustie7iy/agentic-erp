@@ -28410,6 +28410,7 @@ func (*ConflictHeaders) endReportShareRes()                        {}
 func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
+func (*ConflictHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*ConflictHeaders) enterPhysicalInventoryCountRes()           {}
 func (*ConflictHeaders) evaluateMetricWatcherRes()                 {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
@@ -47113,6 +47114,22 @@ func (*EndSodRulePreconditionRequired) endSodRuleRes() {}
 type EndSodRuleUnprocessableEntity Problem
 
 func (*EndSodRuleUnprocessableEntity) endSodRuleRes() {}
+
+type EnterIntercompanySupplierInvoiceBadRequest Problem
+
+func (*EnterIntercompanySupplierInvoiceBadRequest) enterIntercompanySupplierInvoiceRes() {}
+
+type EnterIntercompanySupplierInvoiceForbidden Problem
+
+func (*EnterIntercompanySupplierInvoiceForbidden) enterIntercompanySupplierInvoiceRes() {}
+
+type EnterIntercompanySupplierInvoicePreconditionRequired Problem
+
+func (*EnterIntercompanySupplierInvoicePreconditionRequired) enterIntercompanySupplierInvoiceRes() {}
+
+type EnterIntercompanySupplierInvoiceUnprocessableEntity Problem
+
+func (*EnterIntercompanySupplierInvoiceUnprocessableEntity) enterIntercompanySupplierInvoiceRes() {}
 
 type EnterPhysicalInventoryCountBadRequest Problem
 
@@ -116222,6 +116239,7 @@ func (*ServiceUnavailableHeaders) endCompanyAccessRes()                      {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                     {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                     {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
+func (*ServiceUnavailableHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*ServiceUnavailableHeaders) evaluateMetricWatcherRes()                 {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
@@ -119390,6 +119408,10 @@ type SupplierInvoice struct {
 	// not negative whatever the kind, which gives the direction. Fixed once entered. Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind OptString `json:"kind"`
+	// The supplying company's intercompany billing the invoice was entered from
+	// (`enterIntercompanySupplierInvoice`, `GET /v1/intercompany-billings/{id}`; ADR-0082 As built S2i3),
+	// whose number is its `supplier_reference`; absent on an invoice entered otherwise.
+	IntercompanyBillingID OptUUID `json:"intercompany_billing_id"`
 	// The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal
 	// entity and currency); never on an invoice. A credit memo entered from an e-invoice credit note
 	// citing several invoices names none (they are its `cited_invoices`).
@@ -119544,6 +119566,11 @@ func (s *SupplierInvoice) GetPurchaseOrderID() OptUUID {
 // GetKind returns the value of Kind.
 func (s *SupplierInvoice) GetKind() OptString {
 	return s.Kind
+}
+
+// GetIntercompanyBillingID returns the value of IntercompanyBillingID.
+func (s *SupplierInvoice) GetIntercompanyBillingID() OptUUID {
+	return s.IntercompanyBillingID
 }
 
 // GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
@@ -119714,6 +119741,11 @@ func (s *SupplierInvoice) SetPurchaseOrderID(val OptUUID) {
 // SetKind sets the value of Kind.
 func (s *SupplierInvoice) SetKind(val OptString) {
 	s.Kind = val
+}
+
+// SetIntercompanyBillingID sets the value of IntercompanyBillingID.
+func (s *SupplierInvoice) SetIntercompanyBillingID(val OptUUID) {
+	s.IntercompanyBillingID = val
 }
 
 // SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
@@ -120103,6 +120135,25 @@ func (s *SupplierInvoiceCreate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// Enter the supplying company's posted intercompany billing as the receiving company's supplier
+// invoice (S2i3).
+// Ref: #/components/schemas/SupplierInvoiceFromIntercompanyBilling
+type SupplierInvoiceFromIntercompanyBilling struct {
+	// The intercompany billing (`GET /v1/intercompany-billings/{id}`) billed to a company the caller may
+	// act in.
+	IntercompanyBillingID uuid.UUID `json:"intercompany_billing_id"`
+}
+
+// GetIntercompanyBillingID returns the value of IntercompanyBillingID.
+func (s *SupplierInvoiceFromIntercompanyBilling) GetIntercompanyBillingID() uuid.UUID {
+	return s.IntercompanyBillingID
+}
+
+// SetIntercompanyBillingID sets the value of IntercompanyBillingID.
+func (s *SupplierInvoiceFromIntercompanyBilling) SetIntercompanyBillingID(val uuid.UUID) {
+	s.IntercompanyBillingID = val
+}
+
 // SupplierInvoiceHeaders wraps SupplierInvoice with response headers.
 type SupplierInvoiceHeaders struct {
 	ETag               OptString
@@ -120151,7 +120202,8 @@ func (s *SupplierInvoiceHeaders) SetResponse(val SupplierInvoice) {
 	s.Response = val
 }
 
-func (*SupplierInvoiceHeaders) createSupplierInvoiceRes() {}
+func (*SupplierInvoiceHeaders) createSupplierInvoiceRes()            {}
+func (*SupplierInvoiceHeaders) enterIntercompanySupplierInvoiceRes() {}
 
 // A supplier invoice item.
 // Ref: #/components/schemas/SupplierInvoiceItem
@@ -123060,6 +123112,7 @@ func (*TooManyRequestsHeaders) endReportShareRes()                        {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*TooManyRequestsHeaders) enterPhysicalInventoryCountRes()           {}
 func (*TooManyRequestsHeaders) evaluateMetricWatcherRes()                 {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
@@ -124042,6 +124095,7 @@ func (*UnauthorizedHeaders) endReportShareRes()                        {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
+func (*UnauthorizedHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*UnauthorizedHeaders) enterPhysicalInventoryCountRes()           {}
 func (*UnauthorizedHeaders) evaluateMetricWatcherRes()                 {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}

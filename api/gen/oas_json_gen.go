@@ -116719,6 +116719,158 @@ func (s *EndSodRuleUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes EnterIntercompanySupplierInvoiceBadRequest as json.
+func (s *EnterIntercompanySupplierInvoiceBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes EnterIntercompanySupplierInvoiceBadRequest from json.
+func (s *EnterIntercompanySupplierInvoiceBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode EnterIntercompanySupplierInvoiceBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = EnterIntercompanySupplierInvoiceBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *EnterIntercompanySupplierInvoiceBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *EnterIntercompanySupplierInvoiceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes EnterIntercompanySupplierInvoiceForbidden as json.
+func (s *EnterIntercompanySupplierInvoiceForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes EnterIntercompanySupplierInvoiceForbidden from json.
+func (s *EnterIntercompanySupplierInvoiceForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode EnterIntercompanySupplierInvoiceForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = EnterIntercompanySupplierInvoiceForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *EnterIntercompanySupplierInvoiceForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *EnterIntercompanySupplierInvoiceForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes EnterIntercompanySupplierInvoicePreconditionRequired as json.
+func (s *EnterIntercompanySupplierInvoicePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes EnterIntercompanySupplierInvoicePreconditionRequired from json.
+func (s *EnterIntercompanySupplierInvoicePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode EnterIntercompanySupplierInvoicePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = EnterIntercompanySupplierInvoicePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *EnterIntercompanySupplierInvoicePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *EnterIntercompanySupplierInvoicePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes EnterIntercompanySupplierInvoiceUnprocessableEntity as json.
+func (s *EnterIntercompanySupplierInvoiceUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes EnterIntercompanySupplierInvoiceUnprocessableEntity from json.
+func (s *EnterIntercompanySupplierInvoiceUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode EnterIntercompanySupplierInvoiceUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = EnterIntercompanySupplierInvoiceUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *EnterIntercompanySupplierInvoiceUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *EnterIntercompanySupplierInvoiceUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes EnterPhysicalInventoryCountBadRequest as json.
 func (s *EnterPhysicalInventoryCountBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -292778,6 +292930,12 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.IntercompanyBillingID.Set {
+			e.FieldStart("intercompany_billing_id")
+			s.IntercompanyBillingID.Encode(e)
+		}
+	}
+	{
 		if s.ReferenceInvoiceID.Set {
 			e.FieldStart("reference_invoice_id")
 			s.ReferenceInvoiceID.Encode(e)
@@ -292877,7 +293035,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [34]string{
+var jsonFieldsNameOfSupplierInvoice = [35]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -292896,22 +293054,23 @@ var jsonFieldsNameOfSupplierInvoice = [34]string{
 	15: "stated_local_tax",
 	16: "purchase_order_id",
 	17: "kind",
-	18: "reference_invoice_id",
-	19: "status",
-	20: "hold_reason",
-	21: "source",
-	22: "journal_entry_id",
-	23: "payment_terms",
-	24: "payment_method",
-	25: "reversal_entry_id",
-	26: "workflow_request_id",
-	27: "items",
-	28: "extensions",
-	29: "documentary_warnings",
-	30: "credit_reason",
-	31: "cited_invoices",
-	32: "calculated_tax",
-	33: "expanded",
+	18: "intercompany_billing_id",
+	19: "reference_invoice_id",
+	20: "status",
+	21: "hold_reason",
+	22: "source",
+	23: "journal_entry_id",
+	24: "payment_terms",
+	25: "payment_method",
+	26: "reversal_entry_id",
+	27: "workflow_request_id",
+	28: "items",
+	29: "extensions",
+	30: "documentary_warnings",
+	31: "credit_reason",
+	32: "cited_invoices",
+	33: "calculated_tax",
+	34: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -293123,6 +293282,16 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"kind\"")
 			}
+		case "intercompany_billing_id":
+			if err := func() error {
+				s.IntercompanyBillingID.Reset()
+				if err := s.IntercompanyBillingID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"intercompany_billing_id\"")
+			}
 		case "reference_invoice_id":
 			if err := func() error {
 				s.ReferenceInvoiceID.Reset()
@@ -293134,7 +293303,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"reference_invoice_id\"")
 			}
 		case "status":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -293156,7 +293325,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"hold_reason\"")
 			}
 		case "source":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Source = string(v)
@@ -293218,7 +293387,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "items":
-			requiredBitSet[3] |= 1 << 3
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -293236,7 +293405,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "extensions":
-			requiredBitSet[3] |= 1 << 4
+			requiredBitSet[3] |= 1 << 5
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -293246,7 +293415,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"extensions\"")
 			}
 		case "documentary_warnings":
-			requiredBitSet[3] |= 1 << 5
+			requiredBitSet[3] |= 1 << 6
 			if err := func() error {
 				s.DocumentaryWarnings = make([]DocumentaryWarning, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -293322,8 +293491,8 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 	for i, mask := range [5]uint8{
 		0b11011111,
 		0b01100111,
-		0b00101000,
-		0b00111000,
+		0b01010000,
+		0b01110000,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -293855,6 +294024,102 @@ func (s *SupplierInvoiceCreate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SupplierInvoiceCreate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SupplierInvoiceFromIntercompanyBilling) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SupplierInvoiceFromIntercompanyBilling) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("intercompany_billing_id")
+		json.EncodeUUID(e, s.IntercompanyBillingID)
+	}
+}
+
+var jsonFieldsNameOfSupplierInvoiceFromIntercompanyBilling = [1]string{
+	0: "intercompany_billing_id",
+}
+
+// Decode decodes SupplierInvoiceFromIntercompanyBilling from json.
+func (s *SupplierInvoiceFromIntercompanyBilling) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SupplierInvoiceFromIntercompanyBilling to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "intercompany_billing_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.IntercompanyBillingID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"intercompany_billing_id\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SupplierInvoiceFromIntercompanyBilling")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSupplierInvoiceFromIntercompanyBilling) {
+					name = jsonFieldsNameOfSupplierInvoiceFromIntercompanyBilling[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SupplierInvoiceFromIntercompanyBilling) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SupplierInvoiceFromIntercompanyBilling) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

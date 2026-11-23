@@ -16331,9 +16331,11 @@ step_replenishment_agent() {
 # Trading out of Sharjah against its cost of goods sold, once; the order in
 # transit is not cancelled. Ben receives the lamps into Toronto at the
 # order price against GR/IR. Ruth bills the goods issue to Maple at that
-# price (S2i2, intercompany_billing). Each company's entry balances.
+# price (S2i2, intercompany_billing); Alex enters the billing as Maple's
+# supplier invoice and posts it, clearing GR/IR (S2i3,
+# intercompany_invoice). Each company's entry balances.
 step_intercompany_transport() {
-  heading "Step 155 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; the UAE company bills the goods issue to Maple at that price as its customer invoice, once; each company's entry balances"
+  heading "Step 155 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; the UAE company bills the goods issue to Maple at that price as its customer invoice, once, and Maple enters the billing as its supplier invoice, once, clearing GR/IR; each company's entry balances"
   local ae base cr warehouse store lamp recon term sister po tag doc entry receipt
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
@@ -16499,6 +16501,40 @@ intercompany_billing() {
   api 200 '.items[] | "  intercompany billing \(.document_number) of \(.company_code): \(.gross_amount.amount) \(.currency), purchase order \(.purchase_order_number)"' \
     listIntercompanyBillings -p "receiving_legal_entity_id=$LE" -p "purchase_order_id=$po"
   expect "Maple's billings of the order" "$(field '[.items[].id] | join(" ")')" "$bill"
+  intercompany_invoice "$po" "$sister" "$bill"
+}
+
+# intercompany_invoice is S2i3 (ADR-0082 As built S2i3): Alex enters Maple
+# Gulf Trading's billing as Maple's supplier invoice of its sister, parked
+# at the billing's number, amounts and tax, its item the order's at the
+# transfer price; a billing is entered once. Matched against the receipt
+# and posted, it clears the order's GR/IR: Dr GR/IR, Cr the supplier,
+# CAD 320.00, both companies' entries balanced at the billing's price.
+intercompany_invoice() {
+  local po=$1 sister=$2 bill=$3 number inv entry
+  number=$(field '.items[0].document_number')
+  as alex
+  say "Alex enters the billing as Maple's supplier invoice of Maple Gulf Trading (S2i3): parked, for its order's supplier,"
+  say "at the billing's number, date, amounts and tax, its item the order's at the billing's price:"
+  api 201 '"supplier invoice \(.document_number) \(.supplier_reference) (\(.source)): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount)", (.items[] | "  item \(.item_no): order item \(.po_item_no), \(.quantity.value) \(.quantity.unit), \(.amount.amount), tax code \(.tax_code // "none")")' \
+    enterIntercompanySupplierInvoice -body "{\"intercompany_billing_id\": \"$bill\"}"
+  inv=$(field .id)
+  expect "the invoice, at the billing's figures" "$(field '"\(.status) \(.source) \(.supplier_id) \(.supplier_reference) \(.purchase_order_id) \(.intercompany_billing_id) \(.gross_amount.amount) \(.tax_amount.amount) \([.items[] | "\(.po_item_no):\(.amount.amount)"] | join(" "))"')" \
+    "parked edi $sister $number $po $bill 320.00 0.00 1:320.00"
+  say "A billing is entered once:"
+  refused 409 payables.intercompany_billing_entered enterIntercompanySupplierInvoice -body "{\"intercompany_billing_id\": \"$bill\"}"
+  say "He matches it against Maple's receipt of the lamps and posts it: the invoice clears GR/IR at the transfer price:"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$inv" -if-match "$ETAG"
+  expect "the match" "$(field .is_clean)" true
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  expect "the invoice's entry" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-320.00 320.00"
+  expect "the entry balances" "$(field '[.lines[] | .amount.amount | tonumber] | add')" 0
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$po" -p open_only=false
+  expect "the order's GR/IR" "$(field '[.items[] | "\(.received_quantity.value) \(.invoiced_quantity.value) \(.balance.amount)"] | join(", ")')" "20 20 0.00"
 }
 
 # step_count_agent is S2e (ADR-0072, ADR-0082 As built S2e,
