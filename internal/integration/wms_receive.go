@@ -75,17 +75,18 @@ type WMSIssueReport struct {
 	} `json:"items"`
 }
 
-// pollTenants returns the tenants with active wms connectors.
+// pollTenants returns the tenants with active wms or tms connectors.
 func (w *WMSExchange) pollTenants(ctx context.Context) ([]uuid.UUID, error) {
 	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole,
-		`SELECT DISTINCT tenant_id FROM integration.connector WHERE kind = $1 AND status = 'active' AND tenant_id IN `+database.ActiveTenants, WMS)
+		`SELECT DISTINCT tenant_id FROM integration.connector WHERE kind = ANY($1) AND status = 'active' AND tenant_id IN `+database.ActiveTenants,
+		[]string{WMS, TMS})
 	if err != nil {
 		return nil, fmt.Errorf("integration: list the tenants with wms connectors: %w", err)
 	}
 	return tenants, nil
 }
 
-// PollOnce polls every active wms connector of every active tenant and
+// PollOnce polls every active wms and tms connector of every active tenant and
 // returns how many confirmations it recorded. A connector whose WMS
 // cannot be read is reported and the others are polled still.
 func (w *WMSExchange) PollOnce(ctx context.Context) (int, error) {
@@ -105,14 +106,14 @@ func (w *WMSExchange) PollOnce(ctx context.Context) (int, error) {
 	return n, errors.Join(failed...)
 }
 
-// pollTenant polls the tenant's active wms connectors, by name.
+// pollTenant polls the tenant's active wms and tms connectors, by name.
 func (w *WMSExchange) pollTenant(ctx context.Context, tenant uuid.UUID) (int, error) {
 	var conns []usable
 	if err := w.job(tenant, "read the wms connectors").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		cs, err := activeWMS(ctx, tx)
+		cs, err := activeLogistics(ctx, tx, WMS, TMS)
 		for _, c := range cs {
 			if c.SecretRef != nil && (!w.RefuseStandIn || c.Adapter != StandInAdapter) {
-				conns = append(conns, usable{WMSConnection: WMSConnection{Name: c.Name, WMSSettings: c.WMSSettings}, secretRef: *c.SecretRef, id: c.ID})
+				conns = append(conns, usable{WMSConnection: WMSConnection{Name: c.Name, Kind: c.Kind, WMSSettings: c.WMSSettings}, secretRef: *c.SecretRef, id: c.ID})
 			}
 		}
 		return false, err
@@ -210,7 +211,7 @@ type inbound struct {
 	body                  []byte
 	status                string
 	code, detail          *string // refused: the problem's, its detail at most 1000 characters
-	kind                  string  // WMSGoodsIssue, or WMSGoodsReceipt for a message read as one
+	kind                  string  // WMSGoodsIssue, or WMSGoodsReceipt for a message read as one; a tms connector's TMSShipment
 	posted                *WMSPosted
 }
 
@@ -234,6 +235,9 @@ func (w *WMSExchange) record(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c
 		readErr = unkept(id)
 	}
 	in := inbound{id: uuid.Must(uuid.NewV7()), connector: c.id, messageID: id, kind: WMSGoodsIssue, body: body}
+	if c.Kind == TMS {
+		in.kind = TMSShipment
+	}
 	err := uow.Act(ctx, tx, wmsActor(tenant), w.Now, func(ctx context.Context) error {
 		if err := w.post(ctx, tx, &in, raw, readErr); err != nil {
 			return err
@@ -274,6 +278,9 @@ func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, raw []by
 	err := w.postAs(ctx, tx, in, raw, readErr)
 	if err == nil {
 		in.status = "posted"
+		if in.kind == TMSShipment {
+			in.status = "recorded" // a shipment posts nothing
+		}
 		return nil
 	}
 	p := problem.From(err)
@@ -287,8 +294,15 @@ func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, raw []by
 }
 
 // postAs reads the confirmation by its type and posts it: a goods issue
-// or a goods receipt (S2q2).
+// or a goods receipt (S2q2); a tms connector's, a shipment (S2r).
 func (w *WMSExchange) postAs(ctx context.Context, tx pgx.Tx, in *inbound, raw []byte, readErr error) error {
+	if in.kind == TMSShipment {
+		sh, err := readShipment(in.messageID, raw, readErr)
+		if err != nil {
+			return err
+		}
+		return w.postShipment(ctx, tx, in, sh)
+	}
 	typ, err := readType(in.messageID, raw, readErr)
 	if err != nil {
 		return err
@@ -391,22 +405,24 @@ func (w *WMSExchange) postIssue(ctx context.Context, tx pgx.Tx, in *inbound, gi 
 		return err
 	}
 	picked := pickedOf(gi, sent.Items)
-	return w.inSavepoint(ctx, tx, in, func(ctx context.Context) (WMSPosted, error) {
-		return w.Deliveries.IssueReported(authz.ActingFor(ctx, *in.legalEntity), gi.DeliveryID, picked)
+	return w.inSavepoint(ctx, tx, in, func(ctx context.Context) (*WMSPosted, error) {
+		p, err := w.Deliveries.IssueReported(authz.ActingFor(ctx, *in.legalEntity), gi.DeliveryID, picked)
+		return &p, err
 	})
 }
 
-// inSavepoint posts in a savepoint and notes what it posted on in; a
-// refusal rolls it back, with the audit records it buffered, and is
-// returned, as is a failure of the machinery.
-func (w *WMSExchange) inSavepoint(ctx context.Context, tx pgx.Tx, in *inbound, post func(context.Context) (WMSPosted, error)) error {
+// inSavepoint posts in a savepoint and notes what it posted on in (a
+// material document; nil for a shipment, which posts nothing); a refusal
+// rolls it back, with the audit records it buffered, and is returned, as
+// is a failure of the machinery.
+func (w *WMSExchange) inSavepoint(ctx context.Context, tx pgx.Tx, in *inbound, post func(context.Context) (*WMSPosted, error)) error {
 	mark := audit.Mark(ctx)
 	if _, err := tx.Exec(ctx, `SAVEPOINT wms_posting`); err != nil {
 		return fmt.Errorf("integration: open the savepoint of wms confirmation %s: %w", in.messageID, err)
 	}
 	posted, err := post(ctx)
 	if err == nil {
-		in.posted = &posted
+		in.posted = posted
 		_, err := tx.Exec(ctx, `RELEASE SAVEPOINT wms_posting`)
 		return errs.Wrapf(err, "integration: release the savepoint of wms confirmation %s", in.messageID)
 	}
@@ -433,10 +449,8 @@ func (in inbound) insert(ctx context.Context, tx pgx.Tx, connectorName string) e
 		in.id, in.connector, in.messageID, in.kind, in.legalEntity, in.document, in.number, in.body, in.status, in.code, in.detail, docID, docNumber); err != nil {
 		return fmt.Errorf("integration: record wms confirmation %s: %w", in.messageID, err)
 	}
-	action := "integration.wms_message.post"
-	if in.status == "refused" {
-		action = "integration.wms_message.refuse"
-	}
+	action := map[string]string{"posted": "integration.wms_message.post", "recorded": "integration.wms_message.record",
+		"refused": "integration.wms_message.refuse"}[in.status]
 	details := map[string]any{"connector_id": in.connector, "connector_name": connectorName, "message_id": in.messageID, "kind": in.kind,
 		"material_document_number": docNumber, "code": in.code}
 	if in.kind == WMSGoodsReceipt {

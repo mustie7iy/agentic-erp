@@ -19,7 +19,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
-// Outbound deliveries to the warehouse system (S2q1): the shipping
+// Outbound deliveries to the warehouse system (S2q1) and to the transport
+// system (S2r, a transport request beside it): the shipping
 // context publishes OutboundDeliveryChanged through its outbox (ADR-0007)
 // and knows nothing of warehouse systems; this consumer reads the event
 // of a delivery's creation on the bus, at least once, and, when an active
@@ -90,7 +91,8 @@ type deliveryCreated struct {
 }
 
 // WMSDelivery is the message that gives a warehouse system an outbound
-// delivery to pick (message type outbound_delivery, version 1): its id,
+// delivery to pick (message type outbound_delivery, version 1), or a
+// transport system one to plan (transport_request, version 1, S2r): its id,
 // which the WMS deduplicates on and names in what it reports back, the
 // company, plant and storage location by code, the delivery by id and
 // number with its order's and customer's numbers (never the customer's
@@ -189,24 +191,34 @@ func parseWMSEvent(m outbox.Message, context string, data any) (uuid.UUID, error
 	return tenant, nil
 }
 
-// queue writes the delivery's message for the WMS managing its plant,
-// once, with its audit record; none when no WMS manages it.
+// queue writes the delivery's message for the WMS managing its plant, to
+// pick, and for the TMS planning for it (S2r), to plan, each once, with
+// its audit record; none for a system no connector names the plant to.
+// Both messages say the same of the delivery, each its own type.
 func (q *WMSQueue) queue(ctx context.Context, tx pgx.Tx, ev deliveryCreated) error {
-	c, ok, err := wmsOf(ctx, tx, ev.Company, ev.Plant)
-	if err != nil || !ok {
-		return err
+	for _, to := range []struct{ connector, kind string }{{WMS, WMSOutboundDelivery}, {TMS, TMSTransportRequest}} {
+		c, ok, err := managing(ctx, tx, to.connector, ev.Company, ev.Plant)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		id := uuid.Must(uuid.NewV7())
+		msg := WMSDelivery{MessageID: id.String(), Type: to.kind, SchemaVersion: 1, CompanyCode: ev.Company, PlantCode: ev.Plant,
+			StorageLocation: ev.StorageLocation, DeliveryID: ev.Delivery, DeliveryNumber: ev.Number, OrderNumber: ev.OrderNumber,
+			CustomerNumber: ev.CustomerNumber, Items: make([]WMSDeliveryItem, len(ev.Items))}
+		for i, it := range ev.Items {
+			msg.Items[i] = WMSDeliveryItem{ItemNo: it.ItemNo, MaterialNumber: it.Material, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
+		}
+		body, _ := json.Marshal(msg) // strings, numbers and a UUID always marshal
+		if err := q.insertOutbound(ctx, tx, outboundRow{id: id, connector: c, kind: to.kind, legalEntity: ev.LegalEntity, document: ev.Delivery,
+			number: ev.Number, plant: ev.Plant, body: body, audit: map[string]any{"outbound_delivery_id": ev.Delivery, "outbound_delivery_number": ev.Number,
+				"company_code": ev.Company, "plant_code": ev.Plant}}); err != nil {
+			return err
+		}
 	}
-	id := uuid.Must(uuid.NewV7())
-	msg := WMSDelivery{MessageID: id.String(), Type: WMSOutboundDelivery, SchemaVersion: 1, CompanyCode: ev.Company, PlantCode: ev.Plant,
-		StorageLocation: ev.StorageLocation, DeliveryID: ev.Delivery, DeliveryNumber: ev.Number, OrderNumber: ev.OrderNumber,
-		CustomerNumber: ev.CustomerNumber, Items: make([]WMSDeliveryItem, len(ev.Items))}
-	for i, it := range ev.Items {
-		msg.Items[i] = WMSDeliveryItem{ItemNo: it.ItemNo, MaterialNumber: it.Material, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
-	}
-	body, _ := json.Marshal(msg) // strings, numbers and a UUID always marshal
-	return q.insertOutbound(ctx, tx, outboundRow{id: id, connector: c, kind: WMSOutboundDelivery, legalEntity: ev.LegalEntity, document: ev.Delivery,
-		number: ev.Number, plant: ev.Plant, body: body, audit: map[string]any{"outbound_delivery_id": ev.Delivery, "outbound_delivery_number": ev.Number,
-			"company_code": ev.Company, "plant_code": ev.Plant}})
+	return nil
 }
 
 // outboundRow is a message to a WMS as queued, with what its audit record

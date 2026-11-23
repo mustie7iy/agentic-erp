@@ -28668,7 +28668,11 @@ type Connector struct {
 	// by company code: a list of plant codes for each company, at least one plant, each once); its
 	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
 	// connector at most: creating, changing or enabling one naming a plant another active one manages
-	// answers 409 `integration.plant_has_wms`.
+	// answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082
+	// As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport
+	// system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref`
+	// names the credentials; a plant is planned by one active `tms` connector at most (409
+	// `integration.plant_has_tms`), and may have a `wms` connector beside it.
 	Settings ConnectorSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28831,7 +28835,11 @@ type ConnectorCreate struct {
 	// by company code: a list of plant codes for each company, at least one plant, each once); its
 	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
 	// connector at most: creating, changing or enabling one naming a plant another active one manages
-	// answers 409 `integration.plant_has_wms`.
+	// answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082
+	// As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport
+	// system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref`
+	// names the credentials; a plant is planned by one active `tms` connector at most (409
+	// `integration.plant_has_tms`), and may have a `wms` connector beside it.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28913,7 +28921,11 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // by company code: a list of plant codes for each company, at least one plant, each once); its
 // `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
 // connector at most: creating, changing or enabling one naming a plant another active one manages
-// answers 409 `integration.plant_has_wms`.
+// answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082
+// As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport
+// system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref`
+// names the credentials; a plant is planned by one active `tms` connector at most (409
+// `integration.plant_has_tms`), and may have a `wms` connector beside it.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -29051,7 +29063,11 @@ func (*ConnectorPage) listConnectorsRes() {}
 // by company code: a list of plant codes for each company, at least one plant, each once); its
 // `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
 // connector at most: creating, changing or enabling one naming a plant another active one manages
-// answers 409 `integration.plant_has_wms`.
+// answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082
+// As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport
+// system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref`
+// names the credentials; a plant is planned by one active `tms` connector at most (409
+// `integration.plant_has_tms`), and may have a `wms` connector beside it.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -29095,7 +29111,11 @@ type ConnectorUpdate struct {
 	// by company code: a list of plant codes for each company, at least one plant, each once); its
 	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
 	// connector at most: creating, changing or enabling one naming a plant another active one manages
-	// answers 409 `integration.plant_has_wms`.
+	// answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082
+	// As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport
+	// system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref`
+	// names the credentials; a plant is planned by one active `tms` connector at most (409
+	// `integration.plant_has_tms`), and may have a `wms` connector beside it.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -29162,7 +29182,11 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // by company code: a list of plant codes for each company, at least one plant, each once); its
 // `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
 // connector at most: creating, changing or enabling one naming a plant another active one manages
-// answers 409 `integration.plant_has_wms`.
+// answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082
+// As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport
+// system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref`
+// names the credentials; a plant is planned by one active `tms` connector at most (409
+// `integration.plant_has_tms`), and may have a `wms` connector beside it.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -68827,6 +68851,14 @@ type ListSupplierQuotationsNotFound Problem
 
 func (*ListSupplierQuotationsNotFound) listSupplierQuotationsRes() {}
 
+type ListTMSMessagesBadRequest Problem
+
+func (*ListTMSMessagesBadRequest) listTMSMessagesRes() {}
+
+type ListTMSMessagesForbidden Problem
+
+func (*ListTMSMessagesForbidden) listTMSMessagesRes() {}
+
 type ListTaxPeriodsBadRequest Problem
 
 func (*ListTaxPeriodsBadRequest) listTaxPeriodsRes() {}
@@ -83184,6 +83216,52 @@ func (o OptOperationResult) Or(d OperationResult) OperationResult {
 	return d
 }
 
+// NewOptOutboundDeliveryShipment returns new OptOutboundDeliveryShipment with value set to v.
+func NewOptOutboundDeliveryShipment(v OutboundDeliveryShipment) OptOutboundDeliveryShipment {
+	return OptOutboundDeliveryShipment{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptOutboundDeliveryShipment is optional OutboundDeliveryShipment.
+type OptOutboundDeliveryShipment struct {
+	Value OutboundDeliveryShipment
+	Set   bool
+}
+
+// IsSet returns true if OptOutboundDeliveryShipment was set.
+func (o OptOutboundDeliveryShipment) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptOutboundDeliveryShipment) Reset() {
+	var v OutboundDeliveryShipment
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptOutboundDeliveryShipment) SetTo(v OutboundDeliveryShipment) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptOutboundDeliveryShipment) Get() (v OutboundDeliveryShipment, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptOutboundDeliveryShipment) Or(d OutboundDeliveryShipment) OutboundDeliveryShipment {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptParkedEntryLimit returns new OptParkedEntryLimit with value set to v.
 func NewOptParkedEntryLimit(v ParkedEntryLimit) OptParkedEntryLimit {
 	return OptParkedEntryLimit{
@@ -84903,7 +84981,7 @@ func (s *OrgUnitUpdate) SetRegion(val OptNilString) {
 
 // An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's
 // storage location, its picking and its goods issue. Never deleted; it changes only until its goods
-// issue is posted.
+// issue is posted, but for its shipment (S2r), recorded once, also after the goods issue.
 // Ref: #/components/schemas/OutboundDelivery
 type OutboundDelivery struct {
 	// The delivery's id.
@@ -84947,6 +85025,10 @@ type OutboundDelivery struct {
 	MaterialDocumentNumber OptString `json:"material_document_number"`
 	// Its items' costs added up, in the company's local currency; absent before its goods issue.
 	CostOfGoodsSold OptMoney `json:"cost_of_goods_sold"`
+	// The shipment a transport management system planned it in, as its `tms` connector reported it (S2r,
+	// `listTMSMessages`); absent until one is recorded. Recorded once, also after the goods issue; nothing
+	// is posted.
+	Shipment OptOutboundDeliveryShipment `json:"shipment"`
 	// `created` until its goods issue is posted, then `goods_issued`. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
@@ -85066,6 +85148,11 @@ func (s *OutboundDelivery) GetMaterialDocumentNumber() OptString {
 // GetCostOfGoodsSold returns the value of CostOfGoodsSold.
 func (s *OutboundDelivery) GetCostOfGoodsSold() OptMoney {
 	return s.CostOfGoodsSold
+}
+
+// GetShipment returns the value of Shipment.
+func (s *OutboundDelivery) GetShipment() OptOutboundDeliveryShipment {
+	return s.Shipment
 }
 
 // GetStatus returns the value of Status.
@@ -85206,6 +85293,11 @@ func (s *OutboundDelivery) SetMaterialDocumentNumber(val OptString) {
 // SetCostOfGoodsSold sets the value of CostOfGoodsSold.
 func (s *OutboundDelivery) SetCostOfGoodsSold(val OptMoney) {
 	s.CostOfGoodsSold = val
+}
+
+// SetShipment sets the value of Shipment.
+func (s *OutboundDelivery) SetShipment(val OptOutboundDeliveryShipment) {
+	s.Shipment = val
 }
 
 // SetStatus sets the value of Status.
@@ -85559,6 +85651,61 @@ func (s *OutboundDeliveryPickItem) SetItemNo(val int32) {
 // SetQuantity sets the value of Quantity.
 func (s *OutboundDeliveryPickItem) SetQuantity(val Quantity) {
 	s.Quantity = val
+}
+
+// The shipment a transport management system planned an outbound delivery in (S2r; ADR-0082 As built
+// S2r): its number and carrier as the transport system names them, and the freight cost it reported.
+// Recorded, never posted: freight settlement is Later.
+// Ref: #/components/schemas/OutboundDeliveryShipment
+type OutboundDeliveryShipment struct {
+	// The shipment's number at the transport system.
+	ShipmentNumber string `json:"shipment_number"`
+	// The carrier's code as the transport system names it (not a supplier of the ERP's).
+	CarrierCode string `json:"carrier_code"`
+	// The freight cost the transport system reported, in the currency it named.
+	FreightCost Money `json:"freight_cost"`
+	// When it was recorded.
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
+// GetShipmentNumber returns the value of ShipmentNumber.
+func (s *OutboundDeliveryShipment) GetShipmentNumber() string {
+	return s.ShipmentNumber
+}
+
+// GetCarrierCode returns the value of CarrierCode.
+func (s *OutboundDeliveryShipment) GetCarrierCode() string {
+	return s.CarrierCode
+}
+
+// GetFreightCost returns the value of FreightCost.
+func (s *OutboundDeliveryShipment) GetFreightCost() Money {
+	return s.FreightCost
+}
+
+// GetRecordedAt returns the value of RecordedAt.
+func (s *OutboundDeliveryShipment) GetRecordedAt() time.Time {
+	return s.RecordedAt
+}
+
+// SetShipmentNumber sets the value of ShipmentNumber.
+func (s *OutboundDeliveryShipment) SetShipmentNumber(val string) {
+	s.ShipmentNumber = val
+}
+
+// SetCarrierCode sets the value of CarrierCode.
+func (s *OutboundDeliveryShipment) SetCarrierCode(val string) {
+	s.CarrierCode = val
+}
+
+// SetFreightCost sets the value of FreightCost.
+func (s *OutboundDeliveryShipment) SetFreightCost(val Money) {
+	s.FreightCost = val
+}
+
+// SetRecordedAt sets the value of RecordedAt.
+func (s *OutboundDeliveryShipment) SetRecordedAt(val time.Time) {
+	s.RecordedAt = val
 }
 
 // A posted customer document rendered as a PINT AE e-invoice (ADR-0061 §9, As built E2): once per
@@ -120288,6 +120435,312 @@ func (s *SupplierQuotationPage) SetTotalEstimate(val OptInt64) {
 
 func (*SupplierQuotationPage) listSupplierQuotationsRes() {}
 
+// A message exchanged with a transport management system through a `tms` connector (ADR-0082 As built
+// S2r): an outbound delivery sent to plan, or the shipment it reported back.
+// Ref: #/components/schemas/TMSMessage
+type TMSMessage struct {
+	// Message id.
+	ID uuid.UUID `json:"id"`
+	// The `tms` connector (`getConnector`).
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The connector's name.
+	ConnectorName string `json:"connector_name"`
+	// `outbound` (to the transport system) or `inbound` (reported back). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Direction string `json:"direction"`
+	// The message's id at the transport system: an outbound message's own id, which the transport system
+	// deduplicates on; an inbound one's, the transport system's.
+	MessageID string `json:"message_id"`
+	// `transport_request` (outbound) or `shipment` (inbound; one that cannot be read as one is recorded
+	// `shipment`, refused). Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The delivery's company; absent on an inbound message refused before its delivery was known.
+	LegalEntityID OptUUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode OptString `json:"company_code"`
+	// The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.
+	OutboundDeliveryID OptUUID `json:"outbound_delivery_id"`
+	// The outbound delivery's number.
+	OutboundDeliveryNumber OptString `json:"outbound_delivery_number"`
+	// Outbound: the delivery's plant, which the connector plans for.
+	PlantCode OptString `json:"plant_code"`
+	// A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound;
+	// a body that is not a JSON object is kept as `{"text": ...}`, at most 1000 characters of it).
+	Body jx.Raw `json:"body"`
+	// Outbound: `pending` (queued, or waiting for its next attempt), `sent` or `failed`; inbound:
+	// `recorded` (the shipment recorded on the delivery) or `refused`. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Outbound: the attempts made to send it; inbound: 0.
+	Attempts int32 `json:"attempts"`
+	// Pending: when it is next sent.
+	NextAttemptAt OptDateTime `json:"next_attempt_at"`
+	// Outbound: the problem code of the last failed attempt; absent when none failed.
+	LastErrorCode OptString `json:"last_error_code"`
+	// Outbound: when the transport system took it.
+	SentAt OptDateTime `json:"sent_at"`
+	// Refused: the problem that stopped its recording.
+	ProblemCode OptString `json:"problem_code"`
+	// Refused: the problem's detail.
+	ProblemDetail OptString `json:"problem_detail"`
+	// Inbound: when the transport system was told it is recorded.
+	AcknowledgedAt OptDateTime `json:"acknowledged_at"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *TMSMessage) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *TMSMessage) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *TMSMessage) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetDirection returns the value of Direction.
+func (s *TMSMessage) GetDirection() string {
+	return s.Direction
+}
+
+// GetMessageID returns the value of MessageID.
+func (s *TMSMessage) GetMessageID() string {
+	return s.MessageID
+}
+
+// GetKind returns the value of Kind.
+func (s *TMSMessage) GetKind() string {
+	return s.Kind
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *TMSMessage) GetLegalEntityID() OptUUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *TMSMessage) GetCompanyCode() OptString {
+	return s.CompanyCode
+}
+
+// GetOutboundDeliveryID returns the value of OutboundDeliveryID.
+func (s *TMSMessage) GetOutboundDeliveryID() OptUUID {
+	return s.OutboundDeliveryID
+}
+
+// GetOutboundDeliveryNumber returns the value of OutboundDeliveryNumber.
+func (s *TMSMessage) GetOutboundDeliveryNumber() OptString {
+	return s.OutboundDeliveryNumber
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *TMSMessage) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetBody returns the value of Body.
+func (s *TMSMessage) GetBody() jx.Raw {
+	return s.Body
+}
+
+// GetStatus returns the value of Status.
+func (s *TMSMessage) GetStatus() string {
+	return s.Status
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *TMSMessage) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetNextAttemptAt returns the value of NextAttemptAt.
+func (s *TMSMessage) GetNextAttemptAt() OptDateTime {
+	return s.NextAttemptAt
+}
+
+// GetLastErrorCode returns the value of LastErrorCode.
+func (s *TMSMessage) GetLastErrorCode() OptString {
+	return s.LastErrorCode
+}
+
+// GetSentAt returns the value of SentAt.
+func (s *TMSMessage) GetSentAt() OptDateTime {
+	return s.SentAt
+}
+
+// GetProblemCode returns the value of ProblemCode.
+func (s *TMSMessage) GetProblemCode() OptString {
+	return s.ProblemCode
+}
+
+// GetProblemDetail returns the value of ProblemDetail.
+func (s *TMSMessage) GetProblemDetail() OptString {
+	return s.ProblemDetail
+}
+
+// GetAcknowledgedAt returns the value of AcknowledgedAt.
+func (s *TMSMessage) GetAcknowledgedAt() OptDateTime {
+	return s.AcknowledgedAt
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *TMSMessage) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *TMSMessage) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *TMSMessage) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *TMSMessage) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *TMSMessage) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *TMSMessage) SetDirection(val string) {
+	s.Direction = val
+}
+
+// SetMessageID sets the value of MessageID.
+func (s *TMSMessage) SetMessageID(val string) {
+	s.MessageID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *TMSMessage) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *TMSMessage) SetLegalEntityID(val OptUUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *TMSMessage) SetCompanyCode(val OptString) {
+	s.CompanyCode = val
+}
+
+// SetOutboundDeliveryID sets the value of OutboundDeliveryID.
+func (s *TMSMessage) SetOutboundDeliveryID(val OptUUID) {
+	s.OutboundDeliveryID = val
+}
+
+// SetOutboundDeliveryNumber sets the value of OutboundDeliveryNumber.
+func (s *TMSMessage) SetOutboundDeliveryNumber(val OptString) {
+	s.OutboundDeliveryNumber = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *TMSMessage) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetBody sets the value of Body.
+func (s *TMSMessage) SetBody(val jx.Raw) {
+	s.Body = val
+}
+
+// SetStatus sets the value of Status.
+func (s *TMSMessage) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *TMSMessage) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetNextAttemptAt sets the value of NextAttemptAt.
+func (s *TMSMessage) SetNextAttemptAt(val OptDateTime) {
+	s.NextAttemptAt = val
+}
+
+// SetLastErrorCode sets the value of LastErrorCode.
+func (s *TMSMessage) SetLastErrorCode(val OptString) {
+	s.LastErrorCode = val
+}
+
+// SetSentAt sets the value of SentAt.
+func (s *TMSMessage) SetSentAt(val OptDateTime) {
+	s.SentAt = val
+}
+
+// SetProblemCode sets the value of ProblemCode.
+func (s *TMSMessage) SetProblemCode(val OptString) {
+	s.ProblemCode = val
+}
+
+// SetProblemDetail sets the value of ProblemDetail.
+func (s *TMSMessage) SetProblemDetail(val OptString) {
+	s.ProblemDetail = val
+}
+
+// SetAcknowledgedAt sets the value of AcknowledgedAt.
+func (s *TMSMessage) SetAcknowledgedAt(val OptDateTime) {
+	s.AcknowledgedAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *TMSMessage) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *TMSMessage) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// One page of messages exchanged with transport systems.
+// Ref: #/components/schemas/TMSMessagePage
+type TMSMessagePage struct {
+	// The messages on this page, newest first.
+	Items []TMSMessage `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *TMSMessagePage) GetItems() []TMSMessage {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *TMSMessagePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *TMSMessagePage) SetItems(val []TMSMessage) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *TMSMessagePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*TMSMessagePage) listTMSMessagesRes() {}
+
 type TakeCashSnapshotBadRequest Problem
 
 func (*TakeCashSnapshotBadRequest) takeCashSnapshotRes() {}
@@ -122652,6 +123105,7 @@ func (*TooManyRequestsHeaders) listStockRes()                             {}
 func (*TooManyRequestsHeaders) listStockTransportOrdersRes()              {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listSupplierQuotationsRes()                {}
+func (*TooManyRequestsHeaders) listTMSMessagesRes()                       {}
 func (*TooManyRequestsHeaders) listTaxPeriodsRes()                        {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()                  {}
 func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()               {}
@@ -123632,6 +124086,7 @@ func (*UnauthorizedHeaders) listStockRes()                             {}
 func (*UnauthorizedHeaders) listStockTransportOrdersRes()              {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listSupplierQuotationsRes()                {}
+func (*UnauthorizedHeaders) listTMSMessagesRes()                       {}
 func (*UnauthorizedHeaders) listTaxPeriodsRes()                        {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()                  {}
 func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()               {}

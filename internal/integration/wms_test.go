@@ -168,7 +168,7 @@ func (e wmsEnv) exchange(t *testing.T, now func() time.Time) *integration.WMSExc
 	}
 	// The exchange works across tenants: other tests' (and earlier runs')
 	// connectors and messages are put out of its way.
-	pgtest.Exec(t, `UPDATE integration.connector SET status = 'disabled', version = version + 1 WHERE kind = 'wms' AND status = 'active' AND tenant_id <> $1`, e.Tenant.ID)
+	pgtest.Exec(t, `UPDATE integration.connector SET status = 'disabled', version = version + 1 WHERE kind IN ('wms', 'tms') AND status = 'active' AND tenant_id <> $1`, e.Tenant.ID)
 	pgtest.Exec(t, `UPDATE integration.wms_message SET status = 'failed', attempts = greatest(attempts, 1), next_attempt_at = NULL, version = version + 1
 		WHERE status = 'pending' AND tenant_id <> $1`, e.Tenant.ID)
 	x := app.WMS(app.Config{Secrets: vaulttest.Refs{e.ref: wmsToken}, Now: now}, client)
