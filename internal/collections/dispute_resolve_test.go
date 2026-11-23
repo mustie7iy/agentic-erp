@@ -490,3 +490,34 @@ func TestWriteOffOfADunningCharge(t *testing.T) {
 		t.Errorf("the run's memo: got %q, want it reversed by the cancellation alone", got)
 	}
 }
+
+// TestDisputedAtMostWhatIsOwed (tracker leaf, src review:batch90): a
+// resolution leaves the item open beside its credit, so what is still
+// owed of an item is its amount less what resolved cases accepted of it.
+// An invoice item of EUR 100.00 written off in full by one case is not
+// written off again by a second (422 collections.invalid_disputed_amount
+// naming the amount); one written off by 60.00 and credited by a memo of
+// 10.00 is disputed again for at most 30.00, and a case closed as
+// rejected accepted nothing.
+func TestDisputedAtMostWhatIsOwed(t *testing.T) {
+	e := setupResolving(t)
+	whole := e.invoiceFor(t, "100.00 -")
+	id, tag := e.caseOn(t, fmt.Sprint(whole["journal_entry_id"])+" 100.00")
+	e.Must(200, "POST", "/v1/dispute-cases/"+id+":resolve", `{"resolution": "write_off", "reason": "Uncollectable", "posting_date": "2026-06-30"}`, tag)
+	p := e.Problem(422, "collections.invalid_disputed_amount", "POST", "/v1/dispute-cases",
+		disputeItems(e, []string{fmt.Sprint(whole["journal_entry_id"]) + " 100.00 EUR"}, ""), "")
+	if f := fieldOf(t, p); f != "items[0].disputed_amount.amount" {
+		t.Errorf("the field: got %s, want items[0].disputed_amount.amount", f)
+	}
+	part := e.invoiceFor(t, "100.00 -")
+	entry := fmt.Sprint(part["journal_entry_id"])
+	for _, resolution := range []string{`"write_off"`, `"credit_memo"`} {
+		amount := map[string]string{`"write_off"`: "60.00", `"credit_memo"`: "10.00"}[resolution]
+		id, tag := e.caseOn(t, entry+" "+amount)
+		e.Must(200, "POST", "/v1/dispute-cases/"+id+":resolve", `{"resolution": `+resolution+`, "reason": "Accepted", "posting_date": "2026-06-30"}`, tag)
+	}
+	rejected, tag := e.caseOn(t, entry+" 30.00")
+	e.Must(200, "POST", "/v1/dispute-cases/"+rejected+":close", `{"outcome": "rejected", "reason": "Priced as quoted"}`, tag)
+	e.Problem(422, "collections.invalid_disputed_amount", "POST", "/v1/dispute-cases", disputeItems(e, []string{entry + " 30.01 EUR"}, ""), "")
+	e.open(t, disputeItems(e, []string{entry + " 30.00 EUR"}, ""))
+}

@@ -160,6 +160,42 @@ func disputed(in CaseItemInput, it ledger.ReceivableItem) (money.Minor, error) {
 	return m, nil
 }
 
+// stillOwed refuses a case disputing more of an item than is still owed
+// of it (tracker leaf, src review:batch90): its amount less what resolved
+// cases accepted of it, since a resolution, by credit memo or write-off,
+// leaves the item open beside its credit (T86d), so a second case could
+// otherwise write the same invoice off again, past its gross. It reads
+// after the case's items are written: their insert waits on the open
+// item index for a resolution of the item in flight, so the read sees
+// every resolution that could have closed an earlier case on it (no
+// write skew). 422 collections.invalid_disputed_amount names the item's
+// amount.
+func stillOwed(ctx context.Context, tx pgx.Tx, id uuid.UUID, in []CaseItemInput, items []disputedItem) error {
+	refs := make([]ledger.ItemRef, len(items))
+	for i, it := range items {
+		refs[i] = it.ItemRef
+	}
+	years, entries, lines := ledger.ItemColumns(refs)
+	rows, _ := tx.Query(ctx, `SELECT coalesce(sum(i.accepted_amount), 0)::bigint
+		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) WITH ORDINALITY AS x(y, je, ln, n)
+		LEFT JOIN collections.dispute_case_item i ON i.journal_entry_id = x.je AND i.line_no = x.ln AND i.fiscal_year = x.y
+			AND i.dispute_case_id <> $4 AND i.accepted_amount > 0
+		GROUP BY x.n ORDER BY x.n`, years, entries, lines, id)
+	accepted, err := pgx.CollectRows(rows, pgx.RowTo[money.Minor])
+	if err != nil {
+		return fmt.Errorf("collections: what resolved cases accepted of the items of dispute case %s: %w", id, err)
+	}
+	for i, it := range items {
+		// Each accepted amount is at most an item's amount, and an item is in a handful of cases: in range.
+		if owed := it.Amount - accepted[i]; it.disputed > owed {
+			return problem.Invalid("collections.invalid_disputed_amount", in[i].Field+"disputed_amount.amount", fmt.Sprintf("The disputed amount is "+
+				"at most what the customer still owes on the item, %s %s: resolved dispute cases accepted %s of its %s.", owed.Plain(it.Exponent),
+				it.Currency, accepted[i].Plain(it.Exponent), it.Amount.Plain(it.Exponent)))
+		}
+	}
+	return nil
+}
+
 // totals are what the items dispute in their currency and, as booked, in
 // the company's; more than an amount holds is refused.
 func totals(items []disputedItem) (amount, lc money.Minor, err error) {

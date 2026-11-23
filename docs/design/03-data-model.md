@@ -5290,6 +5290,9 @@ erDiagram
   (`dispute_case_item_id_key`). An item is in one open case at a time
   (the partial unique index `dispute_case_item_one_open` on `open`); the
   case's close sets `open` false (the trigger `dispute_case_items_closed`).
+  What resolved cases accepted of an item is read by its line through
+  the partial index `dispute_case_item_accepted_by_line` (migration
+  000447; ADR-0065 As built batch 91), which bounds a new case's amount.
   At commit a case has items, its own line its first item's, its amounts
   their totals and each item open while it is (the deferred constraint
   triggers `dispute_case_items` on both tables). The application inserts
