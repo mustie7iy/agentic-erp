@@ -299,8 +299,9 @@ func unkept(id string) error {
 
 // post reads the confirmation and posts it (postAs; the posting's
 // savepoint is inSavepoint's, which rolls a refused posting back with
-// the audit records it buffered): a refusal is kept on in; a failure of the machinery (5xx, or one asking to be retried) is
-// returned, so nothing is recorded and the next poll takes it again.
+// the audit records it buffered): a refusal is kept on in; a failure of
+// the machinery (5xx, or one asking to be retried) is returned, so
+// nothing is recorded and the next poll takes it again.
 func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, conf confirmation) error {
 	err := conf.refusal
 	if err == nil {
