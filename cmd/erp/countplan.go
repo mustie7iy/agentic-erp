@@ -12,7 +12,7 @@ import (
 
 // planCounts runs the count planning agent on a company's plant.
 func planCounts(ctx context.Context, r *llm.Runner, c *apitools.Client, company, plant string) (recommend.Result, error) {
-	return (&countagent.Agent{LLM: r, API: c}).Plan(ctx, company, plant)
+	return (&countagent.Agent{LLM: r, API: c, Now: agentDay}).Plan(ctx, company, plant)
 }
 
 // agentCountPlan has the count planning agent propose the materials of a

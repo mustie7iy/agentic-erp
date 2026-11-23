@@ -264,7 +264,10 @@ func TestEvalSuites(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			c := newReplayCell(t, cellClock(t, s.Agent))
+			now := cellClock(t, s.Agent)
+			c := newReplayCell(t, now)
+			agentDay = now
+			t.Cleanup(func() { agentDay = nil })
 			if s.Agent == replenishmentagent.Type {
 				planRuns(t)
 			}
