@@ -22,7 +22,8 @@ const orderReleased = "com.example.erp.procurement.purchase_order_released.v1"
 // receiptOrder inserts a released purchase order of a supplier of
 // company 2000, valued through GR/IR, of 100 EA of the bracket into S1 of
 // P1 (item 1, due 2026-12-01), 5 EA of paper on an expense account (item
-// 2) and 10 EA of the bracket into S2 of P2 (item 3), and returns it.
+// 2), 10 EA of the bracket into S2 of P2 (item 3) and 5 EA of it into S1
+// of P1 due on no date (item 4), and returns it.
 func (e wmsEnv) receiptOrder(t *testing.T, number string) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
@@ -35,7 +36,8 @@ func (e wmsEnv) receiptOrder(t *testing.T, number string) uuid.UUID {
 		unit_price, price_unit, account_id, valuation_price, valuation_price_unit, plant_id, storage_location_id, delivery_date)
 		VALUES ($1, $2, 1, $4, 'Bracket', 100, 'EA', 250, 1, $3, 250, 1, $5, $6, '2026-12-01'),
 			($1, $2, 2, NULL, 'Paper', 5, 'EA', 200, 1, $3, 200, 1, NULL, NULL, NULL),
-			($1, $2, 3, $4, 'Bracket', 10, 'EA', 250, 1, $3, 250, 1, $7, $8, NULL)`,
+			($1, $2, 3, $4, 'Bracket', 10, 'EA', 250, 1, $3, 250, 1, $7, $8, NULL),
+			($1, $2, 4, $4, 'Bracket', 5, 'EA', 250, 1, $3, 250, 1, $5, $6, NULL)`,
 		e.Tenant.ID, id, expense, e.bracket, e.p1, e.s1, e.p2, e.s2)
 	pgtest.Exec(t, `UPDATE procurement.purchase_order SET status = 'released', valuation = 'gr_ir', version = version + 1 WHERE id = $1`, id)
 	return id
@@ -69,12 +71,12 @@ func (e wmsEnv) orderMessages(t *testing.T, order uuid.UUID, query string) []any
 	return items
 }
 
-// notStock makes the order's item 1 a non-stock item, as an order
-// change could.
+// notStock makes the order's items at P1 (1 and 4) non-stock items, as
+// an order change could.
 func (e wmsEnv) notStock(t *testing.T, po uuid.UUID) {
 	t.Helper()
 	pgtest.Unguarded(t, `UPDATE procurement.purchase_order_item SET material_id = NULL, plant_id = NULL, storage_location_id = NULL
-		WHERE tenant_id = $1 AND purchase_order_id = $2 AND item_no = 1`, e.Tenant.ID, po)
+		WHERE tenant_id = $1 AND purchase_order_id = $2 AND item_no IN (1, 4)`, e.Tenant.ID, po)
 }
 
 // goodsReceipt is a goods_receipt confirmation of the order receiving
@@ -134,8 +136,8 @@ func TestWMSReceiptRoundTrip(t *testing.T) {
 	if sends != 1 {
 		t.Errorf("sends: got %d, want 1", sends)
 	}
-	if len(sent.Items) != 1 || sent.Items[0].DeliveryDate == nil {
-		t.Fatalf("the items sent: got %+v, want item 1 with its delivery date", sent.Items)
+	if len(sent.Items) != 2 || sent.Items[0].DeliveryDate == nil || sent.Items[1].ItemNo != 4 || sent.Items[1].DeliveryDate != nil {
+		t.Fatalf("the items sent: got %+v, want item 1 with its delivery date and item 4 with none", sent.Items)
 	}
 	got := fmt.Sprintf("%s %s v%d %s/%s for %s: %d %s %s %s %s %s", sent.Type, sent.OrderNumber, sent.SchemaVersion, sent.CompanyCode, sent.PlantCode,
 		sent.SupplierNumber, sent.Items[0].ItemNo, sent.Items[0].StorageLocationCode, sent.Items[0].Quantity, sent.Items[0].Unit, *sent.Items[0].DeliveryDate,
@@ -225,7 +227,7 @@ func TestWMSReceiptsNotQueued(t *testing.T) {
 			today := time.Now().Format(time.DateOnly)
 			e.Must(201, "POST", "/v1/goods-receipts", wmsJSON(t, map[string]any{"legal_entity_id": e.DE, "document_date": today,
 				"posting_date": today, "items": []any{map[string]any{"purchase_order_id": po, "po_item_no": 1, "quantity": map[string]any{"value": "100",
-					"unit": "EA"}}}}), "")
+					"unit": "EA"}}, map[string]any{"purchase_order_id": po, "po_item_no": 4, "quantity": map[string]any{"value": "5", "unit": "EA"}}}}), "")
 			return e.releasedEvent(po, "x")
 		}, false},
 		"malformed": {func(_ *testing.T, po uuid.UUID) outbox.Message {
@@ -281,6 +283,7 @@ func TestWMSReceiptOutcomes(t *testing.T) {
 		"the non-stock item":      {goodsReceipt("GR-paper", po, "2 1 EA"), "integration.wms_item_not_sent"},
 		"no order":                {[]byte(`{"message_id": "GR-none", "type": "goods_receipt"}`), "integration.wms_message_unreadable"},
 		"items not a list":        {[]byte(`{"message_id": "GR-list", "type": "goods_receipt", "items": "all"}`), "integration.wms_message_unreadable"},
+		"a type not text":         {[]byte(`{"message_id": "GR-type", "type": 5}`), "integration.wms_message_unreadable"},
 		"more than ordered":       {goodsReceipt("GR-more", po, "1 200 EA"), "procurement.over_delivery"},
 		"another unit":            {goodsReceipt("GR-unit", po, "1 1 BOX"), "procurement.unit_mismatch"},
 		"no longer a stock order": {goodsReceipt("GR-stock", changed, "1 1 EA"), "integration.wms_not_stock"},
