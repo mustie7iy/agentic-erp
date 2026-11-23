@@ -40525,6 +40525,18 @@ func encodeEnterIntercompanySupplierInvoiceResponse(response EnterIntercompanySu
 
 		return nil
 
+	case *EnterIntercompanySupplierInvoiceNotFound:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(404)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
 	case *ConflictHeaders:
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.Header().Set("Access-Control-Expose-Headers", "Retry-After")

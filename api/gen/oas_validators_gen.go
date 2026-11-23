@@ -37259,6 +37259,14 @@ func (s *EnterIntercompanySupplierInvoiceForbidden) Validate() error {
 	return nil
 }
 
+func (s *EnterIntercompanySupplierInvoiceNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *EnterIntercompanySupplierInvoicePreconditionRequired) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {

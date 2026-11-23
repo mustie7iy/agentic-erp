@@ -47123,6 +47123,10 @@ type EnterIntercompanySupplierInvoiceForbidden Problem
 
 func (*EnterIntercompanySupplierInvoiceForbidden) enterIntercompanySupplierInvoiceRes() {}
 
+type EnterIntercompanySupplierInvoiceNotFound Problem
+
+func (*EnterIntercompanySupplierInvoiceNotFound) enterIntercompanySupplierInvoiceRes() {}
+
 type EnterIntercompanySupplierInvoicePreconditionRequired Problem
 
 func (*EnterIntercompanySupplierInvoicePreconditionRequired) enterIntercompanySupplierInvoiceRes() {}
