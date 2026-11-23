@@ -138,9 +138,10 @@ type CaseInput struct {
 // OpenCase opens a dispute case on open customer items of a company the
 // caller may act in (ADR-0065 As built, T86a, T86c): each item is one the
 // case's customer owes, read from the ledger's open items now, disputed
-// in part or in full (disputedItems); an assignee is an active person who
-// may act in the company. An item in another open case is refused by the
-// database, 409 collections.dispute_exists. The audit record and
+// in part or in full (disputedItems), at most what is still owed of it
+// once the case is written (stillOwed); an assignee is an active person
+// who may act in the company. An item in another open case is refused by
+// the database, 409 collections.dispute_exists. The audit record and
 // DisputeCaseChanged are written in the request's transaction; nothing is
 // posted and the items do not change.
 func (e *Endpoints) OpenCase(ctx context.Context, in CaseInput) (Case, error) {
@@ -174,6 +175,9 @@ func (e *Endpoints) OpenCase(ctx context.Context, in CaseInput) (Case, error) {
 	}
 	id := uuid.Must(uuid.NewV7())
 	if err := insertCase(ctx, tx, p, id, le, in, number, items); err != nil {
+		return Case{}, err
+	}
+	if err := stillOwed(ctx, tx, id, in.Items, items); err != nil {
 		return Case{}, err
 	}
 	c, err := readCase(ctx, tx, id, false)

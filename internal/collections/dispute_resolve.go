@@ -373,6 +373,8 @@ func (e *Endpoints) writeOff(ctx context.Context, tx pgx.Tx, le tenancy.Entity, 
 		return nil, problem.Unprocessable("collections.no_write_off_account", "A write-off is posted to the company's "+WriteOffKey+
 			" account, and company "+le.Code+" has none in its account determination.")
 	}
+	// A pair of lines per item accepted, by item number, the credit second:
+	// WriteOffs.WrittenOff reads the credits by that order (TestWrittenOffCreditLines).
 	var lines []ledger.PostingLine
 	for i, it := range c.Items {
 		if r.accepted[i] == 0 {

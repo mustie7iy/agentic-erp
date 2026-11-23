@@ -4942,6 +4942,24 @@ erDiagram
   Insert-only (`bad_debt_relief_immutable`). The entry's lines and tax
   items are the ledger's. The down migration is refused while a relief
   is recorded.
+- `receivables.bad_debt_recharge` (migration 000448; ADR-0049 As built
+  batch 91): a bad debt relief's tax charged again because the customer
+  paid what was written off, or charged back less by the undoing of that
+  payment. It names the invoice (`bad_debt_recharge_invoice_fkey`), the
+  incoming payment (`bad_debt_recharge_payment_fkey`) and its application
+  (0 its own, not negative, `bad_debt_recharge_application_check`) and
+  whether its undoing posted it (`reset`), charging an invoice once per
+  application and undoing (`bad_debt_recharge_once`); the amount then
+  recovered of what the reliefs wrote off, not negative
+  (`bad_debt_recharge_recovered_check`); the tax charged, not nothing
+  (`bad_debt_recharge_tax_check`), and its local amount of its sign or
+  nothing (`bad_debt_recharge_tax_lc_sign`), in the invoice's currency
+  and the company's (`currency`, `local_currency`, both of ref.currency);
+  the posting date and its entry, one charge's
+  (`bad_debt_recharge_entry_once`, its number 1 to 40 characters,
+  `bad_debt_recharge_entry_number_check`). Insert-only
+  (`bad_debt_recharge_immutable`). The down migration is refused while
+  one is recorded.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
   `CustomerInvoiceReversed`,
@@ -5291,6 +5309,9 @@ erDiagram
   (`dispute_case_item_id_key`). An item is in one open case at a time
   (the partial unique index `dispute_case_item_one_open` on `open`); the
   case's close sets `open` false (the trigger `dispute_case_items_closed`).
+  What resolved cases accepted of an item is read by its line through
+  the partial index `dispute_case_item_accepted_by_line` (migration
+  000447; ADR-0065 As built batch 91), which bounds a new case's amount.
   At commit a case has items, its own line its first item's, its amounts
   their totals and each item open while it is (the deferred constraint
   triggers `dispute_case_items` on both tables). The application inserts

@@ -3223,7 +3223,9 @@ func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool,
 // IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
 // with the same `Idempotency-Key` answers the payment as the first answered it. A cash discount is not
 // granted here (422 `receivables.cash_discount_not_granted` naming `items[i].cash_discount`): an item
-// takes its discount when a receipt pays it (`createIncomingPayment`). Human-only (`x-agent: false`).
+// takes its discount when a receipt pays it (`createIncomingPayment`). What it pays of a relieved
+// invoice charges the relief's tax again as `createIncomingPayment` says (`bad_debt_recharges`, its
+// `application_no` the application's). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments/{id}/applications
 func (s *Server) handleApplyIncomingPaymentOnAccountRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -15265,11 +15267,15 @@ func (s *Server) handleCreateAuditEvidenceExportRequest(args [0]string, argsEsca
 // in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial
 // write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409
 // `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross
-// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a
-// second dispute case writing the same item off again); two claims of one invoice at once are ordered
-// by the invoice's row lock. An audit record is written with it. A retry with the same
-// `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later
-// is not built yet. Human-only (`x-agent: false`).
+// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`;
+// `createDisputeCase` disputes at most what is still owed of an item); two claims of one invoice at
+// once are ordered by the invoice's row lock. An audit record is written with it. A retry with the
+// same `Idempotency-Key` answers the relief recorded. An invoice the customer has paid beyond what its
+// write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming
+// `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a
+// payment applied in another currency is refused too (422
+// `receivables.relieved_invoice_other_currency`). When the customer pays later, the payment charges
+// the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`).
 //
 // POST /v1/bad-debt-reliefs
 func (s *Server) handleCreateBadDebtReliefRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -19801,20 +19807,22 @@ func (s *Server) handleCreateCustomerSalesDataRequest(args [0]string, argsEscape
 // currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the
 // caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed
 // amount is in the item's currency (422 `collections.currency_mismatch` naming its
-// `disputed_amount.currency`), more than zero and at most the item's open amount (422
-// `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each
-// item's share of its amount in the company's currency, as the item was booked (the item's local
-// amount × the disputed amount ÷ its amount, rounded half away from zero). The case's
-// `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422
-// `collections.amount_too_large`), and its own journal line is its first item's. An item is in one
-// open case at a time: an item in another open case is refused, whether the case comes after the other
-// or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the
-// tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`).
-// `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the
-// field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a
-// dunning run leaves the item out while the case is open (T86b). Audited, and published as
-// DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same
-// `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`).
+// `disputed_amount.currency`), more than zero and at most what is still owed of the item: its open
+// amount less what resolved cases accepted of it, by credit memo or write-off, which leave the item
+// open beside their credit (422 `collections.invalid_disputed_amount` naming its
+// `disputed_amount.amount`); the case also keeps each item's share of its amount in the company's
+// currency, as the item was booked (the item's local amount × the disputed amount ÷ its amount,
+// rounded half away from zero). The case's `disputed_amount` and `local_disputed_amount` are its
+// items' totals (more than an amount holds: 422 `collections.amount_too_large`), and its own journal
+// line is its first item's. An item is in one open case at a time: an item in another open case is
+// refused, whether the case comes after the other or races it (409 `collections.dispute_exists`). An
+// assignee, if named, is an active person of the tenant who may act in the company (422
+// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
+// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
+// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
+// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
+// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/dispute-cases
 func (s *Server) handleCreateDisputeCaseRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -22039,7 +22047,17 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 // holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`.
 // Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers
 // the payment applied; another request for the same receipt is refused while the payment is applied.
-// `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`).
+// `resetIncomingPayment` undoes it (T75i). What the payment pays of the customers' invoices a bad debt
+// relief relieved (`createBadDebtRelief`), beyond what their write-offs left owed, is a recovery of
+// the bad debt: the share of the reliefs' tax in what is now paid of what they wrote off, less what
+// was charged before, is charged again in the same transaction (ADR-0049 As built batch 91), under the
+// reliefs' adjustment codes and emirates, against `payment_difference_expense` (422
+// `receivables.no_write_off_account` without it), dated the payment's posting date, and shown in
+// `bad_debt_recharges`; what is paid counts the invoice's items and the residual items they left, net
+// of residuals, write-offs and cash discounts, and the write-off credits the payment applied with
+// them, so paying the invoice's item with its write-off's credit recovers nothing. A relieved
+// invoice's items or write-off credits are applied in the invoice's currency (422
+// `receivables.relieved_invoice_other_currency`). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments
 func (s *Server) handleCreateIncomingPaymentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -126047,7 +126065,10 @@ func (s *Server) handleRequestBankAccountEndRequest(args [2]string, argsEscaped 
 // version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`.
 // Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the
 // caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as
-// the first answered it. Human-only (`x-agent: false`).
+// the first answered it. What the undoing no longer pays of an invoice a bad debt relief relieved
+// charges back less of the tax its application charged again (`bad_debt_recharges`, `reset` true, a
+// negative `tax_amount`, dated the reversal's posting date; 422 `receivables.no_write_off_account`
+// without the account). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments/{id}:reset
 func (s *Server) handleResetIncomingPaymentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -126270,7 +126291,10 @@ func (s *Server) handleResetIncomingPaymentRequest(args [1]string, argsEscaped b
 // application with its `reset` and `on_account` showing the credit open again. Audited, and published
 // as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's
 // applications, or a payment of a company the caller may not act in, is not found. A retry with the
-// same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`).
+// same `Idempotency-Key` answers the payment as the first answered it. What the undoing no longer pays
+// of an invoice a bad debt relief relieved charges back less of the tax its application charged again
+// (`bad_debt_recharges`, `reset` true, a negative `tax_amount`, dated the reversal's posting date; 422
+// `receivables.no_write_off_account` without the account). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments/{id}/applications/{application_no}:reset
 func (s *Server) handleResetIncomingPaymentApplicationRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

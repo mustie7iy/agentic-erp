@@ -58733,6 +58733,11 @@ type IncomingPayment struct {
 	JournalEntryNumber string `json:"journal_entry_number"`
 	// The items the payment was applied to, by item number.
 	Items []IncomingPaymentItem `json:"items"`
+	// The tax of bad debt reliefs (`createBadDebtRelief`) that the payment's applications charged again,
+	// and their undoings charged back less, in the order they were posted (ADR-0049 As built batch 91):
+	// what the customer pays of a relieved invoice beyond what its write-offs left owed is a recovery of
+	// the bad debt. Empty when there were none.
+	BadDebtRecharges []IncomingPaymentBadDebtRecharge `json:"bad_debt_recharges"`
 }
 
 // GetID returns the value of ID.
@@ -58915,6 +58920,11 @@ func (s *IncomingPayment) GetItems() []IncomingPaymentItem {
 	return s.Items
 }
 
+// GetBadDebtRecharges returns the value of BadDebtRecharges.
+func (s *IncomingPayment) GetBadDebtRecharges() []IncomingPaymentBadDebtRecharge {
+	return s.BadDebtRecharges
+}
+
 // SetID sets the value of ID.
 func (s *IncomingPayment) SetID(val uuid.UUID) {
 	s.ID = val
@@ -59095,6 +59105,11 @@ func (s *IncomingPayment) SetItems(val []IncomingPaymentItem) {
 	s.Items = val
 }
 
+// SetBadDebtRecharges sets the value of BadDebtRecharges.
+func (s *IncomingPayment) SetBadDebtRecharges(val []IncomingPaymentBadDebtRecharge) {
+	s.BadDebtRecharges = val
+}
+
 // An application of a payment's credit on account to the customer's open items (T75g): one clearing
 // entry cleared the credit and the items, leaving what they did not take on account.
 // Ref: #/components/schemas/IncomingPaymentApplication
@@ -59266,6 +59281,189 @@ func (s *IncomingPaymentApplicationCreate) SetPostingDate(val OptDate) {
 // SetItems sets the value of Items.
 func (s *IncomingPaymentApplicationCreate) SetItems(val []IncomingPaymentItemRef) {
 	s.Items = val
+}
+
+// The tax a bad debt relief recovered, charged again because the customer paid what was written off
+// (ADR-0049 As built batch 91): the share of the reliefs' tax in what the customer has now paid of
+// their written-off amount, less what was charged before, posted under the reliefs' adjustment codes
+// and emirates against `payment_difference_expense`, so the return reports it where it reported the
+// relief. An undoing of the application charges back less (a negative `tax_amount`). It is recorded
+// once, when it posts, and never changes.
+// Ref: #/components/schemas/IncomingPaymentBadDebtRecharge
+type IncomingPaymentBadDebtRecharge struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The relieved customer invoice (`GET /v1/customer-invoices/{id}`; its reliefs:
+	// `GET /v1/bad-debt-reliefs?customer_invoice_id=`).
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The invoice's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The application whose applying or undoing moved what was recovered: 0 the payment's own, else an
+	// application of its credit on account (`applications[].application_no`).
+	ApplicationNo int32 `json:"application_no"`
+	// True when the undoing of that application (`resetIncomingPayment`,
+	// `resetIncomingPaymentApplication`) posted it, charging back less; false when applying it did.
+	Reset bool `json:"reset"`
+	// What the customer had then paid of what the invoice's reliefs wrote off, in the invoice's currency,
+	// which is the payment's: from zero to all of it.
+	RecoveredAmount Money `json:"recovered_amount"`
+	// The tax charged again, in the invoice's currency; negative: charged back less.
+	TaxAmount Money `json:"tax_amount"`
+	// The tax charged again in the company's currency, at the reliefs' rates: what the return reports.
+	LocalTaxAmount Money `json:"local_tax_amount"`
+	// Its posting date and tax date: the application's, or the undoing's.
+	PostingDate time.Time `json:"posting_date"`
+	// Its journal entry, its lines the tax by adjustment code and emirate
+	// (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When it was recorded.
+	CreatedAt time.Time `json:"created_at"`
+	// The principal whose application or undoing posted it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *IncomingPaymentBadDebtRecharge) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *IncomingPaymentBadDebtRecharge) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *IncomingPaymentBadDebtRecharge) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetApplicationNo returns the value of ApplicationNo.
+func (s *IncomingPaymentBadDebtRecharge) GetApplicationNo() int32 {
+	return s.ApplicationNo
+}
+
+// GetReset returns the value of Reset.
+func (s *IncomingPaymentBadDebtRecharge) GetReset() bool {
+	return s.Reset
+}
+
+// GetRecoveredAmount returns the value of RecoveredAmount.
+func (s *IncomingPaymentBadDebtRecharge) GetRecoveredAmount() Money {
+	return s.RecoveredAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetLocalTaxAmount returns the value of LocalTaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) GetLocalTaxAmount() Money {
+	return s.LocalTaxAmount
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPaymentBadDebtRecharge) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentBadDebtRecharge) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IncomingPaymentBadDebtRecharge) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentBadDebtRecharge) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IncomingPaymentBadDebtRecharge) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IncomingPaymentBadDebtRecharge) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *IncomingPaymentBadDebtRecharge) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *IncomingPaymentBadDebtRecharge) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *IncomingPaymentBadDebtRecharge) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetApplicationNo sets the value of ApplicationNo.
+func (s *IncomingPaymentBadDebtRecharge) SetApplicationNo(val int32) {
+	s.ApplicationNo = val
+}
+
+// SetReset sets the value of Reset.
+func (s *IncomingPaymentBadDebtRecharge) SetReset(val bool) {
+	s.Reset = val
+}
+
+// SetRecoveredAmount sets the value of RecoveredAmount.
+func (s *IncomingPaymentBadDebtRecharge) SetRecoveredAmount(val Money) {
+	s.RecoveredAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetLocalTaxAmount sets the value of LocalTaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) SetLocalTaxAmount(val Money) {
+	s.LocalTaxAmount = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPaymentBadDebtRecharge) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentBadDebtRecharge) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IncomingPaymentBadDebtRecharge) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentBadDebtRecharge) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IncomingPaymentBadDebtRecharge) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IncomingPaymentBadDebtRecharge) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
 }
 
 // Apply an incoming payment to a customer's open items, leaving what they do not take on the

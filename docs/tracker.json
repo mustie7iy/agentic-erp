@@ -2778,10 +2778,17 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Bad debt relief reversed when the customer pays later: what the customer pays of an invoice whose output tax a bad debt relief recovered charges that share of the tax again, by an adjustment the return reports (UAE Art. 64, Canada ETA s.231, as the coordinator's research of 21 Nov states it; the conditions to read in the law's text first)",
-      "r": "ADR-0049 As built batch 90",
+      "s": "D",
+      "t": "Bad debt relief reversed when the customer pays later: what the customer pays of an invoice whose output tax a bad debt relief recovered, beyond what its write-offs left owed, charges that share of the tax again, by an adjustment the return reports, in the transaction that applies the payment (and an undoing of it charges back less), under the reliefs' codes and emirates against payment_difference_expense (the research of 21 Nov names Art. 64 and ETA s.231 for the relief only; that a payment charges it again is this leaf's, and when, how much and where the return reports it are this step's defaults, for the specialist); a relief of an invoice paid beyond what its write-offs leave refused (422 receivables.bad_debt_paid)",
+      "r": "ADR-0049 As built batch 91 · ADR-0063 As built batch 91 · db/migrations/000448 (receivables.bad_debt_recharge) · IncomingPayment.bad_debt_recharges · receivables.relieved_invoice_other_currency · TestUAEBadDebtRecharge · TestCanadianBadDebtRecharge · TestBadDebtRechargeOfWhatWasOwed · walkthrough step_bad_debt_relief (step 157)",
       "src": "po:2026-11-21",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A ledger clearing of a relieved invoice charges its bad debt relief again or is refused: createClearing (POST /v1/clearings) can clear a relieved invoice's item or its write-off's credit against a credit posted straight to the customer's account, which charges none of the relieved tax again and which receivables' paid does not count (money and tax correctness)",
+      "r": "ADR-0049 As built batch 91, Later · internal/receivables/recharge.go paidOf",
+      "src": "review:batch91",
       "c": []
      }
     ]
@@ -3303,9 +3310,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A dispute case disputes at most what is still owed of an item: today a case's amount is bounded by the item's line amount, and a write-off or credit memo leaves the item open beside its credit, so a second case can write the same invoice off again, past its gross (money correctness; bad debt relief refuses relieving more than the gross, 422 receivables.bad_debt_relief_exceeds_invoice, but the second write-off still posts)",
-        "r": "internal/collections/dispute_items.go disputed · ADR-0065 As built T86d · ADR-0049 As built batch 90",
+        "s": "D",
+        "t": "A dispute case disputes at most what is still owed of an item: its amount less what resolved cases accepted of it (credit memos and write-offs alike, which leave the item open beside their credit), so a second case can no longer write the same invoice off again, past its gross (422 collections.invalid_disputed_amount naming the item's amount; money correctness; bad debt relief still refuses relieving more than the gross, 422 receivables.bad_debt_relief_exceeds_invoice)",
+        "r": "internal/collections/dispute_items.go stillOwed · db/migrations/000447 (dispute_case_item_accepted_by_line) · TestDisputedAtMostWhatIsOwed · ADR-0065 As built batch 91 · ADR-0049 As built batch 90",
         "src": "review:batch90",
         "c": []
        },
