@@ -409,6 +409,10 @@ type CreateIncomingPaymentRes interface {
 	createIncomingPaymentRes()
 }
 
+type CreateIntercompanyBillingRes interface {
+	createIntercompanyBillingRes()
+}
+
 type CreateInternalOrderBudgetChangeRes interface {
 	createInternalOrderBudgetChangeRes()
 }
@@ -1027,6 +1031,10 @@ type GetHierarchyRes interface {
 
 type GetIncomingPaymentRes interface {
 	getIncomingPaymentRes()
+}
+
+type GetIntercompanyBillingRes interface {
+	getIntercompanyBillingRes()
 }
 
 type GetInternalOrderBudgetRes interface {
@@ -1707,6 +1715,10 @@ type ListHouseBanksRes interface {
 
 type ListIncomingPaymentsRes interface {
 	listIncomingPaymentsRes()
+}
+
+type ListIntercompanyBillingsRes interface {
+	listIntercompanyBillingsRes()
 }
 
 type ListIntercompanyDifferencesRes interface {

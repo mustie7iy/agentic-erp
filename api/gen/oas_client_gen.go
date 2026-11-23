@@ -2061,6 +2061,44 @@ type Invoker interface {
 	//
 	// POST /v1/incoming-payments
 	CreateIncomingPayment(ctx context.Context, request *IncomingPaymentCreate, params CreateIncomingPaymentParams) (CreateIncomingPaymentRes, error)
+	// CreateIntercompanyBilling invokes createIntercompanyBilling operation.
+	//
+	// The supplying company bills the posted goods issue (643) of an intercompany stock transport order
+	// (ADR-0082 As built S2i, S2i2; SAP's intercompany billing, billing type IV, from memory) to the
+	// business partner that is the receiving company, and posts it at once as a customer invoice, in one
+	// transaction. The order (`purchase_order_id`) is one of a company the caller may act in, supplied by
+	// a plant of another company the caller may act in, which bills (422 `request.reference_not_found`
+	// naming `purchase_order_id` otherwise); an order naming no supplying plant is refused (422
+	// `sales.not_intercompany`), one whose goods issue is not posted yet (409
+	// `sales.intercompany_not_issued`) or is billed already (409 `sales.intercompany_billed`: a goods
+	// issue is billed once, and of two requests racing for one the second meets this). The customer
+	// (`customer_id`) is the business partner whose group company is the order's company (422
+	// `sales.intercompany_customer`), set up as a customer in the supplying company. Every item of the
+	// order is billed once (422 `sales.intercompany_items` otherwise), its ordered quantity, which the
+	// goods issue issued, at the order's price, the transfer price: its amount is the order item's value,
+	// quantity × price ÷ price unit rounded half away from zero, in the order's currency, so the
+	// billing's net amount is the order's. Each item names the supplying company's revenue account and,
+	// optionally, its output tax code and tax jurisdiction; an item whose code levies the UAE's emirates
+	// and that names none takes the supplying plant's emirate (the seller's side, ADR-0049 §11). The
+	// billing is dated `billing_date`, else the supplying company's date today in its time zone, never
+	// before the goods issue (422 `sales.billing_before_issue`), and numbered from that company's
+	// `billing_document` range. Accounts receivable enters and posts the customer invoice (document type
+	// `DR`) as for a billing document (`postBillingDocument`): the billing date its invoice and tax date,
+	// the customer's payment term in the company, the output tax calculated by the items' codes, Dr the
+	// customer's reconciliation account, Cr each item's account and the output tax; it names the billing
+	// as its source. Its refusals leave nothing billed or posted and name the request's own fields
+	// (`customer_id`, `items[i].account_id`, `items[i].tax_code`), such as a customer not set up in the
+	// supplying company (422 `receivables.customer_not_usable`), an account not postable there (422
+	// `receivables.account_not_postable`), a code that is no output tax code of that company (422
+	// `receivables.unknown_tax_code`) and a closed period (409 `ledger.period_not_open`). The posting date
+	// is the request's, else the supplying company's date today. The billing names its customer invoice,
+	// the invoice's journal entry, its tax and gross amounts and each item's tax, and is never changed
+	// (cancelling it is Later). Audited (`sales.intercompany_billing.create`); the invoice publishes
+	// CustomerInvoiceChanged and CustomerInvoicePosted. A retry with the same `Idempotency-Key` answers
+	// the billing created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/intercompany-billings
+	CreateIntercompanyBilling(ctx context.Context, request *IntercompanyBillingCreate, params CreateIntercompanyBillingParams) (CreateIntercompanyBillingRes, error)
 	// CreateInternalOrder invokes createInternalOrder operation.
 	//
 	// Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
@@ -4461,6 +4499,17 @@ type Invoker interface {
 	//
 	// GET /v1/incoming-payments/{id}
 	GetIncomingPayment(ctx context.Context, params GetIncomingPaymentParams) (GetIncomingPaymentRes, error)
+	// GetIntercompanyBilling invokes getIntercompanyBilling operation.
+	//
+	// One intercompany billing (ADR-0082 As built S2i, S2i2) with the supplying company that billed and
+	// the receiving company billed by id and code, its customer by number and name, the intercompany order
+	// and its goods issue by id and number, its dates, its net, tax and gross amounts, the customer
+	// invoice it posted as with that invoice's journal entry, and its items, each with the order item it
+	// bills, the quantity, the order's price, its amount, its tax and its revenue account by number and
+	// name. One the caller may act in neither company of is not found (404), as one that does not exist.
+	//
+	// GET /v1/intercompany-billings/{id}
+	GetIntercompanyBilling(ctx context.Context, params GetIntercompanyBillingParams) (GetIntercompanyBillingRes, error)
 	// GetInternalOrder invokes getInternalOrder operation.
 	//
 	// Returns one internal order with its responsible cost center's code. An order of a legal entity the
@@ -6402,6 +6451,15 @@ type Invoker interface {
 	//
 	// GET /v1/incoming-payments
 	ListIncomingPayments(ctx context.Context, params ListIncomingPaymentsParams) (ListIncomingPaymentsRes, error)
+	// ListIntercompanyBillings invokes listIntercompanyBillings operation.
+	//
+	// The intercompany billings (ADR-0082 As built S2i, S2i2) the caller may read, each as
+	// `getIntercompanyBilling` gives it: those billed by a company the caller may act in, and those billed
+	// to one (the receiving company of the order). Filtered by the billing company, the receiving company
+	// and the purchase order billed. Sortable by: `billing_date` (the default), `document_number`.
+	//
+	// GET /v1/intercompany-billings
+	ListIntercompanyBillings(ctx context.Context, params ListIntercompanyBillingsParams) (ListIntercompanyBillingsRes, error)
 	// ListIntercompanyDifferences invokes listIntercompanyDifferences operation.
 	//
 	// A consolidation run's intercompany matching (ADR-0059 §8, T68f; SAP's intercompany matching and
@@ -26691,6 +26749,168 @@ func (c *Client) sendCreateIncomingPayment(ctx context.Context, request *Incomin
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateIncomingPaymentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateIntercompanyBilling invokes createIntercompanyBilling operation.
+//
+// The supplying company bills the posted goods issue (643) of an intercompany stock transport order
+// (ADR-0082 As built S2i, S2i2; SAP's intercompany billing, billing type IV, from memory) to the
+// business partner that is the receiving company, and posts it at once as a customer invoice, in one
+// transaction. The order (`purchase_order_id`) is one of a company the caller may act in, supplied by
+// a plant of another company the caller may act in, which bills (422 `request.reference_not_found`
+// naming `purchase_order_id` otherwise); an order naming no supplying plant is refused (422
+// `sales.not_intercompany`), one whose goods issue is not posted yet (409
+// `sales.intercompany_not_issued`) or is billed already (409 `sales.intercompany_billed`: a goods
+// issue is billed once, and of two requests racing for one the second meets this). The customer
+// (`customer_id`) is the business partner whose group company is the order's company (422
+// `sales.intercompany_customer`), set up as a customer in the supplying company. Every item of the
+// order is billed once (422 `sales.intercompany_items` otherwise), its ordered quantity, which the
+// goods issue issued, at the order's price, the transfer price: its amount is the order item's value,
+// quantity × price ÷ price unit rounded half away from zero, in the order's currency, so the
+// billing's net amount is the order's. Each item names the supplying company's revenue account and,
+// optionally, its output tax code and tax jurisdiction; an item whose code levies the UAE's emirates
+// and that names none takes the supplying plant's emirate (the seller's side, ADR-0049 §11). The
+// billing is dated `billing_date`, else the supplying company's date today in its time zone, never
+// before the goods issue (422 `sales.billing_before_issue`), and numbered from that company's
+// `billing_document` range. Accounts receivable enters and posts the customer invoice (document type
+// `DR`) as for a billing document (`postBillingDocument`): the billing date its invoice and tax date,
+// the customer's payment term in the company, the output tax calculated by the items' codes, Dr the
+// customer's reconciliation account, Cr each item's account and the output tax; it names the billing
+// as its source. Its refusals leave nothing billed or posted and name the request's own fields
+// (`customer_id`, `items[i].account_id`, `items[i].tax_code`), such as a customer not set up in the
+// supplying company (422 `receivables.customer_not_usable`), an account not postable there (422
+// `receivables.account_not_postable`), a code that is no output tax code of that company (422
+// `receivables.unknown_tax_code`) and a closed period (409 `ledger.period_not_open`). The posting date
+// is the request's, else the supplying company's date today. The billing names its customer invoice,
+// the invoice's journal entry, its tax and gross amounts and each item's tax, and is never changed
+// (cancelling it is Later). Audited (`sales.intercompany_billing.create`); the invoice publishes
+// CustomerInvoiceChanged and CustomerInvoicePosted. A retry with the same `Idempotency-Key` answers
+// the billing created. Human-only (`x-agent: false`).
+//
+// POST /v1/intercompany-billings
+func (c *Client) CreateIntercompanyBilling(ctx context.Context, request *IntercompanyBillingCreate, params CreateIntercompanyBillingParams) (CreateIntercompanyBillingRes, error) {
+	res, err := c.sendCreateIntercompanyBilling(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateIntercompanyBilling(ctx context.Context, request *IntercompanyBillingCreate, params CreateIntercompanyBillingParams) (res CreateIntercompanyBillingRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createIntercompanyBilling"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/intercompany-billings"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateIntercompanyBillingOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/intercompany-billings"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateIntercompanyBillingRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateIntercompanyBillingOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateIntercompanyBillingResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -49902,6 +50122,142 @@ func (c *Client) sendGetIncomingPayment(ctx context.Context, params GetIncomingP
 
 	stage = "DecodeResponse"
 	result, err := decodeGetIncomingPaymentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetIntercompanyBilling invokes getIntercompanyBilling operation.
+//
+// One intercompany billing (ADR-0082 As built S2i, S2i2) with the supplying company that billed and
+// the receiving company billed by id and code, its customer by number and name, the intercompany order
+// and its goods issue by id and number, its dates, its net, tax and gross amounts, the customer
+// invoice it posted as with that invoice's journal entry, and its items, each with the order item it
+// bills, the quantity, the order's price, its amount, its tax and its revenue account by number and
+// name. One the caller may act in neither company of is not found (404), as one that does not exist.
+//
+// GET /v1/intercompany-billings/{id}
+func (c *Client) GetIntercompanyBilling(ctx context.Context, params GetIntercompanyBillingParams) (GetIntercompanyBillingRes, error) {
+	res, err := c.sendGetIntercompanyBilling(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetIntercompanyBilling(ctx context.Context, params GetIntercompanyBillingParams) (res GetIntercompanyBillingRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getIntercompanyBilling"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/intercompany-billings/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetIntercompanyBillingOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/intercompany-billings/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetIntercompanyBillingOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetIntercompanyBillingResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -82478,6 +82834,228 @@ func (c *Client) sendListIncomingPayments(ctx context.Context, params ListIncomi
 
 	stage = "DecodeResponse"
 	result, err := decodeListIncomingPaymentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListIntercompanyBillings invokes listIntercompanyBillings operation.
+//
+// The intercompany billings (ADR-0082 As built S2i, S2i2) the caller may read, each as
+// `getIntercompanyBilling` gives it: those billed by a company the caller may act in, and those billed
+// to one (the receiving company of the order). Filtered by the billing company, the receiving company
+// and the purchase order billed. Sortable by: `billing_date` (the default), `document_number`.
+//
+// GET /v1/intercompany-billings
+func (c *Client) ListIntercompanyBillings(ctx context.Context, params ListIntercompanyBillingsParams) (ListIntercompanyBillingsRes, error) {
+	res, err := c.sendListIntercompanyBillings(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListIntercompanyBillings(ctx context.Context, params ListIntercompanyBillingsParams) (res ListIntercompanyBillingsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listIntercompanyBillings"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/intercompany-billings"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListIntercompanyBillingsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/intercompany-billings"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "receiving_legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "receiving_legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ReceivingLegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "purchase_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "purchase_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PurchaseOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListIntercompanyBillingsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListIntercompanyBillingsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -34,7 +34,11 @@
 // document's invoice (credit_post.go; As built T85d). Orders.Segments
 // adds the posted billing and credit memo items up by customer and item
 // key for net revenue by profitability segment (segments.go; ADR-0075
-// §6).
+// §6). The supplying company of an intercompany stock transport order
+// bills its goods issue to the business partner that is the receiving
+// company and posts it at once as a customer invoice, a document of its
+// own (intercompany.go; ADR-0082 As built S2i2), reading the order
+// through a port the composition root wires (IntercompanyOrders).
 //
 // A sales document carries net amounts and posts nothing itself: tax is
 // calculated when the order is billed, and a billing document posts
@@ -181,6 +185,9 @@ type Endpoints struct {
 	// Stock is the plants' stock an order's availability check reads
 	// (S2j).
 	Stock Stock
+	// Intercompany reads the intercompany stock transport orders the
+	// supplying company bills (S2i2).
+	Intercompany IntercompanyOrders
 	// Uploads, OrderExtractor and Finder serve order capture (T90a): the
 	// upload's document, the model that reads it (nil: capture answers
 	// 503) and the customer it names.

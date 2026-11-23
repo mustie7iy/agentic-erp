@@ -1231,6 +1231,99 @@ memory, for the specialist) and plan §S2i, which splits it into S2i1
   one-step transfers (645), stock in transit valuation and its list,
   customs (S2s).
 
+### S2i2 (2026-11-22)
+
+Intercompany billing, decided by default from SAP's intercompany billing
+of a cross-company stock transport order (billing type IV, from memory,
+for the specialist) and S2i's decisions above.
+
+- **A document of its own**, `sales.intercompany_billing` with its items
+  (migration 000445, 03 §3.29; schema tests in
+  `db/intercompany_billing_test.go`, the insert-only triggers also as the
+  owner, the down's refusal). A sales billing document bills a sales
+  order's delivered items, which its keys, triggers and readers
+  (returns, credit memo requests, revenue) rest on; a goods issue of a
+  purchase order has no sales order. Its number is of the supplying
+  company's `billing_document` range, as SAP numbers both kinds alike.
+- **Billed and posted at once**: `POST /v1/intercompany-billings`
+  (`sales.billing.post`, human-only) enters and posts the customer
+  invoice through receivables in the request's transaction and writes the
+  billing with it, or nothing (SAP releases an IV billing to accounting
+  as it is created, from memory). There is no `created` state and the
+  billing never changes; cancelling it, a credit memo of it and the
+  receiving side's reversal are Later.
+- **Once per goods issue**: an order whose goods issue is not posted is
+  refused (409 `sales.intercompany_not_issued`), one billed already too
+  (409 `sales.intercompany_billed`, read first and, for two racing, the
+  unique key `intercompany_billing_once`). An order naming no supplying
+  plant is no intercompany one (422 `sales.not_intercompany`).
+- **Who bills**: the caller acts in both companies, as for the goods
+  issue: the order is read through procurement's published
+  `Orders.Issued` (wired by the composition root, as sales does not
+  import procurement) for a caller who may act in its company, and the
+  supplying plant's company is one the caller acts in too (422
+  `request.reference_not_found` naming `purchase_order_id` otherwise).
+  Either company's people read the billing (`GET`, the list filtered by
+  either company and by order): it is the supplying company's bill and
+  the receiving company's invoice to enter (S2i3).
+- **Locks**: `Orders.Issued` reads the order `FOR SHARE`, so no change of
+  the order (each takes its row `FOR UPDATE`) runs beside the billing;
+  the goods issue is fixed already (`purchase_order_supply_fixed`).
+  Beyond it the billing takes what a billing document's post takes in
+  the supplying company (its number ranges, the invoice, the ledger's
+  posting); the receiving company's goods receipt of the order takes the
+  order and the receiving company's, so the two meet only on the order's
+  row, which the billing never waits for while holding the other's.
+- **Customer**: named by the request and checked as S2i1 checks the
+  order's supplier: the business partner whose group company is the
+  order's company (422 `sales.intercompany_customer`;
+  `partner.Customer.GroupCompanyID` added to the published read), set up
+  as a customer in the supplying company (receivables' check, 422
+  `receivables.customer_not_usable`). Its payment term is the
+  customer's in the supplying company.
+- **Prices and amounts**: every order item once (422
+  `sales.intercompany_items`), its ordered quantity, which the goods
+  issue issued, at the order's price; its amount is the order item's
+  value as procurement computes it (quantity × price ÷ price unit,
+  rounded half away from zero; a stored value out of range fails
+  closed), so the billing's net is the order's, the transfer price. An
+  intercompany order's item is valued above zero (422
+  `procurement.intercompany_item_value` when the order is created or
+  changed, review round 1): receivables refuses a customer invoice item
+  of zero, and every item of the goods issue is billed, so an order with
+  such an item could otherwise never be billed. The
+  billing's currency is the order's; the supplying company books it at
+  its average rate as any foreign-currency invoice.
+- **Account and tax**: each item names the supplying company's revenue
+  account and, optionally, its output tax code and jurisdiction, as a
+  sales item names them (SAP determines them by account determination,
+  key ERL, and the IV conditions, from memory: Later with the supplying
+  side's own pricing). An item whose code levies the UAE's emirates and
+  that names none takes the supplying plant's region (the seller's side,
+  ADR-0049 §11, the rule a sales item's default follows, one helper
+  `defaultedTo`). Receivables calculates the tax at the billing date's
+  rates and refuses what it refuses for any invoice, named by the
+  request's own fields (`asPosting`). Each item keeps the tax its
+  invoice item bore, for S2i3.
+- **Dates**: the billing date is the one given, else the supplying
+  company's date today, never before the goods issue (422
+  `sales.billing_before_issue`); it is the invoice and tax date. The
+  posting date is the one given, else that company's date today.
+- **Records**: audited (`sales.intercompany_billing.create`); no event of
+  its own, the invoice publishing CustomerInvoiceChanged and
+  CustomerInvoicePosted.
+- **The invoice's source**: a customer invoice's `source_document_id` may
+  now name an intercompany billing; the contract says so beside the
+  billing document it named alone (review round 1). Both are numbered
+  from the `billing_document` range, so the id tells them apart.
+- Walkthrough step 155, `step_intercompany_transport` (its
+  `intercompany_billing` part): Maple Gulf Trading bills Maple the
+  lamps it issued, CAD 320.00 zero-rated (Z0), Dr 1200 Cr 4000, once.
+- **Not built** (Later): cancelling or crediting a billing, billing a
+  partial or repeated issue (with them, plan §S2i), the supplying side's
+  own pricing and account determination, an outgoing e-invoice of a UAE
+  company's intercompany billing as a step of its own.
+
 ### S2f (2026-11-20)
 
 - Migrations 000428 and 000429 (03 §3.35, S2f): `materials.material.batch_managed`,
