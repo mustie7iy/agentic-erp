@@ -388,11 +388,31 @@ exceptions.
 - **Fourth exception (2026-11-22, batch 88).** CVE-2026-19499 and
   CVE-2026-5435 (High) in glibc 2.41-12+deb13u4 (libc6 of erp-analytics's
   runtime base, distroless cc-debian13:nonroot `sha256:cb87acc5...`, and
-  libc-bin of the PgBouncer pin), fixed in Debian 13's 2.41-12+deb13u5, are
+  libc-bin of the PgBouncer pin, which carries libc6 too: see the next
+  bullet), fixed in Debian 13's 2.41-12+deb13u5, are
   accepted by the product owner until 2026-11-29: both images load glibc, so
   this is a posture decision; nothing is deployed and the release scans again
   before it copies or signs. Neither image has a build carrying the fix yet;
   the tracker item pins fixed digests and removes the entries.
+- **Fourth narrowed to PgBouncer (2026-11-23, batch 89).** The
+  cc-debian13:nonroot tag now names index `sha256:532c7a94...`, which
+  carries libc6 2.41-12+deb13u5; erp-analytics's runtime base is pinned to
+  it. The pinned grype finds no fixable high in it on linux/amd64 or
+  linux/arm64, and no high or critical finding of any fix state that
+  `sha256:cb87acc5...` did not have. The `.grype.yaml` entries stay, for
+  the PgBouncer pin alone: it carries both libc6 and libc-bin
+  2.41-12+deb13u4, so they go when a PgBouncer build carries the fix.
+- **Fifth exception (2026-11-23, batch 89).** CVE-2026-112314,
+  CVE-2026-112320, CVE-2026-112321, CVE-2026-112322, CVE-2026-112323 and
+  CVE-2026-119079 (High) in MIT Kerberos 1.21.3-5+deb13u1 of the PgBouncer
+  pin (libgssapi-krb5-2, libk5crypto3, libkrb5-3, libkrb5support0), fixed in
+  Debian 13's 1.21.3-5+deb13u2, are accepted by the product owner until
+  2026-11-29 on the terms of the third and fourth: the libraries are in the
+  image, so this is a posture decision; nothing is deployed and the release
+  scans again before it copies or signs. No PgBouncer build carries the fix
+  yet (the newest trixie tag is still the pinned build); the tracker item
+  that pins a PgBouncer build for libcares2 also requires the fixed krb5 and
+  removes these entries.
 - **Checked by** `scripts/test-images.sh` with a fake grype: every pin,
   PgBouncer's and NATS's, scanned once by digest on `linux/arm64` with the
   threshold and `.grype.yaml`; a fixable high in a pin fails the scan; a
