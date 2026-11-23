@@ -297,9 +297,9 @@ func unkept(id string) error {
 	return problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON object the ERP can keep as received.")
 }
 
-// post reads the confirmation and posts it, in a savepoint: a refusal
-// rolls the posting back (and the audit records it buffered) and is kept
-// on in; a failure of the machinery (5xx, or one asking to be retried) is
+// post reads the confirmation and posts it (postAs; the posting's
+// savepoint is inSavepoint's, which rolls a refused posting back with
+// the audit records it buffered): a refusal is kept on in; a failure of the machinery (5xx, or one asking to be retried) is
 // returned, so nothing is recorded and the next poll takes it again.
 func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, conf confirmation) error {
 	err := conf.refusal
