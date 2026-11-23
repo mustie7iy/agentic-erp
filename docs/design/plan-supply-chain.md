@@ -856,6 +856,13 @@ replaces its own open proposals and never a person's requisition.
   valuation price; a rerun cancels the earlier runs' proposals still
   unchanged drafts and never touches one a person changed or raised.
   Migration 000436, walkthrough step 152 (`step_mrp`).
+- **Intercompany demand** (lane mrpic, batch 91, review:batch90; ADR-0084
+  As built): the run's demand also counts the intercompany orders (S2i)
+  the plant supplies and has not issued, through procurement's
+  `IntercompanyDue`; a stock transport order within the company is still
+  counted on neither side. No migration; test-only acceptance
+  (`TestPlanningRunIntercompany`): step_mrp runs before any intercompany
+  order exists in the walkthrough.
 
 ### S2l Replenishment agent
 

@@ -90,11 +90,11 @@ type DueOnOrder struct {
 // plant ($1) supplies, not closed or cancelled and not yet issued, order
 // of the materials ($2), by the day each item is due (its delivery date,
 // else the order's date), by material, unit and day in that order: the
-// plant's demand from the companies it supplies, which an S&OP review
-// counts as it counts sales orders (S2n; ADR-0084 As built S2n). Removed
-// items order nothing. It reads the orders as they are, locking nothing.
-// Company access is not applied: the caller reads a plant of a company it
-// may act in.
+// plant's demand from the companies it supplies, which a planning run and
+// an S&OP review count as they count sales orders (S2n; ADR-0084 As built
+// S2n and batch 91). Removed items order nothing. It reads the orders as
+// they are, locking nothing. Company access is not applied: the caller
+// reads a plant of a company it may act in.
 func (Orders) IntercompanyDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]DueOnOrder, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

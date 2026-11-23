@@ -19,21 +19,35 @@ import (
 
 // Net requirements (ADR-0084 §3): per planned material, in its base
 // unit, what the plant has available is its stock plus its open receipts
-// less the demand of its confirmed sales orders; below the reorder point,
-// the shortage is what brings it back there, rounded up to six decimals,
-// and is proposed as a requisition.
+// less its demand: its confirmed sales orders' and the intercompany
+// orders' it supplies and has not issued; below the reorder point, the
+// shortage is what brings it back there, rounded up to six decimals, and
+// is proposed as a requisition.
 
 // counts are a run's quantities by material in the base unit.
 type counts struct{ demand, stock, receipts map[uuid.UUID]*big.Rat }
 
 // count reads the plant's demand, stock and purchase orders' open
 // receipts of the planned materials, the taken-over proposals' receipts
-// added (settle).
+// added (settle). The demand is the confirmed sales orders' and that of
+// the intercompany orders the plant supplies and has not issued (S2i;
+// ADR-0084 As built, batch 91), whatever day they are due, as a sales
+// order's is. Such an order is a purchase order of the receiving plant,
+// whose run counts it as a receipt; once issued (643) the stock has left
+// the supplying plant, so the order demands nothing more. A stock
+// transport order within the company is counted on neither side (§2).
 func (e *Endpoints) count(ctx context.Context, w *work) (counts, error) {
 	c := counts{demand: map[uuid.UUID]*big.Rat{}, stock: map[uuid.UUID]*big.Rat{}, receipts: w.receipts}
 	demand, err := e.Supply.Demand(ctx, w.run.PlantID, w.ids)
 	if err != nil {
 		return counts{}, fmt.Errorf("mrp: demand at plant %s: %w", w.plant.Code, err)
+	}
+	intercompany, err := e.Supply.IntercompanyDue(ctx, w.run.PlantID, w.ids)
+	if err != nil {
+		return counts{}, fmt.Errorf("mrp: intercompany orders from plant %s: %w", w.plant.Code, err)
+	}
+	for _, d := range intercompany {
+		demand = append(demand, d.Open)
 	}
 	if err := w.sum(demand, c.demand); err != nil {
 		return counts{}, err

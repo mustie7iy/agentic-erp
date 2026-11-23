@@ -60,7 +60,9 @@ APIs, which `app` adapts into mrp's own types.
   plant is required (ADR-0082 As built, S2j: the plant required,
   po:2026-11-21) an order confirmed with a stock item always names its
   plant (entered, or the company's only one), so an order naming none is
-  one of services alone or one confirmed before that rule.
+  one of services alone or one confirmed before that rule. Besides, the
+  intercompany orders the plant supplies and has not issued
+  (procurement, `Orders.IntercompanyDue`; As built, batch 91).
 - **Stock** (inventory, `PlantStock`, S2j's read): what the plant's
   storage locations hold; stock in transit is not counted.
 - **Prices** (inventory, `PlantPrices`, new): the material's valuation
@@ -291,3 +293,32 @@ As built S2n, which records why not controlling's planning versions):
   asks); audited `mrp.sop_plan.create`, `.consensus` (each line's key
   and consensus before and after) and `.fix`.
 - Walkthrough step 157, `step_sop_review`.
+
+### Intercompany demand (batch 91, 2026-11-22; review:batch90)
+
+A run counted only the plant's confirmed sales orders as demand, so a
+plant that supplies another company's plant (S2i) proposed too little.
+Decided by default:
+
+- A run's demand at the plant is also what the intercompany orders it
+  supplies (purchase orders of the receiving company naming the plant
+  as `supplying_plant_id`) order and it has not issued, through
+  procurement's `Orders.IntercompanyDue`, the read S2n's review uses (no
+  new query; its days are not needed, as a sales order's due day is
+  not). The line's `demand` holds both; the contract says so
+  (`startMrpRun`, `MrpRunLine.demand`).
+- Draft and pending orders count, as they count at the receiving plant
+  (§2's receipts: a purchase order item whatever its release), so one
+  order is counted once on each side: a receipt of the receiving plant,
+  a demand of the supplying one. Once issued (643) the stock has left
+  the supplying plant and the order demands nothing more there; the
+  receiving plant counts it until received. Closed and cancelled orders
+  and removed items demand nothing.
+- No double counting with S2h: a stock transport order within the
+  company is counted by a run on neither side (§6, not followed: stock
+  transport orders as receipts; the issuing plant's requirement of such
+  an order waits with them), and an intercompany order is a purchase
+  order, never a stock transport order, so no order is in both reads
+  (`TestPlanningRunIntercompany`). SAP's MRP counts a stock transport
+  order's requirement at the supplying plant (its release order), from
+  memory, for the SAP specialist.
