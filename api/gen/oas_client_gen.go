@@ -1335,6 +1335,54 @@ type Invoker interface {
 	//
 	// POST /v1/audit-evidence-exports
 	CreateAuditEvidenceExport(ctx context.Context, request *AuditEvidenceExportCreate, params CreateAuditEvidenceExportParams) (CreateAuditEvidenceExportRes, error)
+	// CreateBadDebtRelief invokes createBadDebtRelief operation.
+	//
+	// Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049
+	// As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a
+	// short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice
+	// (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a
+	// credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United
+	// Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country,
+	// whose rule its tax specialist has not confirmed), written off by a dispute case's write-off
+	// (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry
+	// `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no
+	// write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in
+	// proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax
+	// items, the total rounded once half away from zero and shared out by their tax, in the invoice's
+	// currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share
+	// rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under
+	// Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months
+	// have passed since the supply, counted by default from the later of the invoice's date and its net
+	// due date (a relief dated on or before the day they pass is refused, 422
+	// `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified
+	// of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`);
+	// a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given
+	// is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code`
+	// is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output
+	// code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in
+	// box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input
+	// code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax
+	// (ADR-0049 §11). A code of another kind or direction, or without a component of each of the
+	// invoice's tax components with an account, levying the line's emirate exactly where the invoice's
+	// item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal
+	// entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on
+	// `posting_date` (else today, the company's date in its time zone), which is its tax date and must be
+	// in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422
+	// `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the
+	// tax recovered with the code and the emirate, and their total credited to the company's
+	// `payment_difference_expense` account, which the write-off debited (422
+	// `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax
+	// in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial
+	// write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409
+	// `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross
+	// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a
+	// second dispute case writing the same item off again); two claims of one invoice at once are ordered
+	// by the invoice's row lock. An audit record is written with it. A retry with the same
+	// `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later
+	// is not built yet. Human-only (`x-agent: false`).
+	//
+	// POST /v1/bad-debt-reliefs
+	CreateBadDebtRelief(ctx context.Context, request *BadDebtReliefCreate, params CreateBadDebtReliefParams) (CreateBadDebtReliefRes, error)
 	// CreateBatch invokes createBatch operation.
 	//
 	// Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level
@@ -3684,6 +3732,14 @@ type Invoker interface {
 	//
 	// GET /v1/audit-evidence-exports/{id}/files/{name}
 	GetAuditEvidenceExportFile(ctx context.Context, params GetAuditEvidenceExportFileParams) (GetAuditEvidenceExportFileRes, error)
+	// GetBadDebtRelief invokes getBadDebtRelief operation.
+	//
+	// A bad debt relief of a company the caller may act in (ADR-0049 As built, bad debt relief): the
+	// invoice and the write-off it relieves, what that wrote off and the tax recovered, the adjustment
+	// code, the customer's notice and the journal entry that posted it.
+	//
+	// GET /v1/bad-debt-reliefs/{id}
+	GetBadDebtRelief(ctx context.Context, params GetBadDebtReliefParams) (GetBadDebtReliefRes, error)
 	// GetBalanceCarryForward invokes getBalanceCarryForward operation.
 	//
 	// One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
@@ -5619,6 +5675,15 @@ type Invoker interface {
 	//
 	// GET /v1/audit-evidence-exports
 	ListAuditEvidenceExports(ctx context.Context, params ListAuditEvidenceExportsParams) (ListAuditEvidenceExportsRes, error)
+	// ListBadDebtReliefs invokes listBadDebtReliefs operation.
+	//
+	// The bad debt reliefs of the companies the caller may act in (ADR-0049 As built, bad debt relief),
+	// each as `getBadDebtRelief` gives it, newest posting date last. Filtered by company, customer invoice
+	// and posting date (the tax date, which decides the return that reports it). Sortable by:
+	// `posting_date`.
+	//
+	// GET /v1/bad-debt-reliefs
+	ListBadDebtReliefs(ctx context.Context, params ListBadDebtReliefsParams) (ListBadDebtReliefsRes, error)
 	// ListBalanceCarryForwardBalances invokes listBalanceCarryForwardBalances operation.
 	//
 	// A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per
@@ -21785,6 +21850,178 @@ func (c *Client) sendCreateAuditEvidenceExport(ctx context.Context, request *Aud
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateAuditEvidenceExportResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateBadDebtRelief invokes createBadDebtRelief operation.
+//
+// Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049
+// As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a
+// short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice
+// (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a
+// credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United
+// Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country,
+// whose rule its tax specialist has not confirmed), written off by a dispute case's write-off
+// (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry
+// `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no
+// write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in
+// proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax
+// items, the total rounded once half away from zero and shared out by their tax, in the invoice's
+// currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share
+// rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under
+// Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months
+// have passed since the supply, counted by default from the later of the invoice's date and its net
+// due date (a relief dated on or before the day they pass is refused, 422
+// `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified
+// of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`);
+// a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given
+// is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code`
+// is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output
+// code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in
+// box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input
+// code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax
+// (ADR-0049 §11). A code of another kind or direction, or without a component of each of the
+// invoice's tax components with an account, levying the line's emirate exactly where the invoice's
+// item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal
+// entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on
+// `posting_date` (else today, the company's date in its time zone), which is its tax date and must be
+// in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422
+// `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the
+// tax recovered with the code and the emirate, and their total credited to the company's
+// `payment_difference_expense` account, which the write-off debited (422
+// `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax
+// in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial
+// write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409
+// `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross
+// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a
+// second dispute case writing the same item off again); two claims of one invoice at once are ordered
+// by the invoice's row lock. An audit record is written with it. A retry with the same
+// `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later
+// is not built yet. Human-only (`x-agent: false`).
+//
+// POST /v1/bad-debt-reliefs
+func (c *Client) CreateBadDebtRelief(ctx context.Context, request *BadDebtReliefCreate, params CreateBadDebtReliefParams) (CreateBadDebtReliefRes, error) {
+	res, err := c.sendCreateBadDebtRelief(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateBadDebtRelief(ctx context.Context, request *BadDebtReliefCreate, params CreateBadDebtReliefParams) (res CreateBadDebtReliefRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createBadDebtRelief"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/bad-debt-reliefs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateBadDebtReliefOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/bad-debt-reliefs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateBadDebtReliefRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateBadDebtReliefOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateBadDebtReliefResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -40821,6 +41058,139 @@ func (c *Client) sendGetAuditEvidenceExportFile(ctx context.Context, params GetA
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAuditEvidenceExportFileResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBadDebtRelief invokes getBadDebtRelief operation.
+//
+// A bad debt relief of a company the caller may act in (ADR-0049 As built, bad debt relief): the
+// invoice and the write-off it relieves, what that wrote off and the tax recovered, the adjustment
+// code, the customer's notice and the journal entry that posted it.
+//
+// GET /v1/bad-debt-reliefs/{id}
+func (c *Client) GetBadDebtRelief(ctx context.Context, params GetBadDebtReliefParams) (GetBadDebtReliefRes, error) {
+	res, err := c.sendGetBadDebtRelief(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBadDebtRelief(ctx context.Context, params GetBadDebtReliefParams) (res GetBadDebtReliefRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBadDebtRelief"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bad-debt-reliefs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBadDebtReliefOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/bad-debt-reliefs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBadDebtReliefOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBadDebtReliefResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -66386,6 +66756,245 @@ func (c *Client) sendListAuditEvidenceExports(ctx context.Context, params ListAu
 
 	stage = "DecodeResponse"
 	result, err := decodeListAuditEvidenceExportsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBadDebtReliefs invokes listBadDebtReliefs operation.
+//
+// The bad debt reliefs of the companies the caller may act in (ADR-0049 As built, bad debt relief),
+// each as `getBadDebtRelief` gives it, newest posting date last. Filtered by company, customer invoice
+// and posting date (the tax date, which decides the return that reports it). Sortable by:
+// `posting_date`.
+//
+// GET /v1/bad-debt-reliefs
+func (c *Client) ListBadDebtReliefs(ctx context.Context, params ListBadDebtReliefsParams) (ListBadDebtReliefsRes, error) {
+	res, err := c.sendListBadDebtReliefs(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBadDebtReliefs(ctx context.Context, params ListBadDebtReliefsParams) (res ListBadDebtReliefsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBadDebtReliefs"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/bad-debt-reliefs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBadDebtReliefsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/bad-debt-reliefs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_invoice_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_invoice_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerInvoiceID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "posting_date_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "posting_date_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PostingDateFrom.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "posting_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "posting_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PostingDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBadDebtReliefsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBadDebtReliefsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

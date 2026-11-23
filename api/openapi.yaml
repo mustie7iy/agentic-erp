@@ -18569,6 +18569,194 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/bad-debt-reliefs:
+    get:
+      operationId: listBadDebtReliefs
+      tags:
+        - receivables
+      summary: List bad debt reliefs
+      description: "The bad debt reliefs of the companies the caller may act in (ADR-0049 As built, bad debt relief), each as `getBadDebtRelief` gives it, newest posting date last. Filtered by company, customer invoice and posting date (the tax date, which decides the return that reports it). Sortable by: `posting_date`."
+      x-permission: receivables.invoice.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_invoice_id
+          in: query
+          required: false
+          description: Only the reliefs of this customer invoice.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PostingDateFrom"
+        - $ref: "#/components/parameters/PostingDateTo"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of bad debt reliefs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadDebtReliefPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createBadDebtRelief
+      tags:
+        - receivables
+      summary: Recover the output tax of a customer invoice written off as a bad debt
+      description: "Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049 As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country, whose rule its tax specialist has not confirmed), written off by a dispute case's write-off (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax items, the total rounded once half away from zero and shared out by their tax, in the invoice's currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months have passed since the supply, counted by default from the later of the invoice's date and its net due date (a relief dated on or before the day they pass is refused, 422 `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`); a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code` is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax (ADR-0049 §11). A code of another kind or direction, or without a component of each of the invoice's tax components with an account, levying the line's emirate exactly where the invoice's item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on `posting_date` (else today, the company's date in its time zone), which is its tax date and must be in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422 `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the tax recovered with the code and the emirate, and their total credited to the company's `payment_difference_expense` account, which the write-off debited (422 `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409 `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a second dispute case writing the same item off again); two claims of one invoice at once are ordered by the invoice's row lock. An audit record is written with it. A retry with the same `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later is not built yet. Human-only (`x-agent: false`)."
+      x-permission: receivables.invoice.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.bad_debt_not_invoice
+        - receivables.bad_debt_relief_claimed
+        - receivables.bad_debt_relief_exceeds_invoice
+        - receivables.bad_debt_relief_not_provided
+        - receivables.bad_debt_relief_too_early
+        - receivables.customer_not_notified
+        - receivables.invalid_notice_date
+        - receivables.invalid_relief_tax_code
+        - receivables.invalid_status
+        - receivables.no_output_tax
+        - receivables.no_write_off_account
+        - receivables.not_written_off
+        - receivables.relief_before_write_off
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BadDebtReliefCreate"
+            examples:
+              uae:
+                summary: Relief of a UAE invoice written off
+                value:
+                  customer_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  write_off_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  tax_code: AS
+                  customer_notified_on: "2026-11-15"
+                  posting_date: "2026-11-22"
+      responses:
+        "201":
+          description: "Created; the relief recorded, with the journal entry that posted it."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadDebtRelief"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/bad-debt-reliefs/{id}:
+    get:
+      operationId: getBadDebtRelief
+      tags:
+        - receivables
+      summary: Get a bad debt relief
+      description: "A bad debt relief of a company the caller may act in (ADR-0049 As built, bad debt relief): the invoice and the write-off it relieves, what that wrote off and the tax recovered, the adjustment code, the customer's notice and the journal entry that posted it."
+      x-permission: receivables.invoice.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The bad debt relief.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadDebtRelief"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/collection-worklist:
     get:
       operationId: getCollectionWorklist
@@ -62294,6 +62482,65 @@ components:
         posting_date: {type: string, format: date, description: "The posting date; absent: the one entered with the invoice, else today, the company's date in its time zone (`companies[].time_zone`)."}
       examples:
         - posting_date: "2026-11-11"
+    BadDebtReliefCreate:
+      type: object
+      description: "A claim of bad debt relief: the invoice written off, the write-off, the adjustment code and, where the company's country asks for it, when the customer was notified."
+      additionalProperties: false
+      required: [customer_invoice_id, write_off_journal_entry_id, tax_code]
+      properties:
+        customer_invoice_id: {type: string, format: uuid, description: "The posted customer invoice written off (`GET /v1/customer-invoices/{id}`)."}
+        write_off_journal_entry_id: {type: string, format: uuid, description: "The journal entry of the dispute case's write-off that wrote the invoice off (`write_off_journal_entry_id` of the case's resolution)."}
+        tax_code: {type: string, pattern: "^[A-Z0-9]{1,4}$", description: "The adjustment code (kind `adjustment`) the relief is posted under: an output code levying the emirate for a UAE company, an input GST/HST code for a Canadian one."}
+        customer_notified_on: {type: string, format: date, description: "The date the customer was notified of what was written off; required for a UAE company (Art. 64), recorded when given for another."}
+        posting_date: {type: string, format: date, description: "The relief's posting date and tax date; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
+      examples:
+        - customer_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          write_off_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          tax_code: AS
+          customer_notified_on: "2026-11-15"
+    BadDebtRelief:
+      type: object
+      description: "The output tax of a customer invoice written off as a bad debt, recovered by an adjustment the tax return reports (ADR-0049 As built, bad debt relief). It is recorded once, when it posts, and never changes."
+      required: [id, legal_entity_id, company_code, company_name, customer_invoice_id, customer_invoice_number, customer_id, customer_number, customer_name,
+        dispute_case_id, write_off_journal_entry_id, write_off_journal_entry_year, write_off_journal_entry_number, currency, written_off_amount, tax_amount,
+        local_written_off_amount, local_tax_amount, tax_code, posting_date, journal_entry_id, journal_entry_year, journal_entry_number, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company whose output tax is recovered.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer invoice written off (`GET /v1/customer-invoices/{id}`).", readOnly: true}
+        customer_invoice_number: {type: string, description: "The invoice's document number.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The invoice's customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        dispute_case_id: {type: string, format: uuid, description: "The dispute case whose write-off wrote the invoice off (`GET /v1/dispute-cases/{id}`).", readOnly: true}
+        write_off_journal_entry_id: {type: string, format: uuid, description: "The write-off's journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        write_off_journal_entry_year: {type: integer, format: int32, description: "The write-off entry's fiscal year.", readOnly: true}
+        write_off_journal_entry_number: {type: string, description: "The write-off entry's document number.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The invoice's currency (ISO 4217), which `written_off_amount` and `tax_amount` are in.", readOnly: true}
+        written_off_amount: {$ref: "#/components/schemas/Money", description: "What the write-off wrote off of the invoice."}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax recovered: the share of the invoice's output tax in what was written off."}
+        local_written_off_amount: {$ref: "#/components/schemas/Money", description: "What was written off in the company's currency, at the invoice's booked rate."}
+        local_tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax recovered in the company's currency, at the invoice's booked rate: what the return reports."}
+        tax_code: {type: string, description: "The adjustment code the relief was posted under.", readOnly: true}
+        customer_notified_on: {type: string, format: date, description: "The date the customer was notified of what was written off; absent when none was given.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The relief's posting date and tax date.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The relief's journal entry, its lines the tax recovered by emirate (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The relief entry's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The relief entry's document number.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When the relief was recorded.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The principal who recorded it.", readOnly: true}
+    BadDebtReliefPage:
+      type: object
+      description: One page of bad debt reliefs.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BadDebtRelief"}
+          description: The bad debt reliefs on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     CustomerInvoiceItem:
       type: object
       description: "An item of a customer invoice, with the tax calculated for it when the invoice was entered."

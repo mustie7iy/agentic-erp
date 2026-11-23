@@ -1257,3 +1257,11 @@ resolution by credit memo, not its write-off, which corrects no tax);
 dunning charges and late interest are out of the VAT's and GST's scope,
 as built (T76h: no tax code on their items); bad debt relief is a step of its own (ADR-0049 As built
 batch 88, tracker leaf).
+
+### Batch 90: bad debt relief of a write-off (po:2026-11-21)
+
+A write-off still corrects no tax. When the invoice it wrote off is a bad
+debt, receivables recovers its output tax as a step of its own
+(`createBadDebtRelief`, ADR-0049 As built batch 90), reading what the
+write-off wrote off through `collections.WriteOffs`; the collections
+agent never calls it (`collectionsagent.Never`).

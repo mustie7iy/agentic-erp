@@ -137,12 +137,13 @@ type Partners interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
 }
 
-// Accounts is what receivables asks the ledger about accounts, tax codes
-// and assignments.
+// Accounts is what receivables asks the ledger about accounts, tax codes,
+// assignments and the account determination.
 type Accounts interface {
 	IsPostable(ctx context.Context, legalEntity, account uuid.UUID) (bool, error)
 	TaxCode(ctx context.Context, legalEntity uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error)
 	CheckAssignments(ctx context.Context, legalEntity uuid.UUID, date time.Time, items []ledger.ItemAssignment, defaults bool) error
+	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 }
 
 // References names the accounts and centers a document's items carry by
@@ -189,6 +190,8 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	WriteOffs     WriteOffs
+	TaxItems      TaxItems
 	// Now is the clock a posting without a date is dated by, in the
 	// company's time zone; nil: the wall clock.
 	Now func() time.Time

@@ -1985,7 +1985,7 @@ po-2026-11-21-uae-vat-research), and answered one open question:
 - **Bad debt relief is its own step**: for the UAE, Federal Decree-Law
   No. 8 of 2017 Art. 64 (six months, written off in the accounts, the
   customer notified, as the research states it); for Canada, the Excise
-  Tax Act s.231. Not built: tracker leaf (src po:2026-11-21).
+  Tax Act s.231. Built in batch 90 (As built, bad debt relief, below).
 - **A Canadian cash discount makes no GST/HST adjustment** (ETA s.161, as
   the research states it): receivables' cash discount is a payment
   difference without a tax code (ADR-0063 T75f), which is that.
@@ -2017,3 +2017,111 @@ po-2026-11-21-uae-vat-research), and answered one open question:
   discount's VAT (the send side unchanged), box 4's zero-rated base
   reduced with the tax, the period judged on the receipt's posting date;
   each for the tax specialist to confirm, without blocking.
+
+### As built batch 90: bad debt relief (po:2026-11-21)
+
+The tracker leaf "Bad debt relief as its own step" (src po:2026-11-21),
+built in receivables (migration 000446, `createBadDebtRelief`,
+`getBadDebtRelief`, `listBadDebtReliefs`; ADR-0063 As built points here).
+The legal facts are the coordinator's research of 2026-11-21 as the
+product owner approved it and Musto Ibrahim confirmed it (memory
+po-2026-11-21-uae-vat-research); each is marked "research" below and is
+for the tax specialist to read against the law's text. Nothing the
+research does not state is used. Decided by default, each for the
+product owner's digest:
+
+- **What is relieved.** A posted customer invoice (not a credit or debit
+  memo) written off by a dispute case's write-off (ADR-0065 T86d), the
+  one write-off the ERP posts for a customer invoice; the claim names the
+  write-off's journal entry. Receivables reads what that write-off wrote
+  off of the invoice's entry through a port (`receivables.WriteOffs`,
+  implemented by `collections.WriteOffs`, wired in `internal/app`):
+  collections already imports receivables, so no import direction
+  changes. A write-off of a partly paid invoice's residual item (an
+  incoming payment's entry, not the invoice's) is not found
+  (`receivables.not_written_off`); relieving it is later.
+- **How much.** Counted cumulatively, as sales credits a billing item's
+  tax (ADR-0067 As built): the invoice's output tax times the part of its
+  gross that its reliefs' write-offs, this one with the earlier ones,
+  wrote off, in its currency and at its booked rate in the company's,
+  each rounded once half away from zero, less what the earlier reliefs
+  recovered, so partial write-offs never recover more than the invoice
+  bore (three of 35.00 of a 105.00 invoice with 5.00 VAT recover 1.67,
+  1.66 and 1.67). The total is shared out over the invoice's output tax
+  items by their tax (`money.ShareOut`), so every item keeps its code,
+  component and emirate, and the local total over the items whose share
+  is not nothing, by their local tax, so the lines add up to it. Each
+  write-off of an invoice is relieved once (`bad_debt_relief_once`), and
+  its reliefs together relieve at most its gross amount (422
+  `receivables.bad_debt_relief_exceeds_invoice`): a write-off leaves the
+  invoice's item open, so a second dispute case can write it off again
+  (a collections gap, tracker leaf src review:batch90).
+- **The conditions, by the company's country** (`reliefRules`):
+  - UAE, Federal Decree-Law No. 8 of 2017 Art. 64 (research): six months,
+    written off in the accounts, the customer notified. Built as: the
+    relief's posting date after the day six months (`AddDate(0, 6, 0)`)
+    have passed since the later of the invoice's date (its tax date, the
+    supply's) and its net due date (422
+    `receivables.bad_debt_relief_too_early` on or before that day); the
+    write-off exists (above); `customer_notified_on` given (422
+    `receivables.customer_not_notified`). What the six months count from
+    is not in the research: the tracker leaf says "past the date of
+    supply" and the lane brief the supply's due date, so the later of the
+    two, and only once they have passed in full, is this step's default,
+    the stricter reading, for the specialist to settle against the law's
+    text (whether it says "more than six months"). The leaf also says "its tax paid": not checked
+    (the ERP does not know what was paid to the FTA, and whether a filed
+    return reporting the invoice is required is not in the research), for
+    the specialist.
+  - Canada, Excise Tax Act s.231 (research): the account written off as
+    bad. Built as: the write-off exists; no waiting period and no notice
+    (a notice given is recorded).
+  - Any other country: refused (422
+    `receivables.bad_debt_relief_not_provided`) until its specialist
+    confirms a rule.
+  - A notice given is dated from the invoice's date to the relief's (422
+    `receivables.invalid_notice_date`, `bad_debt_relief_notified_before`);
+    the relief posts on or after the write-off (422
+    `receivables.relief_before_write_off`). Neither is a legal fact: a
+    notice after the relief, or a relief before the write-off, cannot be
+    its evidence.
+- **The return lines** (§11, "Adjustments that are not documents (bad
+  debt adjustments ...) are entered as manual entries with a tax code of
+  kind adjustment mapped to their box"): the claim names the tenant's
+  adjustment code (`tax_code`, kind `adjustment`, 422
+  `receivables.invalid_relief_tax_code` otherwise). A UAE company's is an
+  output code whose `vat` component levies the emirate on its lines, so
+  the VAT 201 (packs/ae returns.yaml) reports the relief, negated, in the
+  adjustment column of box 1 of the emirate the invoice's item named, and
+  so in 8's adjustment, 12 and 14 (`TestUAEBadDebtRelief`). A Canadian
+  company's is an input code of the GST/HST component the invoice bore,
+  which the GST34 (packs/ca returns.yaml) reports on line 107,
+  "adjustments that decrease the net tax", and so in 108 and 109
+  (`TestCanadianBadDebtRelief`); an output adjustment code would add to
+  line 104 negatively and is refused. The adjustment component must have
+  the invoice item's component key and an account, and levy the line's
+  subdivision exactly where the item named one.
+- **The entry.** Document type `SA`, `source_context` `receivables`, the
+  relief its source document, the invoice's number its reference, posted
+  on the relief's date, which is its tax date (the period whose return
+  reports it): per adjustment component account and emirate a debit of
+  the tax recovered under the adjustment code and the emirate, and the
+  total credited to `payment_difference_expense`, the account the
+  write-off debited (422 `receivables.no_write_off_account` without it),
+  so the recovered tax reduces the loss booked. The ledger owns the entry
+  and refuses its reversal (`requireOwnEntry`).
+- **People only, audited.** `x-agent: false`, permission
+  `receivables.invoice.post` (it posts, as a reversal does); the
+  collections agent's never list and the tax agent's test hold it.
+  Audit action `receivables.bad_debt_relief.claim` on
+  `receivables.bad_debt_relief`; no event of its own (it changes no
+  document another context reads; the ledger publishes its entry).
+- **Locks.** The invoice's row `FOR UPDATE`, then the write-off read
+  (fixed once resolved: `dispute_case_item_fixed`, no lock), then the
+  ledger's posting locks, then the relief's insert, whose foreign key on
+  the invoice is already held: the order credit memos take. Two claims
+  of one invoice wait on the row lock; the second meets the first's
+  relief (409 `receivables.bad_debt_relief_claimed`).
+- **Later.** The tax charged again when the customer pays what was
+  relieved (tracker leaf, src po:2026-11-21); a write-off of a residual
+  item; a bad debt written off without a dispute case.

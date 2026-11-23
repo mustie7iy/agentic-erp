@@ -524,12 +524,15 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 // §1): the ledger, the partner context, tenancy and the configuration
 // through its ports, as payables reads them. The payment terms are the
 // tenant's, for customers as for suppliers: partner.Suppliers is their one
-// reader.
+// reader. Bad debt relief reads a dispute case's write-off through
+// collections (ADR-0049 As built), which imports receivables, so the port
+// is wired here.
 func Receivables(cfg Config) *receivables.Endpoints {
 	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
 		Terms: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
 		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, OpenItems: ledger.OpenItems{}, Statements: receivablesStatements{},
-		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, WriteOffs: collections.WriteOffs{},
+		TaxItems: ledger.TaxItems{}, Now: cfg.Now}
 }
 
 // Sales is the sales context as the API wires it (ADR-0067 §1): the

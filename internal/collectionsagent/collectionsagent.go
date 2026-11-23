@@ -67,11 +67,13 @@ const MaxCustomers = 20
 // confirming or cancelling (T76i) a dunning run and opening, changing,
 // closing or resolving a dispute case (T86d: resolving posts a credit memo
 // or a write-off), placing or releasing a dunning block (T76e), recording
-// a promise to pay (T76f) or a contact with a customer (T76g); nothing in
+// a promise to pay (T76f) or a contact with a customer (T76g), or claiming
+// the bad debt relief of an invoice written off (ADR-0049 As built, a
+// person's tax-relevant step); nothing in
 // the contract sends a message to a customer, and its tools hold none of
 // these.
 var Never = []string{"createDunningRun", "confirmDunningRun", "cancelDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase", "resolveDisputeCase",
-	"createDunningBlock", "releaseDunningBlock", "createPromiseToPay", "createCustomerContact"}
+	"createDunningBlock", "releaseDunningBlock", "createPromiseToPay", "createCustomerContact", "createBadDebtRelief"}
 
 // Reads are the operations the agent reads with (ADR-0072 As built,
 // T105b): the plan's, the dunning runs a notice is listed under, a

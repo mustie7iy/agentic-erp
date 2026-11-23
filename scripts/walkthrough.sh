@@ -16683,10 +16683,7 @@ step_uae_cash_discount() {
       else . end))}' "$WORK/last.json" >"$WORK/uae-discount.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-discount.json
   governed "$(field .id)" "the UAE company's bank and discount account"
-  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
-  recon=$(field '.items[] | select(.number == "1200") | .id')
-  sales=$(field '.items[] | select(.number == "4000") | .id')
-  vat=$(field '.items[] | select(.number == "2300") | .id')
+  recon=$(company_account "$ae" 1200) sales=$(company_account "$ae" 4000) vat=$(company_account "$ae" 2300)
   as ruth
   say "Ruth creates Oasis Office Supplies, a UAE customer of $AE on 2/10N30: 2% off within ten days, net in thirty."
   say "Carla approves it:"
@@ -16760,7 +16757,7 @@ step_uae_cash_discount() {
 # given with its reasons. Its own goods issue is refused (403); Mira, the
 # planner, accepts, which moves and changes nothing.
 step_demand_forecast_agent() {
-  heading "Step 157 — The demand forecasting agent: the hinge's weekly demand at Toronto forecast from its goods issues and the open confirmed order, with its accuracy; a line of its own refused; the agent's own goods issue refused; the planner decides"
+  heading "Step 158 — The demand forecasting agent: the hinge's weekly demand at Toronto forecast from its goods issues and the open confirmed order, with its accuracy; a line of its own refused; the agent's own goods issue refused; the planner decides"
   local role cc number got session rec docs avg
   [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
   as ada
@@ -16832,6 +16829,93 @@ step_demand_forecast_agent() {
   QUIET=1 api 200 '' listMaterialDocuments -p "material_id=$HINGE" -p page_size=500
   expect "the hinge's material documents after the acceptance" "$(field '.items | length')" "$docs"
   passed
+}
+
+# step_bad_debt_relief is bad debt relief (ADR-0049 As built, bad debt
+# relief; the tax specialist's confirmation of 2026-11-21): the output tax
+# of a customer invoice written off as a bad debt is recovered as a step
+# of its own, never by the write-off. Bayview goes into receivership with
+# an invoice of CAD 400.00 at 5% GST (GO5) unpaid: Ruth opens a dispute
+# case over its CAD 420.00 and resolves it by a write-off to 6850 (T86d),
+# which corrects no tax. Under the Excise Tax Act s.231 Maple then
+# recovers the GST of what it wrote off: GI, the instalment code, is
+# refused, as it holds no GST component; under GA, the input adjustment of
+# the GST that the GST34 reports on line 107, CAD 20.00 is debited on 1300
+# and credited to 6850, with the date Bayview was told; a second claim of
+# the write-off is refused, and the relief lists by its invoice. A UAE
+# invoice written off today is refused: under Federal Decree-Law No. 8 of
+# 2017 Art. 64 six months must have passed, counted by default from its
+# due date (ADR-0049 As built batch 90; the return of a quarter not
+# yet ended is not computed: TestUAEBadDebtRelief proves the VAT 201's
+# adjustment columns and TestCanadianBadDebtRelief line 107).
+step_bad_debt_relief() {
+  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once; a UAE invoice written off before six months have passed refused"
+  local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae
+  [ -n "$customer" ] || fail "step 139's customer is not there"
+  as ruth
+  say "Bayview Plumbing goes into receivership with an invoice unpaid. Ruth posts it, a pressure washer, CAD 400.00 at"
+  say "5% GST, then writes it off: a dispute case over its CAD 420.00, resolved by a write-off to 6850 (T86d), which"
+  say "corrects no tax:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"items\": [{\"description\": \"Pressure washer\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  invoice=$(field .id) entry=$(field .journal_entry_id)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=100
+  items=$(field "[.items[] | select(.journal_entry_id == \"$entry\") | {fiscal_year, journal_entry_id, line_no}]")
+  [ "$(jq length <<<"$items")" = 1 ] || fail "the invoice is not Bayview's open item"
+  body="{\"legal_entity_id\": \"$LE\", \"items\": [$(jq -c '.[0] + {disputed_amount: {amount: "420.00", currency: "CAD"}}' <<<"$items")], \"reason\": \"Customer in receivership\"}"
+  QUIET=1 api 201 '' createDisputeCase -body "$body"
+  id=$(field .id) tag=$ETAG
+  api 200 '"dispute case: \(.status), \(.resolution), \(.accepted_amount.amount) \(.accepted_amount.currency), write-off entry \(.write_off_journal_entry_number)"' \
+    resolveDisputeCase -p "id=$id" -if-match "$tag" -body "{\"resolution\": \"write_off\", \"reason\": \"Uncollectable: the receiver pays nothing to unsecured creditors\", \"posting_date\": \"$TODAY\"}"
+  writeoff=$(field .write_off_journal_entry_id)
+  say "Under the Excise Tax Act s.231, Maple recovers the GST of what it wrote off, an adjustment of the return: an"
+  say "adjustment code of the GST, input, which the GST34 reports on line 107 (adjustments that decrease the net tax)."
+  say "GI, the instalment code, holds no GST, so it is refused:"
+  body="{\"customer_invoice_id\": \"$invoice\", \"write_off_journal_entry_id\": \"$writeoff\", \"tax_code\": \"GI\", \"customer_notified_on\": \"$TODAY\", \"posting_date\": \"$TODAY\"}"
+  refused 422 receivables.invalid_relief_tax_code createBadDebtRelief -body "$body"
+  say "Under GA the relief recovers CAD 20.00, the GST of the CAD 420.00 written off, with the date Bayview's receiver"
+  say "was told of the write-off:"
+  api 201 '"bad debt relief of \(.customer_invoice_number) (\(.customer_number) \(.customer_name)): \(.tax_amount.amount) \(.tax_amount.currency) of \(.written_off_amount.amount) written off by \(.write_off_journal_entry_number), under \(.tax_code), entry \(.journal_entry_number) on \(.posting_date)"' \
+    createBadDebtRelief -body "${body/\"GI\"/\"GA\"}"
+  relief=$(field .id)
+  expect "the relief" "$(field '"\(.tax_amount.amount) \(.local_tax_amount.amount) \(.written_off_amount.amount) \(.tax_code) \(.customer_notified_on)"')" "20.00 20.00 420.00 GA $TODAY"
+  say "Its entry debits the GST on 1300 under GA, which line 107 sums, and credits 6850, which the write-off debited:"
+  api 200 '"journal entry \(.document_number) (\(.header_text))", (.lines[] | "  \(.account_id[0:8])… \(.amount.amount) \(.amount.currency) \(.tax_code // "")")' \
+    getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the relief's lines" "$(field "[.lines[] | \"\(.account_id == \"$(account 1300)\") \(.amount.amount) \(.tax_code // \"-\")\"] | join(\", \")")" "true 20.00 GA, false -20.00 -"
+  say "A write-off's tax is recovered once, and the relief is listed with its invoice:"
+  refused 409 receivables.bad_debt_relief_claimed createBadDebtRelief -body "${body/\"GI\"/\"GA\"}"
+  QUIET=1 api 200 '' listBadDebtReliefs -p "customer_invoice_id=$invoice"
+  expect "the invoice's reliefs" "$(field '[.items[].id] | join(" ")')" "$relief"
+  say "A UAE company recovers its VAT under Federal Decree-Law No. 8 of 2017 Art. 64 only once six months have passed"
+  say "since the supply (counted, by default, from its due date), with the customer notified. Ruth writes off an"
+  say "invoice of Maple Gulf Trading to Oasis Office Supplies"
+  say "of today, AED 100.00 at 5% in Dubai; relief now is refused:"
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Oasis
+  oasis=$(field '.items[0].id')
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$oasis\", \"invoice_date\": \"$TODAY\", \"currency\": \"AED\",
+    \"items\": [{\"description\": \"Filing cabinet\", \"account_id\": \"$(company_account "$ae" 4000)\", \"net_amount\": {\"amount\": \"100.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"
+  QUIET=1 api 200 '' postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  uae=$(field .id) entry=$(field .journal_entry_id)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$ae" -p "partner_id=$oasis" -p page_size=100
+  items=$(field "[.items[] | select(.journal_entry_id == \"$entry\") | {fiscal_year, journal_entry_id, line_no}]")
+  QUIET=1 api 201 '' createDisputeCase -body "{\"legal_entity_id\": \"$ae\", \"items\": [$(jq -c '.[0] + {disputed_amount: {amount: "105.00", currency: "AED"}}' <<<"$items")], \"reason\": \"Customer unreachable\"}"
+  id=$(field .id) tag=$ETAG
+  QUIET=1 api 200 '' resolveDisputeCase -p "id=$id" -if-match "$tag" -body "{\"resolution\": \"write_off\", \"reason\": \"Uncollectable\", \"posting_date\": \"$TODAY\"}"
+  refused 422 receivables.bad_debt_relief_too_early createBadDebtRelief \
+    -body "{\"customer_invoice_id\": \"$uae\", \"write_off_journal_entry_id\": \"$(field .write_off_journal_entry_id)\", \"tax_code\": \"AS\", \"customer_notified_on\": \"$TODAY\", \"posting_date\": \"$TODAY\"}"
+  passed
+}
+
+# company_account LE NUMBER is the id of the account NUMBER of the
+# company LE.
+company_account() {
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$1" -p page_size=200
+  field '.items[] | select(.number == "'"$2"'") | .id'
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -18864,7 +18948,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_demand_forecast_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_close'
 
 main() {
   stop_unseen
