@@ -11166,16 +11166,16 @@ func (UnimplementedHandler) StartMigrationRun(ctx context.Context, params StartM
 // workflow, or in process in a cell without a workflow engine, as the person who started it. On the
 // plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`)
 // that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales
-// orders (each standing item's ordered quantity less what is delivered) and of the intercompany
-// purchase orders the plant supplies (`supplying_plant_id`) not closed or cancelled and not yet issued
-// (each standing item's quantity), the plant's stock at its storage locations (not stock in transit),
-// and its open receipts (the open quantities of the stock items of purchase orders not closed or
-// cancelled at the plant, and of the requisitions earlier runs proposed that a person took over and
-// that are not ordered, cancelled or rejected). Where the stock and receipts less the demand fall
-// below the reorder point, the shortage, what brings them back to it, is proposed as a draft purchase
-// requisition of the material in its base unit, raised by the person who started the run in the
-// company's currency at the material's valuation price at the plant (zero when it has none), naming
-// the planning data's account and needed by the run's day. Before it plans, the run cancels the
+// orders (each standing item's ordered quantity less what is delivered) and the ordered quantities of
+// the intercompany purchase orders the plant supplies (`supplying_plant_id`) that are not closed,
+// cancelled or issued (their standing items), the plant's stock at its storage locations (not stock in
+// transit), and its open receipts (the open quantities of the stock items of purchase orders not
+// closed or cancelled at the plant, and of the requisitions earlier runs proposed that a person took
+// over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand
+// fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft
+// purchase requisition of the material in its base unit, raised by the person who started the run in
+// the company's currency at the material's valuation price at the plant (zero when it has none),
+// naming the planning data's account and needed by the run's day. Before it plans, the run cancels the
 // plant's earlier proposals still its own: drafts no person changed since a run proposed them. A
 // proposal a person changed or submitted is theirs from then on and is never touched; a requisition a
 // person raised is never touched either. The run's lines say what it counted and proposed per

@@ -77060,8 +77060,8 @@ type MrpRunLine struct {
 	MaterialDescription string `json:"material_description"`
 	// The reorder point the run planned by.
 	ReorderPoint Quantity `json:"reorder_point"`
-	// What the plant's confirmed sales orders ordered and have not delivered, and what the intercompany
-	// purchase orders it supplies, not closed or cancelled, order and it has not issued.
+	// What the plant's confirmed sales orders ordered and have not delivered, and the ordered quantities
+	// of the intercompany purchase orders it supplies that are not closed, cancelled or issued.
 	Demand Quantity `json:"demand"`
 	// The plant's stock at its storage locations.
 	Stock Quantity `json:"stock"`

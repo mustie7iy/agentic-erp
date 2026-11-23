@@ -118,11 +118,12 @@ func TestPlanningRun(t *testing.T) {
 // issued, released or not, in the base unit (100 EA and 2 BOX, 40 EA),
 // so it proposes what their 140 take below the reorder point; an issued
 // order (its stock gone from P1), a closed or cancelled one and a removed
-// item demand nothing, and a stock transport order within the company
-// from P1 is counted on neither side (ADR-0084 §2). The orders are no
+// item demand nothing, and stock transport orders within the company are
+// counted on neither side (ADR-0084 §2): one from P1 is no demand, one to
+// P1, open or in transit, no receipt. The intercompany orders are no
 // receipts of P1; P9 counts the open ones as its purchase orders'
-// receipts, the issued one until it is received, so each order is counted
-// once on each side.
+// receipts, the issued one until it is received, so each is counted once
+// on each side.
 func TestPlanningRunIntercompany(t *testing.T) {
 	e := setup(t)
 	e.plan(t, e.bracket, "50")
@@ -133,6 +134,8 @@ func TestPlanningRunIntercompany(t *testing.T) {
 		e.intercompany(t, o)
 	}
 	e.transport(t, "ST1", "open", e.p1, uuid.Must(uuid.NewV7()), 60)
+	e.transport(t, "ST2", "open", uuid.Must(uuid.NewV7()), e.p1, 8)
+	e.transport(t, "ST3", "in_transit", uuid.Must(uuid.NewV7()), e.p1, 6)
 	if got := line(t, e.run(t), e.bracket); got != "170 200 0 20 PR100000" {
 		t.Errorf("the run's line: got %s, want demand 170 (30 sold, 140 to P9), stock 200, no receipts and a shortage of 20 proposed", got)
 	}

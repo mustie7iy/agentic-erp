@@ -1,14 +1,16 @@
 // Package mrp is the material requirements planning context (ADR-0084;
 // plan-supply-chain.md §S2k): materials' planning data at plants (SAP
 // MARC's MRP view) and planning runs per plant, which compute each planned
-// material's net requirement from its plant's confirmed sales orders,
-// stock and open receipts against its reorder point and propose purchase
+// material's net requirement from its plant's confirmed sales orders and
+// the intercompany orders it supplies and has not issued, its stock and
+// open receipts against its reorder point and propose purchase
 // requisitions for the shortages, replacing the run's own earlier
 // proposals and never a person's requisition. A run is long work behind
 // an Operation (ADR-0012), carried out by the workflows context through
 // its port. It is a leaf (ADR-0084 §1): it reads tenancy's plants,
 // materials, the ledger's accounts, sales' demand, inventory's stock and
-// prices and procurement's receipts and requisitions, and writes
+// prices and procurement's intercompany orders, receipts and
+// requisitions, and writes
 // requisitions, through ports the composition root wires, in the
 // published types of materials and tenancy; no context imports it. Its
 // S&OP plan versions (ADR-0084 As built S2n, plan-supply-chain.md §S2n)
