@@ -2012,4 +2012,8 @@ po-2026-11-21-uae-vat-research), and answered one open question:
   VAT 201's box of that emirate (`TestUAECashDiscount` reads the boxes:
   1a, 1b and the zero-rated box 4). A Canadian company's discount stays a
   payment difference without tax (`TestCanadianCashDiscount`). ADR-0063
-  As built, cash discount granted, has the rest.
+  As built, cash discount granted, has the rest. The product owner
+  2026-11-22 (po:2026-11-22) kept it as built: no tax credit note for the
+  discount's VAT (the send side unchanged), box 4's zero-rated base
+  reduced with the tax, the period judged on the receipt's posting date;
+  each for the tax specialist to confirm, without blocking.

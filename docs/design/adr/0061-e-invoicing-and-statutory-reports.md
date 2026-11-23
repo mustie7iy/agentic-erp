@@ -1991,8 +1991,9 @@ and a credit memo needs no order. Built (`payables.enteredInput`,
   "Purchase discounts received", a revenue account): a volume discount is
   a reduction of the price of past purchases received from the supplier,
   of the same nature, and no key of its own exists (SAP books vendor
-  rebates through its own account key, BO1, from memory [M]; a key of
-  our own is a backlog item for the product owner). The clerk may change
+  rebates through its own account key, BO1, from memory [M]; the
+  product owner 2026-11-22 kept `cash_discount` for now, and a key of
+  its own for supplier rebates is a tracker leaf, src po:2026-11-22). The clerk may change
   the account while the memo is parked. A company without the key holds
   the document with `payables.capture_needs_account`. Decided by default.
 - **The tax as stated.** The memo's tax and gross are the document's;

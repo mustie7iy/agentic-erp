@@ -1676,13 +1676,14 @@ is built for the UAE.
   (6) the UAE alone; (7) none on an application of a credit on account;
   (8) an item in another currency than the receipt takes its discount of
   its translated amount, the split being by proportion.
-- **For the specialist** (stated from memory, not checked against a
-  source in the lane): whether the UAE requires a tax credit note to the
-  customer for the discount's VAT (the Executive Regulation's tax credit
-  note rules), which the e-invoicing send side would then render; whether
-  a zero-rated supply's base in box 4 is reduced by its share; and
-  whether the discount period is judged on the day the funds were
-  received or the day the customer paid.
+- **Answered by the product owner 2026-11-22** (po:2026-11-22, "as
+  recommended"; kept as built): (a) no tax credit note is issued for a
+  cash discount's VAT, so the e-invoicing send side is unchanged; (b) the
+  VAT 201's zero-rated base in box 4 is reduced with the tax, as
+  `TestUAECashDiscount` shows; (c) the discount period is judged on the
+  receipt's posting date. All three stay listed for the tax specialist
+  to confirm (stated from memory, not checked against a source), without
+  blocking.
 - Tests: `TestUAECashDiscount` (a real UAE company on the pack 2026.9's
   codes and VAT 201: the clearing entry's lines and tax items, the boxes
   before, after and once the payment is undone), `TestUAECashDiscountRefusals`,
