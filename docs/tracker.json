@@ -5887,9 +5887,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "contract step: sales.delivery_assignment.plant_id NOT NULL, once every server writes it (S2j's expand step left it nullable; ShipInput.PlantID and GoodsIssue.PlantID required since), with its schema test",
-      "r": "db/migrations/000430_sales_availability · ADR-0082 As built S2j · 06 §6.4 (expand, migrate, contract)",
+      "r": "db/migrations/000430_sales_availability · db/migrations/000451_delivery_assignment_plant_required (backfill, check NOT VALID) · db/migrations/000452_validate_delivery_assignment_plant (VALIDATE, SET NOT NULL) · TestDeliveryAssignmentPlantRequired · TestDeliveryAssignmentRules (db) · ADR-0082 As built S2j (contract step) · 06 §6.4 (expand, migrate, contract)",
       "src": "review:batch86",
       "c": []
      },
