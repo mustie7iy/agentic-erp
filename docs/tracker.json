@@ -5943,6 +5943,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: an MRP run does not count the supplying plant's requirement from an unissued stock transport order within the company (ADR-0084 §6, not followed: stock transport orders count only as receipts), so a plant that supplies another plant of its company proposes too little for what it must issue",
+      "r": "internal/mrp/net.go count · inventory stock transport orders (S2h) · ADR-0084 §6, As built (intercompany demand, batch 91) · S2k",
+      "src": "review:batch91",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The replenishment agent recommends what to order, from which supplier and when, from the run's proposals for a buyer to decide",
       "r": "S2l · docs/design/plan-supply-chain.md §S2l · ADR-0072 As built S2l · ADR-0084 As built S2l · internal/replenishmentagent · erp agent replenish -run ID · agent type replenishment · listPurchaseOrders, listContracts material_id · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
@@ -9180,6 +9187,13 @@
       "t": "fix: migration 000428_batches.down.sql's guard (batches or batch-managed materials exist) reads inventory.batch and materials.material without SET LOCAL row_security = off, so a migrating role held to their forced row-level security sees no tenant's rows and drops the batch columns whatever exists (pre-existing, as 000356's backfill); read every tenant's rows as 000435's down does, so such a role fails rather than sees zero rows",
       "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
       "src": "review:batch87",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "fix: the down migrations 000432, 000433, 000437 and 000443 run their guards without SET LOCAL row_security = off, so run as a role held to forced row-level security they see no rows and drop data: of the four only 000443_intercompany_transport.down.sql has a guard (intercompany orders or 643 documents exist), now reading with row_security off; 000432 and 000433 drop indexes and 000437 a check, which lose no data",
+      "r": "db/migrations/000443_intercompany_transport.down.sql · TestIntercompanyTransportDownRefused · ADR-0003 · 06 §6.4 (a down migration loses no data)",
+      "src": "review:batch90",
       "c": []
      }
     ]
