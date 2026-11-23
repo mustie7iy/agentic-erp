@@ -328,11 +328,13 @@ func apExceptions(ctx context.Context, env eval.Env) error {
 // scripted model, so no test spends.
 var evalModels = func(alias string) eval.Models { return eval.Gateway{Alias: alias} }
 
-// agentDay is the clock the agents that take their run's day from a
-// company's date read it from: nil, the wall clock; the eval replays set
+// agentDay is the clock the count planning and demand forecasting agents
+// read their run's day (a company's date) from; their replay cells fix it.
+// nil means the wall clock; the eval replays set
 // the replay cell's, so an agent's day is the day the cell posted its
 // documents on (the demand forecasting agent's weeks are counted from it,
-// else the case's goods issue falls in another week).
+// and on a day of another week than the cell's fixed one its forecast of
+// the case's goods issue moved a week back).
 var agentDay func() time.Time
 
 // evalMint mints the throwaway tenants' tokens: the local cell's
