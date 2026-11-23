@@ -155,10 +155,12 @@ func billingExtraction(b IntercompanyBilling) *capture.Extraction {
 
 // billingRates are the rates the billing's items state, for capturedTax
 // to propose the receiving company's input codes from: each the rate its
-// output code charges in the supplying company on the billing date. An
-// item billed without a code, or at a rate of zero, whose order item has
-// no code (items, capturedItems') states none: nothing is charged and
-// there is no tax to recover, so it stays without a code. A code that is
+// output code charges in the supplying company on the billing date, and
+// 0% for an item billed without a code. An item billed at 0% (with a code
+// or without) whose order item has no code (items, capturedItems')
+// states none: nothing is charged and there is no tax to recover, so it
+// stays without a code; one whose order item has a code states 0%, so
+// that code is kept only where it charges nothing. A code that is
 // no longer the supplying company's on that date (its configuration
 // changed) is a reason to hold the invoice, returned, for a person to
 // choose the item's code.
@@ -167,6 +169,9 @@ func (e *Endpoints) billingRates(ctx context.Context, b IntercompanyBilling, ite
 	var held []string
 	for i, it := range b.Items {
 		if it.TaxCode == nil {
+			if items[i].TaxCode != nil {
+				out[i] = printedTax{rate: "0"}
+			}
 			continue
 		}
 		code, ok, err := e.Accounts.TaxCode(ctx, b.LegalEntityID, *it.TaxCode, b.BillingDate)

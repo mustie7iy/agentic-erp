@@ -54,8 +54,8 @@ func setupInvoicing(t *testing.T, cfg func(*config.Config)) billEnv {
 	return e
 }
 
-// billed is a billing, on the item's code over gives (nil: none), of an
-// intercompany order whose goods issue is posted and received.
+// billed is a billing, its item on the output tax code given (nil: none),
+// of an intercompany order whose goods issue is posted and received.
 func (e billEnv) billed(t *testing.T, code any) map[string]any {
 	t.Helper()
 	o := e.issued(t)
@@ -137,39 +137,50 @@ func TestIntercompanyInvoice(t *testing.T) {
 }
 
 // TestIntercompanyInvoiceTax: an item billed without a code, or on one
-// charging 0%, whose order item has none stays without one; a rate no
+// charging 0%, whose order item has none stays without one; one billed
+// without a code whose order item has one states 0%, which proposes the
+// company's 0% code (V0) for it; a rate no
 // input code of the company charges, or a code the supplying company no
 // longer has on the billing date, holds the invoice naming the line.
 func TestIntercompanyInvoiceTax(t *testing.T) {
 	e := setupInvoicing(t, icInvoiced)
-	e.post(t, "561", e.item("20", "EA", map[string]any{"material_id": e.widget, "plant_id": e.p3, "storage_location_id": e.s4}))
+	e.post(t, "561", e.item("30", "EA", map[string]any{"material_id": e.widget, "plant_id": e.p3, "storage_location_id": e.s4}))
 	// In turn: the last two change the tax codes the others bill on.
 	for _, c := range []struct {
 		name         string
 		code         any
+		orderCode    string // "": the order item has none
 		before       string // run as the owner before entering
 		status, held string
+		itemCode     any // the invoice item's, nil: none
 	}{
-		{"no code", nil, "", "parked", ""},
-		{"zero", "O0", "", "parked", ""},
-		{"no input code at the rate", "O1", `DO $$ BEGIN SET LOCAL session_replication_role = replica;
+		{"no code", nil, "", "", "parked", "", nil},
+		{"zero", "O0", "", "", "parked", "", nil},
+		{"no code on a coded order item", nil, "V1", "", "parked", "", "V0"},
+		{"no input code at the rate", "O1", "", `DO $$ BEGIN SET LOCAL session_replication_role = replica;
 			DELETE FROM ledger.tax_rate WHERE code = 'VI'; DELETE FROM ledger.tax_component WHERE code = 'VI'; DELETE FROM ledger.tax_code_definition WHERE code = 'VI'; END $$`,
-			"on_hold", "Line 1 prints a tax rate of 10%, which no input tax code charges"},
-		{"a code gone", "O0", `DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE ledger.tax_rate SET valid_from = '2099-01-01' WHERE code = 'O0'; END $$`,
-			"on_hold", "Line 1 is billed on tax code O0, which the supplying company no longer has on"},
+			"on_hold", "Line 1 prints a tax rate of 10%, which no input tax code charges", nil},
+		{"a code gone", "O0", "", `DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE ledger.tax_rate SET valid_from = '2099-01-01' WHERE code = 'O0'; END $$`,
+			"on_hold", "Line 1 is billed on tax code O0, which the supplying company no longer has on", nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			b := e.billed(t, c.code)
+			if c.orderCode != "" {
+				pgtest.Exec(t, `DO $$ BEGIN SET LOCAL session_replication_role = replica; UPDATE procurement.purchase_order_item SET tax_code = '`+c.orderCode+
+					`' WHERE purchase_order_id = '`+b["purchase_order_id"].(string)+`'; END $$`)
+			}
 			if c.before != "" {
 				pgtest.Exec(t, c.before)
 			}
 			inv, _ := e.Must(201, "POST", fromBilling, enter(t, b["id"]), "")
-			reason, _ := inv["hold_reason"].(string)
-			if inv["status"] != c.status || !strings.Contains(reason, c.held) || c.held == "" && reason != "" {
-				t.Errorf("the invoice: got %v %q, want %s %q", inv["status"], reason, c.status, c.held)
+			if inv["status"] != c.status {
+				t.Errorf("status: got %v, want %s", inv["status"], c.status)
 			}
-			if code, ok := rows(t, inv, "items")[0]["tax_code"]; ok && c.status == "parked" {
-				t.Errorf("the item's code: got %v, want none", code)
+			if reason, _ := inv["hold_reason"].(string); c.held == "" && reason != "" || !strings.Contains(reason, c.held) {
+				t.Errorf("hold reason: got %q, want %q", reason, c.held)
+			}
+			if code := rows(t, inv, "items")[0]["tax_code"]; code != c.itemCode {
+				t.Errorf("the item's code: got %v, want %v", code, c.itemCode)
 			}
 		})
 	}

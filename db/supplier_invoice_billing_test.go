@@ -33,6 +33,8 @@ func TestSupplierInvoiceBilling(t *testing.T) {
 		{"after one on hold", "edi", "on_hold", "supplier_invoice_billing_once"},
 		{"after a cancelled one", "edi", "cancelled", ""},
 		{"after a rejected one", "edi", "rejected", ""},
+		{"after a reversed one", "edi", "reversed", ""},
+		{"after a posted one", "edi", "posted", "supplier_invoice_billing_once"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -44,10 +46,11 @@ func TestSupplierInvoiceBilling(t *testing.T) {
 			tenant, billing := id(), id()
 			steps := []stmt{step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String())}
 			if c.earlierStatus != "" {
-				reason := ""
-				if c.earlierStatus == "on_hold" {
-					reason = `, hold_reason = 'Held'`
-				}
+				// What the status needs beside it (the table's checks).
+				reason := map[string]string{"on_hold": `, hold_reason = 'Held'`,
+					"posted":   `, journal_entry_year = 2026, journal_entry_id = gen_random_uuid()`,
+					"reversed": `, journal_entry_year = 2026, journal_entry_id = gen_random_uuid(), reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid()`,
+				}[c.earlierStatus]
 				earlier := id()
 				steps = append(steps, step(`SET LOCAL session_replication_role = replica`),
 					step(billingInvoiceRow("edi", "parked"), tenant, earlier, billing, "BD-EARLIER"),

@@ -1360,7 +1360,9 @@ specialist) and S2i's and S2i2's decisions above.
   billed without a code, or at 0%, whose order item has none stays
   without one: nothing is charged and nothing is recovered (decided by
   default: a 0% line would otherwise hold every zero-rated or exempt
-  billing of a company without a 0% input code, as Maple has none). A
+  billing of a company without a 0% input code, as Maple has none); one
+  billed without a code whose order item has one states 0%, so that code
+  stays only where it charges nothing (review round 1). A
   code the supplying company no longer has on that date holds it, naming
   the line. A stated tax the codes do not bear out holds it with
   `payables.tax_mismatch`'s figures. Whether the receiving company owes
