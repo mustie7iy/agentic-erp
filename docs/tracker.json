@@ -5152,9 +5152,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fix: a sales order made from a quotation re-checks each item's account, tax code and tax jurisdiction on the order's date, as an order entered directly is checked, rather than copying the quotation's items as they were checked on the quotation's date",
-        "r": "internal/sales/orders.go fromQuotation · ADR-0067 §4 · ADR-0067 As built, the emirate on a sales item",
+        "r": "internal/sales/orders.go fromQuotation, orderableOn · internal/sales/recheck.go (shared with billableOn) · sales.quotation_item_not_orderable · TestOrderFromQuotationRechecked · ADR-0067 §4 · ADR-0067 As built (an order from a quotation checks its items again; the emirate on a sales item)",
         "src": "review:batch85",
         "c": []
        },
