@@ -2434,6 +2434,15 @@ Each kind is matched and posted by its kind (T34c):
   (`stated_local_tax` with `stated_local_currency`, together or neither,
   never negative; `supplier_invoice_stated_local_tax`, migrations 000441,
   000442), which its posting keeps as the tax's local amount.
+- **Intercompany billings** (S2i3; ADR-0082 As built S2i3; migrations
+  000455-000457): an invoice the receiving company entered from the
+  supplying company's intercompany billing (`sales.intercompany_billing`,
+  §3.29) names it (`intercompany_billing_id`, another context's id: no
+  foreign key), with source `edi` alone
+  (`supplier_invoice_intercompany_billing_edi`); a billing is entered as
+  one invoice that is not rejected, cancelled or reversed
+  (`supplier_invoice_billing_once`, built concurrently), whatever the
+  invoice's supplier reference becomes while parked.
 - **Payment terms** (T36b): a document posts with the payment terms SAP's
   invoice verification would give it, kept in `supplier_invoice_terms`
   (migration 000068, insert-only) and passed to the ledger for its open

@@ -3845,6 +3845,36 @@ func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, param
 	return r, ht.ErrNotImplemented
 }
 
+// EnterIntercompanySupplierInvoice implements enterIntercompanySupplierInvoice operation.
+//
+// The receiving company enters the supplying company's posted intercompany billing
+// (`createIntercompanyBilling`, ADR-0082 As built S2i2, S2i3; SAP's invoice of an intercompany
+// billing, from memory) as its supplier invoice, `parked` or `on_hold` for a person to post (`:post`).
+// The billing (`GET /v1/intercompany-billings/{id}`) is one billed to a company the caller may act in
+// (404 otherwise, so ids cannot be probed). The invoice is the receiving company's, for its order's
+// supplier, the business partner that is the supplying company; its supplier reference is the
+// billing's number, its invoice date the billing date, its currency, gross and tax amounts the
+// billing's, and its items the order's items, each with its quantity at the billing item's net amount,
+// so posting it clears the order's GR/IR (`:match`, three-way against the order's receipts; SAP's MIRO
+// against the receipt). Each item keeps its order item's input tax code where it charges the rate of
+// the billing item's output tax code (the supplying company's, on the billing date); otherwise the one
+// input tax code of the company that charges it is proposed, and with none or several the invoice is
+// `on_hold` naming the item for a person to choose; an item billed without tax, or at a rate of zero,
+// whose order item has no code stays without one (nothing is charged, nothing to recover). A stated
+// tax the codes do not bear out holds it (`payables.tax_mismatch`'s figures), as do the company's
+// rules and missing required custom fields, as for a captured invoice. A billing is entered once (409
+// `payables.intercompany_billing_entered` naming the invoice; a rejected, cancelled or reversed
+// invoice frees it), and the supplier reference once per supplier (409 `payables.duplicate_invoice`).
+// Source `edi`; the invoice names the billing (`intercompany_billing_id`). Audited
+// (`payables.supplier_invoice.create`); publishes SupplierInvoiceCaptured, and SupplierInvoiceHeld for
+// one on hold. A retry with the same `Idempotency-Key` answers the invoice created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/intercompany-billings/{id}/supplier-invoices
+func (UnimplementedHandler) EnterIntercompanySupplierInvoice(ctx context.Context, params EnterIntercompanySupplierInvoiceParams) (r EnterIntercompanySupplierInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // EnterPhysicalInventoryCount implements enterPhysicalInventoryCount operation.
 //
 // Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`;

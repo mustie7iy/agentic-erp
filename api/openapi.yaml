@@ -14333,6 +14333,7 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
@@ -14487,6 +14488,7 @@ paths:
         - payables.currency_mismatch
         - payables.document_too_large
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
@@ -14547,6 +14549,102 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/intercompany-billings/{id}/supplier-invoices":
+    post:
+      operationId: enterIntercompanySupplierInvoice
+      tags:
+        - payables
+      summary: Enter the receiving company's supplier invoice from an intercompany billing
+      description: "The receiving company enters the supplying company's posted intercompany billing (`createIntercompanyBilling`, ADR-0082 As built S2i2, S2i3; SAP's invoice of an intercompany billing, from memory) as its supplier invoice, `parked` or `on_hold` for a person to post (`:post`). The billing (`GET /v1/intercompany-billings/{id}`) is one billed to a company the caller may act in (404 otherwise, so ids cannot be probed). The invoice is the receiving company's, for its order's supplier, the business partner that is the supplying company; its supplier reference is the billing's number, its invoice date the billing date, its currency, gross and tax amounts the billing's, and its items the order's items, each with its quantity at the billing item's net amount, so posting it clears the order's GR/IR (`:match`, three-way against the order's receipts; SAP's MIRO against the receipt). Each item keeps its order item's input tax code where it charges the rate of the billing item's output tax code (the supplying company's, on the billing date); otherwise the one input tax code of the company that charges it is proposed, and with none or several the invoice is `on_hold` naming the item for a person to choose; an item billed without tax, or at a rate of zero, whose order item has no code stays without one (nothing is charged, nothing to recover). A stated tax the codes do not bear out holds it (`payables.tax_mismatch`'s figures), as do the company's rules and missing required custom fields, as for a captured invoice. A billing is entered once (409 `payables.intercompany_billing_entered` naming the invoice; a rejected, cancelled or reversed invoice frees it), and the supplier reference once per supplier (409 `payables.duplicate_invoice`). Source `edi`; the invoice names the billing (`intercompany_billing_id`). Audited (`payables.supplier_invoice.create`); publishes SupplierInvoiceCaptured, and SupplierInvoiceHeld for one on hold. A retry with the same `Idempotency-Key` answers the invoice created. Human-only (`x-agent: false`)."
+      x-permission: payables.invoice.capture
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.internal_order_invalid
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - payables.account_not_postable
+        - payables.account_required
+        - payables.already_captured
+        - payables.amount_too_large
+        - payables.assignment_from_order
+        # payables.capture_needs_order, .unreadable_document and .local_tax_mismatch are a captured or received document's
+        # refusals, which TestProblemCodes lists as the billing is read by capture's code; a billing names its order, its lines
+        # the order's items and no tax in another currency, so this one is not expected to reach them.
+        - payables.capture_needs_order
+        - payables.currency_mismatch
+        - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
+        - payables.invalid_purchase_order
+        - payables.invalid_quantity
+        - payables.invalid_reference_invoice
+        - payables.invalid_tax_code
+        - payables.local_tax_mismatch
+        - payables.mixed_purchase_orders
+        - payables.negative_amount
+        - payables.no_tax_rate
+        - payables.po_item_required
+        - payables.purchase_order_required
+        - payables.quantity_not_zero
+        - payables.reference_not_allowed
+        - payables.supplier_not_usable
+        - payables.tax_date_human_only
+        - payables.tax_mismatch
+        - payables.unit_mismatch
+        - payables.unknown_currency
+        - payables.unknown_kind
+        - payables.unknown_payment_method
+        - payables.unknown_po_item
+        - payables.unknown_tax_code
+        - payables.unknown_unit
+        - payables.unreadable_document
+        - request.invalid_amount
+        - request.invalid_extension
+        - request.rule_refused
+        - request.rule_unevaluable
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: "Created; the new supplier invoice, parked or on hold."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -14726,6 +14824,7 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
@@ -14807,6 +14906,7 @@ paths:
         - ledger.no_exchange_rate
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.legal_entity_not_found
         - payables.negative_amount
@@ -14923,6 +15023,7 @@ paths:
         - payables.amounts_mismatch
         - payables.credit_exceeds_invoice
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.invalid_tax_code
         - payables.legal_entity_not_found
@@ -15044,6 +15145,7 @@ paths:
       x-problem-codes:
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - request.version_mismatch
@@ -15101,6 +15203,7 @@ paths:
       x-problem-codes:
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - request.version_mismatch
@@ -15256,6 +15359,7 @@ paths:
       x-problem-codes:
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - request.version_mismatch
@@ -15350,6 +15454,7 @@ paths:
         - payables.already_captured
         - payables.down_payments_cleared
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.invoice_cleared
         - payables.invoice_has_corrections
@@ -36468,6 +36573,7 @@ paths:
         - partner.invalid_status
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - payments.statement_amount_differs
@@ -36686,6 +36792,7 @@ paths:
         - partner.invalid_status
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - payments.invalid_status
@@ -36852,6 +36959,7 @@ paths:
         - partner.invalid_status
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - procurement.change_open
@@ -39814,6 +39922,7 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_amount
         - payables.invalid_item_no
         - payables.invalid_purchase_order
@@ -57247,6 +57356,11 @@ components:
                 - credit_memo
                 - subsequent_debit
                 - subsequent_credit
+              readOnly: true
+            intercompany_billing_id:
+              type: string
+              format: uuid
+              description: "The supplying company's intercompany billing the invoice was entered from (`POST /v1/intercompany-billings/{id}/supplier-invoices`; ADR-0082 As built S2i3), whose number is its `supplier_reference`; absent on an invoice entered otherwise."
               readOnly: true
             reference_invoice_id:
               type: string

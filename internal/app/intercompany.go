@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 )
@@ -26,6 +27,27 @@ func (salesIntercompany) IssuedOrder(ctx context.Context, id uuid.UUID) (sales.I
 	for i, it := range o.Items {
 		out.Items[i] = sales.IntercompanyOrderItem{No: it.No, MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 			UnitPrice: it.UnitPrice, PriceUnit: it.PriceUnit, Net: it.Net}
+	}
+	return out, nil
+}
+
+// payablesIntercompany answers the payables context's question to sales,
+// which payables does not import (ADR-0082 As built S2i3): the posted
+// intercompany billing the receiving company enters as its supplier
+// invoice, one the caller may read, in payables' own type.
+type payablesIntercompany struct{}
+
+func (payablesIntercompany) IntercompanyBilling(ctx context.Context, id uuid.UUID) (payables.IntercompanyBilling, error) {
+	b, err := sales.GetIntercompany(ctx, id)
+	if err != nil {
+		return payables.IntercompanyBilling{}, err
+	}
+	out := payables.IntercompanyBilling{ID: b.ID, DocumentNumber: b.DocumentNumber, LegalEntityID: b.LegalEntityID, ReceivingID: b.ReceivingID,
+		OrderID: b.OrderID, OrderNumber: b.OrderNumber, BillingDate: b.BillingDate, Currency: b.Currency, Exponent: b.Exponent, Net: b.Net, Tax: b.Tax,
+		Items: make([]payables.IntercompanyBillingItem, len(b.Items))}
+	for i, it := range b.Items {
+		out.Items[i] = payables.IntercompanyBillingItem{POItemNo: it.POItemNo, Description: it.Description, Quantity: it.Quantity, Net: it.Net,
+			TaxCode: it.TaxCode}
 	}
 	return out, nil
 }

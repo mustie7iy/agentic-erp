@@ -179,6 +179,7 @@ const (
 	EndRoleAssignmentOperation                     OperationName = "EndRoleAssignment"
 	EndRolePermissionOperation                     OperationName = "EndRolePermission"
 	EndSodRuleOperation                            OperationName = "EndSodRule"
+	EnterIntercompanySupplierInvoiceOperation      OperationName = "EnterIntercompanySupplierInvoice"
 	EnterPhysicalInventoryCountOperation           OperationName = "EnterPhysicalInventoryCount"
 	EvaluateMetricWatcherOperation                 OperationName = "EvaluateMetricWatcher"
 	ExcludeBankStatementLineOperation              OperationName = "ExcludeBankStatementLine"

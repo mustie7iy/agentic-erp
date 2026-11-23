@@ -1324,6 +1324,82 @@ for the specialist) and S2i's decisions above.
   own pricing and account determination, an outgoing e-invoice of a UAE
   company's intercompany billing as a step of its own.
 
+### S2i3 (2026-11-22)
+
+The receiving company's supplier invoice from the intercompany billing,
+decided by default from SAP's invoice receipt of an intercompany billing
+(the IV billing's invoice entered in the receiving company, by EDI or
+MIRO against the stock transport order's receipt, from memory, for the
+specialist) and S2i's and S2i2's decisions above.
+
+- **Entered from the billing**:
+  `POST /v1/intercompany-billings/{id}/supplier-invoices`
+  (`enterIntercompanySupplierInvoice`, `payables.invoice.capture`,
+  human-only as the goods issue and the billing are): the billing's
+  sub-collection, a plain create answering 201 with the invoice (a
+  collection custom method would start a job and answer 202, 04 §4.8);
+  payables reads the billing through its port `IntercompanyBillings`,
+  which the composition root wires to sales' `GetIntercompany` (payables
+  does not import sales). A billing billed to a company the caller may
+  not act in, or none, is 404, so ids cannot be probed: the supplying
+  company's people do not enter the receiving company's invoice.
+- **As capture reads a document**: the billing states what a document
+  prints, so it goes through capture's code (`capturedInput`,
+  `capturedTax`, `capturedExtensions`) rather than a second mapping: the
+  order (by its number in the receiving company) gives the supplier, the
+  business partner that is the supplying company (S2i1), and the items,
+  each order item once at its quantity and the billing item's net; the
+  supplier reference is the billing's number, the invoice date the billing
+  date, the currency, gross and tax the billing's. Source `edi`, as the
+  brief's design asked (an electronic document from the other company);
+  the invoice names the billing (`intercompany_billing_id`).
+- **Tax**: each item keeps its order item's input code where it charges
+  the rate the billing item's output code charges in the supplying
+  company on the billing date; else the one input code of the receiving
+  company charging it is proposed, and with none or several the invoice
+  is held naming the line, as for a captured document (T61d). An item
+  billed without a code, or at 0%, whose order item has none stays
+  without one: nothing is charged and nothing is recovered (decided by
+  default: a 0% line would otherwise hold every zero-rated or exempt
+  billing of a company without a 0% input code, as Maple has none); one
+  billed without a code whose order item has one states 0%, so that code
+  stays only where it charges nothing (review round 1). A
+  code the supplying company no longer has on that date holds it, naming
+  the line. A stated tax the codes do not bear out holds it with
+  `payables.tax_mismatch`'s figures. Whether the receiving company owes
+  or recovers tax of its own on the supply under its country's rules (a
+  cross-border one, say) is not decided here: the person applies it while
+  the invoice is parked; a rule of it is Later, for the specialist.
+- **Parked or held, for a person to post**: matched against the order's
+  receipts as any order invoice (`:match`, three-way), and posted
+  (`:post`) it debits GR/IR at the order price, which is the billing's,
+  so the order's GR/IR clears and the receiving company's entry is the
+  billing's gross; nothing posts automatically.
+- **Once per billing** (409 `payables.intercompany_billing_entered`
+  naming the invoice, read first; for two racing the key
+  `supplier_invoice_billing_once`): a rejected, cancelled or reversed
+  invoice frees the billing, as `supplier_invoice_no_duplicates` frees a
+  reference. The key holds whatever the parked invoice's supplier
+  reference is changed to, which the duplicate reference check alone
+  would not. Migrations 000455 (the column and its check, `edi` alone,
+  added NOT VALID), 000456 (validated), 000457 (the key, built
+  concurrently); schema tests in `db/supplier_invoice_billing_test.go`,
+  the down's refusal too.
+- **Locks**: the billing is insert-only and read without a lock; the
+  invoice takes what any invoice entry takes (its number range, the
+  order's read); the key's wait orders two entries of one billing.
+- **Records**: audited (`payables.supplier_invoice.create`) and
+  published (SupplierInvoiceCaptured, SupplierInvoiceHeld when held) as
+  any entry. No agent's scope covers supplier invoices, so no never list
+  changes; the operation is `x-agent: false`.
+- Walkthrough step 155, `step_intercompany_transport` (its
+  `intercompany_invoice` part): Alex enters Maple Gulf Trading's billing
+  as Maple's invoice, CAD 320.00 without tax, once; matched and posted,
+  Dr GR/IR, Cr the supplier, the order's GR/IR 0.00.
+- **Not built** (Later): entering it automatically when the billing
+  posts, a rule of the receiving company's own tax on the supply, a credit memo
+  from a cancelled or credited billing (S2i2's Later).
+
 ### S2f (2026-11-20)
 
 - Migrations 000428 and 000429 (03 §3.35, S2f): `materials.material.batch_managed`,
