@@ -132,7 +132,8 @@ func (w *WMSExchange) pollTenant(ctx context.Context, tenant uuid.UUID) (int, er
 // pollConnector records each confirmation the connector's WMS holds, then
 // acknowledges it. One that cannot be read, recorded or acknowledged now
 // is reported and left for the next poll, and the others are taken still;
-// an id the table cannot hold (empty or above 200 characters) is reported
+// an id the table cannot hold (empty, above 200 characters, holding a NUL
+// or invalid UTF-8) is reported
 // and never taken, as no record of it can be kept.
 func (w *WMSExchange) pollConnector(ctx context.Context, tenant uuid.UUID, c usable) (int, error) {
 	wh, err := w.warehouse(ctx, tenant, c)
@@ -247,6 +248,9 @@ func (w *WMSExchange) record(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c
 // of it.
 func keptBody(raw []byte) ([]byte, bool) {
 	var fields map[string]json.RawMessage
+	// The check also refuses an escaped backslash before the text u0000
+	// ("\\u0000"), which jsonb could hold: rare, and refused visibly
+	// rather than lost.
 	if json.Unmarshal(raw, &fields) == nil && fields != nil && !bytes.Contains(raw, []byte(`\u0000`)) {
 		return raw, true
 	}

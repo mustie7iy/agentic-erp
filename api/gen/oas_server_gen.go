@@ -7125,12 +7125,13 @@ type Handler interface {
 	// system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound
 	// (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector
 	// (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked
-	// quantities recorded and its goods issue posted (shipping's `pickOutboundDelivery` and
-	// `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's
-	// company), naming the material document; or `refused` with the problem that stopped it, nothing of it
-	// posted: one that is not a JSON `goods_issue` message naming its own message id and an
-	// `outbound_delivery_id` (`integration.wms_message_unreadable`), larger than 1 MiB
-	// (`integration.wms_message_too_large`), of a delivery the connector was not sent
+	// quantities recorded (an item it was sent and does not name picked at nothing) and its goods issue
+	// posted (shipping's `pickOutboundDelivery` and `postOutboundDeliveryGoodsIssue`, as the exchange's
+	// system principal acting for the delivery's company), naming the material document; or `refused` with
+	// the problem that stopped it, nothing of it posted: one that is not a JSON `goods_issue` message
+	// naming its own message id and an `outbound_delivery_id`, or that holds `\u0000`, which cannot be
+	// kept as received (`integration.wms_message_unreadable`; its body kept as its text), larger than 1
+	// MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent
 	// (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`,
 	// `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse
 	// system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not

@@ -1646,12 +1646,15 @@ specialist):
   in the transaction that posts it: an inbound row, unique per connector
   and message id, the inbox. A confirmation of type `goods_issue` (its
   own `message_id`, the `outbound_delivery_id` it was sent and the
-  quantity picked of each item in the item's unit) posts, for a delivery
+  quantity picked of each item in the item's unit; an item it was sent
+  and does not name is picked at nothing, whatever a person picked of it
+  before) posts, for a delivery
   this connector was sent alone (`integration.wms_unknown_delivery`
   otherwise), the picked quantities and the goods issue through
   shipping's API as the exchange's system principal acting for the
   delivery's company, at the delivery's version as it is, in a savepoint:
-  shipping's refusal (or an unreadable, too large or other message:
+  shipping's refusal (or an unreadable, too large or other message, or one jsonb cannot
+  keep as received, holding `\u0000`, kept as its text:
   `integration.wms_message_unreadable`, `integration.wms_message_too_large`)
   is recorded `refused` with its problem, nothing of it kept; a failure of
   the machinery records nothing and the next poll takes it again, the
