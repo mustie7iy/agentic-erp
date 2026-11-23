@@ -24,12 +24,12 @@
 1150 internal/integration
 514 internal/web
 421 internal/web/ui
-407 internal/ledger
+420 internal/ledger
 388 internal/cash
 367 internal/assets
 364 internal/web/e2e
 360 internal/payments
-335 internal/payables
+344 internal/payables
 400 internal/procurement
 270 internal/sales
 178 internal/closing
@@ -45,7 +45,7 @@
 85 internal/controlling
 85 internal/drverify
 82 internal/taxfiling
-73 internal/receivables
+152 internal/receivables
 61 cmd/erp-server
 55 internal/partner
 46 internal/platform/redact
@@ -94,6 +94,13 @@
 # 335 s a run. internal/procurement (363 s) stayed within its 400; the new
 # internal/countagent and internal/replenishmentagent (5 s and 6 s) are
 # below 20 s and counted as 10 s.
+# internal/receivables, internal/ledger, internal/payables and
+# internal/einvoicing (batch 89, the UAE customer's cash discount, its tax
+# correction shared with T36d, the volume discount without an order): one
+# local race run of the batch, two packages at a time, took 192 s, 528 s,
+# 433 s and 211 s, against 647 s for internal/web (weighted 514), so about
+# 152 s, 420 s, 344 s and 168 s a run. internal/config (9 s) and the new
+# internal/demandagent (5 s) are below 20 s and counted as 10 s.
 210 internal/inventory
-160 internal/einvoicing
+168 internal/einvoicing
 30 internal/mrp
