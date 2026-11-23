@@ -53,7 +53,10 @@ func TestProfitabilityReportBudget(t *testing.T) {
 // made them: orders, items, billing documents and their items for 1,000
 // customers, and credit memos. The rows are written in bulk without the
 // tables' triggers (fixture.SalesVolume's way), as the documents' own
-// operations would leave them.
+// operations would leave them. Each copy calls jsonb_populate_record once
+// per row in a LATERAL: written as (jsonb_populate_record(…)).* in the
+// select list, PostgreSQL calls it once per column, which took the
+// seeding to four minutes, past ci-local's 240 s limit on a budget test.
 func profitabilityBudgetData(t *testing.T, p profitable) {
 	t.Helper()
 	order := p.order(t, p.northwind, "EUR", p.bracket("7"), p.installed("237.53", "EUR"))
@@ -75,34 +78,57 @@ func profitabilityBudgetData(t *testing.T, p profitable) {
 	exec(`INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
 		SELECT $1, md5($1::uuid::text || 'c' || k)::uuid, 'BC' || lpad(k::text, 8, '0'), 'organization', 'Customer ' || k, 'DE', 'active', $2, $2
 		FROM generate_series(0, 999) k`, ten, who)
-	// Documents 1 to 100,000 post in 2026, 100,001 to 120,000 in 2025.
-	const docs = `generate_series(1, 120000) n CROSS JOIN LATERAL (SELECT md5($1::uuid::text || 'o' || n)::uuid AS xo, md5($1::uuid::text || 'b' || n)::uuid AS xb,
-		md5($1::uuid::text || 'c' || n % 1000)::uuid AS xc, CASE WHEN n <= 100000 THEN date '2026-01-01' ELSE date '2025-01-01' END + n % 360 AS xday) x`
-	exec(`INSERT INTO sales.sales_order SELECT (jsonb_populate_record(NULL::sales.sales_order, to_jsonb(s)
-			|| jsonb_build_object('id', x.xo, 'document_number', 'B' || n, 'customer_id', x.xc))).*
-		FROM sales.sales_order s, `+docs+` WHERE s.tenant_id = $1 AND s.id = $2`, ten, order)
-	exec(`INSERT INTO sales.sales_order_item SELECT (jsonb_populate_record(NULL::sales.sales_order_item, to_jsonb(i)
-			|| jsonb_build_object('sales_order_id', x.xo, 'item_key', CASE WHEN i.item_key IS NULL THEN NULL ELSE 'K' || n % 20 END))).*
-		FROM sales.sales_order_item i, `+docs+` WHERE i.tenant_id = $1 AND i.sales_order_id = $2`, ten, order)
-	exec(`INSERT INTO sales.billing_document SELECT (jsonb_populate_record(NULL::sales.billing_document, to_jsonb(b)
-			|| jsonb_build_object('id', x.xb, 'document_number', 'B' || n, 'customer_id', x.xc, 'sales_order_id', x.xo, 'billing_date', x.xday,
-				'posting_date', x.xday, 'customer_invoice_id', md5($1::uuid::text || 'i' || n)::uuid))).*
-		FROM sales.billing_document b, `+docs+` WHERE b.tenant_id = $1 AND b.id = $2`, ten, doc)
-	exec(`INSERT INTO sales.billing_document_item SELECT (jsonb_populate_record(NULL::sales.billing_document_item, to_jsonb(i)
-			|| jsonb_build_object('billing_document_id', x.xb, 'sales_order_id', x.xo))).*
-		FROM sales.billing_document_item i, `+docs+` WHERE i.tenant_id = $1 AND i.billing_document_id = $2`, ten, doc)
-	// Credit memos of 1.00 on the first 5,000 documents, posted.
-	const credits = `generate_series(1, 5000) n CROSS JOIN LATERAL (SELECT md5($1::uuid::text || 'r' || n)::uuid AS xr, md5($1::uuid::text || 'b' || n)::uuid AS xb,
-		md5($1::uuid::text || 'o' || n)::uuid AS xo, md5($1::uuid::text || 'c' || n % 1000)::uuid AS xc, date '2026-01-01' + n % 360 AS xday) x`
-	exec(`INSERT INTO sales.credit_memo_request SELECT (jsonb_populate_record(NULL::sales.credit_memo_request, to_jsonb(r)
-			|| jsonb_build_object('id', x.xr, 'document_number', 'R' || n, 'customer_id', x.xc, 'billing_document_id', x.xb, 'sales_order_id', x.xo,
-				'posting_date', x.xday, 'customer_invoice_id', md5($1::uuid::text || 'm' || n)::uuid, 'customer_invoice_number', 'R' || n,
-				'journal_entry_id', md5($1::uuid::text || 'j' || n)::uuid))).*
-		FROM sales.credit_memo_request r, `+credits+` WHERE r.tenant_id = $1 AND r.id = $2`, ten, request)
-	exec(`INSERT INTO sales.credit_memo_request_item SELECT (jsonb_populate_record(NULL::sales.credit_memo_request_item, to_jsonb(i)
-			|| jsonb_build_object('request_id', x.xr, 'billing_document_id', x.xb))).*
-		FROM sales.credit_memo_request_item i, `+credits+` WHERE i.tenant_id = $1 AND i.request_id = $2`, ten, request)
+	copyDocuments(exec, ten, order, doc)
+	copyCredits(exec, ten, request)
 	exec(`ANALYZE sales.sales_order, sales.sales_order_item, sales.billing_document, sales.billing_document_item, sales.credit_memo_request,
 		sales.credit_memo_request_item, partner.business_partner`)
 	t.Log("loaded 120,000 posted billing documents of 240,000 items and 5,000 posted credit memos")
+}
+
+// copyDocuments copies the order, its items, the billing document and its
+// items 120,000 times: documents 1 to 100,000 post in 2026, 100,001 to
+// 120,000 in 2025.
+func copyDocuments(exec func(string, ...any), ten uuid.UUID, order, doc string) {
+	const docs = `generate_series(1, 120000) n CROSS JOIN LATERAL (SELECT md5($1::uuid::text || 'o' || n)::uuid AS xo, md5($1::uuid::text || 'b' || n)::uuid AS xb,
+		md5($1::uuid::text || 'c' || n % 1000)::uuid AS xc, CASE WHEN n <= 100000 THEN date '2026-01-01' ELSE date '2025-01-01' END + n % 360 AS xday) x`
+	exec(`INSERT INTO sales.sales_order SELECT rec.*
+		FROM sales.sales_order s, `+docs+`,
+			LATERAL jsonb_populate_record(NULL::sales.sales_order, to_jsonb(s)
+			|| jsonb_build_object('id', x.xo, 'document_number', 'B' || n, 'customer_id', x.xc)) rec
+		WHERE s.tenant_id = $1 AND s.id = $2`, ten, order)
+	exec(`INSERT INTO sales.sales_order_item SELECT rec.*
+		FROM sales.sales_order_item i, `+docs+`,
+			LATERAL jsonb_populate_record(NULL::sales.sales_order_item, to_jsonb(i)
+			|| jsonb_build_object('sales_order_id', x.xo, 'item_key', CASE WHEN i.item_key IS NULL THEN NULL ELSE 'K' || n % 20 END)) rec
+		WHERE i.tenant_id = $1 AND i.sales_order_id = $2`, ten, order)
+	exec(`INSERT INTO sales.billing_document SELECT rec.*
+		FROM sales.billing_document b, `+docs+`,
+			LATERAL jsonb_populate_record(NULL::sales.billing_document, to_jsonb(b)
+			|| jsonb_build_object('id', x.xb, 'document_number', 'B' || n, 'customer_id', x.xc, 'sales_order_id', x.xo, 'billing_date', x.xday,
+				'posting_date', x.xday, 'customer_invoice_id', md5($1::uuid::text || 'i' || n)::uuid)) rec
+		WHERE b.tenant_id = $1 AND b.id = $2`, ten, doc)
+	exec(`INSERT INTO sales.billing_document_item SELECT rec.*
+		FROM sales.billing_document_item i, `+docs+`,
+			LATERAL jsonb_populate_record(NULL::sales.billing_document_item, to_jsonb(i)
+			|| jsonb_build_object('billing_document_id', x.xb, 'sales_order_id', x.xo)) rec
+		WHERE i.tenant_id = $1 AND i.billing_document_id = $2`, ten, doc)
+}
+
+// copyCredits copies the credit memo request and its item on the first
+// 5,000 documents, posted, of 1.00 each.
+func copyCredits(exec func(string, ...any), ten, request uuid.UUID) {
+	const credits = `generate_series(1, 5000) n CROSS JOIN LATERAL (SELECT md5($1::uuid::text || 'r' || n)::uuid AS xr, md5($1::uuid::text || 'b' || n)::uuid AS xb,
+		md5($1::uuid::text || 'o' || n)::uuid AS xo, md5($1::uuid::text || 'c' || n % 1000)::uuid AS xc, date '2026-01-01' + n % 360 AS xday) x`
+	exec(`INSERT INTO sales.credit_memo_request SELECT rec.*
+		FROM sales.credit_memo_request r, `+credits+`,
+			LATERAL jsonb_populate_record(NULL::sales.credit_memo_request, to_jsonb(r)
+			|| jsonb_build_object('id', x.xr, 'document_number', 'R' || n, 'customer_id', x.xc, 'billing_document_id', x.xb, 'sales_order_id', x.xo,
+				'posting_date', x.xday, 'customer_invoice_id', md5($1::uuid::text || 'm' || n)::uuid, 'customer_invoice_number', 'R' || n,
+				'journal_entry_id', md5($1::uuid::text || 'j' || n)::uuid)) rec
+		WHERE r.tenant_id = $1 AND r.id = $2`, ten, request)
+	exec(`INSERT INTO sales.credit_memo_request_item SELECT rec.*
+		FROM sales.credit_memo_request_item i, `+credits+`,
+			LATERAL jsonb_populate_record(NULL::sales.credit_memo_request_item, to_jsonb(i)
+			|| jsonb_build_object('request_id', x.xr, 'billing_document_id', x.xb)) rec
+		WHERE i.tenant_id = $1 AND i.request_id = $2`, ten, request)
 }
