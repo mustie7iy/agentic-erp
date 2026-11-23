@@ -16678,15 +16678,18 @@ step_uae_cash_discount() {
 # refused, as it holds no GST component; under GA, the input adjustment of
 # the GST that the GST34 reports on line 107, CAD 20.00 is debited on 1300
 # and credited to 6850, with the date Bayview was told; a second claim of
-# the write-off is refused, and the relief lists by its invoice. A UAE
+# the write-off is refused, and the relief lists by its invoice. The
+# receiver's two dividends of CAD 210.00 each, the first leaving a
+# residual item that the second pays, charge the GST again, 10.00 each
+# (ADR-0049 As built batch 91). A UAE
 # invoice written off today is refused: under Federal Decree-Law No. 8 of
 # 2017 Art. 64 six months must have passed, counted by default from its
 # due date (ADR-0049 As built batch 90; the return of a quarter not
 # yet ended is not computed: TestUAEBadDebtRelief proves the VAT 201's
 # adjustment columns and TestCanadianBadDebtRelief line 107).
 step_bad_debt_relief() {
-  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once; a UAE invoice written off before six months have passed refused"
-  local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae
+  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once, and charged again as the receiver pays; a UAE invoice written off before six months have passed refused"
+  local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae item residual
   [ -n "$customer" ] || fail "step 139's customer is not there"
   as ruth
   say "Bayview Plumbing goes into receivership with an invoice unpaid. Ruth posts it, a pressure washer, CAD 400.00 at"
@@ -16725,6 +16728,25 @@ step_bad_debt_relief() {
   refused 409 receivables.bad_debt_relief_claimed createBadDebtRelief -body "${body/\"GI\"/\"GA\"}"
   QUIET=1 api 200 '' listBadDebtReliefs -p "customer_invoice_id=$invoice"
   expect "the invoice's reliefs" "$(field '[.items[].id] | join(" ")')" "$relief"
+  say "Bayview's receiver later pays a first dividend, CAD 210.00, half of what was written off. Ruth applies it to the"
+  say "invoice and leaves the other CAD 210.00 open as a residual item. What a customer pays of a relieved invoice beyond"
+  say "what its write-offs left owed recovers the bad debt, so the payment charges half of the GST relieved again, CAD"
+  say "10.00, under GA (ADR-0049 As built batch 91): credited on 1300, so line 107 falls by it, and debited to 6850:"
+  northwind_receipt 210.00
+  as ruth
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$entry\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"210.00\", \"currency\": \"CAD\"}, \"reason\": \"short_payment\"}}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency)", (.bad_debt_recharges[] | "  bad debt relief of \(.customer_invoice_number) charged again: \(.tax_amount.amount) \(.tax_amount.currency), \(.recovered_amount.amount) of what was written off recovered, entry \(.journal_entry_number)")' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  expect "the first charge" "$(field '.bad_debt_recharges[0] | "\(.tax_amount.amount) \(.local_tax_amount.amount) \(.recovered_amount.amount) \(.reset)"')" "10.00 10.00 210.00 false"
+  residual=$(field '.items[0].residual | "{\"fiscal_year\": \(.fiscal_year), \"journal_entry_id\": \"\(.journal_entry_id)\", \"line_no\": \(.line_no)}"')
+  QUIET=1 api 200 '' getJournalEntry -p "id=$(field '.bad_debt_recharges[0].journal_entry_id')"
+  expect "the charge's lines" "$(field "[.lines[] | \"\(.account_id == \"$(account 1300)\") \(.amount.amount) \(.tax_code // \"-\")\"] | join(\", \")")" "true -10.00 GA, false 10.00 -"
+  say "The final dividend pays the residual: the other CAD 10.00 is charged again, so the relief is wholly undone:"
+  northwind_receipt 210.00
+  as ruth
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency)", (.bad_debt_recharges[] | "  charged again: \(.tax_amount.amount) \(.tax_amount.currency), \(.recovered_amount.amount) recovered")' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$residual]}"
+  expect "the second charge" "$(field '.bad_debt_recharges[0] | "\(.tax_amount.amount) \(.recovered_amount.amount)"')" "10.00 420.00"
   say "A UAE company recovers its VAT under Federal Decree-Law No. 8 of 2017 Art. 64 only once six months have passed"
   say "since the supply (counted, by default, from its due date), with the customer notified. Ruth writes off an"
   say "invoice of Maple Gulf Trading to Oasis Office Supplies"

@@ -195,16 +195,7 @@ func TestUAEBadDebtReliefRefusals(t *testing.T) {
 // by it. The notice is recorded when given; an output adjustment code
 // would report it on line 104 and is refused.
 func TestCanadianBadDebtRelief(t *testing.T) {
-	e := newDiscountEnv(t, fixture.MapleCompany, func(c *config.Company, doc *config.Config) {
-		c.TaxCodes = append(slices.Clone(c.TaxCodes), config.TaxCode{Code: "GO5", Description: "GST 5% on sales", Direction: config.TaxOutput,
-			Components: []config.TaxComponent{{Key: "gst", Jurisdiction: "CA", AccountKey: config.KeyOutput, Account: "230000",
-				Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
-			adjustment("GA", config.TaxInput, "gst", "CA", config.KeyInput, "140000", false),
-			adjustment("GI", config.TaxOutput, "gst", "CA", config.KeyOutput, "230000", false))
-		c.TaxRegistrations = []config.TaxRegistration{{Code: "GSTHST", Authority: "CRA", Number: "123456782 RT 0001", ReturnType: "GST34",
-			Frequency: config.TaxQuarterly, FirstPeriodStart: "2026-01-01"}}
-		doc.Packs = append(doc.Packs, config.PackAdoption{Company: fixture.MapleCompany.Code, Country: "CA", Version: "2026.12", AppliedOn: "2026-01-01"})
-	})
+	e := canadianReliefEnv(t)
 	invoice := e.invoiced(t, "2026-03-10", e.item("100.00", "GO5", ""))
 	writeOff := e.writtenOff(t, invoice, "60.00", "2026-04-15")
 	e.In(t).Problem(422, "receivables.invalid_relief_tax_code", "POST", "/v1/bad-debt-reliefs", relief(invoice, writeOff, "GI", "", "2026-04-15"), "")
@@ -229,6 +220,23 @@ func TestCanadianBadDebtRelief(t *testing.T) {
 	if n := got["customer_notified_on"]; n != "2026-04-10" {
 		t.Errorf("the notice given: got %v, want 2026-04-10", n)
 	}
+}
+
+// canadianReliefEnv is a Canadian company (Maple, CAD) with GO5, GST at 5%
+// on sales, its adjustment codes GA (input GST, the GST34's line 107) and
+// GI (output GST), and its GST/HST registration filing the GST34.
+func canadianReliefEnv(t *testing.T) discountEnv {
+	t.Helper()
+	return newDiscountEnv(t, fixture.MapleCompany, func(c *config.Company, doc *config.Config) {
+		c.TaxCodes = append(slices.Clone(c.TaxCodes), config.TaxCode{Code: "GO5", Description: "GST 5% on sales", Direction: config.TaxOutput,
+			Components: []config.TaxComponent{{Key: "gst", Jurisdiction: "CA", AccountKey: config.KeyOutput, Account: "230000",
+				Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
+			adjustment("GA", config.TaxInput, "gst", "CA", config.KeyInput, "140000", false),
+			adjustment("GI", config.TaxOutput, "gst", "CA", config.KeyOutput, "230000", false))
+		c.TaxRegistrations = []config.TaxRegistration{{Code: "GSTHST", Authority: "CRA", Number: "123456782 RT 0001", ReturnType: "GST34",
+			Frequency: config.TaxQuarterly, FirstPeriodStart: "2026-01-01"}}
+		doc.Packs = append(doc.Packs, config.PackAdoption{Company: fixture.MapleCompany.Code, Country: "CA", Version: "2026.12", AppliedOn: "2026-01-01"})
+	})
 }
 
 // TestBadDebtReliefElsewhere: a company of a country without a confirmed

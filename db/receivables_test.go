@@ -1351,3 +1351,128 @@ func TestBadDebtReliefRevert(t *testing.T) {
 	}
 	failsWith(t, exec(tx, down), "reverting would lose them")
 }
+
+// TestBadDebtRechargeRules (migration 000448; ADR-0049 As built batch 91):
+// a relief charged again names a customer invoice and an incoming payment
+// and its application, which, applied or undone, charges the invoice once,
+// with a recovered amount not negative, a tax that is not nothing, a local
+// tax of its sign or nothing, and an entry of its own; it is never
+// changed or deleted.
+func TestBadDebtRechargeRules(t *testing.T) {
+	need(t)
+	const invoice = `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+		currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
+		VALUES ($1, $2, 'CI1', gen_random_uuid(), gen_random_uuid(), 'invoice', '2026-01-10', 'AED', 10000, 500, 10500, 'draft', $1, $1)`
+	const payment = `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+		receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, 'IP1', $1, $1, 2026, gen_random_uuid(), $1, '2026-09-01', 'AED', 10500, 2026, gen_random_uuid(), $1)`
+	const recharge = `INSERT INTO receivables.bad_debt_recharge (tenant_id, id, legal_entity_id, customer_invoice_id, incoming_payment_id, application_no,
+		reset, currency, local_currency, recovered_amount, tax_amount, tax_amount_lc, posting_date, journal_entry_year, journal_entry_id,
+		journal_entry_number, created_by)
+		VALUES ($1, gen_random_uuid(), gen_random_uuid(), $2, $2, $3, $4, $5, $6, $7, $8, $9, '2026-09-01', 2026, $10, $11, $1)`
+	type row struct {
+		application          int32
+		reset                bool
+		currency, local      string
+		recovered, tax, taxL int64
+		entry                uuid.UUID
+		entryNumber          string
+		noInvoice, noPayment bool
+	}
+	good := func() row {
+		return row{currency: "AED", local: "AED", recovered: 10500, tax: 500, taxL: 500, entry: id(), entryNumber: "100003"}
+	}
+	with := func(f func(*row)) row { r := good(); f(&r); return r }
+	ins := func(tenant, doc uuid.UUID, r row) stmt {
+		return step(recharge, tenant, doc, r.application, r.reset, r.currency, r.local, r.recovered, r.tax, r.taxL, r.entry, r.entryNumber)
+	}
+	parents := func(tenant, doc uuid.UUID, r row) []stmt {
+		var out []stmt
+		if !r.noInvoice {
+			out = append(out, step(invoice, tenant, doc))
+		}
+		if !r.noPayment {
+			out = append(out, step(payment, tenant, doc))
+		}
+		return append(out, ins(tenant, doc, r))
+	}
+	one := func(r row) func(tx pgx.Tx, te, d uuid.UUID) error {
+		return func(tx pgx.Tx, te, d uuid.UUID) error { return all(tx, parents(te, d, r)...) }
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, tenant, doc uuid.UUID) error
+		want string // empty: allowed
+	}{
+		{"a charge of an application", one(good()), ""},
+		{"charged back less by its undoing, without local tax", one(with(func(r *row) { r.reset, r.tax, r.taxL, r.recovered = true, -500, 0, 0 })), ""},
+		{"of no invoice", one(with(func(r *row) { r.noInvoice = true })), "bad_debt_recharge_invoice_fkey"},
+		{"of no payment", one(with(func(r *row) { r.noPayment = true })), "bad_debt_recharge_payment_fkey"},
+		{"an application charged twice", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, append(parents(te, d, good()), ins(te, d, good()))...)
+		}, "bad_debt_recharge_once"},
+		{"an entry of two charges", func(tx pgx.Tx, te, d uuid.UUID) error {
+			r := good()
+			again := r
+			again.application = 1
+			return all(tx, append(parents(te, d, r), ins(te, d, again))...)
+		}, "bad_debt_recharge_entry_once"},
+		{"a negative application", one(with(func(r *row) { r.application = -1 })), "bad_debt_recharge_application_check"},
+		{"a negative recovered amount", one(with(func(r *row) { r.recovered = -1 })), "bad_debt_recharge_recovered_check"},
+		{"no tax", one(with(func(r *row) { r.tax = 0 })), "bad_debt_recharge_tax_check"},
+		{"a local tax of the other sign", one(with(func(r *row) { r.taxL = -1 })), "bad_debt_recharge_tax_lc_sign"},
+		{"an entry number of 41 characters", one(with(func(r *row) { r.entryNumber = strings.Repeat("1", 41) })), "bad_debt_recharge_entry_number_check"},
+		{"an unknown currency", one(with(func(r *row) { r.currency = "XXA" })), "bad_debt_recharge_currency_fkey"},
+		{"an unknown local currency", one(with(func(r *row) { r.local = "XXA" })), "bad_debt_recharge_local_currency_fkey"},
+		// The trigger holds the owner too, past the application's grants;
+		// each statement is scoped to this tenant's invoice.
+		{"changed by the owner", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, append(parents(te, d, good()), step(`SET LOCAL ROLE erp_owner`),
+				step(`UPDATE receivables.bad_debt_recharge SET tax_amount = 1 WHERE tenant_id = $1 AND customer_invoice_id = $2`, te, d))...)
+		}, "insert-only"},
+		{"deleted by the owner", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, append(parents(te, d, good()), step(`SET LOCAL ROLE erp_owner`),
+				step(`DELETE FROM receivables.bad_debt_recharge WHERE tenant_id = $1 AND customer_invoice_id = $2`, te, d))...)
+		}, "insert-only"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error { return c.run(tx, tenant, doc) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestBadDebtRechargeRevert (migration 000448's down): the revert is
+// refused while a relief charged again is recorded.
+func TestBadDebtRechargeRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000448_bad_debt_recharge").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+			currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
+			VALUES ($1, $1, 'CI1', $1, $1, 'invoice', '2026-01-10', 'AED', 10000, 500, 10500, 'draft', $1, $1)`, tenant),
+		step(`INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+			receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+			VALUES ($1, $1, 'IP1', $1, $1, 2026, gen_random_uuid(), $1, '2026-09-01', 'AED', 10500, 2026, gen_random_uuid(), $1)`, tenant),
+		step(`INSERT INTO receivables.bad_debt_recharge (tenant_id, id, legal_entity_id, customer_invoice_id, incoming_payment_id, application_no, reset,
+			currency, local_currency, recovered_amount, tax_amount, tax_amount_lc, posting_date, journal_entry_year, journal_entry_id, journal_entry_number,
+			created_by) VALUES ($1, $1, $1, $1, $1, 0, false, 'AED', 'AED', 10500, 500, 500, '2026-09-01', 2026, gen_random_uuid(), '100003', $1)`,
+			tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "reverting would lose it")
+}

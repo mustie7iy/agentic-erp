@@ -97,7 +97,10 @@ type CreditInput struct {
 // entry, leaving what they do not take on account as a new credit line,
 // at the credit's rate, and writing an underpayment within the company's
 // tolerance off. The application is written with its items, an audit
-// record and IncomingPaymentOnAccountApplied in the request's transaction.
+// record and IncomingPaymentOnAccountApplied in the request's transaction;
+// what it pays of the customer's invoices a bad debt relief relieved,
+// the customer held before the ledger's entries (RechargeLock), charges
+// their tax again (recharge.go).
 //
 // A credit no longer open, all applied or cleared otherwise, is refused,
 // 409 receivables.no_credit_on_account. That read takes no lock
@@ -123,6 +126,10 @@ func (e *Endpoints) ApplyOnAccount(ctx context.Context, in CreditInput) (Incomin
 	if err != nil {
 		return IncomingPayment{}, err
 	}
+	relieved, err := relievedOf(ctx, tx, le.ID, []uuid.UUID{v.CustomerID})
+	if err != nil {
+		return IncomingPayment{}, err
+	}
 	applied, err := e.Postings.ApplyReceipt(ctx, app)
 	if err != nil {
 		return IncomingPayment{}, fmt.Errorf("receivables: apply the credit on account of incoming payment %s: %w", v.DocumentNumber, err)
@@ -133,6 +140,9 @@ func (e *Endpoints) ApplyOnAccount(ctx context.Context, in CreditInput) (Incomin
 	}
 	if err := insertPaymentItems(ctx, tx, p.TenantID, v.ID, int32(len(v.Items)), no, applying{items: in.Items, inputs: in.Residuals, residuals: app.Residuals},
 		applied); err != nil {
+		return IncomingPayment{}, err
+	}
+	if err := e.recharge(ctx, tx, p, relieved, recharging{payment: v.ID, application: no, date: app.PostingDate}); err != nil {
 		return IncomingPayment{}, err
 	}
 	after, err := scanPayment(tx.QueryRow(ctx, paymentSelect+` WHERE p.id = $1`, v.ID))

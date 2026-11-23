@@ -1701,3 +1701,13 @@ of what was written off recovered by `createBadDebtRelief`
 the VAT 201 or the GST34 reports, under the conditions of the company's
 country. The rules, the return lines and every default are in ADR-0049
 As built batch 90.
+
+### As built batch 91: incoming payments of a relieved invoice (po:2026-11-21)
+
+Applying an incoming payment, applying its credit on account and undoing
+either now hold the payment's customers (advisory lock
+`receivables.bad_debt`, before the ledger's entries) and charge again the
+tax of bad debt reliefs of their invoices that the change recovers, or
+charge back less (`bad_debt_recharges` on the payment; ADR-0049 As built
+batch 91 has the rule). A payment of a customer without a relieved
+invoice posts nothing more.

@@ -74,14 +74,18 @@ const ReliefDocumentType = "SA"
 
 // WrittenOff is what a dispute case's write-off (ADR-0065 T86d) wrote off
 // of a customer invoice's open item: the case, the write-off's entry by
-// fiscal year and document number, the date it posted on, and the amount,
-// in the invoice's currency and, at the item's booked rate, the company's.
+// fiscal year and document number, the date it posted on, the amount,
+// in the invoice's currency and, at the item's booked rate, the
+// company's, and the lines of the write-off's entry that credit the
+// invoice's items to the customer, by number: open items beside the
+// invoice's (T86d), which a payment may apply with it (recharge.go).
 type WrittenOff struct {
 	DisputeCaseID    uuid.UUID
 	EntryYear        int16
 	EntryNumber      string
 	PostingDate      time.Time
 	Amount, AmountLC money.Minor
+	CreditLines      []int32
 }
 
 // WriteOffs reads what a write-off wrote off of a customer invoice's
@@ -181,8 +185,9 @@ func (e *Endpoints) ClaimBadDebtRelief(ctx context.Context, in ReliefInput) (Rel
 // company whose country recovers a bad debt's tax (reliefable), a posting
 // date not before the write-off, the write-off of this invoice
 // (writtenOff), the country's conditions (rule.check), not yet relieved
-// (relieved), the tax it bore (reliefShares) and the adjustment code and
-// account it is posted to (reliefLines).
+// (relieved), not paid beyond what its write-offs leave (unpaid), the tax
+// it bore (reliefShares) and the adjustment code and account it is posted
+// to (reliefLines).
 func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in ReliefInput) (claim, error) {
 	le, _, err := e.LegalEntities.Entity(ctx, v.LegalEntityID) // a stored invoice's legal entity exists
 	if err != nil {
@@ -190,6 +195,10 @@ func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in Re
 	}
 	c := claim{le: le, invoice: v, in: in}
 	if c.rule, err = reliefable(le, v); err != nil {
+		return claim{}, err
+	}
+	// Its payments are read under the customer's hold (RechargeLock).
+	if _, err := relievedOf(ctx, tx, le.ID, []uuid.UUID{v.CustomerID}); err != nil {
 		return claim{}, err
 	}
 	if c.date, err = e.reliefDate(ctx, le, in.PostingDate); err != nil {
@@ -202,6 +211,9 @@ func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in Re
 		return claim{}, err
 	}
 	if c.before, err = relieved(ctx, tx, v, in.WriteOffEntryID, c.written); err != nil {
+		return claim{}, err
+	}
+	if err := e.unpaid(ctx, tx, c); err != nil {
 		return claim{}, err
 	}
 	if err := e.reliefShares(ctx, &c); err != nil {
@@ -326,6 +338,36 @@ func relieved(ctx context.Context, tx pgx.Tx, v Invoice, entry uuid.UUID, w Writ
 			w.Amount.Plain(v.Exponent), v.DocumentNumber, t.written.Plain(v.Exponent), v.Gross.Plain(v.Exponent)))
 	}
 	return t, nil
+}
+
+// unpaid refuses relieving a write-off of an invoice the customer has
+// paid beyond what its write-offs, this one with the earlier ones', leave
+// owed (paidOf, recharge.go): what was paid is no bad debt, and a later
+// payment would charge the relief's tax straight back (422
+// receivables.bad_debt_paid naming write_off_journal_entry_id). The
+// customer's hold orders it with its payments (RechargeLock).
+func (e *Endpoints) unpaid(ctx context.Context, tx pgx.Tx, c claim) error {
+	s, err := e.reliefStateOf(ctx, tx, c.invoice)
+	if err != nil {
+		return err
+	}
+	for _, line := range c.written.CreditLines {
+		s.credits = append(s.credits, ledger.ItemRef{FiscalYear: c.written.EntryYear, EntryID: c.in.WriteOffEntryID, LineNo: line})
+	}
+	paid, foreign, err := paidOf(ctx, tx, c.invoice, s.credits)
+	switch {
+	case err != nil:
+		return err
+	case foreign:
+		return relievedOtherCurrency(c.invoice)
+	}
+	// What was written off is at most the gross (relieved): in range.
+	if owed := c.invoice.Gross - c.before.written - c.written.Amount; paid > owed {
+		return problem.Invalid("receivables.bad_debt_paid", "write_off_journal_entry_id", fmt.Sprintf("The customer has paid %s of customer "+
+			"invoice %s, more than the %s its write-offs leave owed: what was paid is no bad debt.", paid.Plain(c.invoice.Exponent),
+			c.invoice.DocumentNumber, owed.Plain(c.invoice.Exponent)))
+	}
+	return nil
 }
 
 func init() {
