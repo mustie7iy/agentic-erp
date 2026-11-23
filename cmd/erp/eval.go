@@ -332,8 +332,7 @@ var evalModels = func(alias string) eval.Models { return eval.Gateway{Alias: ali
 // company's date read it from: nil, the wall clock; the eval replays set
 // the replay cell's, so an agent's day is the day the cell posted its
 // documents on (the demand forecasting agent's weeks are counted from it,
-// and on a day of another week than the cell's fixed one its forecast of
-// the case's goods issue moved a week back).
+// else the case's goods issue falls in another week).
 var agentDay func() time.Time
 
 // evalMint mints the throwaway tenants' tokens: the local cell's
