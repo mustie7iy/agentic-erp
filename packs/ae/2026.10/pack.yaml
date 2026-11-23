@@ -2,7 +2,7 @@
 # and the account determination keys of their own that batch 92 split
 # off (ADR-0063 and ADR-0061 As built batch 92): 6800 Cash discounts
 # granted, an expense, as cash_discount_granted (SAP SKT), which a UAE
-# customer's cash discount is debited to, and 4810 Supplier rebates
+# customer's cash discount is debited to, and 4830 Supplier rebates
 # received, a revenue beside 4800's discounts received, as
 # supplier_rebate, which a volume discount's credit note (BTAE-03 VD)
 # naming no order is credited to. Only accounts.yaml and this file

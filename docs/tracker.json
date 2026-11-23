@@ -1305,6 +1305,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: an account determination key a company's configuration stops naming is not removed by ledger.Setup (it only upserts rows), so the company keeps posting to the old account although its document names none; with batch 92's fallbacks a company that drops cash_discount_granted or supplier_rebate keeps posting discounts or rebates there instead of falling back to payment_difference_expense or cash_discount",
+      "r": "internal/ledger/setup.go applyCompany (account determination upsert) · ledger.Accounts.Determination, determinationFallbacks · ADR-0063 and ADR-0061 As built batch 92",
+      "src": "review:batch92",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "A cash discount a UAE customer takes reduces the output tax (product owner 2026-11-21, as T36d's correction reduces input tax on the supplier side): a payment within the discount period of an invoice whose codes levy VAT corrects the output tax per tax item in proportion, with the item's jurisdiction (emirate), so the VAT 201 reports the reduced tax; today receivables writes what the customer took off as a payment difference without a tax code (ADR-0063 T75f, Not built). A Canadian cash discount keeps making no GST/HST adjustment (ETA s.161, Musto 2026-11-21)",
       "r": "ADR-0049 As built batch 88 · ADR-0063 T75f, As built cash discount granted (migration 000445) · TestUAECashDiscount · TestCanadianCashDiscount · walkthrough step 156",
@@ -2869,7 +2876,7 @@
        {
         "s": "D",
         "t": "A dedicated account determination key for supplier rebates, for the credit memos entered from volume discount credit notes (BTAE-03 VD) instead of cash_discount (SAP books vendor rebates through a key of its own, BO1, from memory and unverified); until then they stay on cash_discount (product owner 2026-11-22)",
-        "r": "ADR-0061 As built batch 89 · payables.rebateInput · built in batch 92: key supplier_rebate (a revenue; migrations 000451, 000452), payables.rebateKey, a company without it falling back to cash_discount (ledger.Accounts.Determination, determinationFallbacks); packs Canada 2026.13 and UAE 2026.10 bring 4810 Supplier rebates received · TestVolumeDiscountOnSupplierRebates · TestRebateInput · TestDeterminationFallbacks · TestDiscountAccountKeys · ADR-0061 As built batch 92 · ADR-0048 As built (the discount keys) · walkthrough step 144 (evatra_volume_discount: EWS-501 on 4810)",
+        "r": "ADR-0061 As built batch 89 · payables.rebateInput · built in batch 92: key supplier_rebate (a revenue; migrations 000451, 000452), payables.rebateKey, a company without it falling back to cash_discount (ledger.Accounts.Determination, determinationFallbacks); packs Canada 2026.13 and UAE 2026.10 bring 4830 Supplier rebates received · TestVolumeDiscountOnSupplierRebates · TestRebateInput · TestDeterminationFallbacks · TestDiscountAccountKeys · ADR-0061 As built batch 92 · ADR-0048 As built (the discount keys) · walkthrough step 144 (evatra_volume_discount: EWS-501 on 4830)",
         "src": "po:2026-11-22",
         "c": []
        },

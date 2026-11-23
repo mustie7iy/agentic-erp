@@ -14,7 +14,7 @@ accounts:
   - {number: "3100", name: Retained earnings, type: equity}
   - {number: "4000", name: Sales, type: revenue}
   - {number: "4800", name: Purchase discounts received, type: revenue}
-  - {number: "4810", name: Supplier rebates received, type: revenue}
+  - {number: "4830", name: Supplier rebates received, type: revenue}
   - {number: "4900", name: Foreign exchange gains, type: revenue}
   - {number: "5000", name: Purchases and cost of goods sold, type: expense}
   - {number: "5100", name: Purchase price differences, type: expense}
@@ -35,5 +35,5 @@ account_determination:
   price_difference: "5100"
   cash_discount: "4800"
   cash_discount_granted: "6800"
-  supplier_rebate: "4810"
+  supplier_rebate: "4830"
   down_payment: "1400"

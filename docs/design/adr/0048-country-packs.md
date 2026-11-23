@@ -440,7 +440,7 @@ settings cannot simply overwrite their document.
   2026.10** are 2026.12 and 2026.9 plus two accounts and the account
   determination keys batch 92 split off (ADR-0063 and ADR-0061 As built
   batch 92): `6800` "Cash discounts granted", an expense, as
-  `cash_discount_granted` (SAP SKT), and `4810` "Supplier rebates
+  `cash_discount_granted` (SAP SKT), and `4830` "Supplier rebates
   received", a revenue beside `4800`, as `supplier_rebate`. Only
   `accounts.yaml` and `pack.yaml` differ (`TestCanadaPack2026_13`,
   `TestUAEPack2026_10`, `discountKeysOnly`): tax, returns, numbering and

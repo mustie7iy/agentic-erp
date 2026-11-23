@@ -2040,7 +2040,7 @@ po:2026-11-22). Built:
   names both keys. To post rebates elsewhere a company names the key in
   its configuration (tier 3, posting-related) or applies the packs below.
 - **The packs' account** (decided by default): neither chart had a
-  rebate account, so Canada 2026.13 and UAE 2026.10 add `4810` "Supplier
+  rebate account, so Canada 2026.13 and UAE 2026.10 add `4830` "Supplier
   rebates received", a revenue beside `4800` "Purchase discounts
   received", as `supplier_rebate` (ADR-0048 As built, batch 92). SAP books
   vendor rebates through an account key of its own (BO1, from memory [M],
@@ -2057,4 +2057,4 @@ po:2026-11-22). Built:
   `TestRebateInput` (payables asks for `supplier_rebate`), ledger's
   `TestDeterminationFallbacks`, db's `TestDiscountAccountKeys`, config's
   `TestDiscountKeysValid`. Walkthrough step 144: EWS-501's item is on
-  4810, which UAE pack 2026.10 brought in step 41.
+  4830, which UAE pack 2026.10 brought in step 41.

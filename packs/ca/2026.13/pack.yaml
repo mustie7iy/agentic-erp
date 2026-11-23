@@ -1,7 +1,7 @@
 # Canada (ADR-0048, T62e). 2026.13 is 2026.12 plus two accounts and the
 # account determination keys of their own that batch 92 split off
 # (ADR-0063 and ADR-0061 As built batch 92): 6800 Cash discounts granted,
-# an expense, as cash_discount_granted (SAP SKT), and 4810 Supplier
+# an expense, as cash_discount_granted (SAP SKT), and 4830 Supplier
 # rebates received, a revenue beside 4800's discounts received, as
 # supplier_rebate. Only accounts.yaml and this file differ: tax.yaml and
 # returns.yaml, the tax codes, rates, tax settings and the GST/HST return,

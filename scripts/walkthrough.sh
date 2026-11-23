@@ -1902,7 +1902,7 @@ step_pack() {
   say "owner, 2026-11-19). 2026.12 is 2026.11 plus the ranges of count documents (step 141) and outbound deliveries"
   say "(step 142), under it too (the batch 83 review; product owner's rule of 2026-11-18). 2026.13 is 2026.12 plus two"
   say "accounts and their account determination keys: 6800 for the cash discounts customers take (cash_discount_granted,"
-  say "SAP SKT) and 4810 for supplier rebates (supplier_rebate), its tax content unchanged, under the same sign-off"
+  say "SAP SKT) and 4830 for supplier rebates (supplier_rebate), its tax content unchanged, under the same sign-off"
   say "(batch 92, by default): the latest signed-off version."
   say "The pilot's settings add only Maple's material range: material numbers are unique in the tenant, so no pack ships"
   say "one prefix for every company."
@@ -5070,7 +5070,7 @@ step_uae() {
   say "of returns orders, credit memo requests, lease contracts, expense reports, material documents and the WA and PR"
   say "journals (product owner, 2026-11-19); 2026.9 adds those of count documents and outbound deliveries. 2026.10 adds two"
   say "accounts and their account determination keys, 6800 for the cash discounts customers take (cash_discount_granted,"
-  say "SAP SKT, step 156) and 4810 for supplier rebates (supplier_rebate, step 144), under the same sign-off (batch 92, by"
+  say "SAP SKT, step 156) and 4830 for supplier rebates (supplier_rebate, step 144), under the same sign-off (batch 92, by"
   say "default)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
   expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true, 2026.9 9 true, 2026.10 9 true"
@@ -15473,7 +15473,7 @@ step_evatra_inbound() {
 # for a volume discount (BTAE-03 VD) naming no invoice and no order; the
 # fetch enters it as a credit memo without an order or a reference, not
 # held: the supplier the one holding the seller's TRN, its line 1 EA of
-# AED 250.00 on the account of supplier rebates (4810, supplier_rebate,
+# AED 250.00 on the account of supplier rebates (4830, supplier_rebate,
 # which UAE pack 2026.10 brings; batch 92: not 4800, the cash discounts
 # received, cash_discount),
 # its 12.50 VAT as stated, on hold for Alex to choose its input code
@@ -15486,7 +15486,7 @@ evatra_volume_discount() {
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   recon=$(field '.items[] | select(.number == "2000") | .id')
-  rebates=$(field '.items[] | select(.number == "4810") | .id')
+  rebates=$(field '.items[] | select(.number == "4830") | .id')
   say "Emirates Workspace Supplies grants $AE a volume discount on the year's office supplies, bought without purchase"
   say "orders. Alex sets it up as a supplier of $AE with its TRN (illustrative); Carla approves it:"
   api 201 '"supplier \(.name), \(.country_code), \(.status)"' createBusinessPartner \
@@ -15501,7 +15501,7 @@ evatra_volume_discount() {
   printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/evatra/EVA-77002.receiver"
   as alex
   say "Alex fetches. A credit memo needs no order (the product owner, 2026-11-21): the volume discount is entered without"
-  say "one, not held, the supplier the one of $AE holding the seller's TRN, its line on the account of supplier rebates (4810,"
+  say "one, not held, the supplier the one of $AE holding the seller's TRN, its line on the account of supplier rebates (4830,"
   say "the account determination's supplier_rebate, from the pack; not 4800, the cash discounts payments take), its VAT as"
   say "stated:"
   api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"

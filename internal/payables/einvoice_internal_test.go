@@ -205,8 +205,8 @@ func TestSellerSupplier(t *testing.T) {
 
 // TestRebateInput: a volume discount naming no order is a credit memo of
 // the seller's supplier, each line an item of 1 EA on the account of
-// supplier rebates (supplier_rebate, batch 92), its amounts as stated (negative ones as their
-// magnitude); a company without that account is
+// supplier rebates (supplier_rebate, batch 92), its amounts as stated
+// (negative ones as their magnitude); a company without that account is
 // payables.capture_needs_account; a document capture cannot read is
 // payables.unreadable_document; the ledger or the partner context failing
 // is its error (ADR-0061 As built batch 89).

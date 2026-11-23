@@ -16,14 +16,14 @@ import (
 // the supplier rebates received, a revenue beside 4800's discounts
 // received, and the cash discounts granted to customers, an expense.
 var discountAccounts = []config.Account{
-	{Number: "4810", Name: "Supplier rebates received", Type: config.Revenue},
+	{Number: "4830", Name: "Supplier rebates received", Type: config.Revenue},
 	{Number: "6800", Name: "Cash discounts granted", Type: config.Expense},
 }
 
 // withDiscountKeys is the account determination ad with the two keys of
 // batch 92 on discountAccounts.
 func withDiscountKeys(ad config.AccountDetermination) config.AccountDetermination {
-	ad.SupplierRebate, ad.CashDiscountGranted = "4810", "6800"
+	ad.SupplierRebate, ad.CashDiscountGranted = "4830", "6800"
 	return ad
 }
 
@@ -87,8 +87,8 @@ func adoptsDiscountKeys(t *testing.T, lib *Library, prev, next *Pack, currencyCo
 	if hasNote(notes, "packs[1000]", "no tax specialist has signed this pack off") {
 		t.Errorf("notes: got %v, want none saying the pack is not signed off", notes)
 	}
-	if ad := first.Company("1000").AccountDetermination; ad.CashDiscountGranted != "6800" || ad.SupplierRebate != "4810" {
-		t.Errorf("first adoption: got cash_discount_granted %q and supplier_rebate %q, want 6800 and 4810", ad.CashDiscountGranted, ad.SupplierRebate)
+	if ad := first.Company("1000").AccountDetermination; ad.CashDiscountGranted != "6800" || ad.SupplierRebate != "4830" {
+		t.Errorf("first adoption: got cash_discount_granted %q and supplier_rebate %q, want 6800 and 4830", ad.CashDiscountGranted, ad.SupplierRebate)
 	}
 	onPrev, _, err := Apply(companyIn(t, prev.Manifest.Country, currencyCode), prev, lib, o)
 	if err != nil {
