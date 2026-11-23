@@ -7167,11 +7167,12 @@ type Invoker interface {
 	// (`goods_receipt`: its own `message_id`, the `purchase_order_id` it was sent and the quantity
 	// received of each item it names, by `item_no`, in the item's unit) is posted as a goods receipt (101)
 	// of those items (procurement's `postGoodsReceipt`, dated the company's date, its reference the
-	// message id), naming the material document, or refused: of an order the connector was not sent
-	// (`integration.wms_unknown_order`), naming an item it was not sent (`integration.wms_item_not_sent`),
-	// or that procurement refuses (`procurement.receipt_exceeds_order`, `procurement.order_not_released`,
-	// `procurement.unit_mismatch` and the others). Filters: connector, direction, status, the outbound
-	// delivery and the purchase order.
+	// message id when it is at most 40 characters, else none), naming the material document, or refused:
+	// of an order the connector was not sent (`integration.wms_unknown_order`), naming an item it was not
+	// sent (`integration.wms_item_not_sent`), naming an item made a non-stock item since it was sent
+	// (`integration.wms_not_stock`), or that procurement refuses (`procurement.over_delivery`,
+	// `procurement.order_not_released`, `procurement.unit_mismatch` and the others). Filters: connector,
+	// direction, status, the outbound delivery and the purchase order.
 	//
 	// GET /v1/wms-messages
 	ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (ListWMSMessagesRes, error)
@@ -102186,11 +102187,12 @@ func (c *Client) sendListVarianceComments(ctx context.Context, params ListVarian
 // (`goods_receipt`: its own `message_id`, the `purchase_order_id` it was sent and the quantity
 // received of each item it names, by `item_no`, in the item's unit) is posted as a goods receipt (101)
 // of those items (procurement's `postGoodsReceipt`, dated the company's date, its reference the
-// message id), naming the material document, or refused: of an order the connector was not sent
-// (`integration.wms_unknown_order`), naming an item it was not sent (`integration.wms_item_not_sent`),
-// or that procurement refuses (`procurement.receipt_exceeds_order`, `procurement.order_not_released`,
-// `procurement.unit_mismatch` and the others). Filters: connector, direction, status, the outbound
-// delivery and the purchase order.
+// message id when it is at most 40 characters, else none), naming the material document, or refused:
+// of an order the connector was not sent (`integration.wms_unknown_order`), naming an item it was not
+// sent (`integration.wms_item_not_sent`), naming an item made a non-stock item since it was sent
+// (`integration.wms_not_stock`), or that procurement refuses (`procurement.over_delivery`,
+// `procurement.order_not_released`, `procurement.unit_mismatch` and the others). Filters: connector,
+// direction, status, the outbound delivery and the purchase order.
 //
 // GET /v1/wms-messages
 func (c *Client) ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (ListWMSMessagesRes, error) {

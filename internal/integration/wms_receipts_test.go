@@ -103,7 +103,8 @@ func (e wmsEnv) received(t *testing.T, order uuid.UUID, item int) (qty string, m
 // item, nor the stock item of another plant); the goods receipt the WMS
 // reports is posted once as a 101 of the items it names, naming its
 // material document, and acknowledged; reported again, it is
-// acknowledged again, not posted twice.
+// acknowledged again, not posted twice. A message id longer than a
+// goods receipt's reference posts with none.
 func TestWMSReceiptRoundTrip(t *testing.T) {
 	e := setupWMS(t)
 	po := e.receiptOrder(t, "4500000001")
@@ -172,8 +173,22 @@ func TestWMSReceiptRoundTrip(t *testing.T) {
 	if qty, n := e.received(t, po, 1); qty != "60" || n != 1 || e.wms.Acknowledged("GR-1") != 1 {
 		t.Errorf("after it was listed again: got %s in %d movements, %d acknowledgements; want 60 in 1, acknowledged", qty, n, e.wms.Acknowledged("GR-1"))
 	}
-	if n := len(e.orderMessages(t, po, "")); n != 2 {
-		t.Errorf("the order's messages: got %d, want 2", n)
+	long := strings.Repeat("L", 41) // longer than a goods receipt's reference
+	e.wms.Report(long, goodsReceipt(long, po, "1 10 EA"))
+	if n, err := x.PollOnce(context.Background()); err != nil || n != 1 {
+		t.Fatalf("poll of a long id: got %d, %v; want 1 recorded", n, err)
+	}
+	if in := e.inbound(t, long); in["status"] != "posted" {
+		t.Fatalf("the goods receipt of a long id: got %v (%v), want posted", in["status"], in["problem_code"])
+	}
+	var refs int
+	pgtest.Scan(t, `SELECT count(DISTINCT m.id) FROM procurement.goods_movement m JOIN procurement.goods_movement_item i ON i.tenant_id = m.tenant_id
+		AND i.goods_movement_id = m.id WHERE m.tenant_id = $1 AND i.purchase_order_id = $2 AND m.reference IS NULL`, []any{e.Tenant.ID, po}, &refs)
+	if refs != 1 {
+		t.Errorf("goods receipts of the order without a reference: got %d, want 1 (the long id's)", refs)
+	}
+	if n := len(e.orderMessages(t, po, "")); n != 3 {
+		t.Errorf("the order's messages: got %d, want 3", n)
 	}
 }
 
@@ -251,6 +266,8 @@ func TestWMSReceiptOutcomes(t *testing.T) {
 	po := e.receiptOrder(t, "4500000010")
 	e.queuedOrder(t, po, "4500000010")
 	other := e.receiptOrder(t, "4500000011")
+	changed := e.receiptOrder(t, "4500000012") // its item 1 made a non-stock item once sent
+	e.queuedOrder(t, changed, "4500000012")
 	x := e.exchange(t, time.Now)
 	if _, err := x.SendOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -266,12 +283,12 @@ func TestWMSReceiptOutcomes(t *testing.T) {
 		"items not a list":        {[]byte(`{"message_id": "GR-list", "type": "goods_receipt", "items": "all"}`), "integration.wms_message_unreadable"},
 		"more than ordered":       {goodsReceipt("GR-more", po, "1 200 EA"), "procurement.over_delivery"},
 		"another unit":            {goodsReceipt("GR-unit", po, "1 1 BOX"), "procurement.unit_mismatch"},
-		"no longer a stock order": {goodsReceipt("GR-stock", po, "1 1 EA"), "integration.wms_not_stock"},
+		"no longer a stock order": {goodsReceipt("GR-stock", changed, "1 1 EA"), "integration.wms_not_stock"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			mid := strings.Split(strings.Split(string(c.body), `"message_id": "`)[1], `"`)[0]
 			if name == "no longer a stock order" {
-				e.notStock(t, po)
+				e.notStock(t, changed)
 			}
 			e.wms.Report(mid, c.body)
 			if n, err := x.PollOnce(context.Background()); err != nil || n != 1 {

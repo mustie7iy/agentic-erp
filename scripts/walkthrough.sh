@@ -16677,8 +16677,6 @@ step_wms() {
   passed
 }
 
-# wms_acknowledged ID waits for the exchange to acknowledge the warehouse
-# system's confirmation ID to the stand-in, which polls every 10 s.
 # wms_receipt is step_wms's S2q2 part: a released purchase order's receipt
 # sent to the warehouse system of connector $1 and its goods receipt
 # reported back.
@@ -16745,6 +16743,8 @@ wms_receipt() {
   expect "the order's goods receipts after both" "$(field '.items | length')" 1
 }
 
+# wms_acknowledged ID waits for the exchange to acknowledge the warehouse
+# system's confirmation ID to the stand-in, which polls every 10 s.
 wms_acknowledged() {
   local i
   for i in $(seq 1 240); do

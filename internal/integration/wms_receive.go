@@ -33,6 +33,8 @@ import (
 // delivery's company. A refusal (shipping's, or the confirmation not
 // readable, of another type or of a delivery the connector was not sent)
 // is recorded as refused with its problem, nothing of the posting kept.
+// A goods receipt (S2q2) is posted the same way, for an order sent to
+// that connector, through procurement's published API (wms_receipts.go).
 // After that commit the WMS is told it is recorded, and acknowledged_at
 // is set; a confirmation recorded already is acknowledged again.
 
