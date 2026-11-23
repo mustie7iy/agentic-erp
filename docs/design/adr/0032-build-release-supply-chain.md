@@ -396,10 +396,11 @@ exceptions.
 - **Fourth narrowed to PgBouncer (2026-11-23, batch 89).** The
   cc-debian13:nonroot tag now names index `sha256:532c7a94...`, which
   carries libc6 2.41-12+deb13u5; erp-analytics's runtime base is pinned to
-  it and the libc6 entries are gone from `.grype.yaml`. The pinned grype
-  finds no fixable high in it on linux/amd64 or linux/arm64, and no high
-  or critical finding of any fix state that `sha256:cb87acc5...` did not
-  have. libc-bin's entries stay until a PgBouncer build carries the fix.
+  it. The pinned grype finds no fixable high in it on linux/amd64 or
+  linux/arm64, and no high or critical finding of any fix state that
+  `sha256:cb87acc5...` did not have. The `.grype.yaml` entries stay, for
+  the PgBouncer pin alone: it carries both libc6 and libc-bin
+  2.41-12+deb13u4, so they go when a PgBouncer build carries the fix.
 - **Fifth exception (2026-11-23, batch 89).** CVE-2026-112314,
   CVE-2026-112320, CVE-2026-112321, CVE-2026-112322, CVE-2026-112323 and
   CVE-2026-119079 (High) in MIT Kerberos 1.21.3-5+deb13u1 of the PgBouncer

@@ -1307,8 +1307,8 @@ reported "No vulnerabilities found" on it (ADR-0032 As built). On
 `sha256:532c7a94f9e96ba9db75eb9388f4227751131c7cb0a411d1a8521af4096135de`,
 which carries libc6 2.41-12+deb13u5 (CVE-2026-19499 and CVE-2026-5435
 fixed); the same grype found no fixable high in it on linux/amd64 or
-linux/arm64, and `.grype.yaml` again accepts nothing for this base
-(ADR-0032 As built).
+linux/arm64, so this base again needs none of `.grype.yaml`'s entries
+(the glibc ones stay for PgBouncer; ADR-0032 As built).
 
 **The builder stays Debian 12** (`golang:1.26.11-bookworm`). The binary
 needs `libc.so.6`, `libm.so.6`, `libgcc_s.so.1` and `libstdc++.so.6`,
