@@ -44,6 +44,9 @@ type WMSExchange struct {
 	// Deliveries posts a goods issue a WMS reports (shipping, wired by the
 	// composition root).
 	Deliveries WMSDeliveries
+	// Orders posts a goods receipt a WMS reports (procurement, wired by
+	// the composition root; S2q2).
+	Orders WMSOrders
 	// RefuseStandIn refuses the stand-in's adapter at use (production): a
 	// connector stored before, or changed since, that the API would refuse.
 	RefuseStandIn bool
@@ -80,7 +83,8 @@ const wmsFinishBound = 10 * time.Second
 // wmsClaim is a message claimed for sending.
 type wmsClaim struct {
 	tenant, id, connector uuid.UUID
-	messageID, number     string
+	messageID, kind       string
+	number                string // the document's: the delivery's or the purchase order's
 	body                  []byte
 	attempt               int
 	version               int32 // the row version the claim wrote
@@ -157,9 +161,9 @@ func (w *WMSExchange) sendOne(ctx context.Context, tenant uuid.UUID) (bool, erro
 func (w *WMSExchange) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*wmsClaim, bool, error) {
 	now := clock.Now(w.Now)
 	c := &wmsClaim{tenant: tenant}
-	err := tx.QueryRow(ctx, `SELECT id, connector_id, message_id, document_number, body::text, attempts FROM integration.wms_message
+	err := tx.QueryRow(ctx, `SELECT id, connector_id, message_id, kind, document_number, body::text, attempts FROM integration.wms_message
 		WHERE status = 'pending' AND next_attempt_at <= $1 ORDER BY next_attempt_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`, now).
-		Scan(&c.id, &c.connector, &c.messageID, &c.number, &c.body, &c.attempt)
+		Scan(&c.id, &c.connector, &c.messageID, &c.kind, &c.number, &c.body, &c.attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -269,8 +273,8 @@ func (w *WMSExchange) finish(ctx context.Context, tx pgx.Tx, c *wmsClaim, sendEr
 			version = version + 1 WHERE id = $1`, c.id, clock.Now(w.Now)); err != nil {
 			return fmt.Errorf("integration: mark wms message %s sent: %w", c.messageID, err)
 		}
-		return audit.Record(ctx, "integration.wms_message.send", "integration.wms_message", c.id, map[string]any{"connector_id": c.connector,
-			"connector_name": c.conn.Name, "outbound_delivery_number": c.number, "attempts": c.attempt})
+		return audit.Record(ctx, "integration.wms_message.send", "integration.wms_message", c.id, c.details(map[string]any{"connector_name": c.conn.Name,
+			"attempts": c.attempt}))
 	})
 	return err == nil, err
 }
@@ -295,8 +299,8 @@ func (w *WMSExchange) retry(ctx context.Context, tx pgx.Tx, c *wmsClaim, cause e
 		c.id, c.attempt, next, p.Code); err != nil {
 		return fmt.Errorf("integration: queue wms message %s for its next attempt: %w", c.messageID, err)
 	}
-	return audit.Record(ctx, "integration.wms_message.retry", "integration.wms_message", c.id, map[string]any{"connector_id": c.connector,
-		"outbound_delivery_number": c.number, "attempts": c.attempt, "next_attempt_at": next, "code": p.Code})
+	return audit.Record(ctx, "integration.wms_message.retry", "integration.wms_message", c.id, c.details(map[string]any{"attempts": c.attempt,
+		"next_attempt_at": next, "code": p.Code}))
 }
 
 // failWMS ends the message: failed, with the problem's code.
@@ -305,6 +309,18 @@ func failWMS(ctx context.Context, tx pgx.Tx, c *wmsClaim, p *problem.Problem) er
 		version = version + 1 WHERE id = $1`, c.id, c.attempt, p.Code); err != nil {
 		return fmt.Errorf("integration: fail wms message %s: %w", c.messageID, err)
 	}
-	return audit.Record(ctx, "integration.wms_message.fail", "integration.wms_message", c.id, map[string]any{"connector_id": c.connector,
-		"outbound_delivery_number": c.number, "attempts": c.attempt, "code": p.Code})
+	return audit.Record(ctx, "integration.wms_message.fail", "integration.wms_message", c.id, c.details(map[string]any{"attempts": c.attempt,
+		"code": p.Code}))
+}
+
+// details are an audit record's details of the claimed message: its
+// connector, its kind and its document's number, under the name of the
+// document's kind, with more.
+func (c *wmsClaim) details(more map[string]any) map[string]any {
+	key := "outbound_delivery_number"
+	if c.kind == WMSInboundReceipt {
+		key = "purchase_order_number"
+	}
+	more["connector_id"], more["kind"], more[key] = c.connector, c.kind, c.number
+	return more
 }

@@ -8917,7 +8917,23 @@ func (UnimplementedHandler) ListVarianceComments(ctx context.Context, params Lis
 // (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`,
 // `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse
 // system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not
-// posted twice. Filters: connector, direction, status and the outbound delivery.
+// posted twice. Receipts (S2q2): each purchase order released (`releasePurchaseOrder`, or its release
+// approval) is queued once, when an active `wms` connector manages the plant of a stock item of it, as
+// a message giving that warehouse system the receipts expected there to put away (`inbound_receipt`:
+// message type `inbound_receipt`, schema version 1, its company and plant by code, the purchase order
+// by id and number with its supplier's number, and each of the order's stock items at that plant still
+// to be received: its number, material number, storage location code, open quantity, unit and delivery
+// date), sent as a delivery is; an order whose stock items are at several plants is sent for the plant
+// of its first such item alone, the others received by hand. Its goods receipt reported back
+// (`goods_receipt`: its own `message_id`, the `purchase_order_id` it was sent and the quantity
+// received of each item it names, by `item_no`, in the item's unit) is posted as a goods receipt (101)
+// of those items (procurement's `postGoodsReceipt`, dated the company's date, its reference the
+// message id when it is at most 40 characters, else none), naming the material document, or refused:
+// of an order the connector was not sent (`integration.wms_unknown_order`), naming an item it was not
+// sent (`integration.wms_item_not_sent`), naming an item made a non-stock item since it was sent
+// (`integration.wms_not_stock`), or that procurement refuses (`procurement.over_delivery`,
+// `procurement.order_not_released`, `procurement.unit_mismatch` and the others). Filters: connector,
+// direction, status, the outbound delivery and the purchase order.
 //
 // GET /v1/wms-messages
 func (UnimplementedHandler) ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (r ListWMSMessagesRes, _ error) {

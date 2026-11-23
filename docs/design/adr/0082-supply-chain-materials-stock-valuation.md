@@ -1881,9 +1881,14 @@ specialist):
   `.refuse`); no event is published (nothing inside the platform reacts
   to one, and none is offered as a webhook until a consumer asks).
 - **Locks** (ADR-0008): a connector's create, change or enable takes its
-  row (`FOR UPDATE`, but on create) and then the tenant's wms advisory
-  lock; the queue's insert takes the connector's key share (its foreign
-  key) and nothing else; a send's claim and its record take the message's
+  row (`FOR NO KEY UPDATE`, but on create; S2q2 lowered it from `FOR
+  UPDATE`, so a change of its settings or status does not hold up the
+  queue's insert, which takes the connector's key share; its `UPDATE`
+  names `name` only on a rename, since under the touch trigger an
+  `UPDATE` naming a column of a unique key takes the key lock whatever the
+  value, so only a rename holds the queue up) and then the
+  tenant's wms advisory lock; the queue's insert takes the connector's
+  key share (its foreign key) and nothing else; a send's claim and its record take the message's
   row alone (`FOR UPDATE`, `SKIP LOCKED` to claim); a confirmation's
   record takes the advisory lock of its connector and message id, then
   shipping's locks in shipping's order (the delivery, the valuations and
@@ -1898,7 +1903,83 @@ specialist):
   NOT VALID) and 000450_validate_wms_connector_kind; schema tests
   `db/wms_message_test.go`. Walkthrough step 160, `step_wms`.
 
-**Split, Later:** S2q2, inbound receipts (released purchase and stock
-transport orders' items at a WMS plant) and their goods receipt reported
-back, is its own leaf on this connector, table, port and exchange; the
+**Split:** S2q2, inbound receipts and their goods receipt reported back,
+is its own leaf on this connector, table, port and exchange (below); the
 plan's §S2q lists what is Later.
+
+### S2q2 (2026-11-22)
+
+Inbound receipts to the warehouse system and their goods receipt
+reported back (plan-supply-chain.md §S2q2), on S2q1's connector,
+`integration.wms_message` (its kinds widened by 000453, validated by
+000454), queue, exchange, port and stand-in. No new ADR and no import
+between contexts: integration declares `integration.WMSOrders`, which
+the composition root wires to procurement's published order read
+(`procurement.Orders.Order`) and goods receipt (`PostReceipt`), with
+materials' numbers and tenancy's org unit codes (`app.WMSOrders`).
+Decided by default, from SAP's decentralised WMS (the inbound delivery
+distributed to the warehouse and its goods receipt confirmed back, from
+memory, for the specialist):
+
+- **Which event sends receipts.** A purchase order's release
+  (PurchaseOrderReleased, by `releasePurchaseOrder` or its release
+  approval, and a migration run's loaded order): the moment the ERP
+  expects the goods, as SAP's inbound delivery is created against the
+  released order. The bus consumer `wms-outbound` now reads procurement's
+  stream beside shipping's. It reads the order as it is when the event is
+  read: no longer released (closed, cancelled) or not found, nothing is
+  sent. Its stock items (material, plant and storage location) with a
+  quantity still to receive (ordered less received; the over-delivery
+  tolerance aside) are what the WMS can put away; non-stock items are
+  never sent. Intercompany stock transport orders are purchase orders and
+  are sent alike (their receipt waits for the issue, as procurement
+  refuses it before). Stock transport orders within a company
+  (`procurement.stock_transport_order`, S2h) are not sent (Later).
+- **One message per order.** `wms_message_once` (000449) keeps a
+  document's outbound message once per kind, so the order is sent once,
+  to the WMS managing the plant of its first stock item (by item number)
+  at a plant an active WMS manages, with its stock items at that plant;
+  items at other plants are not sent (received by a person; the queue's
+  audit record names their plants). A message per plant needs that
+  index's contract (06 §6.4: no drop while a running version reads it),
+  so it is Later. The pilot keeps a company's stock at one plant.
+- **The message**, type `inbound_receipt` schema version 1, built from
+  the order as read: the message id, the company and plant codes, the
+  order's id and number, the supplier's number (from the event, never
+  its name, PO 2026-11-05), and each item's number, material number,
+  storage location code, open quantity, unit and delivery date. Sent,
+  retried and failed exactly as a delivery (S2q above).
+- **The goods receipt reported back**, type `goods_receipt`: its own
+  `message_id`, the `purchase_order_id` it was sent, and each item it
+  names by `item_no` with the quantity received in the item's unit; an
+  item it does not name receives nothing. Recorded once per connector and
+  message id under S2q1's advisory lock, in the transaction that posts
+  it: a goods receipt (101) of those items through procurement as the
+  exchange's system principal acting for the order's company, dated the
+  company's date (`config.EntityDay`), its reference the message id when
+  it fits the 40 characters a reference holds, in a savepoint. Refused,
+  nothing kept: an order the connector was not sent
+  (`integration.wms_unknown_order`), an item it was not sent
+  (`integration.wms_item_not_sent`), an item made a non-stock item since
+  (`integration.wms_not_stock`), procurement's refusals
+  (`procurement.over_delivery`, `procurement.unit_mismatch`,
+  `procurement.order_not_released`, ...), and S2q1's unreadable ones. A
+  message whose type is neither `goods_issue` nor `goods_receipt` is
+  recorded as a `goods_issue`, refused. The inbound row names the order
+  (`document_id`, `document_number`) and the material document.
+- **Locks.** The queue's insert as for a delivery (the connector's key
+  share); a goods receipt's record takes the advisory lock of its
+  connector and message id, then procurement's locks in procurement's
+  order (the order items `FOR UPDATE` in item order, then the ledger's
+  and inventory's), as a person's goods receipt takes them without the
+  advisory lock: no two writers take two of these in opposite orders.
+- **Read.** `GET /v1/wms-messages` names a receipt message's order
+  (`purchase_order_id`, `purchase_order_number`) and filters by it;
+  `outbound_delivery_id` is a delivery's alone.
+- **Audit** as S2q1, the document's number under its kind's name
+  (`outbound_delivery_number` or `purchase_order_number`) and the kind.
+
+**Later for receipts:** a message per plant; stock transport orders
+within a company; changes and cancellations of a sent order; a goods
+receipt's own document date, delivery note, batches and serial numbers
+from the WMS; returns (122) reported by the WMS.

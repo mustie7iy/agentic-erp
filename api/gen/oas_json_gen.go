@@ -316037,6 +316037,18 @@ func (s *WMSMessage) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PurchaseOrderID.Set {
+			e.FieldStart("purchase_order_id")
+			s.PurchaseOrderID.Encode(e)
+		}
+	}
+	{
+		if s.PurchaseOrderNumber.Set {
+			e.FieldStart("purchase_order_number")
+			s.PurchaseOrderNumber.Encode(e)
+		}
+	}
+	{
 		if s.PlantCode.Set {
 			e.FieldStart("plant_code")
 			s.PlantCode.Encode(e)
@@ -316114,7 +316126,7 @@ func (s *WMSMessage) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfWMSMessage = [24]string{
+var jsonFieldsNameOfWMSMessage = [26]string{
 	0:  "id",
 	1:  "connector_id",
 	2:  "connector_name",
@@ -316125,20 +316137,22 @@ var jsonFieldsNameOfWMSMessage = [24]string{
 	7:  "company_code",
 	8:  "outbound_delivery_id",
 	9:  "outbound_delivery_number",
-	10: "plant_code",
-	11: "body",
-	12: "status",
-	13: "attempts",
-	14: "next_attempt_at",
-	15: "last_error_code",
-	16: "sent_at",
-	17: "problem_code",
-	18: "problem_detail",
-	19: "material_document_id",
-	20: "material_document_number",
-	21: "acknowledged_at",
-	22: "created_at",
-	23: "updated_at",
+	10: "purchase_order_id",
+	11: "purchase_order_number",
+	12: "plant_code",
+	13: "body",
+	14: "status",
+	15: "attempts",
+	16: "next_attempt_at",
+	17: "last_error_code",
+	18: "sent_at",
+	19: "problem_code",
+	20: "problem_detail",
+	21: "material_document_id",
+	22: "material_document_number",
+	23: "acknowledged_at",
+	24: "created_at",
+	25: "updated_at",
 }
 
 // Decode decodes WMSMessage from json.
@@ -316146,7 +316160,7 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode WMSMessage to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -316262,6 +316276,26 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"outbound_delivery_number\"")
 			}
+		case "purchase_order_id":
+			if err := func() error {
+				s.PurchaseOrderID.Reset()
+				if err := s.PurchaseOrderID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"purchase_order_id\"")
+			}
+		case "purchase_order_number":
+			if err := func() error {
+				s.PurchaseOrderNumber.Reset()
+				if err := s.PurchaseOrderNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"purchase_order_number\"")
+			}
 		case "plant_code":
 			if err := func() error {
 				s.PlantCode.Reset()
@@ -316273,7 +316307,7 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plant_code\"")
 			}
 		case "body":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.RawAppend(nil)
 				s.Body = jx.Raw(v)
@@ -316285,7 +316319,7 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"body\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -316297,7 +316331,7 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "attempts":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.Attempts = int32(v)
@@ -316389,7 +316423,7 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"acknowledged_at\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -316401,7 +316435,7 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "updated_at":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -316421,10 +316455,11 @@ func (s *WMSMessage) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b00111111,
-		0b00111000,
-		0b11000000,
+		0b11100000,
+		0b00000000,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

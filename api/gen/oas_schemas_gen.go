@@ -129299,8 +129299,9 @@ type VerifyAuditChainUnprocessableEntity Problem
 
 func (*VerifyAuditChainUnprocessableEntity) verifyAuditChainRes() {}
 
-// A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, S2q1):
-// an outbound delivery sent to pick, or a goods issue it reported back.
+// A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q): an
+// outbound delivery sent to pick, or a goods issue it reported back (S2q1); a purchase order's
+// receipts sent to put away, or a goods receipt it reported back (S2q2).
 // Ref: #/components/schemas/WMSMessage
 type WMSMessage struct {
 	// Message id.
@@ -129315,18 +129316,27 @@ type WMSMessage struct {
 	// The message's id at the warehouse system: an outbound message's own id, which the warehouse system
 	// deduplicates on; an inbound one's, the warehouse system's.
 	MessageID string `json:"message_id"`
-	// `outbound_delivery` (outbound) or `goods_issue` (inbound). Open enumeration: clients must accept and
+	// `outbound_delivery` or `inbound_receipt` (outbound), `goods_issue` or `goods_receipt` (inbound; one
+	// that cannot be read as either is recorded `goods_issue`). Open enumeration: clients must accept and
 	// preserve values not listed here; values may be added within /v1.
 	Kind string `json:"kind"`
-	// The delivery's company; absent on an inbound message refused before its delivery was known.
+	// The delivery's or purchase order's company; absent on an inbound message refused before its document
+	// was known.
 	LegalEntityID OptUUID `json:"legal_entity_id"`
 	// The company's code.
 	CompanyCode OptString `json:"company_code"`
-	// The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.
+	// `outbound_delivery` and `goods_issue`: the outbound delivery (`getOutboundDelivery`); absent as
+	// `legal_entity_id` is.
 	OutboundDeliveryID OptUUID `json:"outbound_delivery_id"`
 	// The outbound delivery's number.
 	OutboundDeliveryNumber OptString `json:"outbound_delivery_number"`
-	// Outbound: the delivery's plant, which the connector manages.
+	// `inbound_receipt` and `goods_receipt` (S2q2): the purchase order (`getPurchaseOrder`); absent as
+	// `legal_entity_id` is.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// The purchase order's number.
+	PurchaseOrderNumber OptString `json:"purchase_order_number"`
+	// Outbound: the delivery's plant, or the plant of the purchase order's items it sends, which the
+	// connector manages.
 	PlantCode OptString `json:"plant_code"`
 	// A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound;
 	// a body that is not a JSON object is kept as `{"text": ...}`, at most 1000 characters of it).
@@ -129347,7 +129357,7 @@ type WMSMessage struct {
 	ProblemCode OptString `json:"problem_code"`
 	// Refused: the problem's detail.
 	ProblemDetail OptString `json:"problem_detail"`
-	// Posted: the goods issue's material document (`getMaterialDocument`).
+	// Posted: the goods issue's or goods receipt's material document (`getMaterialDocument`).
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// Posted: the material document's number.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
@@ -129405,6 +129415,16 @@ func (s *WMSMessage) GetOutboundDeliveryID() OptUUID {
 // GetOutboundDeliveryNumber returns the value of OutboundDeliveryNumber.
 func (s *WMSMessage) GetOutboundDeliveryNumber() OptString {
 	return s.OutboundDeliveryNumber
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *WMSMessage) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *WMSMessage) GetPurchaseOrderNumber() OptString {
+	return s.PurchaseOrderNumber
 }
 
 // GetPlantCode returns the value of PlantCode.
@@ -129525,6 +129545,16 @@ func (s *WMSMessage) SetOutboundDeliveryID(val OptUUID) {
 // SetOutboundDeliveryNumber sets the value of OutboundDeliveryNumber.
 func (s *WMSMessage) SetOutboundDeliveryNumber(val OptString) {
 	s.OutboundDeliveryNumber = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *WMSMessage) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *WMSMessage) SetPurchaseOrderNumber(val OptString) {
+	s.PurchaseOrderNumber = val
 }
 
 // SetPlantCode sets the value of PlantCode.

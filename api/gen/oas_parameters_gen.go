@@ -122526,6 +122526,8 @@ type ListWMSMessagesParams struct {
 	Status OptString `json:",omitempty,omitzero"`
 	// Only the messages of this outbound delivery.
 	OutboundDeliveryID OptUUID `json:",omitempty,omitzero"`
+	// Only the messages of this purchase order (S2q2).
+	PurchaseOrderID OptUUID `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -122568,6 +122570,15 @@ func unpackListWMSMessagesParams(packed middleware.Parameters) (params ListWMSMe
 		}
 		if v, ok := packed[key]; ok {
 			params.OutboundDeliveryID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "purchase_order_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.PurchaseOrderID = v.(OptUUID)
 		}
 	}
 	{
@@ -122753,6 +122764,47 @@ func decodeListWMSMessagesParams(args [0]string, argsEscaped bool, r *http.Reque
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "outbound_delivery_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: purchase_order_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "purchase_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotPurchaseOrderIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotPurchaseOrderIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.PurchaseOrderID.SetTo(paramsDotPurchaseOrderIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "purchase_order_id",
 			In:   "query",
 			Err:  err,
 		}
