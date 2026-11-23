@@ -82,8 +82,8 @@ func (e *Endpoints) reliefGroups(ctx context.Context, c *charge) ([]reliefGroup,
 }
 
 // chargeLines are the charge's lines: the tax shared out over the
-// reliefs' groups by their tax (money.ShareOut), the local tax by their
-// local tax, each credited (a charge back less debited) under its code
+// reliefs' groups by their tax (money.ShareOut), the local tax over those
+// with a share by their local tax, each credited (a charge back less debited) under its code
 // and emirate to its account, a share that rounds to nothing left out;
 // then the total debited to the payment differences account.
 func chargeLines(c charge, groups []reliefGroup, expensed uuid.UUID, text *string) []ledger.PostingLine {
@@ -91,7 +91,13 @@ func chargeLines(c charge, groups []reliefGroup, expensed uuid.UUID, text *strin
 	for i, g := range groups {
 		taxes[i], locals[i] = g.tax, g.lc
 	}
-	tc, lc := money.ShareOut(c.tax, taxes), money.ShareOut(c.lc, locals)
+	tc := money.ShareOut(c.tax, taxes)
+	for i := range groups {
+		if tc[i] == 0 {
+			locals[i] = 0 // no line takes it
+		}
+	}
+	lc := money.ShareOut(c.lc, locals)
 	var lines []ledger.PostingLine
 	var posted money.Minor
 	for i, g := range groups {

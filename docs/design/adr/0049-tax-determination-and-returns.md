@@ -2116,8 +2116,11 @@ owner's digest and the tax specialist:
 - **When.** In the transaction that applies an incoming payment
   (`createIncomingPayment`), applies a credit on account
   (`applyIncomingPaymentOnAccount`) or undoes either (T75i's resets): no
-  step of its own, so a payment never leaves the relieved tax
-  unrecovered, and an undoing charges back less. Posted on the payment's
+  step of its own, so an incoming payment never leaves the relieved tax
+  unrecovered, and an undoing charges back less. A ledger clearing
+  (`createClearing`) of a relieved invoice's items against a credit
+  posted straight to the customer is no incoming payment and charges
+  nothing (Later, below). Posted on the payment's
   posting date, or the reversal's, which is its tax date.
 - **How much.** What is charged again is a function of the invoice's
   state, and each change posts the difference to what was charged so
@@ -2127,11 +2130,17 @@ owner's digest and the tax specialist:
   write-offs and cash discounts, with what they applied of its reliefs'
   write-off credits (negative: the write-off entry's credit to the
   customer, line 2n of its n-th accepted item, read through
-  `receivables.WriteOffs`); *recovered* is paid beyond the gross less
+  `receivables.WriteOffs`), less an underpayment an application wrote
+  off within the company's tolerance (its `difference`), in the share of
+  what it applied of the invoice in all it applied, rounded half away
+  from zero (100.00 paid of a 105.00 invoice, 5.00 written off, recovers
+  100.00: 4.76 of a 5.00 relief); *recovered* is paid beyond the gross less
   what the reliefs wrote off, from nothing to that; the tax charged is
-  the reliefs' tax times recovered over written off, in the invoice's
-  currency and the company's, each rounded once half away from zero, so
-  a full recovery charges exactly what the reliefs recovered (a third of
+  the reliefs' tax times recovered over written off, rounded once half
+  away from zero, and in the company's currency the reliefs' local tax
+  times that tax over theirs, so a full recovery charges exactly what the
+  reliefs recovered in both currencies and no change of the tax leaves
+  local tax behind (`TestBadDebtRechargeInAnotherCurrency`) (a third of
   1,575.00 paid charges 25.00 of a 75.00 relief, the rest 50.00). A
   payment of only what the write-offs left owed, applying the invoice's
   item with the write-off's credit or leaving a residual, recovers
@@ -2160,12 +2169,17 @@ owner's digest and the tax specialist:
   translated payment is later.
 - **Locks.** A relief and every application or undoing of a customer
   take the advisory lock `receivables.bad_debt` of the company and
-  customer (`database.LockTenant`; several customers by id): a payment
-  before its ledger call, a relief after its invoice's row lock. What is
-  paid and whether a relief may be claimed are read under it, so a
-  relief and a payment of one customer never miss each other, even when
-  the invoice has no relief yet (no write skew). Nothing waits in the
-  other order: the payment takes no invoice row lock.
+  customer (`database.LockTenant`; several customers by id) and then the
+  rows of its relieved invoices `FOR UPDATE`, by id, before any lock of
+  their own: a payment before its ledger call, a relief before its
+  invoice's row (read once without a lock for its customer, which never
+  changes). What is paid and whether a relief may be claimed are read
+  under the hold, so a relief and a payment of one customer never miss
+  each other, even when the invoice has no relief yet (no write skew).
+  A charge again's insert takes the invoice `FOR KEY SHARE` (its foreign
+  key) after the ledger's locks; the row is held from before them, so
+  neither a relief nor an invoice's reversal (row, then entries) waits
+  on it in a cycle.
 - **Recorded and audited.** Each charge is a row of
   `receivables.bad_debt_recharge` (the invoice, the payment and its
   application, whether an undoing posted it, the recovered amount, the
@@ -2173,7 +2187,10 @@ owner's digest and the tax specialist:
   `bad_debt_recharges`, audited as `receivables.bad_debt_recharge.post`;
   the ledger publishes its entry. People only, as the payment operations
   are (`x-agent: false`).
-- **Later.** Counting a payment in another currency; a bad debt
+- **Later.** A ledger clearing (`createClearing`) of a relieved
+  invoice's items or write-off credits, which charges nothing again and
+  which paid does not count (tracker leaf, src review:batch91); counting
+  a payment in another currency; a bad debt
   recovered by a receipt not applied to the invoice (on account, never
   applied); the write-off's own credit item left open beside a recovered
   invoice (ADR-0065's "clearing the credit against the invoice", Later).

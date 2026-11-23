@@ -2772,9 +2772,16 @@
      },
      {
       "s": "D",
-      "t": "Bad debt relief reversed when the customer pays later: what the customer pays of an invoice whose output tax a bad debt relief recovered, beyond what its write-offs left owed, charges that share of the tax again, by an adjustment the return reports, in the transaction that applies the payment (and an undoing of it charges back less), under the reliefs' codes and emirates against payment_difference_expense (UAE Art. 64, Canada ETA s.231, as the coordinator's research of 21 Nov states it; where the return reports it is this step's default, for the specialist); a relief of an invoice paid beyond what its write-offs leave refused (422 receivables.bad_debt_paid)",
+      "t": "Bad debt relief reversed when the customer pays later: what the customer pays of an invoice whose output tax a bad debt relief recovered, beyond what its write-offs left owed, charges that share of the tax again, by an adjustment the return reports, in the transaction that applies the payment (and an undoing of it charges back less), under the reliefs' codes and emirates against payment_difference_expense (the research of 21 Nov names Art. 64 and ETA s.231 for the relief only; that a payment charges it again is this leaf's, and when, how much and where the return reports it are this step's defaults, for the specialist); a relief of an invoice paid beyond what its write-offs leave refused (422 receivables.bad_debt_paid)",
       "r": "ADR-0049 As built batch 91 · ADR-0063 As built batch 91 · db/migrations/000448 (receivables.bad_debt_recharge) · IncomingPayment.bad_debt_recharges · receivables.relieved_invoice_other_currency · TestUAEBadDebtRecharge · TestCanadianBadDebtRecharge · TestBadDebtRechargeOfWhatWasOwed · walkthrough step_bad_debt_relief (step 157)",
       "src": "po:2026-11-21",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A ledger clearing of a relieved invoice charges its bad debt relief again or is refused: createClearing (POST /v1/clearings) can clear a relieved invoice's item or its write-off's credit against a credit posted straight to the customer's account, which charges none of the relieved tax again and which receivables' paid does not count (money and tax correctness)",
+      "r": "ADR-0049 As built batch 91, Later · internal/receivables/recharge.go paidOf",
+      "src": "review:batch91",
       "c": []
      }
     ]

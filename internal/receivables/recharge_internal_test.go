@@ -21,7 +21,13 @@ func TestChargeLinesWithoutLocalTax(t *testing.T) {
 	if s, want := fmt.Sprint(got), "[-3/0 -1/0 4/0]"; s != want {
 		t.Errorf("the lines: got %s, want %s", s, want)
 	}
-	if lines[2].AccountID != expensed || lines[0].TaxJurisdiction != &dubai || lines[1].TaxJurisdiction != nil {
-		t.Errorf("the accounts and emirates: got %+v", lines)
+	if lines[2].AccountID != expensed {
+		t.Errorf("the last line's account: got %s, want %s", lines[2].AccountID, expensed)
+	}
+	if lines[0].TaxJurisdiction != &dubai {
+		t.Errorf("the first line's emirate: got %v, want %s", lines[0].TaxJurisdiction, dubai)
+	}
+	if lines[1].TaxJurisdiction != nil {
+		t.Errorf("the second line's emirate: got %v, want none", *lines[1].TaxJurisdiction)
 	}
 }

@@ -158,9 +158,9 @@ func (e *Endpoints) ClaimBadDebtRelief(ctx context.Context, in ReliefInput) (Rel
 	if err != nil {
 		return Relief{}, err
 	}
-	v, err := get(ctx, tx, in.InvoiceID, true)
+	v, err := e.heldInvoice(ctx, tx, in.InvoiceID)
 	if err != nil {
-		return Relief{}, problem.Reference(err, "customer_invoice_id", "customer invoice", "a posted customer invoice of a company the caller may act in")
+		return Relief{}, err
 	}
 	c, err := e.reliefClaim(ctx, tx, v, in)
 	if err != nil {
@@ -197,10 +197,6 @@ func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in Re
 	if c.rule, err = reliefable(le, v); err != nil {
 		return claim{}, err
 	}
-	// Its payments are read under the customer's hold (RechargeLock).
-	if _, err := relievedOf(ctx, tx, le.ID, []uuid.UUID{v.CustomerID}); err != nil {
-		return claim{}, err
-	}
 	if c.date, err = e.reliefDate(ctx, le, in.PostingDate); err != nil {
 		return claim{}, err
 	}
@@ -220,6 +216,25 @@ func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in Re
 		return claim{}, err
 	}
 	return c, e.reliefAccounts(ctx, &c)
+}
+
+// heldInvoice is the invoice a relief claims, read under its customer's
+// hold (RechargeLock), then its row lock (ADR-0008): the order a payment
+// takes them, the hold before the invoice's row, so the two never wait on
+// each other in a cycle. A posted invoice's company and customer never
+// change, so the first read needs no lock.
+func (e *Endpoints) heldInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Invoice, error) {
+	v, err := get(ctx, tx, id, false)
+	if err == nil {
+		_, err = relievedOf(ctx, tx, v.LegalEntityID, []uuid.UUID{v.CustomerID})
+	}
+	if err == nil {
+		v, err = get(ctx, tx, id, true)
+	}
+	if err != nil {
+		return Invoice{}, problem.Reference(err, "customer_invoice_id", "customer invoice", "a posted customer invoice of a company the caller may act in")
+	}
+	return v, nil
 }
 
 // reliefable is the rule of the invoice's company's country: only a posted

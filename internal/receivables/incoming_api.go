@@ -158,14 +158,13 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 }
 
 // rechargesToAPI are the bad debt reliefs the payment charged again, as
-// the API gives them, each in the payment's currency, which is its
-// invoice's (relievedOtherCurrency), and the company's.
+// the API gives them, each in its invoice's currency and the company's.
 func (v IncomingPayment) rechargesToAPI() []gen.IncomingPaymentBadDebtRecharge {
 	out := make([]gen.IncomingPaymentBadDebtRecharge, len(v.Recharges))
 	for i, r := range v.Recharges {
 		day, _ := time.Parse(time.DateOnly, r.PostingDate) // a date column, as json_build_object writes it
 		out[i] = gen.IncomingPaymentBadDebtRecharge{ID: r.ID, CustomerInvoiceID: r.InvoiceID, CustomerInvoiceNumber: r.InvoiceNumber, ApplicationNo: r.ApplicationNo,
-			Reset: r.Reset, RecoveredAmount: apitypes.Money(r.Recovered, v.Currency, v.Exponent), TaxAmount: apitypes.Money(r.Tax, v.Currency, v.Exponent),
+			Reset: r.Reset, RecoveredAmount: apitypes.Money(r.Recovered, r.Currency, r.Exponent), TaxAmount: apitypes.Money(r.Tax, r.Currency, r.Exponent),
 			LocalTaxAmount: apitypes.Money(r.TaxLC, r.LocalCurrency, r.LocalExponent), PostingDate: day, JournalEntryID: r.EntryID,
 			JournalEntryYear: int32(r.EntryYear), JournalEntryNumber: r.EntryNumber, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy}
 	}

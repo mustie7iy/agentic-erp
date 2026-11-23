@@ -57,7 +57,7 @@ const RechargeKey = WrittenOffKey
 // paymentSelect reads it: the invoice, the application (0: the payment's
 // own) whose applying or undoing (Reset) moved what was recovered, that
 // amount as it then stood, the tax charged again (negative: charged back
-// less), in the payment's currency, which is the invoice's
+// less), in the invoice's currency, which is the payment's
 // (relievedOtherCurrency), and the company's, and its entry.
 type PaymentRecharge struct {
 	ID            uuid.UUID   `json:"id"`
@@ -65,6 +65,8 @@ type PaymentRecharge struct {
 	InvoiceNumber string      `json:"customer_invoice_number"`
 	ApplicationNo int32       `json:"application_no"`
 	Reset         bool        `json:"reset"`
+	Currency      string      `json:"currency"`
+	Exponent      int         `json:"exponent"`
 	LocalCurrency string      `json:"local_currency"`
 	LocalExponent int         `json:"local_exponent"`
 	Recovered     money.Minor `json:"recovered_amount"`
@@ -81,7 +83,8 @@ type PaymentRecharge struct {
 // rechargeSelect is paymentSelect's column of a payment's charges again,
 // in the order they were posted.
 const rechargeSelect = `coalesce((SELECT json_agg(json_build_object('id', b.id, 'customer_invoice_id', b.customer_invoice_id,
-			'customer_invoice_number', v.document_number, 'application_no', b.application_no, 'reset', b.reset, 'local_currency', b.local_currency,
+			'customer_invoice_number', v.document_number, 'application_no', b.application_no, 'reset', b.reset, 'currency', b.currency,
+			'exponent', (SELECT x.exponent FROM ref.currency x WHERE x.code = b.currency), 'local_currency', b.local_currency,
 			'local_exponent', (SELECT x.exponent FROM ref.currency x WHERE x.code = b.local_currency), 'recovered_amount', b.recovered_amount,
 			'tax_amount', b.tax_amount, 'tax_amount_lc', b.tax_amount_lc, 'posting_date', b.posting_date, 'journal_entry_year', b.journal_entry_year,
 			'journal_entry_id', b.journal_entry_id, 'journal_entry_number', b.journal_entry_number, 'created_at', b.created_at, 'created_by', b.created_by)
@@ -98,10 +101,14 @@ const rechargeSelect = `coalesce((SELECT json_agg(json_build_object('id', b.id, 
 const RechargeLock = "receivables.bad_debt"
 
 // relievedOf holds the customers of the company (RechargeLock, by id, so
-// two holders never wait on each other in a cycle) and reads their
-// invoices a bad debt relief relieved, by id. An application or undoing
-// holds them before the ledger's entries, and a relief after its
-// invoice's row lock: neither waits for the other's later locks.
+// two holders never wait on each other in a cycle) and locks their
+// invoices a bad debt relief relieved, by id, returning them. Every
+// caller takes them before any invoice row and any ledger entry lock of
+// its own: an application or undoing before the ledger's entries, a
+// relief before its invoice's row. A charge again inserts rows naming the
+// invoice, whose foreign key takes it FOR KEY SHARE after the ledger's
+// locks; holding the row from before them, as an invoice's reversal
+// takes it (row, then entries), keeps that wait out of a cycle.
 func relievedOf(ctx context.Context, tx pgx.Tx, company uuid.UUID, customers []uuid.UUID) ([]uuid.UUID, error) {
 	held := slices.Clone(customers)
 	slices.SortFunc(held, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
@@ -112,7 +119,7 @@ func relievedOf(ctx context.Context, tx pgx.Tx, company uuid.UUID, customers []u
 	}
 	rows, _ := tx.Query(ctx, `SELECT v.id FROM receivables.customer_invoice v
 		WHERE v.id IN (SELECT r.customer_invoice_id FROM receivables.bad_debt_relief r WHERE r.legal_entity_id = $1) AND v.customer_id = ANY($2)
-		ORDER BY v.id`, company, customers)
+		ORDER BY v.id FOR UPDATE OF v`, company, customers)
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("receivables: the relieved invoices of %d customers: %w", len(customers), err)
@@ -182,15 +189,19 @@ func (e *Endpoints) reliefStateOf(ctx context.Context, tx pgx.Tx, v Invoice) (re
 // than the item's, which paidOf cannot count in the invoice's currency.
 // The residual items are followed from application to application: a
 // residual item is a line of the clearing entry of the application that
-// left it.
+// left it. An underpayment an application wrote off within the company's
+// tolerance (its difference, T75f) was not paid: its share of what the
+// application applied of the invoice, in proportion to all it applied,
+// rounded half away from zero, is not counted (an overpayment kept as
+// revenue adds nothing to what the items were paid).
 func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef) (money.Minor, bool, error) {
 	years, entries, lines := ledger.ItemColumns(credits)
 	var paid money.Minor
 	var foreign bool
 	err := tx.QueryRow(ctx, `WITH RECURSIVE applied AS (
-			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no,
-				t.amount - coalesce(t.residual_amount, 0) - coalesce(t.write_off_amount, 0) - coalesce(t.cash_discount, 0) AS paid,
-				coalesce(a.clearing_entry_year, p.clearing_entry_year) AS cy, coalesce(a.clearing_entry_id, p.clearing_entry_id) AS ce
+			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, `+itemPaid+` AS paid,
+				coalesce(a.clearing_entry_year, p.clearing_entry_year) AS cy, coalesce(a.clearing_entry_id, p.clearing_entry_id) AS ce,
+				coalesce(a.difference, p.difference) AS difference
 			FROM receivables.incoming_payment_item t
 			JOIN receivables.incoming_payment p ON p.tenant_id = t.tenant_id AND p.id = t.incoming_payment_id
 			LEFT JOIN receivables.incoming_payment_application a ON a.tenant_id = t.tenant_id AND a.incoming_payment_id = t.incoming_payment_id
@@ -198,22 +209,36 @@ func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef)
 			WHERE (t.journal_entry_id = $1 AND t.fiscal_year = $2)
 				OR (t.journal_entry_id, t.line_no, t.fiscal_year) IN (SELECT * FROM unnest($4::uuid[], $5::int[], $3::smallint[]))
 			UNION ALL
-			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no,
-				t.amount - coalesce(t.residual_amount, 0) - coalesce(t.write_off_amount, 0) - coalesce(t.cash_discount, 0),
-				coalesce(a.clearing_entry_year, p.clearing_entry_year), coalesce(a.clearing_entry_id, p.clearing_entry_id)
+			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, `+itemPaid+`,
+				coalesce(a.clearing_entry_year, p.clearing_entry_year), coalesce(a.clearing_entry_id, p.clearing_entry_id),
+				coalesce(a.difference, p.difference)
 			FROM applied l
 			JOIN receivables.incoming_payment_item t ON t.journal_entry_id = l.ce AND t.line_no = l.residual_line_no AND t.fiscal_year = l.cy
 			JOIN receivables.incoming_payment p ON p.tenant_id = t.tenant_id AND p.id = t.incoming_payment_id
 			LEFT JOIN receivables.incoming_payment_application a ON a.tenant_id = t.tenant_id AND a.incoming_payment_id = t.incoming_payment_id
-				AND a.application_no = t.application_no)
-		SELECT coalesce(sum(l.paid), 0)::bigint, coalesce(bool_or(l.item_currency IS NOT NULL), false) FROM applied l
-		WHERE NOT EXISTS (SELECT FROM receivables.incoming_payment_reset r WHERE r.incoming_payment_id = l.incoming_payment_id
-			AND coalesce(r.application_no, 0) = l.application_no)`, *v.EntryID, *v.EntryYear, years, entries, lines).Scan(&paid, &foreign)
+				AND a.application_no = t.application_no),
+		per AS (
+			SELECT l.incoming_payment_id, l.application_no, sum(l.paid) AS paid, max(l.difference) AS difference,
+				bool_or(l.item_currency IS NOT NULL) AS translated,
+				(SELECT sum(`+itemPaid+`) FROM receivables.incoming_payment_item t
+				 WHERE t.incoming_payment_id = l.incoming_payment_id AND t.application_no = l.application_no) AS whole
+			FROM applied l
+			WHERE NOT EXISTS (SELECT FROM receivables.incoming_payment_reset r WHERE r.incoming_payment_id = l.incoming_payment_id
+				AND coalesce(r.application_no, 0) = l.application_no)
+			GROUP BY l.incoming_payment_id, l.application_no)
+		SELECT coalesce(sum(paid - CASE WHEN difference > 0 AND whole > 0 THEN round(difference::numeric * paid / whole) ELSE 0 END), 0)::bigint,
+			coalesce(bool_or(translated), false)
+		FROM per`, *v.EntryID, *v.EntryYear, years, entries, lines).Scan(&paid, &foreign)
 	if err != nil {
 		return 0, false, fmt.Errorf("receivables: what was paid of customer invoice %s: %w", v.DocumentNumber, err)
 	}
 	return paid, foreign, nil
 }
+
+// itemPaid is what an incoming payment item t paid of its item: its
+// amount less the residual it left, what its reason wrote off and its
+// cash discount.
+const itemPaid = `t.amount - coalesce(t.residual_amount, 0) - coalesce(t.write_off_amount, 0) - coalesce(t.cash_discount, 0)`
 
 // relievedOtherCurrency refuses an invoice with a bad debt relief whose
 // item a payment applied in another currency: what is paid of it is
@@ -241,7 +266,7 @@ func partOf(total, part, whole money.Minor) money.Minor {
 // between what the invoice's recovery charges and what was charged so far
 // (see above); nothing when there is none.
 func (e *Endpoints) rechargeInvoice(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, r recharging) error {
-	v, err := get(ctx, tx, id, false) // its customer held by relievedOf
+	v, err := get(ctx, tx, id, false) // locked by relievedOf
 	if err != nil {
 		return fmt.Errorf("receivables: relieved customer invoice %s: %w", id, err)
 	}
@@ -257,9 +282,12 @@ func (e *Endpoints) rechargeInvoice(ctx context.Context, tx pgx.Tx, p reqctx.Pri
 		return relievedOtherCurrency(v)
 	}
 	back := recovered(v, s, paid)
-	// Each part is at most the reliefs' tax: in range.
-	tax, lc := partOf(s.tax, back, s.written)-s.charged, partOf(s.lc, back, s.written)-s.chargedLC
-	if tax == 0 {
+	// The local tax follows the tax charged, so a full recovery is exact in
+	// both currencies and no change of the tax leaves none of the local
+	// tax; each part is at most the reliefs' tax: in range.
+	cumulative := partOf(s.tax, back, s.written)
+	tax, lc := cumulative-s.charged, partOf(s.lc, cumulative, s.tax)-s.chargedLC
+	if tax == 0 { // the local tax is the earlier charges' too
 		return nil
 	}
 	c := charge{invoice: v, state: s, recovered: back, tax: tax, lc: lc, recharging: r}

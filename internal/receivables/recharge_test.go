@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Bad debt relief charged again (ADR-0049 As built batch 91): what the
@@ -135,12 +136,7 @@ func TestBadDebtRechargeOfWhatWasOwed(t *testing.T) {
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.25, 'test', $2),
 			($1, gen_random_uuid(), 'average', 'USD', 'AED', '2026-01-01', 1, 'test', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
-	dollars := func(amount int64, day string) ledger.Entry {
-		return e.committed(t, func(ctx context.Context) (ledger.Entry, error) {
-			return postings().PostBank(ctx, ledger.BankPosting{LegalEntityID: e.le, DocumentType: "SA", PostingDate: date(t, day), Currency: "USD",
-				BankAccountID: e.bank, Amount: money.Minor(amount), CounterAccountID: e.incoming, SourceContext: "payments", SourceDocumentID: uuid.New()})
-		})
-	}
+	dollars := func(amount int64, day string) ledger.Entry { return e.receiptIn(t, amount, "USD", day) }
 	foreign := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
 	foreignOff := e.writtenOff(t, foreign, "35.00", "2026-03-15")
 	e.Must(201, "POST", "/v1/incoming-payments", e.paying(dollars(1000, "2026-04-01").ID, "2026-04-01",
@@ -225,4 +221,108 @@ func TestBadDebtRechargeDatabaseFailures(t *testing.T) {
 			gen.ResetIncomingPaymentApplicationParams{ID: id, ApplicationNo: 1, IfMatch: `"2"`})
 		return err
 	})
+}
+
+// receiptIn posts a statement line of the company's house bank in the
+// currency, as receipt does in the company's.
+func (e discountEnv) receiptIn(t *testing.T, amount int64, currency, day string) ledger.Entry {
+	t.Helper()
+	return e.committed(t, func(ctx context.Context) (ledger.Entry, error) {
+		return postings().PostBank(ctx, ledger.BankPosting{LegalEntityID: e.le, DocumentType: "SA", PostingDate: date(t, day), Currency: currency,
+			BankAccountID: e.bank, Amount: money.Minor(amount), CounterAccountID: e.incoming, SourceContext: "payments", SourceDocumentID: uuid.New()})
+	})
+}
+
+// TestBadDebtRechargeOfAnUnderpayment: of an invoice of AED 105.00 wholly
+// written off and its 5.00 relieved, the customer pays 100.00, the 5.00
+// short written off within the company's tolerance: what it paid is
+// 100.00, so 4.76 of the VAT is charged again (5.00 x 100.00 / 105.00),
+// not the whole.
+func TestBadDebtRechargeOfAnUnderpayment(t *testing.T) {
+	e := reliefEnv(t)
+	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+	e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, e.writtenOff(t, invoice, "105.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-10"), "")
+	got, _ := e.Must(201, "POST", "/v1/incoming-payments", e.paying(e.receipt(t, 10000, "2026-09-15").ID, "2026-09-15",
+		itemRef(invoice["journal_entry_id"], 1)), "")
+	if a := amount(t, got, "difference"); a != "5.00 AED" {
+		t.Fatalf("the payment's difference: got %s, want 5.00 AED", a)
+	}
+	if r, want := recharges(t, got), "0 false 100.00 AED 4.76 AED 4.76 AED"; r != want {
+		t.Errorf("the charge: got %s, want %s", r, want)
+	}
+}
+
+// TestBadDebtRechargeInAnotherCurrency: an invoice in US dollars of the
+// UAE company, USD 105.00 with 5.00 of VAT at 3.6725, wholly written off
+// and relieved, is paid 104.90 and then the 0.10 left: the first payment
+// charges the whole 5.00 again (5.00 x 104.90 / 105.00 rounds to it) with
+// all of the local VAT the relief recovered, and the second nothing, so no
+// dirham of it is left unrecovered.
+func TestBadDebtRechargeInAnotherCurrency(t *testing.T) {
+	e := reliefEnv(t)
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'AED', '2026-01-01', 3.6725, 'test', $2),
+			($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.9, 'test', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	usd := e
+	usd.currency = "USD"
+	invoice := usd.invoiced(t, "2026-01-10", usd.item("100.00", "S5", "AE-DU"))
+	r, _ := e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, usd.writtenOff(t, invoice, "105.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-10"), "")
+	first, _ := e.Must(201, "POST", "/v1/incoming-payments", usd.paying(e.receiptIn(t, 10490, "USD", "2026-09-15").ID, "2026-09-15",
+		usd.leaving(itemRef(invoice["journal_entry_id"], 1), "0.10")), "")
+	if got, want := recharges(t, first), "0 false 104.90 USD 5.00 USD "+amount(t, r, "local_tax_amount"); got != want {
+		t.Errorf("the first payment's charge: got %s, want %s", got, want)
+	}
+	residual := itemRef(first["journal_entry_id"], int(items(t, first)[0]["residual"].(map[string]any)["line_no"].(float64)))
+	second, _ := e.Must(201, "POST", "/v1/incoming-payments", usd.paying(e.receiptIn(t, 10, "USD", "2026-09-16").ID, "2026-09-16", residual), "")
+	if got := recharges(t, second); got != "" {
+		t.Errorf("the second payment's charge: got %s, want none", got)
+	}
+}
+
+// TestBadDebtReliefRacesAPayment: a relief and a payment of one customer
+// run one after the other, in either order, without a deadlock. A payment
+// of the whole invoice holding the customer makes a relief claimed
+// meanwhile wait and then refuse it (422 receivables.bad_debt_paid), the
+// invoice having no relief yet; a relief of a second write-off holding the
+// customer and its invoice's row makes a payment of the invoice wait and
+// then charge both reliefs' tax again (1.67 + 1.66).
+func TestBadDebtReliefRacesAPayment(t *testing.T) {
+	e := reliefEnv(t)
+	h := endpoints(t)
+	pay := func(receipt ledger.Entry, invoice map[string]any) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			_, err := h.CreateIncomingPayment(ctx, &gen.IncomingPaymentCreate{LegalEntityID: e.le, CustomerID: e.customer, ReceiptJournalEntryID: receipt.ID,
+				PostingDate: gen.NewOptDate(date(t, "2026-09-15")), Items: []gen.IncomingPaymentItemRef{{FiscalYear: 2026,
+					JournalEntryID: uuid.MustParse(invoice["journal_entry_id"].(string)), LineNo: 1}}}, gen.CreateIncomingPaymentParams{})
+			return err
+		}
+	}
+	claim := func(invoice map[string]any, writeOff string) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			_, err := h.CreateBadDebtRelief(ctx, &gen.BadDebtReliefCreate{CustomerInvoiceID: uuid.MustParse(invoice["id"].(string)),
+				WriteOffJournalEntryID: uuid.MustParse(writeOff), TaxCode: "AS", CustomerNotifiedOn: gen.NewOptDate(date(t, "2026-08-01")),
+				PostingDate: gen.NewOptDate(date(t, "2026-09-15"))}, gen.CreateBadDebtReliefParams{})
+			return err
+		}
+	}
+	paid := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+	off := e.writtenOff(t, paid, "35.00", "2026-03-15")
+	first, second := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, pay(e.receipt(t, 10500, "2026-09-15"), paid), claim(paid, off))
+	if p := problem.From(second); first != nil || p.Code != "receivables.bad_debt_paid" {
+		t.Errorf("a payment, then a relief: got %v and %v, want the payment applied and the relief refused as receivables.bad_debt_paid", first, second)
+	}
+	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+	e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, e.writtenOff(t, invoice, "35.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-10"), "")
+	again := e.writtenOff(t, invoice, "35.00", "2026-03-16")
+	receipt := e.receipt(t, 10500, "2026-09-15")
+	first, second = apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, claim(invoice, again), pay(receipt, invoice))
+	if first != nil || second != nil {
+		t.Fatalf("a relief, then a payment: got %v and %v, want both done", first, second)
+	}
+	var charged string
+	pgtest.Scan(t, `SELECT sum(tax_amount)::text FROM receivables.bad_debt_recharge WHERE tenant_id = $1 AND customer_invoice_id = $2`,
+		[]any{e.Tenant.ID, invoice["id"]}, &charged)
+	if charged != "333" {
+		t.Errorf("the tax charged again: got %s, want 333 (both reliefs')", charged)
+	}
 }
