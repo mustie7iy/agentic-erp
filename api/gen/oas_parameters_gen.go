@@ -23534,6 +23534,8 @@ func decodeEndSodRuleParams(args [1]string, argsEscaped bool, r *http.Request) (
 
 // EnterIntercompanySupplierInvoiceParams is parameters of enterIntercompanySupplierInvoice operation.
 type EnterIntercompanySupplierInvoiceParams struct {
+	// Resource identifier (UUIDv7).
+	ID uuid.UUID
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
@@ -23545,6 +23547,13 @@ type EnterIntercompanySupplierInvoiceParams struct {
 func unpackEnterIntercompanySupplierInvoiceParams(packed middleware.Parameters) (params EnterIntercompanySupplierInvoiceParams) {
 	{
 		key := middleware.ParameterKey{
+			Name: "id",
+			In:   "path",
+		}
+		params.ID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
 			Name: "Idempotency-Key",
 			In:   "header",
 		}
@@ -23553,8 +23562,53 @@ func unpackEnterIntercompanySupplierInvoiceParams(packed middleware.Parameters) 
 	return params
 }
 
-func decodeEnterIntercompanySupplierInvoiceParams(args [0]string, argsEscaped bool, r *http.Request) (params EnterIntercompanySupplierInvoiceParams, _ error) {
+func decodeEnterIntercompanySupplierInvoiceParams(args [1]string, argsEscaped bool, r *http.Request) (params EnterIntercompanySupplierInvoiceParams, _ error) {
 	h := uri.NewHeaderDecoder(r.Header)
+	// Decode path: id.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "id",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.ID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "id",
+			In:   "path",
+			Err:  err,
+		}
+	}
 	// Decode header: Idempotency-Key.
 	if err := func() error {
 		cfg := uri.HeaderParameterDecodingConfig{

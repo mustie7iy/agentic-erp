@@ -813,7 +813,7 @@ customs (S2s).
     nets, its codes proposed from the billed rates, parked or held for a
     person to match against the order's receipts and post (clearing
     GR/IR, the matching of S1e); once per billing.
-    `POST /v1/supplier-invoices:fromIntercompanyBilling`; walkthrough
+    `POST /v1/intercompany-billings/{id}/supplier-invoices`; walkthrough
     step 155.
   - **Later:** partial and repeated goods issues, a delivery between the
     companies (SAP's NLCC delivery), the 643's reversal (644; 409

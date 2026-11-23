@@ -72,8 +72,8 @@ type IntercompanyBillingItem struct {
 
 // EnterIntercompanyBilling enters an intercompany billing as the receiving
 // company's supplier invoice, in the request's transaction (S2i3): a
-// billing billed to a company the caller may act in (422
-// request.reference_not_found naming intercompany_billing_id otherwise)
+// billing billed to a company the caller may act in (404 otherwise, so
+// ids cannot be probed)
 // and entered once (409 payables.intercompany_billing_entered, and the
 // key supplier_invoice_billing_once for two racing). It is read as a
 // captured document is (billingExtraction): the order's supplier and
@@ -114,17 +114,16 @@ func (e *Endpoints) EnterIntercompanyBilling(ctx context.Context, id uuid.UUID) 
 // one billed to a company the caller may not act in, or entered already as
 // an invoice that is not rejected, cancelled or reversed.
 func (e *Endpoints) enteredBilling(ctx context.Context, tx pgx.Tx, id uuid.UUID) (IntercompanyBilling, error) {
-	const field, missing = "intercompany_billing_id", "no intercompany billing to a company you may act in"
-	b, err := e.Billings.IntercompanyBilling(ctx, id)
+	b, err := e.Billings.IntercompanyBilling(ctx, id) // one the caller may read, else 404
 	if err != nil {
-		return IntercompanyBilling{}, problem.Reference(err, field, "intercompany billing", missing)
+		return IntercompanyBilling{}, err
 	}
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return IntercompanyBilling{}, fmt.Errorf("payables: company access for intercompany billing %s: %w", b.DocumentNumber, err)
 	}
 	if !access.Allows(b.ReceivingID) {
-		return IntercompanyBilling{}, problem.ReferenceNotFound(field, "intercompany billing", missing)
+		return IntercompanyBilling{}, problem.NotFoundOf("intercompany billing")
 	}
 	var number string
 	switch err := tx.QueryRow(ctx, `SELECT document_number FROM payables.supplier_invoice

@@ -1333,15 +1333,16 @@ MIRO against the stock transport order's receipt, from memory, for the
 specialist) and S2i's and S2i2's decisions above.
 
 - **Entered from the billing**:
-  `POST /v1/supplier-invoices:fromIntercompanyBilling`
+  `POST /v1/intercompany-billings/{id}/supplier-invoices`
   (`enterIntercompanySupplierInvoice`, `payables.invoice.capture`,
-  human-only as the goods issue and the billing are) names the billing;
-  payables reads it through its port `IntercompanyBillings`, which the
-  composition root wires to sales' `GetIntercompany` (payables does not
-  import sales). A billing billed to a company the caller may not act in,
-  or none, is 422 `request.reference_not_found` naming
-  `intercompany_billing_id`: the supplying company's people do not enter
-  the receiving company's invoice.
+  human-only as the goods issue and the billing are): the billing's
+  sub-collection, a plain create answering 201 with the invoice (a
+  collection custom method would start a job and answer 202, 04 §4.8);
+  payables reads the billing through its port `IntercompanyBillings`,
+  which the composition root wires to sales' `GetIntercompany` (payables
+  does not import sales). A billing billed to a company the caller may
+  not act in, or none, is 404, so ids cannot be probed: the supplying
+  company's people do not enter the receiving company's invoice.
 - **As capture reads a document**: the billing states what a document
   prints, so it goes through capture's code (`capturedInput`,
   `capturedTax`, `capturedExtensions`) rather than a second mapping: the

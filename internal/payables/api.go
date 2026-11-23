@@ -170,10 +170,9 @@ func (e *Endpoints) CreateSupplierInvoice(ctx context.Context, req *gen.Supplier
 }
 
 // EnterIntercompanySupplierInvoice implements POST
-// /v1/supplier-invoices:fromIntercompanyBilling.
-func (e *Endpoints) EnterIntercompanySupplierInvoice(ctx context.Context, req *gen.SupplierInvoiceFromIntercompanyBilling,
-	_ gen.EnterIntercompanySupplierInvoiceParams) (gen.EnterIntercompanySupplierInvoiceRes, error) {
-	v, err := e.EnterIntercompanyBilling(ctx, req.IntercompanyBillingID)
+// /v1/intercompany-billings/{id}/supplier-invoices.
+func (e *Endpoints) EnterIntercompanySupplierInvoice(ctx context.Context, params gen.EnterIntercompanySupplierInvoiceParams) (gen.EnterIntercompanySupplierInvoiceRes, error) {
+	v, err := e.EnterIntercompanyBilling(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}

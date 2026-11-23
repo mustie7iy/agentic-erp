@@ -16517,12 +16517,12 @@ intercompany_invoice() {
   say "Alex enters the billing as Maple's supplier invoice of Maple Gulf Trading (S2i3): parked, for its order's supplier,"
   say "at the billing's number, date, amounts and tax, its item the order's at the billing's price:"
   api 201 '"supplier invoice \(.document_number) \(.supplier_reference) (\(.source)): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount)", (.items[] | "  item \(.item_no): order item \(.po_item_no), \(.quantity.value) \(.quantity.unit), \(.amount.amount), tax code \(.tax_code // "none")")' \
-    enterIntercompanySupplierInvoice -body "{\"intercompany_billing_id\": \"$bill\"}"
+    enterIntercompanySupplierInvoice -p "id=$bill"
   inv=$(field .id)
   expect "the invoice, at the billing's figures" "$(field '"\(.status) \(.source) \(.supplier_id) \(.supplier_reference) \(.purchase_order_id) \(.intercompany_billing_id) \(.gross_amount.amount) \(.tax_amount.amount) \([.items[] | "\(.po_item_no):\(.amount.amount)"] | join(" "))"')" \
     "parked edi $sister $number $po $bill 320.00 0.00 1:320.00"
   say "A billing is entered once:"
-  refused 409 payables.intercompany_billing_entered enterIntercompanySupplierInvoice -body "{\"intercompany_billing_id\": \"$bill\"}"
+  refused 409 payables.intercompany_billing_entered enterIntercompanySupplierInvoice -p "id=$bill"
   say "He matches it against Maple's receipt of the lamps and posts it: the invoice clears GR/IR at the transfer price:"
   QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
   api 200 "$MATCHED" matchSupplierInvoice -p "id=$inv" -if-match "$ETAG"

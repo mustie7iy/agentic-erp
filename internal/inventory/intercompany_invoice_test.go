@@ -27,8 +27,6 @@ import (
 // at the billing's amounts and tax, and posts it against the order's
 // receipt, clearing GR/IR.
 
-const fromBilling = "/v1/supplier-invoices:fromIntercompanyBilling"
-
 // icInvoiced is icBilled with company 2000's input tax code VI (10% on
 // 140000, the rate company 1000's O1 charges) and the output code O0
 // (0%) of company 1000.
@@ -64,10 +62,9 @@ func (e billEnv) billed(t *testing.T, code any) map[string]any {
 	return b
 }
 
-// enter is the request entering the billing.
-func enter(t *testing.T, billing any) string {
-	t.Helper()
-	return mustJSON(t, map[string]any{"intercompany_billing_id": billing})
+// entering is the path entering the billing as a supplier invoice.
+func entering(billing any) string {
+	return fmt.Sprintf("/v1/intercompany-billings/%v/supplier-invoices", billing)
 }
 
 // TestIntercompanyInvoice: company 2000 enters company 1000's billing as
@@ -80,7 +77,7 @@ func enter(t *testing.T, billing any) string {
 func TestIntercompanyInvoice(t *testing.T) {
 	e := setupInvoicing(t, icInvoiced)
 	b := e.billed(t, "O1")
-	inv, tag := e.Must(201, "POST", fromBilling, enter(t, b["id"]), "")
+	inv, tag := e.Must(201, "POST", entering(b["id"]), "", "")
 	for f, want := range map[string]any{"status": "parked", "source": "edi", "legal_entity_id": e.DE.String(), "supplier_id": e.sister.String(),
 		"supplier_reference": b["document_number"], "invoice_date": b["billing_date"], "purchase_order_id": b["purchase_order_id"],
 		"intercompany_billing_id": b["id"], "kind": "invoice"} {
@@ -98,7 +95,7 @@ func TestIntercompanyInvoice(t *testing.T) {
 	if got, want := fmt.Sprint(its[0]["po_item_no"], " ", quantityOf(t, its[0]), " ", amountOf(t, its[0], "amount"), " ", its[0]["tax_code"]), "1 10 EA 30.00 VI"; got != want {
 		t.Errorf("the item: got %s, want %s", got, want)
 	}
-	e.Problem(409, "payables.intercompany_billing_entered", "POST", fromBilling, enter(t, b["id"]), "")
+	e.Problem(409, "payables.intercompany_billing_entered", "POST", entering(b["id"]), "", "")
 	id := inv["id"].(string)
 	if m, _ := e.Must(200, "POST", "/v1/supplier-invoices/"+id+":match", "", tag); m["is_clean"] != true {
 		t.Fatalf("match: got %v, want clean", m["issues"])
@@ -172,7 +169,7 @@ func TestIntercompanyInvoiceTax(t *testing.T) {
 			if c.before != "" {
 				pgtest.Exec(t, c.before)
 			}
-			inv, _ := e.Must(201, "POST", fromBilling, enter(t, b["id"]), "")
+			inv, _ := e.Must(201, "POST", entering(b["id"]), "", "")
 			if inv["status"] != c.status {
 				t.Errorf("status: got %v, want %s", inv["status"], c.status)
 			}
@@ -187,35 +184,33 @@ func TestIntercompanyInvoiceTax(t *testing.T) {
 }
 
 // TestIntercompanyInvoiceRefused: a billing that does not exist, or is
-// billed to a company the caller may not act in, is not entered; one
+// billed to a company the caller may not act in, is not found; one
 // entered stays entered when the invoice's reference changes, and is
 // freed when it is cancelled.
 func TestIntercompanyInvoiceRefused(t *testing.T) {
 	e := setupInvoicing(t, icInvoiced)
 	b := e.billed(t, "O1")
 	for name, c := range map[string]struct {
-		body      string
+		path      string
 		companies []uuid.UUID // nil: the tenant's person
 	}{
-		"no such billing":         {enter(t, uuid.New()), nil},
-		"the supplying company's": {enter(t, b["id"]), []uuid.UUID{e.US}},
+		"no such billing":         {entering(uuid.New()), nil},
+		"the supplying company's": {entering(b["id"]), []uuid.UUID{e.US}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			client := e.Client
 			if c.companies != nil {
 				client = e.As(e.Reader(t, "Clerk "+name, c.companies...))
 			}
-			if got := client.Problem(422, "request.reference_not_found", "POST", fromBilling, c.body, ""); fieldOf(got) != "intercompany_billing_id" {
-				t.Errorf("field: got %v, want intercompany_billing_id", fieldOf(got))
-			}
+			client.Problem(404, "request.not_found", "POST", c.path, "", "")
 		})
 	}
-	inv, tag := e.Must(201, "POST", fromBilling, enter(t, b["id"]), "")
+	inv, tag := e.Must(201, "POST", entering(b["id"]), "", "")
 	id := inv["id"].(string)
 	_, tag = e.Must(200, "PATCH", "/v1/supplier-invoices/"+id, `{"supplier_reference": "ANOTHER-1"}`, tag)
-	e.Problem(409, "payables.intercompany_billing_entered", "POST", fromBilling, enter(t, b["id"]), "")
+	e.Problem(409, "payables.intercompany_billing_entered", "POST", entering(b["id"]), "", "")
 	e.Must(200, "POST", "/v1/supplier-invoices/"+id+":cancel", `{"reason": "Entered by mistake"}`, tag)
-	again, _ := e.Must(201, "POST", fromBilling, enter(t, b["id"]), "")
+	again, _ := e.Must(201, "POST", entering(b["id"]), "", "")
 	if again["id"] == id || again["status"] != "parked" {
 		t.Errorf("entered again after the cancellation: got %v %v, want a new parked invoice", again["id"], again["status"])
 	}
@@ -225,12 +220,12 @@ func TestIntercompanyInvoiceRefused(t *testing.T) {
 // enter it once; the other is refused, by the check or the key.
 func TestIntercompanyInvoiceRace(t *testing.T) {
 	e := setupInvoicing(t, icInvoiced)
-	body := enter(t, e.billed(t, "O1")["id"])
+	path := entering(e.billed(t, "O1")["id"])
 	got := make([]int, 2)
 	var wg sync.WaitGroup
 	for i := range got {
 		wg.Go(func() {
-			got[i] = e.API.Do(apitest.Req{Method: "POST", Path: fromBilling, Body: body, Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}).Code
+			got[i] = e.API.Do(apitest.Req{Method: "POST", Path: path, Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}).Code
 		})
 	}
 	wg.Wait()
@@ -247,8 +242,7 @@ func TestIntercompanyInvoiceDatabaseFailures(t *testing.T) {
 	h := app.Payables(app.Config{})
 	id := uuid.MustParse(e.billed(t, "O1")["id"].(string))
 	call := func(ctx context.Context) error {
-		_, err := h.EnterIntercompanySupplierInvoice(ctx, &gen.SupplierInvoiceFromIntercompanyBilling{IntercompanyBillingID: id},
-			gen.EnterIntercompanySupplierInvoiceParams{})
+		_, err := h.EnterIntercompanySupplierInvoice(ctx, gen.EnterIntercompanySupplierInvoiceParams{ID: id})
 		return err
 	}
 	if err := call(context.Background()); err == nil {
@@ -263,9 +257,9 @@ func TestIntercompanyInvoiceDatabaseFailures(t *testing.T) {
 func TestIntercompanyInvoiceKey(t *testing.T) {
 	e := setupInvoicing(t, icInvoiced)
 	h := app.Payables(app.Config{})
-	req := &gen.SupplierInvoiceFromIntercompanyBilling{IntercompanyBillingID: uuid.MustParse(e.billed(t, "O1")["id"].(string))}
+	params := gen.EnterIntercompanySupplierInvoiceParams{ID: uuid.MustParse(e.billed(t, "O1")["id"].(string))}
 	first := func(ctx context.Context) error {
-		res, err := h.EnterIntercompanySupplierInvoice(ctx, req, gen.EnterIntercompanySupplierInvoiceParams{})
+		res, err := h.EnterIntercompanySupplierInvoice(ctx, params)
 		if err != nil {
 			return err
 		}
@@ -278,7 +272,7 @@ func TestIntercompanyInvoiceKey(t *testing.T) {
 		return err
 	}
 	second := func(ctx context.Context) error {
-		_, err := h.EnterIntercompanySupplierInvoice(ctx, req, gen.EnterIntercompanySupplierInvoiceParams{})
+		_, err := h.EnterIntercompanySupplierInvoice(ctx, params)
 		return err
 	}
 	firstErr, secondErr := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, first, second)

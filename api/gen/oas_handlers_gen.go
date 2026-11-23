@@ -37001,20 +37001,19 @@ func (s *Server) handleEndSodRuleRequest(args [1]string, argsEscaped bool, w htt
 // The receiving company enters the supplying company's posted intercompany billing
 // (`createIntercompanyBilling`, ADR-0082 As built S2i2, S2i3; SAP's invoice of an intercompany
 // billing, from memory) as its supplier invoice, `parked` or `on_hold` for a person to post (`:post`).
-// The billing (`intercompany_billing_id`, `GET /v1/intercompany-billings/{id}`) is one billed to a
-// company the caller may act in (422 `request.reference_not_found` naming `intercompany_billing_id`
-// otherwise). The invoice is the receiving company's, for its order's supplier, the business partner
-// that is the supplying company; its supplier reference is the billing's number, its invoice date the
-// billing date, its currency, gross and tax amounts the billing's, and its items the order's items,
-// each with its quantity at the billing item's net amount, so posting it clears the order's GR/IR
-// (`:match`, three-way against the order's receipts; SAP's MIRO against the receipt). Each item keeps
-// its order item's input tax code where it charges the rate of the billing item's output tax code (the
-// supplying company's, on the billing date); otherwise the one input tax code of the company that
-// charges it is proposed, and with none or several the invoice is `on_hold` naming the item for a
-// person to choose; an item billed without tax, or at a rate of zero, whose order item has no code
-// stays without one (nothing is charged, nothing to recover). A stated tax the codes do not bear out
-// holds it (`payables.tax_mismatch`'s figures), as do the company's rules and missing required custom
-// fields, as for a captured invoice. A billing is entered once (409
+// The billing (`GET /v1/intercompany-billings/{id}`) is one billed to a company the caller may act in
+// (404 otherwise, so ids cannot be probed). The invoice is the receiving company's, for its order's
+// supplier, the business partner that is the supplying company; its supplier reference is the
+// billing's number, its invoice date the billing date, its currency, gross and tax amounts the
+// billing's, and its items the order's items, each with its quantity at the billing item's net amount,
+// so posting it clears the order's GR/IR (`:match`, three-way against the order's receipts; SAP's MIRO
+// against the receipt). Each item keeps its order item's input tax code where it charges the rate of
+// the billing item's output tax code (the supplying company's, on the billing date); otherwise the one
+// input tax code of the company that charges it is proposed, and with none or several the invoice is
+// `on_hold` naming the item for a person to choose; an item billed without tax, or at a rate of zero,
+// whose order item has no code stays without one (nothing is charged, nothing to recover). A stated
+// tax the codes do not bear out holds it (`payables.tax_mismatch`'s figures), as do the company's
+// rules and missing required custom fields, as for a captured invoice. A billing is entered once (409
 // `payables.intercompany_billing_entered` naming the invoice; a rejected, cancelled or reversed
 // invoice frees it), and the supplier reference once per supplier (409 `payables.duplicate_invoice`).
 // Source `edi`; the invoice names the billing (`intercompany_billing_id`). Audited
@@ -37022,14 +37021,14 @@ func (s *Server) handleEndSodRuleRequest(args [1]string, argsEscaped bool, w htt
 // one on hold. A retry with the same `Idempotency-Key` answers the invoice created. Human-only
 // (`x-agent: false`).
 //
-// POST /v1/supplier-invoices:fromIntercompanyBilling
-func (s *Server) handleEnterIntercompanySupplierInvoiceRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+// POST /v1/intercompany-billings/{id}/supplier-invoices
+func (s *Server) handleEnterIntercompanySupplierInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
 	w = statusWriter
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("enterIntercompanySupplierInvoice"),
 		semconv.HTTPRequestMethodKey.String("POST"),
-		semconv.HTTPRouteKey.String("/v1/supplier-invoices:fromIntercompanyBilling"),
+		semconv.HTTPRouteKey.String("/v1/intercompany-billings/{id}/supplier-invoices"),
 	}
 	// Add attributes from config.
 	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
@@ -37150,21 +37149,6 @@ func (s *Server) handleEnterIntercompanySupplierInvoiceRequest(args [0]string, a
 	}
 
 	var rawBody []byte
-	request, rawBody, close, err := s.decodeEnterIntercompanySupplierInvoiceRequest(r)
-	if err != nil {
-		err = &ogenerrors.DecodeRequestError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeRequest", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
-	defer func() {
-		if err := close(); err != nil {
-			recordError("CloseRequest", err)
-		}
-	}()
 
 	var response EnterIntercompanySupplierInvoiceRes
 	if m := s.cfg.Middleware; m != nil {
@@ -37173,9 +37157,13 @@ func (s *Server) handleEnterIntercompanySupplierInvoiceRequest(args [0]string, a
 			OperationName:    EnterIntercompanySupplierInvoiceOperation,
 			OperationSummary: "Enter the receiving company's supplier invoice from an intercompany billing",
 			OperationID:      "enterIntercompanySupplierInvoice",
-			Body:             request,
+			Body:             nil,
 			RawBody:          rawBody,
 			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
 				{
 					Name: "Idempotency-Key",
 					In:   "header",
@@ -37185,7 +37173,7 @@ func (s *Server) handleEnterIntercompanySupplierInvoiceRequest(args [0]string, a
 		}
 
 		type (
-			Request  = *SupplierInvoiceFromIntercompanyBilling
+			Request  = struct{}
 			Params   = EnterIntercompanySupplierInvoiceParams
 			Response = EnterIntercompanySupplierInvoiceRes
 		)
@@ -37198,12 +37186,12 @@ func (s *Server) handleEnterIntercompanySupplierInvoiceRequest(args [0]string, a
 			mreq,
 			unpackEnterIntercompanySupplierInvoiceParams,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.EnterIntercompanySupplierInvoice(ctx, request, params)
+				response, err = s.h.EnterIntercompanySupplierInvoice(ctx, params)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.EnterIntercompanySupplierInvoice(ctx, request, params)
+		response, err = s.h.EnterIntercompanySupplierInvoice(ctx, params)
 	}
 	if err != nil {
 		defer recordError("Internal", err)

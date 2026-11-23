@@ -119409,8 +119409,8 @@ type SupplierInvoice struct {
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind OptString `json:"kind"`
 	// The supplying company's intercompany billing the invoice was entered from
-	// (`enterIntercompanySupplierInvoice`, `GET /v1/intercompany-billings/{id}`; ADR-0082 As built S2i3),
-	// whose number is its `supplier_reference`; absent on an invoice entered otherwise.
+	// (`POST /v1/intercompany-billings/{id}/supplier-invoices`; ADR-0082 As built S2i3), whose number is
+	// its `supplier_reference`; absent on an invoice entered otherwise.
 	IntercompanyBillingID OptUUID `json:"intercompany_billing_id"`
 	// The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal
 	// entity and currency); never on an invoice. A credit memo entered from an e-invoice credit note
@@ -120133,25 +120133,6 @@ func (s *SupplierInvoiceCreate) SetItems(val []SupplierInvoiceItem) {
 // SetExtensions sets the value of Extensions.
 func (s *SupplierInvoiceCreate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
-}
-
-// Enter the supplying company's posted intercompany billing as the receiving company's supplier
-// invoice (S2i3).
-// Ref: #/components/schemas/SupplierInvoiceFromIntercompanyBilling
-type SupplierInvoiceFromIntercompanyBilling struct {
-	// The intercompany billing (`GET /v1/intercompany-billings/{id}`) billed to a company the caller may
-	// act in.
-	IntercompanyBillingID uuid.UUID `json:"intercompany_billing_id"`
-}
-
-// GetIntercompanyBillingID returns the value of IntercompanyBillingID.
-func (s *SupplierInvoiceFromIntercompanyBilling) GetIntercompanyBillingID() uuid.UUID {
-	return s.IntercompanyBillingID
-}
-
-// SetIntercompanyBillingID sets the value of IntercompanyBillingID.
-func (s *SupplierInvoiceFromIntercompanyBilling) SetIntercompanyBillingID(val uuid.UUID) {
-	s.IntercompanyBillingID = val
 }
 
 // SupplierInvoiceHeaders wraps SupplierInvoice with response headers.
