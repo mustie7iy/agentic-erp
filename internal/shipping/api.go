@@ -123,7 +123,7 @@ var deliverySort = pagination.Sort{Default: "created_at", DefaultDesc: true,
 // deliveries of the companies the caller may act in, the latest first,
 // filtered by company, number, sales order and status: a number finds the
 // delivery a document's reference names, as a stock transport order's
-// does (each company numbers its own, so the company narrows it to one).
+// does (each company numbers its own per fiscal year).
 func (e *Endpoints) ListOutboundDeliveries(ctx context.Context, params gen.ListOutboundDeliveriesParams) (gen.ListOutboundDeliveriesRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

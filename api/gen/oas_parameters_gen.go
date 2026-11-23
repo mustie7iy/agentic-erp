@@ -94846,8 +94846,8 @@ func decodeListOrgUnitsParams(args [0]string, argsEscaped bool, r *http.Request)
 type ListOutboundDeliveriesParams struct {
 	// Only resources of this legal entity (company code).
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
-	// Only the delivery with this number, as a document's reference names it (each company numbers its
-	// own, so `legal_entity_id` narrows it to one).
+	// Only the deliveries with this number, as a document's reference names it (each company numbers its
+	// own per fiscal year, so `legal_entity_id` narrows it to one per fiscal year).
 	Number OptString `json:",omitempty,omitzero"`
 	// Only the deliveries of this sales order (`GET /v1/sales-orders/{id}`).
 	SalesOrderID OptUUID `json:",omitempty,omitzero"`

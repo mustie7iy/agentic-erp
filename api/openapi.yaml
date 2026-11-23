@@ -27240,7 +27240,7 @@ paths:
         - name: number
           in: query
           required: false
-          description: "Only the delivery with this number, as a document's reference names it (each company numbers its own, so `legal_entity_id` narrows it to one)."
+          description: "Only the deliveries with this number, as a document's reference names it (each company numbers its own per fiscal year, so `legal_entity_id` narrows it to one per fiscal year)."
           schema:
             type: string
             maxLength: 40
