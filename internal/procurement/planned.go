@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -65,8 +64,7 @@ func (Orders) OpenReceipts(ctx context.Context, plant uuid.UUID, materials []uui
 // access is not applied: the caller reads a plant of a company it may act
 // in.
 func (Orders) TransportReceipts(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
-	out, err := transports(ctx, plant, false, []string{"in_transit"}, materials)
-	return out, errs.Wrapf(err, "procurement: stock in transit of %d materials to plant %s", len(materials), plant)
+	return transports(ctx, plant, receiving, []string{"in_transit"}, materials)
 }
 
 // TransportsDue is what the stock transport orders within the company
@@ -79,8 +77,7 @@ func (Orders) TransportReceipts(ctx context.Context, plant uuid.UUID, materials 
 // locking nothing. Company access is not applied: the caller reads a
 // plant of a company it may act in.
 func (Orders) TransportsDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
-	out, err := transports(ctx, plant, true, []string{"open"}, materials)
-	return out, errs.Wrapf(err, "procurement: stock transport orders of %d materials from plant %s", len(materials), plant)
+	return transports(ctx, plant, supplying, []string{"open"}, materials)
 }
 
 // TransportsOnOrder is what the stock transport orders within the
@@ -92,24 +89,38 @@ func (Orders) TransportsDue(ctx context.Context, plant uuid.UUID, materials []uu
 // Company access is not applied: the caller reads a plant of a company it
 // may act in.
 func (Orders) TransportsOnOrder(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
-	out, err := transports(ctx, plant, false, []string{"open", "in_transit"}, materials)
-	return out, errs.Wrapf(err, "procurement: stock transport orders of %d materials to plant %s", len(materials), plant)
+	return transports(ctx, plant, receiving, []string{"open", "in_transit"}, materials)
 }
 
+// side is which of a stock transport order's plants a read is of.
+type side string
+
+const (
+	supplying side = "supplying"
+	receiving side = "receiving"
+)
+
 // transports sums the items of the materials of the stock transport
-// orders in the statuses that the plant supplies (supplying) or receives,
-// by material and unit in that order. An order's items are insert-only
-// and it moves them whole, so an item's quantity is what it moves.
-func transports(ctx context.Context, plant uuid.UUID, supplying bool, statuses []string, materials []uuid.UUID) ([]OnOrder, error) {
+// orders the plant supplies or receives (its side), in the given
+// statuses, by material and unit in that order. An order's items are
+// insert-only and it moves them whole, so an item's quantity is what it
+// moves. Each plant column is compared on its own, so an index of either
+// could serve it.
+func transports(ctx context.Context, plant uuid.UUID, of side, statuses []string, materials []uuid.UUID) ([]OnOrder, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	rows, _ := tx.Query(ctx, `SELECT i.material_id, i.uom_code, trim_scale(sum(i.quantity))::text
 		FROM procurement.stock_transport_order_item i JOIN procurement.stock_transport_order o ON o.tenant_id = i.tenant_id AND o.id = i.order_id
-		WHERE CASE WHEN $3 THEN o.supplying_plant_id ELSE o.receiving_plant_id END = $1 AND o.status = ANY($4) AND i.material_id = ANY($2)
-		GROUP BY i.material_id, i.uom_code ORDER BY i.material_id, i.uom_code`, plant, materials, supplying, statuses)
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[OnOrder])
+		WHERE ($3 = 'supplying' AND o.supplying_plant_id = $1 OR $3 = 'receiving' AND o.receiving_plant_id = $1) AND o.status = ANY($4)
+			AND i.material_id = ANY($2)
+		GROUP BY i.material_id, i.uom_code ORDER BY i.material_id, i.uom_code`, plant, materials, string(of), statuses)
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[OnOrder])
+	if err != nil {
+		return nil, fmt.Errorf("procurement: stock transport orders of %d materials %s at plant %s, %v: %w", len(materials), of, plant, statuses, err)
+	}
+	return out, nil
 }
 
 // DueOnOrder is an OnOrder due on a day.
