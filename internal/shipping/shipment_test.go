@@ -168,3 +168,32 @@ func TestShipmentAndPickInEitherOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestShipmentRecordedOnceUnderARace (S2r; ADR-0008): two shipments of one
+// delivery recorded at once: the second waits for the first's row lock,
+// reads the delivery as the first left it and is refused; the first is
+// kept.
+func TestShipmentRecordedOnceUnderARace(t *testing.T) {
+	e := setup(t)
+	h := endpoints(t)
+	order := e.order(t, false, e.ofMaterial(e.bracket, "5 BOX"))
+	d, _ := e.Must(201, "POST", deliveries, e.create(order, "1 1 BOX"), "")
+	id := uuid.MustParse(d["id"].(string))
+	record := func(number string) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			_, err := h.RecordShipment(ctx, id, shipment(number, "NWTRANS", "1.00 CAD"))
+			return err
+		}
+	}
+	first, second := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, record("SH-A"), record("SH-B"))
+	if first != nil {
+		t.Fatalf("the first shipment: got %v, want recorded", first)
+	}
+	if p := problem.From(second); p.Code != "shipping.shipment_recorded" {
+		t.Errorf("the second shipment: got %v, want shipping.shipment_recorded", second)
+	}
+	got, _ := e.Must(200, "GET", deliveries+"/"+id.String(), "", "")
+	if n := got["shipment"].(map[string]any)["shipment_number"]; n != "SH-A" {
+		t.Errorf("the delivery's shipment: got %v, want SH-A", n)
+	}
+}

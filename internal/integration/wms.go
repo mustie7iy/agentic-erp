@@ -170,8 +170,8 @@ func plantsFree(ctx context.Context, tx pgx.Tx, self uuid.UUID, kind string, s W
 	return nil
 }
 
-// wmsConnector is an active wms or tms connector with its settings read.
-type wmsConnector struct {
+// logisticsConnector is an active wms or tms connector with its settings read.
+type logisticsConnector struct {
 	ID        uuid.UUID
 	Kind      string
 	Name      string
@@ -182,16 +182,16 @@ type wmsConnector struct {
 // activeLogistics reads the tenant's active connectors of the kinds, by
 // name. One whose settings no longer resolve (changed by hand) manages
 // nothing.
-func activeLogistics(ctx context.Context, tx pgx.Tx, kinds ...string) ([]wmsConnector, error) {
+func activeLogistics(ctx context.Context, tx pgx.Tx, kinds ...string) ([]logisticsConnector, error) {
 	rows, _ := tx.Query(ctx, `SELECT `+connectorColumns+` FROM integration.connector WHERE kind = ANY($1) AND status = 'active' ORDER BY name, id`, kinds)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Connector, error) { return scanConnector(r) })
 	if err != nil {
 		return nil, fmt.Errorf("integration: read the active %v connectors: %w", kinds, err)
 	}
-	out := make([]wmsConnector, 0, len(cs))
+	out := make([]logisticsConnector, 0, len(cs))
 	for _, c := range cs {
 		if s, err := plantSettings(c.Kind, c.Settings); err == nil {
-			out = append(out, wmsConnector{ID: c.ID, Kind: c.Kind, Name: c.Name, SecretRef: c.SecretRef, WMSSettings: s})
+			out = append(out, logisticsConnector{ID: c.ID, Kind: c.Kind, Name: c.Name, SecretRef: c.SecretRef, WMSSettings: s})
 		}
 	}
 	return out, nil
@@ -199,17 +199,17 @@ func activeLogistics(ctx context.Context, tx pgx.Tx, kinds ...string) ([]wmsConn
 
 // managing is the active connector of the kind managing the company's
 // plant, if any.
-func managing(ctx context.Context, tx pgx.Tx, kind, company, plant string) (wmsConnector, bool, error) {
+func managing(ctx context.Context, tx pgx.Tx, kind, company, plant string) (logisticsConnector, bool, error) {
 	cs, err := activeLogistics(ctx, tx, kind)
 	if err != nil {
-		return wmsConnector{}, false, err
+		return logisticsConnector{}, false, err
 	}
 	for _, c := range cs {
 		if c.Manages(company, plant) {
 			return c, true, nil
 		}
 	}
-	return wmsConnector{}, false, nil
+	return logisticsConnector{}, false, nil
 }
 
 // checkPlantsActive refuses a wms or tms connector becoming, or staying,

@@ -109,7 +109,7 @@ func (w *WMSExchange) PollOnce(ctx context.Context) (int, error) {
 // pollTenant polls the tenant's active wms and tms connectors, by name.
 func (w *WMSExchange) pollTenant(ctx context.Context, tenant uuid.UUID) (int, error) {
 	var conns []usable
-	if err := w.job(tenant, "read the wms connectors").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+	if err := w.job(tenant, "read the wms and tms connectors").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		cs, err := activeLogistics(ctx, tx, WMS, TMS)
 		for _, c := range cs {
 			if c.SecretRef != nil && (!w.RefuseStandIn || c.Adapter != StandInAdapter) {

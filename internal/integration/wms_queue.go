@@ -225,7 +225,7 @@ func (q *WMSQueue) queue(ctx context.Context, tx pgx.Tx, ev deliveryCreated) err
 // says of its document.
 type outboundRow struct {
 	id                    uuid.UUID
-	connector             wmsConnector
+	connector             logisticsConnector
 	kind                  string
 	legalEntity, document uuid.UUID
 	number, plant         string

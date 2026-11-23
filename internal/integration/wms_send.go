@@ -22,7 +22,11 @@ import (
 
 // WMSExchange is the exchange with warehouse systems (S2q1; ADR-0082 As
 // built S2q) and transport systems (S2r, the same messages of their own
-// kinds), as the cash exporter sends its exports: a round finds the
+// kinds). "WMS" in its name, its port's (Warehouse), settings'
+// (WMSSettings), queue's and table's (integration.wms_message) names the
+// machinery S2q built, which both kinds share, not the kind; renaming the
+// exported names and the table is churn without a consumer. It works as
+// the cash exporter sends its exports: a round finds the
 // tenants with messages due, then, per message, claims it in one short
 // transaction of its tenant (FOR UPDATE SKIP LOCKED, so replicas share
 // the queue) and reads its connector, resolves the credentials and sends
