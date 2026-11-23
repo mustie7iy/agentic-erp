@@ -4942,7 +4942,7 @@ erDiagram
   Insert-only (`bad_debt_relief_immutable`). The entry's lines and tax
   items are the ledger's. The down migration is refused while a relief
   is recorded.
-- `receivables.bad_debt_recharge` (migration 000448; ADR-0049 As built
+- `receivables.bad_debt_recharge` (migration 000452; ADR-0049 As built
   batch 91): a bad debt relief's tax charged again because the customer
   paid what was written off, or charged back less by the undoing of that
   payment. It names the invoice (`bad_debt_recharge_invoice_fkey`), the
@@ -5311,7 +5311,7 @@ erDiagram
   case's close sets `open` false (the trigger `dispute_case_items_closed`).
   What resolved cases accepted of an item is read by its line through
   the partial index `dispute_case_item_accepted_by_line` (migration
-  000447; ADR-0065 As built batch 91), which bounds a new case's amount.
+  000451; ADR-0065 As built batch 91), which bounds a new case's amount.
   At commit a case has items, its own line its first item's, its amounts
   their totals and each item open while it is (the deferred constraint
   triggers `dispute_case_items` on both tables). The application inserts

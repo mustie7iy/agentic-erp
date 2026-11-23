@@ -1278,6 +1278,6 @@ closed as rejected accepted nothing). The read runs after the case's
 items are written: their insert waits on `dispute_case_item_one_open`
 for a resolution of the item in flight, so it sees every resolution that
 could have closed an earlier case on the item (no write skew; migration
-000447's partial index `dispute_case_item_accepted_by_line` serves it).
+000451's partial index `dispute_case_item_accepted_by_line` serves it).
 Payments are not subtracted: an item paid is cleared and no longer
 open, and a residual item is an item of its own. Decided by default.

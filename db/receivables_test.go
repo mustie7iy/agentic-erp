@@ -1352,7 +1352,7 @@ func TestBadDebtReliefRevert(t *testing.T) {
 	failsWith(t, exec(tx, down), "reverting would lose them")
 }
 
-// TestBadDebtRechargeRules (migration 000448; ADR-0049 As built batch 91):
+// TestBadDebtRechargeRules (migration 000452; ADR-0049 As built batch 91):
 // a relief charged again names a customer invoice and an incoming payment
 // and its application, which, applied or undone, charges the invoice once,
 // with a recovered amount not negative, a tax that is not nothing, a local
@@ -1450,11 +1450,11 @@ func TestBadDebtRechargeRules(t *testing.T) {
 	}
 }
 
-// TestBadDebtRechargeRevert (migration 000448's down): the revert is
+// TestBadDebtRechargeRevert (migration 000452's down): the revert is
 // refused while a relief charged again is recorded.
 func TestBadDebtRechargeRevert(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000448_bad_debt_recharge").Down
+	down := migrationNamed(t, "000452_bad_debt_recharge").Down
 	ctx := context.Background()
 	tx, err := testDB.Begin(ctx)
 	if err != nil {

@@ -2132,7 +2132,7 @@ product owner's digest:
 ### As built batch 91: bad debt relief charged again (po:2026-11-21)
 
 The tracker leaf "Bad debt relief reversed when the customer pays later"
-(src po:2026-11-21), built in receivables (migration 000448,
+(src po:2026-11-21), built in receivables (migration 000452,
 `receivables.bad_debt_recharge`; `recharge.go`). The research of
 2026-11-21 names Art. 64 and ETA s.231 for the relief, and the leaf that
 a later payment charges the relieved share of the tax again; nothing
