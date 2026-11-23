@@ -38432,6 +38432,7 @@ paths:
               - ticketing
               - treasury_export
               - einvoice_provider
+              - wms
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -38464,6 +38465,7 @@ paths:
         - integration.ebics_not_certified
         - integration.invalid_secret_ref
         - integration.invalid_settings
+        - integration.plant_has_wms
         - integration.unknown_kind
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -38504,6 +38506,66 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/wms-messages:
+    get:
+      operationId: listWMSMessages
+      tags:
+        - integration
+      summary: List the messages exchanged with warehouse systems
+      description: "The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who may act in every company, inbound ones refused before their delivery was known. Outbound (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in its `plants` is queued once as a message giving the warehouse system the delivery to pick (its `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant and storage location by code, the delivery by id and number with its sales order's and customer's numbers, and each item's number, material number, quantity and unit), `pending` until the exchange sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours, its code in `last_error_code`: the warehouse system unreachable, or the connector not usable since (`integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_wms`, or the stand-in in production, `integration.adapter_not_certified`), which its administrator may put right meanwhile; the warehouse system's refusal (`integration.wms_refused`) or the sixth attempt's failure is final, and a last attempt whose outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the warehouse system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked quantities recorded (an item it was sent and does not name picked at nothing) and its goods issue posted (shipping's `pickOutboundDelivery` and `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's company), naming the material document; or `refused` with the problem that stopped it, nothing of it posted: one that is not a JSON `goods_issue` message naming its own message id and an `outbound_delivery_id`, or that holds `\\u0000`, which cannot be kept as received (`integration.wms_message_unreadable`; its body kept as its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`, `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not posted twice. Filters: connector, direction, status and the outbound delivery."
+      x-permission: integration.connector.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: connector_id
+          in: query
+          required: false
+          description: Only the messages of this `wms` connector.
+          schema:
+            type: string
+            format: uuid
+        - name: direction
+          in: query
+          required: false
+          description: "Only the messages of this direction: `outbound` (to the warehouse system) or `inbound` (reported back)."
+          schema:
+            type: string
+            description: "A message's direction. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [outbound, inbound]
+        - name: status
+          in: query
+          required: false
+          description: "Only the messages of this status: `pending`, `sent` or `failed` (outbound), `posted` or `refused` (inbound)."
+          schema:
+            type: string
+            description: "A message's status. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [pending, sent, failed, posted, refused]
+        - name: outbound_delivery_id
+          in: query
+          required: false
+          description: Only the messages of this outbound delivery.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WMSMessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/connectors/{id}":
     get:
       operationId: getConnector
@@ -38546,6 +38608,7 @@ paths:
         - integration.duplicate_name
         - integration.invalid_secret_ref
         - integration.invalid_settings
+        - integration.plant_has_wms
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -38602,7 +38665,9 @@ paths:
         - integration.adapter_not_certified
         - integration.duplicate_name
         - integration.ebics_not_certified
+        - integration.invalid_settings
         - integration.invalid_status
+        - integration.plant_has_wms
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -70033,6 +70098,63 @@ components:
           requested_by: 0192a000-0000-7000-8000-000000000101
           created_at: "2026-04-17T13:05:00Z"
           updated_at: "2026-04-17T13:05:09Z"
+    WMSMessage:
+      type: object
+      description: "A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, S2q1): an outbound delivery sent to pick, or a goods issue it reported back."
+      required: [id, connector_id, connector_name, direction, message_id, kind, body, status, attempts, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: Message id., readOnly: true}
+        connector_id: {type: string, format: uuid, description: "The `wms` connector (`getConnector`).", readOnly: true}
+        connector_name: {type: string, description: "The connector's name.", readOnly: true}
+        direction:
+          type: string
+          description: "`outbound` (to the warehouse system) or `inbound` (reported back). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [outbound, inbound]
+          readOnly: true
+        message_id: {type: string, description: "The message's id at the warehouse system: an outbound message's own id, which the warehouse system deduplicates on; an inbound one's, the warehouse system's.", readOnly: true}
+        kind:
+          type: string
+          description: "`outbound_delivery` (outbound) or `goods_issue` (inbound). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [outbound_delivery, goods_issue]
+          readOnly: true
+        legal_entity_id: {type: string, format: uuid, description: "The delivery's company; absent on an inbound message refused before its delivery was known.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        outbound_delivery_id: {type: string, format: uuid, description: "The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.", readOnly: true}
+        outbound_delivery_number: {type: string, description: "The outbound delivery's number.", readOnly: true}
+        plant_code: {type: string, description: "Outbound: the delivery's plant, which the connector manages.", readOnly: true}
+        body:
+          description: "A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as `{\"text\": ...}`, at most 1000 characters of it)."
+          readOnly: true
+        status:
+          type: string
+          description: "Outbound: `pending` (queued, or waiting for its next attempt), `sent` or `failed`; inbound: `posted` or `refused`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [pending, sent, failed, posted, refused]
+          readOnly: true
+        attempts: {type: integer, format: int32, minimum: 0, maximum: 6, description: "Outbound: the attempts made to send it; inbound: 0.", readOnly: true}
+        next_attempt_at: {type: string, format: date-time, description: "Pending: when it is next sent.", readOnly: true}
+        last_error_code: {type: string, description: "Outbound: the problem code of the last failed attempt; absent when none failed.", readOnly: true}
+        sent_at: {type: string, format: date-time, description: "Outbound: when the warehouse system took it.", readOnly: true}
+        problem_code: {type: string, description: "Refused: the problem that stopped its posting.", readOnly: true}
+        problem_detail: {type: string, description: "Refused: the problem's detail.", readOnly: true}
+        material_document_id: {type: string, format: uuid, description: "Posted: the goods issue's material document (`getMaterialDocument`).", readOnly: true}
+        material_document_number: {type: string, description: "Posted: the material document's number.", readOnly: true}
+        acknowledged_at: {type: string, format: date-time, description: "Inbound: when the warehouse system was told it is recorded.", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true}
+        updated_at: {type: string, format: date-time, readOnly: true}
+    WMSMessagePage:
+      type: object
+      description: One page of messages exchanged with warehouse systems.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/WMSMessage"}
+          description: The messages on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          readOnly: true
     CashExportPage:
       type: object
       description: One page of exports of snapshots to treasury systems.
@@ -75492,6 +75614,7 @@ components:
                 - ticketing
                 - treasury_export
                 - einvoice_provider
+                - wms
               readOnly: true
             name:
               type: string
@@ -75501,7 +75624,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`."
             secret_ref:
               type: string
               description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -75553,7 +75676,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`."
         secret_ref:
           type: string
           description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -75575,7 +75698,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`."
         secret_ref:
           type:
             - string

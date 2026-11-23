@@ -7303,6 +7303,41 @@ type Handler interface {
 	//
 	// GET /v1/variance-comments
 	ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (ListVarianceCommentsRes, error)
+	// ListWMSMessages implements listWMSMessages operation.
+	//
+	// The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As
+	// built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who
+	// may act in every company, inbound ones refused before their delivery was known. Outbound
+	// (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in
+	// its `plants` is queued once as a message giving the warehouse system the delivery to pick (its
+	// `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant
+	// and storage location by code, the delivery by id and number with its sales order's and customer's
+	// numbers, and each item's number, material number, quantity and unit), `pending` until the exchange
+	// sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried
+	// again after 1, 5 and 15 minutes, 1 and 4 hours, its code in `last_error_code`: the warehouse system
+	// unreachable, or the connector not usable since (`integration.connector_disabled`,
+	// `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`,
+	// `integration.not_a_wms`, or the stand-in in production, `integration.adapter_not_certified`), which
+	// its administrator may put right meanwhile; the warehouse system's refusal
+	// (`integration.wms_refused`) or the sixth attempt's failure is final, and a last attempt whose
+	// outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the warehouse
+	// system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound
+	// (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector
+	// (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked
+	// quantities recorded (an item it was sent and does not name picked at nothing) and its goods issue
+	// posted (shipping's `pickOutboundDelivery` and `postOutboundDeliveryGoodsIssue`, as the exchange's
+	// system principal acting for the delivery's company), naming the material document; or `refused` with
+	// the problem that stopped it, nothing of it posted: one that is not a JSON `goods_issue` message
+	// naming its own message id and an `outbound_delivery_id`, or that holds `\u0000`, which cannot be
+	// kept as received (`integration.wms_message_unreadable`; its body kept as its text), larger than 1
+	// MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent
+	// (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`,
+	// `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse
+	// system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not
+	// posted twice. Filters: connector, direction, status and the outbound delivery.
+	//
+	// GET /v1/wms-messages
+	ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (ListWMSMessagesRes, error)
 	// ListWebhookDeliveries implements listWebhookDeliveries operation.
 	//
 	// The subscription's deliveries kept (30 days), newest first; bodies are not listed. Sortable by:

@@ -48,7 +48,7 @@ const BankSFTP = "bank_sftp"
 // the cash context exports its companies' snapshots to (ADR-0051 §14).
 const TreasuryExport = "treasury_export"
 
-var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport, EInvoiceProvider}
+var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport, EInvoiceProvider, WMS}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -120,6 +120,9 @@ func checkSettings(kind string, settings map[string]any) error {
 		return err
 	case EInvoiceProvider:
 		_, err := einvoiceSettings(settings)
+		return err
+	case WMS:
+		_, err := wmsSettings(settings)
 		return err
 	}
 	return nil
@@ -320,9 +323,13 @@ func CreateConnector(ctx context.Context, in NewConnector) (Connector, error) {
 	if err := checkSecretRef(in.SecretRef, p.TenantID); err != nil {
 		return Connector{}, err
 	}
+	id := uuid.Must(uuid.NewV7())
+	if err := checkWMSActive(ctx, tx, id, in.Kind, "active", in.Settings); err != nil {
+		return Connector{}, err
+	}
 	c, err := scanConnector(tx.QueryRow(ctx, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7) RETURNING `+connectorColumns,
-		p.TenantID, uuid.Must(uuid.NewV7()), in.Kind, in.Name, in.Settings, in.SecretRef, p.ID))
+		p.TenantID, id, in.Kind, in.Name, in.Settings, in.SecretRef, p.ID))
 	if err != nil {
 		return Connector{}, fmt.Errorf("integration: create connector %q: %w", in.Name, err)
 	}
@@ -356,6 +363,9 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		if err := checkSettings(c.Kind, ch.Settings); err != nil {
 			return Connector{}, err
 		}
+		if err := checkWMSActive(ctx, tx, id, c.Kind, c.Status, ch.Settings); err != nil {
+			return Connector{}, err
+		}
 		c.Settings = ch.Settings
 	}
 	if ch.SecretRef != nil {
@@ -374,7 +384,7 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 
 // SetConnectorStatus enables (active) or disables a connector.
 func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status, reason string) (Connector, error) {
-	return setConnectorStatus(ctx, id, ifMatch, status, map[string]any{"reason": reason}, func(Connector) error { return nil })
+	return setConnectorStatus(ctx, id, ifMatch, status, map[string]any{"reason": reason}, func(pgx.Tx, Connector) error { return nil })
 }
 
 // DisableByOperator disables a connector for an operator acting without the
@@ -384,12 +394,12 @@ func SetConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 // through the API, and published.
 func DisableByOperator(ctx context.Context, id uuid.UUID, operator, reason string) (Connector, error) {
 	return setConnectorStatus(ctx, id, func(int32) error { return nil }, "disabled", map[string]any{"reason": reason, "operator": operator},
-		func(Connector) error { return nil })
+		func(pgx.Tx, Connector) error { return nil })
 }
 
 // setConnectorStatus sets the status once allow accepts the connector as
-// read, locked, and audits it with detail.
-func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status string, detail map[string]any, allow func(Connector) error) (Connector, error) {
+// read, locked, in the request's transaction, and audits it with detail.
+func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, status string, detail map[string]any, allow func(pgx.Tx, Connector) error) (Connector, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Connector{}, err
@@ -404,7 +414,7 @@ func setConnectorStatus(ctx context.Context, id uuid.UUID, ifMatch func(int32) e
 	if c.Status == status {
 		return Connector{}, problem.Conflict("integration.invalid_status", "The connector is already "+status+".")
 	}
-	if err := allow(c); err != nil {
+	if err := allow(tx, c); err != nil {
 		return Connector{}, err
 	}
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET status = $2, version = version + 1, updated_by = $3
@@ -519,7 +529,12 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 
 // EnableConnector implements POST /v1/connectors/{id}:enable.
 func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnectorParams) (gen.EnableConnectorRes, error) {
-	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", map[string]any{"reason": ""}, func(c Connector) error { return e.refuseUncertified(c.Kind, c.Settings) })
+	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", map[string]any{"reason": ""}, func(tx pgx.Tx, c Connector) error {
+		if err := e.refuseUncertified(c.Kind, c.Settings); err != nil {
+			return err
+		}
+		return checkWMSActive(ctx, tx, c.ID, c.Kind, "active", c.Settings)
+	})
 	if err != nil {
 		return nil, err
 	}

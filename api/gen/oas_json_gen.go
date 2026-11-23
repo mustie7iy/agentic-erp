@@ -186897,6 +186897,82 @@ func (s *ListVarianceCommentsForbidden) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes ListWMSMessagesBadRequest as json.
+func (s *ListWMSMessagesBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListWMSMessagesBadRequest from json.
+func (s *ListWMSMessagesBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListWMSMessagesBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListWMSMessagesBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListWMSMessagesBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListWMSMessagesBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListWMSMessagesForbidden as json.
+func (s *ListWMSMessagesForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListWMSMessagesForbidden from json.
+func (s *ListWMSMessagesForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListWMSMessagesForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListWMSMessagesForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListWMSMessagesForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListWMSMessagesForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes ListWebhookDeliveriesBadRequest as json.
 func (s *ListWebhookDeliveriesBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -315560,6 +315636,620 @@ func (s *VerifyAuditChainUnprocessableEntity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *VerifyAuditChainUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *WMSMessage) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *WMSMessage) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("connector_id")
+		json.EncodeUUID(e, s.ConnectorID)
+	}
+	{
+		e.FieldStart("connector_name")
+		e.Str(s.ConnectorName)
+	}
+	{
+		e.FieldStart("direction")
+		e.Str(s.Direction)
+	}
+	{
+		e.FieldStart("message_id")
+		e.Str(s.MessageID)
+	}
+	{
+		e.FieldStart("kind")
+		e.Str(s.Kind)
+	}
+	{
+		if s.LegalEntityID.Set {
+			e.FieldStart("legal_entity_id")
+			s.LegalEntityID.Encode(e)
+		}
+	}
+	{
+		if s.CompanyCode.Set {
+			e.FieldStart("company_code")
+			s.CompanyCode.Encode(e)
+		}
+	}
+	{
+		if s.OutboundDeliveryID.Set {
+			e.FieldStart("outbound_delivery_id")
+			s.OutboundDeliveryID.Encode(e)
+		}
+	}
+	{
+		if s.OutboundDeliveryNumber.Set {
+			e.FieldStart("outbound_delivery_number")
+			s.OutboundDeliveryNumber.Encode(e)
+		}
+	}
+	{
+		if s.PlantCode.Set {
+			e.FieldStart("plant_code")
+			s.PlantCode.Encode(e)
+		}
+	}
+	{
+		if len(s.Body) != 0 {
+			e.FieldStart("body")
+			e.Raw(s.Body)
+		}
+	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		e.FieldStart("attempts")
+		e.Int32(s.Attempts)
+	}
+	{
+		if s.NextAttemptAt.Set {
+			e.FieldStart("next_attempt_at")
+			s.NextAttemptAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.LastErrorCode.Set {
+			e.FieldStart("last_error_code")
+			s.LastErrorCode.Encode(e)
+		}
+	}
+	{
+		if s.SentAt.Set {
+			e.FieldStart("sent_at")
+			s.SentAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.ProblemCode.Set {
+			e.FieldStart("problem_code")
+			s.ProblemCode.Encode(e)
+		}
+	}
+	{
+		if s.ProblemDetail.Set {
+			e.FieldStart("problem_detail")
+			s.ProblemDetail.Encode(e)
+		}
+	}
+	{
+		if s.MaterialDocumentID.Set {
+			e.FieldStart("material_document_id")
+			s.MaterialDocumentID.Encode(e)
+		}
+	}
+	{
+		if s.MaterialDocumentNumber.Set {
+			e.FieldStart("material_document_number")
+			s.MaterialDocumentNumber.Encode(e)
+		}
+	}
+	{
+		if s.AcknowledgedAt.Set {
+			e.FieldStart("acknowledged_at")
+			s.AcknowledgedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		e.FieldStart("created_at")
+		json.EncodeDateTime(e, s.CreatedAt)
+	}
+	{
+		e.FieldStart("updated_at")
+		json.EncodeDateTime(e, s.UpdatedAt)
+	}
+}
+
+var jsonFieldsNameOfWMSMessage = [24]string{
+	0:  "id",
+	1:  "connector_id",
+	2:  "connector_name",
+	3:  "direction",
+	4:  "message_id",
+	5:  "kind",
+	6:  "legal_entity_id",
+	7:  "company_code",
+	8:  "outbound_delivery_id",
+	9:  "outbound_delivery_number",
+	10: "plant_code",
+	11: "body",
+	12: "status",
+	13: "attempts",
+	14: "next_attempt_at",
+	15: "last_error_code",
+	16: "sent_at",
+	17: "problem_code",
+	18: "problem_detail",
+	19: "material_document_id",
+	20: "material_document_number",
+	21: "acknowledged_at",
+	22: "created_at",
+	23: "updated_at",
+}
+
+// Decode decodes WMSMessage from json.
+func (s *WMSMessage) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode WMSMessage to nil")
+	}
+	var requiredBitSet [3]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "connector_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ConnectorID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"connector_id\"")
+			}
+		case "connector_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.ConnectorName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"connector_name\"")
+			}
+		case "direction":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.Direction = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"direction\"")
+			}
+		case "message_id":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.MessageID = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"message_id\"")
+			}
+		case "kind":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.Kind = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "legal_entity_id":
+			if err := func() error {
+				s.LegalEntityID.Reset()
+				if err := s.LegalEntityID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			if err := func() error {
+				s.CompanyCode.Reset()
+				if err := s.CompanyCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "outbound_delivery_id":
+			if err := func() error {
+				s.OutboundDeliveryID.Reset()
+				if err := s.OutboundDeliveryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"outbound_delivery_id\"")
+			}
+		case "outbound_delivery_number":
+			if err := func() error {
+				s.OutboundDeliveryNumber.Reset()
+				if err := s.OutboundDeliveryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"outbound_delivery_number\"")
+			}
+		case "plant_code":
+			if err := func() error {
+				s.PlantCode.Reset()
+				if err := s.PlantCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_code\"")
+			}
+		case "body":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := d.RawAppend(nil)
+				s.Body = jx.Raw(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"body\"")
+			}
+		case "status":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "attempts":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.Attempts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"attempts\"")
+			}
+		case "next_attempt_at":
+			if err := func() error {
+				s.NextAttemptAt.Reset()
+				if err := s.NextAttemptAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_attempt_at\"")
+			}
+		case "last_error_code":
+			if err := func() error {
+				s.LastErrorCode.Reset()
+				if err := s.LastErrorCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"last_error_code\"")
+			}
+		case "sent_at":
+			if err := func() error {
+				s.SentAt.Reset()
+				if err := s.SentAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"sent_at\"")
+			}
+		case "problem_code":
+			if err := func() error {
+				s.ProblemCode.Reset()
+				if err := s.ProblemCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"problem_code\"")
+			}
+		case "problem_detail":
+			if err := func() error {
+				s.ProblemDetail.Reset()
+				if err := s.ProblemDetail.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"problem_detail\"")
+			}
+		case "material_document_id":
+			if err := func() error {
+				s.MaterialDocumentID.Reset()
+				if err := s.MaterialDocumentID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_id\"")
+			}
+		case "material_document_number":
+			if err := func() error {
+				s.MaterialDocumentNumber.Reset()
+				if err := s.MaterialDocumentNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_number\"")
+			}
+		case "acknowledged_at":
+			if err := func() error {
+				s.AcknowledgedAt.Reset()
+				if err := s.AcknowledgedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"acknowledged_at\"")
+			}
+		case "created_at":
+			requiredBitSet[2] |= 1 << 6
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.CreatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "updated_at":
+			requiredBitSet[2] |= 1 << 7
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.UpdatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"updated_at\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode WMSMessage")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [3]uint8{
+		0b00111111,
+		0b00111000,
+		0b11000000,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfWMSMessage) {
+					name = jsonFieldsNameOfWMSMessage[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *WMSMessage) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *WMSMessage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *WMSMessagePage) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *WMSMessagePage) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("items")
+		e.ArrStart()
+		for _, elem := range s.Items {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		if s.NextPageToken.Set {
+			e.FieldStart("next_page_token")
+			s.NextPageToken.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfWMSMessagePage = [2]string{
+	0: "items",
+	1: "next_page_token",
+}
+
+// Decode decodes WMSMessagePage from json.
+func (s *WMSMessagePage) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode WMSMessagePage to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "items":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				s.Items = make([]WMSMessage, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem WMSMessage
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		case "next_page_token":
+			if err := func() error {
+				s.NextPageToken.Reset()
+				if err := s.NextPageToken.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_page_token\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode WMSMessagePage")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfWMSMessagePage) {
+					name = jsonFieldsNameOfWMSMessagePage[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *WMSMessagePage) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *WMSMessagePage) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

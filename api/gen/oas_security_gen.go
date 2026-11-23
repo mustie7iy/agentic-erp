@@ -572,6 +572,7 @@ var operationRolesOidc = map[string][]string{
 	ListTaxReturnsOperation:                        []string{},
 	ListUnappliedReceiptsOperation:                 []string{},
 	ListVarianceCommentsOperation:                  []string{},
+	ListWMSMessagesOperation:                       []string{},
 	ListWebhookDeliveriesOperation:                 []string{},
 	ListWebhookSubscriptionsOperation:              []string{},
 	ListYearClosesOperation:                        []string{},

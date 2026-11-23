@@ -12,9 +12,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -202,4 +204,25 @@ func relay(ctx context.Context, client net.Conn, backend string) {
 	defer func() { _ = server.Close() }()                              // the relay is over
 	go func() { _, _ = io.Copy(server, client); _ = server.Close() }() // ends when either side closes
 	_, _ = io.Copy(client, server)
+}
+
+// SelfSigned is a self-signed certificate for ip, valid from a minute ago
+// for a day, named name, and its PEM: what a walkthrough stand-in (the
+// webhook subscriber, the e-invoicing provider, the warehouse system)
+// presents and writes for erp-server to trust it alone.
+func SelfSigned(ip netip.Addr, name string) (tls.Certificate, []byte, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, nil, fmt.Errorf("key: %w", err)
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(now.UnixNano()), Subject: pkix.Name{CommonName: name},
+		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(24 * time.Hour), IPAddresses: []net.IP{ip.AsSlice()},
+		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true, IsCA: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, nil, fmt.Errorf("certificate: %w", err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
 }

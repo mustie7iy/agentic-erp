@@ -48,6 +48,8 @@ var testSupport = map[string]bool{
 	"llm/llmtest": true, "nfr": true,
 	"einvoicing/einvoicetest":              true, // the e-invoicing provider's stand-in (ADR-0061 §3)
 	"einvoicing/einvoicetest/providerstub": true, // the walkthrough's provider, built from the stand-in
+	"integration/wmstest":                  true, // the warehouse system's stand-in (ADR-0082 As built S2q)
+	"integration/wmstest/wmsstub":          true, // the walkthrough's warehouse system, built from the stand-in
 }
 
 // webPlatform are the platform packages the web workspace (internal/web

@@ -2081,6 +2081,10 @@ type ListVarianceCommentsRes interface {
 	listVarianceCommentsRes()
 }
 
+type ListWMSMessagesRes interface {
+	listWMSMessagesRes()
+}
+
 type ListWebhookDeliveriesRes interface {
 	listWebhookDeliveriesRes()
 }

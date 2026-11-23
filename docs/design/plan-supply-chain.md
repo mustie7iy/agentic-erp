@@ -98,7 +98,9 @@ material type is not built.
   requisitions through ports and proposes requisitions through
   procurement's published API.
 - The rest of planning (S2l–S2n) and the connectors (S2q–S2s) are decided
-  by their own ADRs when they are built.
+  by their own ADRs when they are built; the WMS connector (S2q) needed
+  none: it is the integration context's connector pattern, recorded in
+  ADR-0082 As built S2q, and adds no import between contexts.
 
 ## S1 Foundation
 
@@ -1013,6 +1015,58 @@ a later run.
 **Capability.** An external warehouse system receives deliveries and
 receipts to pick and put away and reports the movements back (the
 integration context's connector pattern).
+
+- **Split** (lane wms, 2026-11-22) into S2q1 (outbound deliveries and
+  their goods issue) and S2q2 (inbound receipts and their goods receipt),
+  each a leaf: both directions of both documents are more than one
+  half-day slice. Decided by default (ADR-0082 As built S2q).
+
+#### S2q1 Outbound deliveries to the WMS and their goods issue reported back
+
+**Capability.** An integration administrator connects a warehouse
+system for some plants; each outbound delivery created at such a plant
+is sent to it to pick, and the goods issue it reports back is posted
+once, as a warehouse clerk's would be.
+
+- **Adds:** the connector kind `wms` (settings `adapter`, `base_url`,
+  `plants` by company code; credentials by `secret_ref` in the tenant's
+  vault namespace, PO 2026-11-16; one active connector per plant, 409
+  `integration.plant_has_wms`); the provider-neutral port
+  `integration.Warehouse` (send a message; list, read and acknowledge
+  the confirmations) with the stand-in's adapter (`wmstest`, refused in
+  production: `integration.adapter_not_certified`), called through the
+  egress client (public addresses only; the walkthrough's stand-in by
+  `ERP_WALKTHROUGH_WMS`); `integration.wms_message` (000445); the bus
+  consumer `wms-outbound` reading shipping's OutboundDeliveryChanged
+  (ADR-0007) and queueing the delivery's message once; the exchange
+  worker sending the queue (retries 1, 5, 15 min, 1 h, 4 h; six attempts;
+  the WMS's refusal final) and polling each active connector every 10 s for its
+  confirmations; `GET /v1/wms-messages`.
+- **Walkthrough:** `step_wms` (before close).
+- **Acceptance:** a delivery at a WMS plant is sent once, whatever reads
+  its event twice; the goods issue the WMS reports is posted once by its
+  message id (a confirmation listed again is acknowledged, not posted);
+  a confirmation for a delivery the connector was not sent, or one
+  shipping refuses, is recorded refused and posts nothing.
+- **As built** (2026-11-22): ADR-0082 As built S2q.
+
+#### S2q2 Inbound receipts to the WMS and their goods receipt reported back
+
+**Capability.** The warehouse system is sent each released purchase
+order's (and stock transport order's) items for a plant it manages, as
+receipts expected to put away, and the goods receipt it reports back is
+posted once by its message id through procurement's published API.
+Built on S2q1's connector, table, port and exchange (a message kind each
+way).
+
+**Later for the WMS connector:** a vendor's adapter (when the pilot or
+a customer names one; until then the stand-in alone, refused in
+production); sending a delivery created before its plant had a WMS, or
+again, by hand; a person's pick or goods issue refused on a delivery a
+WMS holds (SAP's decentralised WMS locks the delivery, from memory);
+changes and cancellations of a sent delivery; handling units, bins and
+serial or batch numbers in the messages; a push endpoint for a WMS that
+cannot be polled (security posture, the product owner's).
 
 ### S2r TMS connector
 

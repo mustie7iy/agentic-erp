@@ -2646,6 +2646,26 @@ func TestProviderClient(t *testing.T) {
 	}
 }
 
+// TestWMSClient: the server calls warehouse systems at public addresses
+// only, and with the walkthrough's warehouse system stand-in (which
+// config.Load reads in development alone) at it too; a stand-in the
+// egress client refuses stops the server before it serves (ADR-0082 As
+// built S2q).
+func TestWMSClient(t *testing.T) {
+	roots := x509.NewCertPool()
+	if c, err := wmsClient(config.Config{}); c == nil || err != nil {
+		t.Errorf("without a stand-in: got %v, %v; want a client", c, err)
+	}
+	walk := config.Config{Walkthrough: config.Walkthrough{WMS: netip.MustParseAddrPort("127.0.0.1:18445"), WMSRoots: roots}}
+	if c, err := wmsClient(walk); c == nil || err != nil {
+		t.Errorf("with the walkthrough's stand-in: got %v, %v; want a client", c, err)
+	}
+	refused := config.Config{Walkthrough: config.Walkthrough{WMS: netip.MustParseAddrPort("10.0.0.1:18445"), WMSRoots: roots}}
+	if err := (&server{cfg: refused}).newAPI(); err == nil || !strings.Contains(err.Error(), "the walkthrough's warehouse system") {
+		t.Errorf("a stand-in off the machine: got %v, want the server refused", err)
+	}
+}
+
 // TestSAPAndSFTPClients: the server stops before it serves when the
 // walkthrough's SFTP stand-in is off the machine (config.Load refuses it
 // too) or the SAP egress client cannot be built (ADR-0041 As built).
