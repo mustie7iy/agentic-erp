@@ -62,3 +62,18 @@ func TestRecovered(t *testing.T) {
 		})
 	}
 }
+
+// TestChargeLinesShareOfNothing: a group whose share of the tax rounds to
+// nothing makes no line, so the lines are the other group's and the
+// payment differences line.
+func TestChargeLinesShareOfNothing(t *testing.T) {
+	groups := []reliefGroup{{code: "AS", account: uuid.New(), tax: 300, lc: 1100}, {code: "AS", account: uuid.New(), tax: 1, lc: 4}}
+	lines := chargeLines(charge{tax: 3, lc: 11}, groups, uuid.New(), nil)
+	var got []string
+	for _, l := range lines {
+		got = append(got, fmt.Sprintf("%d/%d", l.Amount, *l.LC))
+	}
+	if s, want := fmt.Sprint(got), "[-3/-11 3/11]"; s != want {
+		t.Errorf("the lines: got %s, want %s", s, want)
+	}
+}
