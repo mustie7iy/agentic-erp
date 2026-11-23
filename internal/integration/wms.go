@@ -20,9 +20,9 @@ import (
 // once per message id (wms_receive.go). The connector names the plants
 // it manages; a plant is managed by one active wms connector at most, so
 // a delivery goes to one warehouse system and a goods issue is reported
-// by the one it was sent to. The WMS is reached through a provider-neutral port
-// (Warehouse), its adapter named by the settings: the stand-in's alone
-// until a vendor is chosen, refused in production.
+// by the one it was sent to. The WMS is reached through a
+// provider-neutral port (Warehouse), its adapter named by the settings:
+// the stand-in's alone until a vendor is chosen, refused in production.
 
 // WMS is the kind of a warehouse management system's connector.
 const WMS = "wms"
