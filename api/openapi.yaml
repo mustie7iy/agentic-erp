@@ -11339,6 +11339,7 @@ paths:
         - procurement.amount_too_large
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -11451,6 +11452,7 @@ paths:
         - procurement.amount_too_large
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -12051,6 +12053,7 @@ paths:
         - procurement.change_open
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_order_change
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -12164,6 +12167,7 @@ paths:
         - procurement.change_open
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_order_change
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -12306,6 +12310,7 @@ paths:
         - procurement.contract_exceeded
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_order_change
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -13215,6 +13220,7 @@ paths:
         - procurement.amount_too_large
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -13604,6 +13610,7 @@ paths:
         - procurement.currency_mismatch
         - procurement.duplicate_material_key
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -39209,6 +39216,7 @@ paths:
         - procurement.contract_exceeded
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_not_issued
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -54296,7 +54304,7 @@ components:
         supplying_plant_id:
           type: string
           format: uuid
-          description: "A plant of another company of the tenant that supplies the order, making it an intercompany stock transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`) of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422 `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the transfer price. Fixed once created; an intercompany order is not changed once released (409 `procurement.intercompany_order_change`)."
+          description: "A plant of another company of the tenant that supplies the order, making it an intercompany stock transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`) of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422 `procurement.intercompany_over_delivery`) and with a value above zero (422 `procurement.intercompany_item_value`, naming its `unit_price`: the supplying company bills each item at its value, `createIntercompanyBilling`): it is received once the supplying company has posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the transfer price. Fixed once created; an intercompany order is not changed once released (409 `procurement.intercompany_order_change`)."
         items:
           type: array
           items:
@@ -62547,7 +62555,7 @@ components:
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
-            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
+            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`); the intercompany billing that posted it (`GET /v1/intercompany-billings/{id}`, `createIntercompanyBilling`, S2i2), whose number is of the same `billing_document` range, so the id, not the number, tells which (an invoice whose id `getBillingDocument` does not find is an intercompany billing's when `getIntercompanyBilling` finds it); or, for a debit memo of dunning charges and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
             source_document_number: {type: string, description: "That document's number, a dunning notice's id for a dunning notice, which has no number; absent with `source_document_id`.", readOnly: true}
             reversal_entry_id: {type: string, format: uuid, description: "The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`, `reverseCustomerInvoice`). Absent unless `reversed`.", readOnly: true}
             reversal_entry_year: {type: integer, format: int32, description: "The reversal entry's fiscal year. Absent unless `reversed`.", readOnly: true}
@@ -68140,7 +68148,7 @@ components:
         id: {type: string, format: uuid}
         customer_invoice_id: {type: string, format: uuid, description: "The customer invoice or credit memo it renders."}
         customer_invoice_number: {type: string, description: "Its document number, the e-invoice's number (IBT-001)."}
-        source_document_id: {type: [string, 'null'], format: uuid, description: "The document of another context the customer document posted from (a billing document, `getBillingDocument`); null for one entered in receivables."}
+        source_document_id: {type: [string, 'null'], format: uuid, description: "The document of another context the customer document posted from (a billing document, `getBillingDocument`, or an intercompany billing, `getIntercompanyBilling`); null for one entered in receivables."}
         source_document_number: {type: [string, 'null'], description: "That document's number; null with `source_document_id`."}
         legal_entity_id: {type: string, format: uuid, description: "The company that issues it, the seller."}
         company_code: {type: string, description: "The company's code."}

@@ -218,7 +218,8 @@ func (e icEnv) issueRefused(t *testing.T, o map[string]any, status int, code str
 
 // TestIntercompanyOrderRefused: an intercompany order needs an active
 // plant of another company whose company is its supplier, and stock items
-// without an over-delivery tolerance; a draft's new supplier is checked
+// without an over-delivery tolerance, each valued above zero (S2i2 bills
+// it); a draft's new supplier is checked
 // again; a released one is not changed; only a released intercompany
 // order is issued, each item once.
 func TestIntercompanyOrderRefused(t *testing.T) {
@@ -234,6 +235,9 @@ func TestIntercompanyOrderRefused(t *testing.T) {
 		"a third party":         {e.supplier, e.p3, nil, "procurement.intercompany_supplier"},
 		"no stock item":         {e.sister, e.p3, map[string]any{"plant_id": nil, "storage_location_id": nil, "material_id": nil}, "procurement.intercompany_item_not_stock"},
 		"over-delivery allowed": {e.sister, e.p3, map[string]any{"over_delivery_pct": "5"}, "procurement.intercompany_over_delivery"},
+		"a price of zero":       {e.sister, e.p3, map[string]any{"unit_price": amount("0.00")}, "procurement.intercompany_item_value"},
+		"a value rounding to zero": {e.sister, e.p3, map[string]any{"quantity": map[string]any{"value": "0.001", "unit": "EA"}, "unit_price": amount("1.00")},
+			"procurement.intercompany_item_value"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e.Problem(422, c.want, "POST", orders, e.icOrder(t, c.supplier, c.plant, e.icItem(c.item)), "")

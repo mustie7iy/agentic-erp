@@ -35,6 +35,29 @@ func (s icBilling) row(number string, net, tax int64) stmt {
 	return step(icBillingSQL, s.tenant, s.billing, s.company, id(), s.receiving, s.issue, number, net, tax)
 }
 
+// with is the scene's billing (BD1, net 3000) with one text column
+// replaced.
+func (s icBilling) with(column, value string) stmt {
+	return step(`WITH b AS (SELECT $1::uuid AS tenant_id, $2::uuid AS id, $3::uuid AS le, $4::uuid AS recv, $5::uuid AS issue)
+		INSERT INTO sales.intercompany_billing (tenant_id, id, document_number, legal_entity_id, customer_id, purchase_order_id,
+			purchase_order_number, receiving_legal_entity_id, issue_document_id, issue_document_number, billing_date, posting_date, currency, net_amount,
+			tax_amount, customer_invoice_id, customer_invoice_number, journal_entry_year, journal_entry_id, created_by)
+		SELECT tenant_id, id, 'BD1', le, gen_random_uuid(), gen_random_uuid(), CASE WHEN $6 = 'purchase_order_number' THEN $7 ELSE 'PO1' END, recv, issue,
+			CASE WHEN $6 = 'issue_document_number' THEN $7 ELSE 'MD1' END, '2026-11-22', '2026-11-22', 'EUR', 3000, 0, gen_random_uuid(),
+			CASE WHEN $6 = 'customer_invoice_number' THEN $7 ELSE 'CI1' END, 2026, gen_random_uuid(), tenant_id FROM b`,
+		s.tenant, s.billing, s.company, s.receiving, s.issue, column, value)
+}
+
+// withInvoice is a billing of the scene's companies with its id, goods
+// issue, number and customer invoice.
+func (s icBilling) withInvoice(billing, issue uuid.UUID, number string, invoice uuid.UUID) stmt {
+	return step(`INSERT INTO sales.intercompany_billing (tenant_id, id, document_number, legal_entity_id, customer_id, purchase_order_id,
+			purchase_order_number, receiving_legal_entity_id, issue_document_id, issue_document_number, billing_date, posting_date, currency, net_amount,
+			tax_amount, customer_invoice_id, customer_invoice_number, journal_entry_year, journal_entry_id, created_by)
+		VALUES ($1, $2, $3, $4, gen_random_uuid(), gen_random_uuid(), 'PO1', $5, $6, 'MD1', '2026-11-22', '2026-11-22', 'EUR', 3000, 0, $7, 'CI1', 2026,
+			gen_random_uuid(), $1)`, s.tenant, billing, number, s.company, s.receiving, issue, invoice)
+}
+
 func (s icBilling) item(no, po int, net int64, code, jurisdiction any, tax int64) stmt {
 	return step(icBillingItemSQL, s.tenant, s.billing, no, po, net, code, jurisdiction, tax)
 }
@@ -42,8 +65,9 @@ func (s icBilling) item(no, po int, net int64, code, jurisdiction any, tax int64
 // TestIntercompanyBillingRules (S2i2, migration 000445; ADR-0082 As built
 // S2i): a billing bills another company, a goods issue once, with a net
 // amount above zero and a tax not below; its numbers are 1 to 40
-// characters; an item bills an order item once, numbered from 1, at an
-// amount above zero, and names a jurisdiction or bears tax only with a
+// characters; an invoice is of one billing; an item bills an order item
+// once, numbered from 1, at an amount above zero, and names a jurisdiction
+// or bears tax only with a
 // tax code.
 func TestIntercompanyBillingRules(t *testing.T) {
 	need(t)
@@ -66,6 +90,16 @@ func TestIntercompanyBillingRules(t *testing.T) {
 		}, "intercompany_billing_number_once"},
 		{"a number of 41 characters", func(s icBilling) []stmt { return []stmt{s.row(strings.Repeat("B", 41), 3000, 0)} },
 			"intercompany_billing_document_number_check"},
+		{"an order number of 41 characters", func(s icBilling) []stmt { return []stmt{s.with("purchase_order_number", strings.Repeat("P", 41))} },
+			"intercompany_billing_purchase_order_number_check"},
+		{"a goods issue number of 41 characters", func(s icBilling) []stmt { return []stmt{s.with("issue_document_number", strings.Repeat("M", 41))} },
+			"intercompany_billing_issue_document_number_check"},
+		{"an invoice number of 41 characters", func(s icBilling) []stmt { return []stmt{s.with("customer_invoice_number", strings.Repeat("C", 41))} },
+			"intercompany_billing_customer_invoice_number_check"},
+		{"an invoice of two billings", func(s icBilling) []stmt {
+			invoice := id()
+			return []stmt{s.withInvoice(s.billing, s.issue, "BD1", invoice), s.withInvoice(id(), id(), "BD2", invoice)}
+		}, "intercompany_billing_invoice_once"},
 		{"a net amount of zero", func(s icBilling) []stmt { return []stmt{s.row("BD1", 0, 0)} }, "intercompany_billing_net_positive"},
 		{"a negative tax", func(s icBilling) []stmt { return []stmt{s.row("BD1", 3000, -1)} }, "intercompany_billing_tax_not_negative"},
 		{"an order item twice", func(s icBilling) []stmt {

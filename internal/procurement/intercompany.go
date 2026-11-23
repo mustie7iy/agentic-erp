@@ -71,9 +71,13 @@ func (e *Endpoints) supplyingPlant(ctx context.Context, le, supplier uuid.UUID, 
 
 // intercompanyItem refuses an item an intercompany order cannot carry:
 // one that is no stock item (422 procurement.intercompany_item_not_stock),
-// or one received beyond the ordered quantity (422
+// one received beyond the ordered quantity (422
 // procurement.intercompany_over_delivery), as the receipts are held to
-// what the goods issue issued, the ordered quantity.
+// what the goods issue issued, the ordered quantity, or one whose value
+// (quantity × price ÷ price unit) is not above zero (422
+// procurement.intercompany_item_value): the supplying company bills every
+// item of the issue at that value as a customer invoice item (S2i2),
+// which receivables refuses at zero.
 func intercompanyItem(i int, it Item) error {
 	field := fmt.Sprintf("items[%d]", i)
 	switch {
@@ -83,6 +87,11 @@ func intercompanyItem(i int, it Item) error {
 	case money.ParseRat(it.OverDelivery).Sign() != 0:
 		return problem.Invalid("procurement.intercompany_over_delivery", field+".over_delivery_pct",
 			"0: an intercompany order receives what its goods issue issued")
+	}
+	// A value out of range is checkTotal's refusal of the items.
+	if value, err := money.Scale(it.UnitPrice, it.Quantity, int64(it.PriceUnit)); err == nil && value <= 0 {
+		return problem.Invalid("procurement.intercompany_item_value", field+".unit_price",
+			"a price whose item value is above zero: the supplying company bills each item of the goods issue at its value")
 	}
 	return nil
 }

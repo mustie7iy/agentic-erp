@@ -39511,10 +39511,14 @@ type CustomerInvoice struct {
 	// The entry's document number. Absent until posted.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The document the invoice was entered from: the billing document that posted it
-	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges
-	// and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`,
-	// `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent
-	// for an invoice a person entered (`createCustomerInvoice`).
+	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`); the intercompany billing that posted it
+	// (`GET /v1/intercompany-billings/{id}`, `createIntercompanyBilling`, S2i2), whose number is of the
+	// same `billing_document` range, so the id, not the number, tells which (an invoice whose id
+	// `getBillingDocument` does not find is an intercompany billing's when `getIntercompanyBilling` finds
+	// it); or, for a debit memo of dunning charges and interest, the dunning notice whose run's
+	// confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's
+	// cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered
+	// (`createCustomerInvoice`).
 	SourceDocumentID OptUUID `json:"source_document_id"`
 	// That document's number, a dunning notice's id for a dunning notice, which has no number; absent with
 	// `source_document_id`.
@@ -86305,7 +86309,8 @@ type OutgoingEInvoice struct {
 	// Its document number, the e-invoice's number (IBT-001).
 	CustomerInvoiceNumber string `json:"customer_invoice_number"`
 	// The document of another context the customer document posted from (a billing document,
-	// `getBillingDocument`); null for one entered in receivables.
+	// `getBillingDocument`, or an intercompany billing, `getIntercompanyBilling`); null for one entered in
+	// receivables.
 	SourceDocumentID NilUUID `json:"source_document_id"`
 	// That document's number; null with `source_document_id`.
 	SourceDocumentNumber NilString `json:"source_document_number"`
@@ -98704,9 +98709,11 @@ type PurchaseOrderCreate struct {
 	// of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company
 	// is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock
 	// item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422
-	// `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its
-	// goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the
-	// transfer price. Fixed once created; an intercompany order is not changed once released (409
+	// `procurement.intercompany_over_delivery`) and with a value above zero (422
+	// `procurement.intercompany_item_value`, naming its `unit_price`: the supplying company bills each
+	// item at its value, `createIntercompanyBilling`): it is received once the supplying company has
+	// posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price,
+	// the transfer price. Fixed once created; an intercompany order is not changed once released (409
 	// `procurement.intercompany_order_change`).
 	SupplyingPlantID OptUUID `json:"supplying_plant_id"`
 	// Items.

@@ -1286,7 +1286,12 @@ for the specialist) and S2i's decisions above.
   issue issued, at the order's price; its amount is the order item's
   value as procurement computes it (quantity × price ÷ price unit,
   rounded half away from zero; a stored value out of range fails
-  closed), so the billing's net is the order's, the transfer price. The
+  closed), so the billing's net is the order's, the transfer price. An
+  intercompany order's item is valued above zero (422
+  `procurement.intercompany_item_value` when the order is created or
+  changed, review round 1): receivables refuses a customer invoice item
+  of zero, and every item of the goods issue is billed, so an order with
+  such an item could otherwise never be billed. The
   billing's currency is the order's; the supplying company books it at
   its average rate as any foreign-currency invoice.
 - **Account and tax**: each item names the supplying company's revenue
@@ -1307,6 +1312,10 @@ for the specialist) and S2i's decisions above.
 - **Records**: audited (`sales.intercompany_billing.create`); no event of
   its own, the invoice publishing CustomerInvoiceChanged and
   CustomerInvoicePosted.
+- **The invoice's source**: a customer invoice's `source_document_id` may
+  now name an intercompany billing; the contract says so beside the
+  billing document it named alone (review round 1). Both are numbered
+  from the `billing_document` range, so the id tells them apart.
 - Walkthrough step 155, `step_intercompany_transport` (its
   `intercompany_billing` part): Maple Gulf Trading bills Maple the
   lamps it issued, CAD 320.00 zero-rated (Z0), Dr 1200 Cr 4000, once.

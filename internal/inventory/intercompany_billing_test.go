@@ -245,19 +245,21 @@ func TestIntercompanyBillingRefused(t *testing.T) {
 		code, field   string
 		onlyCompanies []uuid.UUID // nil: the tenant's person
 	}{
-		"no such order":           {e.bill(t, uuid.New(), e.sister2000, nil), 422, "request.reference_not_found", "purchase_order_id", nil},
-		"no intercompany order":   {e.bill(t, plain, e.sister2000, nil), 422, "sales.not_intercompany", "purchase_order_id", nil},
-		"not issued":              {e.bill(t, released["id"], e.sister2000, nil), 409, "sales.intercompany_not_issued", "", nil},
-		"no such customer":        {e.bill(t, po, uuid.New(), nil), 422, "request.reference_not_found", "customer_id", nil},
-		"a third party":           {e.bill(t, po, third, nil), 422, "sales.intercompany_customer", "customer_id", nil},
-		"the supplier":            {e.bill(t, po, e.sister, nil), 422, "sales.intercompany_customer", "customer_id", nil},
-		"another item":            {e.bill(t, po, e.sister2000, map[string]any{"po_item_no": 2}), 422, "sales.intercompany_items", "items[0].po_item_no", nil},
-		"an item twice":           {twice, 422, "sales.intercompany_items", "items", nil},
-		"before the goods issue":  {early, 422, "sales.billing_before_issue", "billing_date", nil},
-		"an input tax code":       {e.bill(t, po, e.sister2000, map[string]any{"tax_code": "V1"}), 422, "receivables.unknown_tax_code", "items[0].tax_code", nil},
-		"the receiving company's": {e.bill(t, po, e.sister2000, nil), 422, "request.reference_not_found", "purchase_order_id", []uuid.UUID{e.DE}},
-		"the supplying company's": {e.bill(t, po, e.sister2000, nil), 422, "request.reference_not_found", "purchase_order_id", []uuid.UUID{e.US}},
-		"an account of another":   {e.bill(t, po, e.sister2000, map[string]any{"account_id": e.Account(t, "2000", "400000")}), 422, "receivables.account_not_postable", "items[0].account_id", nil},
+		"no such order":                   {e.bill(t, uuid.New(), e.sister2000, nil), 422, "request.reference_not_found", "purchase_order_id", nil},
+		"no intercompany order":           {e.bill(t, plain, e.sister2000, nil), 422, "sales.not_intercompany", "purchase_order_id", nil},
+		"not issued":                      {e.bill(t, released["id"], e.sister2000, nil), 409, "sales.intercompany_not_issued", "", nil},
+		"no such customer":                {e.bill(t, po, uuid.New(), nil), 422, "request.reference_not_found", "customer_id", nil},
+		"a third party":                   {e.bill(t, po, third, nil), 422, "sales.intercompany_customer", "customer_id", nil},
+		"the supplier":                    {e.bill(t, po, e.sister, nil), 422, "sales.intercompany_customer", "customer_id", nil},
+		"another item":                    {e.bill(t, po, e.sister2000, map[string]any{"po_item_no": 2}), 422, "sales.intercompany_items", "items[0].po_item_no", nil},
+		"an item twice":                   {twice, 422, "sales.intercompany_items", "items", nil},
+		"before the goods issue":          {early, 422, "sales.billing_before_issue", "billing_date", nil},
+		"an input tax code":               {e.bill(t, po, e.sister2000, map[string]any{"tax_code": "V1"}), 422, "receivables.unknown_tax_code", "items[0].tax_code", nil},
+		"the receiving company's":         {e.bill(t, po, e.sister2000, nil), 422, "request.reference_not_found", "purchase_order_id", []uuid.UUID{e.DE}},
+		"the supplying company's":         {e.bill(t, po, e.sister2000, nil), 422, "request.reference_not_found", "purchase_order_id", []uuid.UUID{e.US}},
+		"a tax code of 11 characters":     {e.bill(t, po, e.sister2000, map[string]any{"tax_code": "O1234567890"}), 400, "request.invalid_body", "", nil},
+		"a jurisdiction of 11 characters": {e.bill(t, po, e.sister2000, map[string]any{"tax_jurisdiction": "AE-SH567890"}), 400, "request.invalid_body", "", nil},
+		"an account of another":           {e.bill(t, po, e.sister2000, map[string]any{"account_id": e.Account(t, "2000", "400000")}), 422, "receivables.account_not_postable", "items[0].account_id", nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			client := e.Client
