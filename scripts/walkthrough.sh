@@ -16918,6 +16918,65 @@ company_account() {
   field '.items[] | select(.number == "'"$2"'") | .id'
 }
 
+# step_sop_review is S2n (ADR-0084 As built S2n, plan-supply-chain.md
+# §S2n): Mira, the planner, starts Maple's S&OP review for three months.
+# It counts every material Maple plans (the H30 hinge at Toronto, steps
+# 152 and 153) by material group, unit and month: the forecast, in each
+# month the greater of the moving average of the hinge's goods issues
+# over 13 weeks (the 4 to maintenance, step 156) spread over the month's
+# days and Sally's confirmed order of 50 due now (the demand forecasting
+# agent's rule, in months); and in the first month the stock at Toronto,
+# its open purchase orders, stock transports and the planning runs'
+# proposals still to be ordered. The projected stock is the opening stock
+# and receipts less the consensus, which starts as the forecast. Mira
+# agrees 20 for the third month, naming its line by key; a key that is no
+# line is refused. The demand forecasting agent's own review is refused
+# (x-agent: false). Mira fixes the version: it changes no more, and it is
+# Maple's consensus plan.
+step_sop_review() {
+  heading "Step 159 — S&OP review: Maple's demand forecast reviewed against supply by material group and month; the planner agrees the consensus and fixes the plan version, which changes no more; the forecasting agent's own review refused"
+  local plan key1 key3 stock open3 balanced
+  [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
+  as mira
+  QUIET=1 api 200 '' listStock -p "material_id=$HINGE" -p page_size=500
+  stock=$(field '[.items[] | select(.plant_id == "'"$PLANT"'") | .quantity.value | tonumber] | add // 0')
+  say "Mira starts Maple's S&OP review for three months: per material group, unit and month, the forecast against the stock"
+  say "and receipts, from the day after Maple's day; the consensus starts as the forecast:"
+  api 201 '"S&OP plan \(.number) of \(.company_code): \(.status), as of \(.as_of), \(.first_day) to \(.last_day)",
+    (.lines[] | "  \(.key) (\(.materials) materials): forecast \(.forecast.value) (orders \(.orders.value)), opening \(.opening_stock.value), purchase orders \(.purchase_orders.value), transports \(.stock_transports.value), proposals \(.proposals.value), consensus \(.consensus.value), projected \(.projected_stock.value) \(.unit)")' \
+    createSopPlan -body "{\"legal_entity_id\": \"$LE\", \"months\": 3}"
+  plan=$(field .id)
+  key1=$(field '[.lines[] | select(.material_group == "FASTENERS" and .unit == "EA")][0].key')
+  key3=$(field '[.lines[] | select(.material_group == "FASTENERS" and .unit == "EA")][2].key')
+  expect "the version" "$(field '"\(.number) \(.status) \(.months)"')" "1 draft 3"
+  expect "the hinge's group in the first month: materials, orders, forecast" \
+    "$(field '.lines[] | select(.key == "'"$key1"'") | "\(.materials) \(.orders.value) \(.forecast.value)"')" "1 50 50"
+  expect "its opening stock, Toronto's" "$(field '.lines[] | select(.key == "'"$key1"'") | .opening_stock.value | tonumber')" "$stock"
+  balanced='[.lines[] | select(.material_group == "FASTENERS") | (.opening_stock.value | tonumber) + (.purchase_orders.value | tonumber)
+    + (.stock_transports.value | tonumber) + (.proposals.value | tonumber) - (.consensus.value | tonumber) - (.projected_stock.value | tonumber)
+    | fabs < 0.000001] | all'
+  expect "each month's projected stock, its opening stock and receipts less the consensus" "$(field "$balanced")" true
+  open3=$(field '.lines[] | select(.key == "'"$key3"'") | .opening_stock.value')
+  say "Mira agrees 20 for the third month, naming its line by key; its projected stock follows:"
+  api 200 '.lines[] | select(.key == "'"$key3"'") | "  \(.key): consensus \(.consensus.value), opening \(.opening_stock.value), projected \(.projected_stock.value) \(.unit)"' \
+    updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"20\"}}"
+  expect "the third month's consensus and opening stock" "$(field '.lines[] | select(.key == "'"$key3"'") | "\(.consensus.value) \(.opening_stock.value)"')" "20 $open3"
+  expect "its projected stock" "$(field "$balanced")" true
+  refused 422 mrp.sop_line_unknown updateSopPlan -p "id=$plan" -if-match "$ETAG" -body '{"consensus": {"BOLTS/EA/2026-01": "5"}}'
+  as demand-agent
+  say "Fixing the consensus is the planner's (x-agent: false): the demand forecasting agent's own review is refused:"
+  refused 403 identity.agent_not_allowed createSopPlan -body "{\"legal_entity_id\": \"$LE\"}"
+  as mira
+  say "Mira fixes the version as Maple's consensus plan; fixed, it changes no more:"
+  QUIET=1 api 200 '' getSopPlan -p "id=$plan"
+  api 200 '"S&OP plan \(.number): \(.status) at \(.fixed_at)"' fixSopPlan -p "id=$plan" -if-match "$ETAG"
+  expect "the version fixed by Mira" "$(field '"\(.status) \(.fixed_by != null)"')" "fixed true"
+  refused 409 mrp.sop_plan_fixed updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  api 200 '.items[] | "  consensus plan: version \(.number), fixed \(.fixed_at)"' listSopPlans -p "legal_entity_id=$LE" -p status=fixed
+  expect "Maple's fixed versions" "$(field '[.items[].id] | join(" ")')" "$plan"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -18948,7 +19007,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_close'
 
 main() {
   stop_unseen

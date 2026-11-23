@@ -1636,3 +1636,66 @@ promotions and collaborative forecasts; reading only orders with a
 quantity still open (a sales order stays `confirmed` once delivered in
 full, so the run pages a material's delivered orders too, at a cost that
 grows with its history).
+
+### S2n (2026-11-22)
+
+A planner reviews a company's demand forecast against supply by
+material group and month and fixes a consensus plan version (plan
+§S2n). Decided by default (SAP IBP's S&OP from memory, for the SAP
+specialist; ADR-0084 As built S2n has the API and schema):
+
+- **Where it lives**: the planning context `mrp` (ADR-0084 decides
+  §S2k–S2n), not controlling's planning versions (T93a, ADR-0050 §8):
+  those plan amounts by cost element and account for the budget; S&OP
+  plans quantities by material group, unit and month, from the planning
+  context's own data (the materials it plans, MRP's proposals). A plan
+  version is `mrp.sop_plan`, numbered per company; the consensus plan is
+  the company's fixed version with the highest number. Capacity is not
+  reviewed (no production context, plan S2n).
+- **Scope**: the materials the company plans (planning data at a plant,
+  whatever its MRP type) that are active, kept in stock and extended to
+  the plant, at those plants; one line per material group, base unit
+  (quantities of different units are never added) and calendar month.
+- **Horizon**: 1 to 12 calendar months, 3 by default, from the day after
+  the company's day (`config.DocumentDay`), the first month from that
+  day: SAP IBP's S&OP buckets are months (from memory); S2m's weeks are
+  its own.
+- **Forecast** of a month at a plant: S2m's rule in months, computed by
+  the review, not read from the agent's recommendations (its forecast is
+  a recommendation's text for a planner, and the forecast kept per
+  material and plant is S2m's Later): the greater of the moving average
+  of the plant's goods issues over the 13 weeks (91 days) to the
+  company's day, never below nothing, spread over the month's days, and
+  the orders due in the month: the confirmed sales orders' undelivered
+  quantity (due the day the customer asked for, else the order's date)
+  and the intercompany orders the plant supplies and has not issued (due
+  on their items' delivery dates, else the order's date); one due before
+  the horizon in its first month, one due after it left out. The orders
+  consume the forecast, so a line's forecast is never below its orders
+  (`sop_plan_line_forecast_covers_orders`). An intercompany order is an
+  order, not a negative receipt: its goods issue (643) is in the history
+  the moving average is of, so taking it off the supply as well would
+  count it twice (review round 1). In this S2n differs from S2m's agent,
+  whose open orders are sales orders alone. The agent's recommendation on
+  each material stays beside it for the planner (`listRecommendations`).
+- **Supply**, all in the first month (receipts carry no date, as a
+  planning run counts them, ADR-0084 §6): the stock at the plants'
+  storage locations (not in transit), the purchase orders' open
+  quantities (intercompany orders received included), stock transport
+  orders within the company in transit to the plants (one not yet issued
+  moves stock between its plants only) and the requisitions planning runs
+  proposed that are not ordered, cancelled or rejected.
+- **Projected stock** of a month: its opening stock (the first month's
+  the plants' stock, after it the month before's projected stock) and
+  receipts less the consensus; computed on read, not stored.
+- **Consensus**: starts as the forecast; the planner sets it per line
+  while the version is a draft; fixed, the version and its lines change
+  no more (database triggers); every step audited. People only
+  (x-agent: false): no ADR lets an agent fix a plan.
+
+**Later** (the plan's S2n Later, and the tracker's S&OP variants):
+capacity and supply optimisation, scenario comparison, approval of the
+consensus plan, receipts and requisitions by their dates, a review per
+plant or material, the consensus released to planning (the reorder
+point or a forecast MRP reads), disaggregation of a group's consensus to
+its materials.

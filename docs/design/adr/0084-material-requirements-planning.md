@@ -250,3 +250,44 @@ as a receipt, having no plant.
   its items' key, so a selective material reads the company's orders
   page by page; an index of items by material waits for a budget that
   needs it (no budget test covers these lists).
+
+### S2n (2026-11-22)
+
+S&OP plan versions live in this context (decided by default, ADR-0082
+As built S2n, which records why not controlling's planning versions):
+
+- Migration 000445 (03 §3.37; schema tests `db/sop_test.go`, the
+  triggers also as the owner): `mrp.sop_plan` and `mrp.sop_plan_line`;
+  permissions `mrp.sop.read` and `mrp.sop.write`.
+- API: `createSopPlan`, `listSopPlans`, `getSopPlan`, `updateSopPlan`
+  (the consensus by line key, JSON Merge Patch over a map, so a key not
+  named stays), `fixSopPlan`; every write human-only (`x-agent: false`),
+  in the demand forecasting and replenishment agents' never lists.
+  Problems `mrp.company_invalid`, `mrp.invalid_horizon`,
+  `mrp.sop_plan_empty`, `mrp.sop_plan_concurrent` (two reviews of a
+  company numbered at once, `sop_plan_number_once`; retry),
+  `mrp.sop_line_unknown`, `mrp.sop_plan_fixed`, with
+  `mrp.invalid_quantity`, `mrp.nothing_to_change` and
+  `mrp.unit_not_convertible` of S2k.
+- **Reads** (additions to published APIs, §2's direction): inventory's
+  `PlantIssues` (a plant's goods issues 201, 601, 643 less 202, 602 of
+  days, not in transit), sales' `PlantRequirementsDue` (§2's demand by
+  the day each order is due), procurement's `TransportReceipts` (stock
+  transport orders within the company in transit to the plant) and
+  `IntercompanyDue` (the intercompany orders the plant supplies and has
+  not issued, by the day each item is due). The review reads the plant's stock,
+  purchase orders' receipts and the run's proposals as a run does, and
+  counts a proposal open or taken over while its requisition is still to
+  be ordered (`counted`); the run's unit check (`inBase`) is shared.
+- **Database rules**: a fixed version and its lines change no more and a
+  fixed version gains no line (`sop_plan_fixed`, `sop_plan_line_fixed`,
+  on insert, update and delete); only a line's consensus changes.
+- **Locks.** A review reads everything as it is and locks nothing: it is
+  a snapshot of the company's day, and the next review counts what moved
+  since. Setting the consensus and fixing take the version's row lock
+  (FOR UPDATE) and then update its lines; nothing else writes them, so
+  there is no second order to deadlock with.
+- No event (the plan's "What every slice reuses": none until a consumer
+  asks); audited `mrp.sop_plan.create`, `.consensus` (each line's key
+  and consensus before and after) and `.fix`.
+- Walkthrough step 157, `step_sop_review`.

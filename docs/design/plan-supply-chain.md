@@ -912,6 +912,25 @@ capacity by material group and month and fixes a consensus plan version.
 agent's, promotions, collaborative forecasts with customers, IBP's
 supply optimisation.
 
+- **Detailed and as built** (lane sop, 2026-11-22; one slice, one leaf;
+  decided by default, ADR-0082 As built S2n and ADR-0084 As built S2n):
+  `createSopPlan` reviews a company on its day into a `draft` plan
+  version numbered per company (`mrp.sop_plan`): per material group,
+  base unit and calendar month of 1 to 12 (3 by default) from the day
+  after, the forecast (per planned material and plant the greater of the
+  moving average of 13 weeks' goods issues over the month's days and the
+  orders due in it, confirmed sales orders and intercompany orders it
+  supplies, S2m's rule in months), the orders, and in the first month the
+  stock, purchase orders, stock in transit and MRP's proposals still to
+  be ordered; the projected stock the opening stock
+  and receipts less the consensus, which starts as the forecast.
+  `updateSopPlan` sets the consensus by line key, `fixSopPlan` fixes the
+  version, which then changes no more (database triggers); audited;
+  people only. Capacity is not reviewed (no production context). Reads
+  inventory's `PlantIssues`, sales' `PlantRequirementsDue` and
+  procurement's `TransportReceipts` and `IntercompanyDue`, new in their published APIs.
+  Migration 000445; walkthrough step 157 (`step_sop_review`).
+
 ### S2o SAP migration of the material master (pilot)
 
 **Capability.** The migration run loads materials from SAP's MARA, MAKT

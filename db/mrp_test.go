@@ -9,9 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestMRPPermissions (S2k, migration 000436; ADR-0084 §5): the
-// permissions of material requirements planning are seeded and are no
-// approval permissions.
+// TestMRPPermissions (S2k, migration 000436; ADR-0084 §5; S2n, migration
+// 000445): the permissions of material requirements planning and S&OP
+// are seeded and are no approval permissions.
 func TestMRPPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'mrp.%' AND NOT is_approval ORDER BY code`)
@@ -22,7 +22,7 @@ func TestMRPPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "mrp.plan.read mrp.plan.write mrp.run.start"; got != want {
+	if got, want := strings.Join(codes, " "), "mrp.plan.read mrp.plan.write mrp.run.start mrp.sop.read mrp.sop.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

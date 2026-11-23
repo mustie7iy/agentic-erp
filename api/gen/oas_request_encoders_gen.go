@@ -1862,6 +1862,20 @@ func encodeCreateSodRuleRequest(
 	return nil
 }
 
+func encodeCreateSopPlanRequest(
+	req *SopPlanCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateStatisticalKeyFigureRequest(
 	req *StatisticalKeyFigureCreate,
 	r *http.Request,
@@ -3847,6 +3861,20 @@ func encodeUpdateRoleRequest(
 
 func encodeUpdateSegmentRequest(
 	req *SegmentUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateSopPlanRequest(
+	req *SopPlanUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

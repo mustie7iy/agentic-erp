@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,8 +21,10 @@ import (
 // materials, the ledger's accounts and the configuration's company days,
 // and, through mrpSupply, sales' demand, inventory's stock and prices and
 // procurement's receipts and requisitions, which it proposes and
-// withdraws through procurement's published API. Its runs' Operations are
-// the operations context's.
+// withdraws through procurement's published API, and for S&OP reviews
+// inventory's goods issues, sales' and intercompany orders' demand by
+// the day it is due and procurement's stock in transit (S2n). Its runs'
+// Operations are the operations context's.
 func MRP(cfg Config) *mrp.Endpoints {
 	return &mrp.Endpoints{Settings: configuration.Settings{}, Plants: tenancy.Directory{}, Materials: materials.Materials{}, Accounts: ledger.Accounts{},
 		Supply: mrpSupply{inventory: Inventory(cfg), procurement: Procurement(cfg)}, Runs: runOperations{kind: mrp.KindRun}, Pages: cfg.Pages, Now: cfg.Now}
@@ -34,9 +37,9 @@ type mrpSupply struct {
 	procurement *procurement.Endpoints
 }
 
-// opens are quantities in the mrp context's type.
-func opens[T any](rows []T, of func(T) mrp.Open) []mrp.Open {
-	out := make([]mrp.Open, len(rows))
+// opens are rows in the mrp context's type.
+func opens[T, U any](rows []T, of func(T) U) []U {
+	out := make([]U, len(rows))
 	for i, r := range rows {
 		out[i] = of(r)
 	}
@@ -92,4 +95,28 @@ func (s mrpSupply) Propose(ctx context.Context, p mrp.Proposal) (mrp.Proposed, e
 
 func (s mrpSupply) Withdraw(ctx context.Context, requisition uuid.UUID, version int32) (bool, error) {
 	return s.procurement.WithdrawProposal(ctx, requisition, version)
+}
+
+func (s mrpSupply) Issues(ctx context.Context, plant uuid.UUID, ms []uuid.UUID, from, to time.Time) (map[uuid.UUID]string, error) {
+	return s.inventory.PlantIssues(ctx, plant, ms, from, to)
+}
+
+// due is a quantity due on a day in the mrp context's type.
+func due(material uuid.UUID, unit, quantity string, day time.Time) mrp.Due {
+	return mrp.Due{Open: mrp.Open{MaterialID: material, Unit: unit, Quantity: quantity}, Day: day}
+}
+
+func (mrpSupply) DemandDue(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Due, error) {
+	rs, err := sales.Orders{}.PlantRequirementsDue(ctx, plant, ms)
+	return opens(rs, func(r sales.DueRequirement) mrp.Due { return due(r.MaterialID, r.Unit, r.Quantity, r.Due) }), err
+}
+
+func (mrpSupply) Transports(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Open, error) {
+	rs, err := procurement.Orders{}.TransportReceipts(ctx, plant, ms)
+	return opens(rs, onOrder), err
+}
+
+func (mrpSupply) IntercompanyDue(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Due, error) {
+	rs, err := procurement.Orders{}.IntercompanyDue(ctx, plant, ms)
+	return opens(rs, func(r procurement.DueOnOrder) mrp.Due { return due(r.MaterialID, r.Unit, r.Quantity, r.Due) }), err
 }

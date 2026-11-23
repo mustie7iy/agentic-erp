@@ -379,7 +379,7 @@ func TestNever(t *testing.T) {
 	}
 	for id, op := range ops {
 		writes := op.Method != http.MethodGet && !op.Reads
-		for _, of := range []string{"Requisition", "PurchaseOrder", "ScheduleLine", "MrpRun", "MaterialPlan"} {
+		for _, of := range []string{"Requisition", "PurchaseOrder", "ScheduleLine", "MrpRun", "MaterialPlan", "SopPlan"} {
 			if writes && strings.Contains(id, of) && !slices.Contains(replenishmentagent.Never, id) {
 				t.Errorf("never list: got %v, want it to hold %s", replenishmentagent.Never, id)
 			}

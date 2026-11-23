@@ -3,6 +3,7 @@ package procurement
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -48,6 +49,65 @@ func (Orders) OpenReceipts(ctx context.Context, plant uuid.UUID, materials []uui
 	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[OnOrder])
 	if err != nil {
 		return nil, fmt.Errorf("procurement: open receipts of %d materials at plant %s: %w", len(materials), plant, err)
+	}
+	return out, nil
+}
+
+// TransportReceipts is what stock transport orders within the company
+// in transit to the plant ($1) bring of the materials ($2), by material
+// and unit in that order (S2h; S2n, ADR-0084 As built S2n): their stock
+// left the supplying plant and is no plant's until received. An order not
+// yet issued moves stock between the company's plants only, and an
+// intercompany order the plant receives is a purchase order
+// (OpenReceipts), so neither is here. It reads the orders as they are,
+// locking nothing. Company access is not applied: the caller reads a plant
+// of a company it may act in.
+func (Orders) TransportReceipts(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT i.material_id, i.uom_code, trim_scale(sum(i.quantity))::text
+		FROM procurement.stock_transport_order_item i JOIN procurement.stock_transport_order o ON o.tenant_id = i.tenant_id AND o.id = i.order_id
+		WHERE o.receiving_plant_id = $1 AND o.status = 'in_transit' AND i.material_id = ANY($2)
+		GROUP BY i.material_id, i.uom_code ORDER BY i.material_id, i.uom_code`, plant, materials)
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[OnOrder])
+	if err != nil {
+		return nil, fmt.Errorf("procurement: stock in transit of %d materials to plant %s: %w", len(materials), plant, err)
+	}
+	return out, nil
+}
+
+// DueOnOrder is an OnOrder due on a day.
+type DueOnOrder struct {
+	MaterialID uuid.UUID
+	Unit       string
+	Due        time.Time
+	Quantity   string
+}
+
+// IntercompanyDue is what intercompany stock transport orders (S2i) the
+// plant ($1) supplies, not closed or cancelled and not yet issued, order
+// of the materials ($2), by the day each item is due (its delivery date,
+// else the order's date), by material, unit and day in that order: the
+// plant's demand from the companies it supplies, which an S&OP review
+// counts as it counts sales orders (S2n; ADR-0084 As built S2n). Removed
+// items order nothing. It reads the orders as they are, locking nothing.
+// Company access is not applied: the caller reads a plant of a company it
+// may act in.
+func (Orders) IntercompanyDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]DueOnOrder, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT i.material_id, i.uom_code, coalesce(i.delivery_date, o.order_date) AS due, trim_scale(sum(i.quantity))::text
+		FROM procurement.purchase_order_item i JOIN procurement.purchase_order o ON o.tenant_id = i.tenant_id AND o.id = i.purchase_order_id
+		WHERE o.supplying_plant_id = $1 AND o.issue_document_id IS NULL AND o.status NOT IN ('closed', 'cancelled') AND NOT i.is_removed
+			AND i.material_id = ANY($2)
+		GROUP BY i.material_id, i.uom_code, due ORDER BY i.material_id, i.uom_code, due`, plant, materials)
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[DueOnOrder])
+	if err != nil {
+		return nil, fmt.Errorf("procurement: intercompany orders of %d materials from plant %s: %w", len(materials), plant, err)
 	}
 	return out, nil
 }

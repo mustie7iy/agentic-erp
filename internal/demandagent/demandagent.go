@@ -65,8 +65,9 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // replenishment agent's never list (with a schedule line and its
 // call-off, which creates an order, and the GR/IR clearing); every write
 // of an RFQ (created, published, awarded, cancelled, closed); a planning
-// run and materials' planning data. Its tools hold none of them: they are
-// reads and createRecommendation.
+// run, materials' planning data and S&OP plan versions (S2n: the planner
+// reviews the forecast and fixes the consensus). Its tools hold none of
+// them: they are reads and createRecommendation.
 var Never = []string{
 	"createMaterialDocument", "reverseMaterialDocument", "postGoodsReceipt", "reverseGoodsReceipt", "postOutboundDeliveryGoodsIssue",
 	"createStockTransportOrder", "postStockTransportGoodsIssue", "postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue",
@@ -78,7 +79,7 @@ var Never = []string{
 	"createPurchaseOrder", "updatePurchaseOrder", "releasePurchaseOrder", "closePurchaseOrder", "cancelPurchaseOrder",
 	"createPurchaseOrderChange", "updatePurchaseOrderChange", "cancelPurchaseOrderChange", "submitPurchaseOrderChange",
 	"createRfq", "publishRfq", "awardRfq", "cancelRfq", "closeRfq", "createScheduleLine", "callOffScheduleLine", "createGrIrClearing",
-	"startMrpRun", "createMaterialPlan", "updateMaterialPlan"}
+	"startMrpRun", "createMaterialPlan", "updateMaterialPlan", "createSopPlan", "updateSopPlan", "fixSopPlan"}
 
 const system = `You forecast a material's demand at the plants of a company, for a planner to decide.
 
