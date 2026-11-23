@@ -2771,9 +2771,16 @@
       ]
      },
      {
+      "s": "D",
+      "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt by a dispute case's write-off (T86d) recovered by an adjustment the return reports (createBadDebtRelief, migration 000446): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 as the research states it (six months, counted by default from the later of the invoice's date and its due date, written off, the customer's notice date given; counted cumulatively, at most the invoice's tax), in the VAT 201's box 1 adjustment column of the item's emirate; for a Canadian one under the Excise Tax Act s.231 (written off), on the GST34's line 107; never by a plain write-off or a short payment; its evidence (the write-off entry, the notice date) kept with the relief; a person posts it (ADR-0049 As built batch 90)",
+      "r": "ADR-0049 As built batch 90 · ADR-0065 (write-offs) · T86d · migration 000446 · POST/GET /v1/bad-debt-reliefs · walkthrough step_bad_debt_relief (step 157)",
+      "src": "po:2026-11-21",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt recovered by an adjustment in the return, never by a plain write-off or a short payment (no tax correction on those) and never by a dispute's price cut, which is a tax credit note (T86d's credit memo): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 (the supply made and its tax paid, six months past the date of supply, written off in the accounts and the customer notified), for a Canadian one under the Excise Tax Act s.231 (the account written off as bad); its evidence (the write-off entry, the notice) kept with the adjustment, the reversal when the customer pays later; tax-relevant, so a person posts it (Musto, UAE and Canada tax specialist, 2026-11-21; conditions as the coordinator's research of 21 Nov states them, to read in the law's text before the slice)",
-      "r": "ADR-0049 As built batch 88 · ADR-0065 (write-offs) · T86d",
+      "t": "Bad debt relief reversed when the customer pays later: what the customer pays of an invoice whose output tax a bad debt relief recovered charges that share of the tax again, by an adjustment the return reports (UAE Art. 64, Canada ETA s.231, as the coordinator's research of 21 Nov states it; the conditions to read in the law's text first)",
+      "r": "ADR-0049 As built batch 90",
       "src": "po:2026-11-21",
       "c": []
      }
@@ -3293,6 +3300,13 @@
         "t": "An AR accountant resolves an accepted dispute case, in full or in part, by a customer credit memo per accepted invoice through receivables or by a write-off to the payment differences account; the case closes as accepted naming the documents",
         "r": "T86d · docs/design/plan-depth-3.md §T86d · db/migrations/000404, 000405 · dispute_case resolution columns · dispute_case_item accepted amounts and credit memo · POST /v1/dispute-cases/{id}:resolve · collections.dispute.resolve · DisputeCaseChanged resolved · receivables credit memo per item (source the case's item) · write-off SA entry, source_context collections, to payment_difference_expense, an item of a dunning charge's debit memo refused (422 collections.dunning_charge_write_off, TestWriteOffOfADunningCharge) · collectionsagent.Never · walkthrough step_dispute_resolution · ADR-0065 As built",
         "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A dispute case disputes at most what is still owed of an item: today a case's amount is bounded by the item's line amount, and a write-off or credit memo leaves the item open beside its credit, so a second case can write the same invoice off again, past its gross (money correctness; bad debt relief refuses relieving more than the gross, 422 receivables.bad_debt_relief_exceeds_invoice, but the second write-off still posts)",
+        "r": "internal/collections/dispute_items.go disputed · ADR-0065 As built T86d · ADR-0049 As built batch 90",
+        "src": "review:batch90",
         "c": []
        },
        {
@@ -5775,9 +5789,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2i2 Intercompany billing: the supplying company bills an intercompany stock transport order's posted goods issue to the business partner that is the receiving company, at the order's prices, its tax by the supplying company's tax code, posted as a customer invoice, once per goods issue",
-      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i2) · ADR-0082 As built S2i",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i2) · ADR-0082 As built S2i, S2i2 · db/migrations/000448 · sales.intercompany_billing, _item · POST/GET /v1/intercompany-billings · GET /v1/intercompany-billings/{id} · procurement.Orders.Issued · partner.Customer.GroupCompanyID · walkthrough step_intercompany_transport (step 155, intercompany_billing)",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
@@ -5915,6 +5929,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: a planning run's demand leaves out the intercompany stock transport orders its plant supplies and has not issued (S2i): an MRP run nets only sales orders and the reorder point, so a supplying plant proposes nothing for what another company of the group ordered from it, which the S&OP review counts as demand (procurement.Orders.IntercompanyDue)",
+      "r": "internal/app/mrp.go Demand · internal/mrp runwork.go · procurement.Orders.IntercompanyDue · ADR-0084 As built S2n · S2k",
+      "src": "review:batch90",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The replenishment agent recommends what to order, from which supplier and when, from the run's proposals for a buyer to decide",
       "r": "S2l · docs/design/plan-supply-chain.md §S2l · ADR-0072 As built S2l · ADR-0084 As built S2l · internal/replenishmentagent · erp agent replenish -run ID · agent type replenishment · listPurchaseOrders, listContracts material_id · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
@@ -5945,14 +5966,14 @@
      {
       "s": "D",
       "t": "The demand forecasting agent forecasts a material's demand by plant from its goods issues and open orders and states its accuracy",
-      "r": "S2m · docs/design/plan-supply-chain.md §S2m · ADR-0072 As built S2m · ADR-0082 As built S2m · internal/demandagent · erp agent demand-forecast -company CODE -material NUMBER · agent type demand_forecast · listSalesOrders plant_id, material_id · evals/demand_forecast · walkthrough step_demand_forecast_agent (step 157)",
+      "r": "S2m · docs/design/plan-supply-chain.md §S2m · ADR-0072 As built S2m · ADR-0082 As built S2m · internal/demandagent · erp agent demand-forecast -company CODE -material NUMBER · agent type demand_forecast · listSalesOrders plant_id, material_id · evals/demand_forecast · walkthrough step_demand_forecast_agent (step 158)",
       "src": "po:2026-11-17",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A planner reviews the forecast against supply by material group and month and fixes a consensus plan version",
-      "r": "S2n · docs/design/plan-supply-chain.md §S2n",
+      "r": "S2n · docs/design/plan-supply-chain.md §S2n · ADR-0082 As built S2n · ADR-0084 As built S2n · internal/mrp sop.go, sopreview.go · migration 000447 · createSopPlan, listSopPlans, getSopPlan, updateSopPlan, fixSopPlan · mrp.sop.read, mrp.sop.write · walkthrough step_sop_review (step 159)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5978,11 +5999,26 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "An external warehouse system receives deliveries and receipts to pick and put away and reports the movements back through a connector",
       "r": "S2q · docs/design/plan-supply-chain.md §S2q",
       "src": "po:2026-11-17",
-      "c": []
+      "c": [
+       {
+        "s": "D",
+        "t": "An external warehouse system is sent each outbound delivery created at a plant it manages to pick, and the goods issue it reports back is posted once by its message id",
+        "r": "S2q1 · docs/design/plan-supply-chain.md §S2q1 · ADR-0082 As built S2q · migrations 000449, 000450 · GET /v1/wms-messages · walkthrough step_wms (step 160)",
+        "src": "po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An external warehouse system is sent the receipts expected at a plant it manages to put away, and the goods receipt it reports back is posted once by its message id",
+        "r": "S2q2 · docs/design/plan-supply-chain.md §S2q2",
+        "src": "po:2026-11-17",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",

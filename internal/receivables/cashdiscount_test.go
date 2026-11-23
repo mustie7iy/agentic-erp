@@ -31,7 +31,7 @@ var uaeCompany = fixture.Company{Code: "5000", Name: "Maple Gulf Trading", Count
 
 // discountEnv is a tenant with a company like 2000 (outputCodes) under
 // the code, country and currency of co: its number ranges for customer
-// invoices and incoming payments, payment differences on 680000,
+// invoices and incoming payments, dispute cases written and resolved, payment differences on 680000,
 // exchange differences on 420000 and 630000, underpayments within 5.00 of
 // its currency and 5%, its currency's rate into the group's EUR, a customer
 // set up on 120000 with the term SK14 (2% within 14 days, 30 net), and
@@ -66,7 +66,8 @@ func newDiscountEnv(t *testing.T, co fixture.Company, extend func(*config.Compan
 			extend(&c, doc)
 		}
 		doc.Companies = append(doc.Companies, c)
-	}, append(slices.Clone(perms), "tax.registration.read", "tax.return.read")...)
+	}, append(slices.Clone(perms), "tax.registration.read", "tax.return.read", "collections.dispute.read", "collections.dispute.write",
+		"collections.dispute.resolve")...)
 	e := discountEnv{env: env{Env: f}, currency: co.Currency}
 	pgtest.Scan(t, `SELECT id FROM tenancy.legal_entity WHERE tenant_id = $1 AND code = $2`, []any{f.Tenant.ID, co.Code}, &e.le)
 	e.revenue, e.receivable, e.diff = f.Account(t, co.Code, "400000"), f.Account(t, co.Code, "120000"), f.Account(t, co.Code, "680000")
@@ -158,9 +159,16 @@ func discounted(ref string) string { return strings.TrimSuffix(ref, "}") + `, "c
 // quarter of 2026 the test reads, as code=amount.
 func (e discountEnv) vat201(t *testing.T, codes ...string) string {
 	t.Helper()
+	return e.boxes(t, "2026-01-01", codes...)
+}
+
+// boxes is the boxes of the draft return of the company's registration
+// for the period from start the test reads, as code=amount.
+func (e discountEnv) boxes(t *testing.T, start string, codes ...string) string {
+	t.Helper()
 	regs, _ := e.Must(200, "GET", "/v1/tax-registrations?legal_entity_id="+e.le.String(), "", "")
 	reg := regs["items"].([]any)[0].(map[string]any)["id"].(string)
-	draft, _ := e.Must(200, "GET", "/v1/tax-registrations/"+reg+"/draft-return?period_start=2026-01-01", "", "")
+	draft, _ := e.Must(200, "GET", "/v1/tax-registrations/"+reg+"/draft-return?period_start="+start, "", "")
 	got := map[string]string{}
 	for _, b := range draft["boxes"].([]any) {
 		box := b.(map[string]any)

@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -43,6 +44,38 @@ func (Orders) PlantRequirements(ctx context.Context, plant uuid.UUID, materials 
 	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Requirement])
 	if err != nil {
 		return nil, fmt.Errorf("sales: requirements of %d materials at plant %s: %w", len(materials), plant, err)
+	}
+	return out, nil
+}
+
+// DueRequirement is a Requirement due on a day: what the plant's
+// confirmed orders due then ordered of a material in one unit and have
+// not delivered.
+type DueRequirement struct {
+	MaterialID uuid.UUID
+	Unit       string
+	Due        time.Time
+	Quantity   string
+}
+
+// PlantRequirementsDue is PlantRequirements by the day each order is due,
+// the day its customer asked for, else its date, by material, unit and
+// day in that order: the open orders S&OP's review buckets by month (S2n;
+// ADR-0084 As built S2n), as S2m's agent buckets them by week.
+func (Orders) PlantRequirementsDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]DueRequirement, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT i.material_id, i.uom_code, coalesce(o.requested_delivery_date, o.order_date) AS due,
+			trim_scale(sum(i.quantity - i.delivered_quantity))::text
+		FROM sales.sales_order_item i JOIN sales.sales_order o ON o.tenant_id = i.tenant_id AND o.id = i.sales_order_id
+		WHERE o.plant_id = $1 AND o.status = 'confirmed' AND i.material_id = ANY($2) AND i.removed_in_change IS NULL
+			AND i.quantity > i.delivered_quantity
+		GROUP BY i.material_id, i.uom_code, due ORDER BY i.material_id, i.uom_code, due`, plant, materials)
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[DueRequirement])
+	if err != nil {
+		return nil, fmt.Errorf("sales: requirements due of %d materials at plant %s: %w", len(materials), plant, err)
 	}
 	return out, nil
 }

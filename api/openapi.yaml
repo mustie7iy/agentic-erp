@@ -11339,6 +11339,7 @@ paths:
         - procurement.amount_too_large
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -11451,6 +11452,7 @@ paths:
         - procurement.amount_too_large
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -12051,6 +12053,7 @@ paths:
         - procurement.change_open
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_order_change
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -12164,6 +12167,7 @@ paths:
         - procurement.change_open
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_order_change
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -12306,6 +12310,7 @@ paths:
         - procurement.contract_exceeded
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_order_change
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -13215,6 +13220,7 @@ paths:
         - procurement.amount_too_large
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -13604,6 +13610,7 @@ paths:
         - procurement.currency_mismatch
         - procurement.duplicate_material_key
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
         - procurement.invalid_account_assignment
@@ -18567,6 +18574,194 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/bad-debt-reliefs:
+    get:
+      operationId: listBadDebtReliefs
+      tags:
+        - receivables
+      summary: List bad debt reliefs
+      description: "The bad debt reliefs of the companies the caller may act in (ADR-0049 As built, bad debt relief), each as `getBadDebtRelief` gives it, newest posting date last. Filtered by company, customer invoice and posting date (the tax date, which decides the return that reports it). Sortable by: `posting_date`."
+      x-permission: receivables.invoice.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_invoice_id
+          in: query
+          required: false
+          description: Only the reliefs of this customer invoice.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PostingDateFrom"
+        - $ref: "#/components/parameters/PostingDateTo"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of bad debt reliefs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadDebtReliefPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createBadDebtRelief
+      tags:
+        - receivables
+      summary: Recover the output tax of a customer invoice written off as a bad debt
+      description: "Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049 As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country, whose rule its tax specialist has not confirmed), written off by a dispute case's write-off (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax items, the total rounded once half away from zero and shared out by their tax, in the invoice's currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months have passed since the supply, counted by default from the later of the invoice's date and its net due date (a relief dated on or before the day they pass is refused, 422 `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`); a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code` is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax (ADR-0049 §11). A code of another kind or direction, or without a component of each of the invoice's tax components with an account, levying the line's emirate exactly where the invoice's item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on `posting_date` (else today, the company's date in its time zone), which is its tax date and must be in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422 `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the tax recovered with the code and the emirate, and their total credited to the company's `payment_difference_expense` account, which the write-off debited (422 `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409 `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a second dispute case writing the same item off again); two claims of one invoice at once are ordered by the invoice's row lock. An audit record is written with it. A retry with the same `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later is not built yet. Human-only (`x-agent: false`)."
+      x-permission: receivables.invoice.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.bad_debt_not_invoice
+        - receivables.bad_debt_relief_claimed
+        - receivables.bad_debt_relief_exceeds_invoice
+        - receivables.bad_debt_relief_not_provided
+        - receivables.bad_debt_relief_too_early
+        - receivables.customer_not_notified
+        - receivables.invalid_notice_date
+        - receivables.invalid_relief_tax_code
+        - receivables.invalid_status
+        - receivables.no_output_tax
+        - receivables.no_write_off_account
+        - receivables.not_written_off
+        - receivables.relief_before_write_off
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BadDebtReliefCreate"
+            examples:
+              uae:
+                summary: Relief of a UAE invoice written off
+                value:
+                  customer_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  write_off_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  tax_code: AS
+                  customer_notified_on: "2026-11-15"
+                  posting_date: "2026-11-22"
+      responses:
+        "201":
+          description: "Created; the relief recorded, with the journal entry that posted it."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadDebtRelief"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/bad-debt-reliefs/{id}:
+    get:
+      operationId: getBadDebtRelief
+      tags:
+        - receivables
+      summary: Get a bad debt relief
+      description: "A bad debt relief of a company the caller may act in (ADR-0049 As built, bad debt relief): the invoice and the write-off it relieves, what that wrote off and the tax recovered, the adjustment code, the customer's notice and the journal entry that posted it."
+      x-permission: receivables.invoice.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The bad debt relief.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadDebtRelief"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/collection-worklist:
@@ -23844,6 +24039,223 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/intercompany-billings:
+    get:
+      operationId: listIntercompanyBillings
+      tags:
+        - sales
+      summary: List intercompany billings
+      description: "The intercompany billings (ADR-0082 As built S2i, S2i2) the caller may read, each as `getIntercompanyBilling` gives it: those billed by a company the caller may act in, and those billed to one (the receiving company of the order). Filtered by the billing company, the receiving company and the purchase order billed. Sortable by: `billing_date` (the default), `document_number`."
+      x-permission: sales.billing.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the billings of this company, the supplying company that billed.
+          schema:
+            type: string
+            format: uuid
+        - name: receiving_legal_entity_id
+          in: query
+          required: false
+          description: Only the billings to this company, the receiving company of the orders billed.
+          schema:
+            type: string
+            format: uuid
+        - name: purchase_order_id
+          in: query
+          required: false
+          description: Only the billing of this intercompany stock transport order (`GET /v1/purchase-orders/{id}`); an order is billed once.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of intercompany billings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyBillingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createIntercompanyBilling
+      tags:
+        - sales
+      summary: Bill an intercompany stock transport order's goods issue and post it as a customer invoice
+      description: "The supplying company bills the posted goods issue (643) of an intercompany stock transport order (ADR-0082 As built S2i, S2i2; SAP's intercompany billing, billing type IV, from memory) to the business partner that is the receiving company, and posts it at once as a customer invoice, in one transaction. The order (`purchase_order_id`) is one of a company the caller may act in, supplied by a plant of another company the caller may act in, which bills (422 `request.reference_not_found` naming `purchase_order_id` otherwise); an order naming no supplying plant is refused (422 `sales.not_intercompany`), one whose goods issue is not posted yet (409 `sales.intercompany_not_issued`) or is billed already (409 `sales.intercompany_billed`: a goods issue is billed once, and of two requests racing for one the second meets this). The customer (`customer_id`) is the business partner whose group company is the order's company (422 `sales.intercompany_customer`), set up as a customer in the supplying company. Every item of the order is billed once (422 `sales.intercompany_items` otherwise), its ordered quantity, which the goods issue issued, at the order's price, the transfer price: its amount is the order item's value, quantity × price ÷ price unit rounded half away from zero, in the order's currency, so the billing's net amount is the order's. Each item names the supplying company's revenue account and, optionally, its output tax code and tax jurisdiction; an item whose code levies the UAE's emirates and that names none takes the supplying plant's emirate (the seller's side, ADR-0049 §11). The billing is dated `billing_date`, else the supplying company's date today in its time zone, never before the goods issue (422 `sales.billing_before_issue`), and numbered from that company's `billing_document` range. Accounts receivable enters and posts the customer invoice (document type `DR`) as for a billing document (`postBillingDocument`): the billing date its invoice and tax date, the customer's payment term in the company, the output tax calculated by the items' codes, Dr the customer's reconciliation account, Cr each item's account and the output tax; it names the billing as its source. Its refusals leave nothing billed or posted and name the request's own fields (`customer_id`, `items[i].account_id`, `items[i].tax_code`), such as a customer not set up in the supplying company (422 `receivables.customer_not_usable`), an account not postable there (422 `receivables.account_not_postable`), a code that is no output tax code of that company (422 `receivables.unknown_tax_code`) and a closed period (409 `ledger.period_not_open`). The posting date is the request's, else the supplying company's date today. The billing names its customer invoice, the invoice's journal entry, its tax and gross amounts and each item's tax, and is never changed (cancelling it is Later). Audited (`sales.intercompany_billing.create`); the invoice publishes CustomerInvoiceChanged and CustomerInvoicePosted. A retry with the same `Idempotency-Key` answers the billing created. Human-only (`x-agent: false`)."
+      x-permission: sales.billing.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - sales.billing_before_issue
+        - sales.intercompany_billed
+        - sales.intercompany_customer
+        - sales.intercompany_items
+        - sales.intercompany_not_issued
+        - sales.not_intercompany
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The intercompany order whose goods issue is billed, its customer and the accounts and tax codes of its items.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntercompanyBillingCreate"
+            examples:
+              export:
+                summary: A zero-rated export dated the supplying company's date today
+                value:
+                  purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  items:
+                    - po_item_no: 1
+                      account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+                      tax_code: Z0
+      responses:
+        "201":
+          description: "Created; the billing, posted."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyBilling"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/intercompany-billings/{id}":
+    get:
+      operationId: getIntercompanyBilling
+      tags:
+        - sales
+      summary: Get an intercompany billing
+      description: "One intercompany billing (ADR-0082 As built S2i, S2i2) with the supplying company that billed and the receiving company billed by id and code, its customer by number and name, the intercompany order and its goods issue by id and number, its dates, its net, tax and gross amounts, the customer invoice it posted as with that invoice's journal entry, and its items, each with the order item it bills, the quantity, the order's price, its amount, its tax and its revenue account by number and name. One the caller may act in neither company of is not found (404), as one that does not exist."
+      x-permission: sales.billing.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The intercompany billing.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntercompanyBilling"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/revenue-contracts:
     get:
       operationId: listRevenueContracts
@@ -26572,6 +26984,241 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/sop-plans:
+    post:
+      operationId: createSopPlan
+      tags:
+        - mrp
+      summary: Start an S&OP review
+      description: "Starts a sales and operations planning review of a company (ADR-0084 As built S2n; plan-supply-chain.md §S2n; SAP IBP's S&OP review in monthly buckets, from memory): a new plan version, `draft`, numbered per company from 1, that reviews the demand forecast against supply by material group and month, on the company's day (`as_of`). It reviews every material the company plans (`createMaterialPlan`, whatever its MRP type) that is active, kept in stock and extended to the plant, at the plants it plans it; lines per material group, base unit (quantities of different units are never added) and month, the `months` calendar months of the horizon from the day after `as_of` (the first one from that day). Per line: the **forecast**, per material and plant the greater of the moving average of its goods issues (to a cost center, a delivery's and an intercompany one, less their reversals) over the 13 weeks to `as_of`, spread over the month's days, and what its orders due in the month order and it has not delivered or issued: its confirmed sales orders (due the day the customer asked for, else the order's date) and the intercompany orders it supplies and has not issued (due on their items' delivery dates, else the order's date), whose goods issues the moving average holds once issued; one due before the horizon in its first month — the demand forecasting agent's rule (S2m) in months; **orders**, those orders; and in the first month the supply the plants have: **opening_stock** (stock at their storage locations, not in transit), **purchase_orders** (open quantities of purchase orders not closed or cancelled, intercompany ones received included), **stock_transports** (stock transport orders within the company in transit to its plants) and **proposals** (the requisitions planning runs proposed at the plants that are not ordered, cancelled or rejected). The **consensus** starts as the forecast; `updateSopPlan` changes it; **projected_stock** is the opening stock and receipts less the consensus, the next month's opening stock. Capacity is not reviewed (no production). The company is an active one the caller may act in (422 `mrp.company_invalid`); `months` from 1 to 12 (422 `mrp.invalid_horizon`); a company that plans no such material has nothing to review (422 `mrp.sop_plan_empty`); a quantity in a unit the material no longer has cannot be counted (409 `mrp.unit_not_convertible`); two versions of a company started at once: one is refused (409 `mrp.sop_plan_concurrent`), to retry. Audited. A retry with the same `Idempotency-Key` answers the plan created. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - mrp.company_invalid
+        - mrp.invalid_horizon
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_empty
+        - mrp.unit_not_convertible
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The review to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SopPlanCreate"
+            examples:
+              quarter:
+                summary: Review Maple's next three months
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  months: 3
+      responses:
+        "201":
+          description: "Created; the plan version, `draft`, with its lines."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    get:
+      operationId: listSopPlans
+      tags:
+        - mrp
+      summary: List S&OP plan versions
+      description: "The S&OP plan versions of the companies the caller may act in (ADR-0084 As built S2n), each as `getSopPlan` gives it, in the order they were started. Filtered by company and status: a company's consensus plan is its fixed version with the highest number. Sortable by: `created_at`."
+      x-permission: mrp.sop.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: "Only plan versions in this status. A value that is no status matches none."
+          schema:
+            type: string
+            maxLength: 20
+            description: "Plan version status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [draft, fixed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of plan versions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlanPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sop-plans/{id}":
+    get:
+      operationId: getSopPlan
+      tags:
+        - mrp
+      summary: Get an S&OP plan version
+      description: "One S&OP plan version (ADR-0084 As built S2n): its company, number, status, the day it reviewed on and its horizon, who fixed it and when, and its lines by material group, unit and month, as `createSopPlan` describes them. One of a company the caller cannot act in is not found."
+      x-permission: mrp.sop.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The plan version.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateSopPlan
+      tags:
+        - mrp
+      summary: Change the consensus of a draft S&OP plan version
+      description: "Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set to `null` is refused (400); a change to what every named line already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's consensus before and after. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        - mrp.invalid_quantity
+        - mrp.nothing_to_change
+        - mrp.sop_line_unknown
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_fixed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The consensus to set.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SopPlanUpdate"
+            examples:
+              consensus:
+                summary: Fasteners in December agreed at 60
+                value:
+                  consensus:
+                    FASTENERS/EA/2026-12: "60"
+      responses:
+        "200":
+          description: The changed plan version.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sop-plans/{id}:fix":
+    post:
+      operationId: fixSopPlan
+      tags:
+        - mrp
+      summary: Fix an S&OP plan version as the consensus
+      description: "Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus included (the database refuses any change); the company's consensus plan is its fixed version with the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_fixed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The fixed plan version.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/outbound-deliveries:
@@ -37785,6 +38432,7 @@ paths:
               - ticketing
               - treasury_export
               - einvoice_provider
+              - wms
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -37817,6 +38465,7 @@ paths:
         - integration.ebics_not_certified
         - integration.invalid_secret_ref
         - integration.invalid_settings
+        - integration.plant_has_wms
         - integration.unknown_kind
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -37857,6 +38506,66 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/wms-messages:
+    get:
+      operationId: listWMSMessages
+      tags:
+        - integration
+      summary: List the messages exchanged with warehouse systems
+      description: "The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who may act in every company, inbound ones refused before their delivery was known. Outbound (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in its `plants` is queued once as a message giving the warehouse system the delivery to pick (its `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant and storage location by code, the delivery by id and number with its sales order's and customer's numbers, and each item's number, material number, quantity and unit), `pending` until the exchange sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours, its code in `last_error_code`: the warehouse system unreachable, or the connector not usable since (`integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_wms`, or the stand-in in production, `integration.adapter_not_certified`), which its administrator may put right meanwhile; the warehouse system's refusal (`integration.wms_refused`) or the sixth attempt's failure is final, and a last attempt whose outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the warehouse system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked quantities recorded (an item it was sent and does not name picked at nothing) and its goods issue posted (shipping's `pickOutboundDelivery` and `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's company), naming the material document; or `refused` with the problem that stopped it, nothing of it posted: one that is not a JSON `goods_issue` message naming its own message id and an `outbound_delivery_id`, or that holds `\\u0000`, which cannot be kept as received (`integration.wms_message_unreadable`; its body kept as its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`, `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not posted twice. Filters: connector, direction, status and the outbound delivery."
+      x-permission: integration.connector.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: connector_id
+          in: query
+          required: false
+          description: Only the messages of this `wms` connector.
+          schema:
+            type: string
+            format: uuid
+        - name: direction
+          in: query
+          required: false
+          description: "Only the messages of this direction: `outbound` (to the warehouse system) or `inbound` (reported back)."
+          schema:
+            type: string
+            description: "A message's direction. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [outbound, inbound]
+        - name: status
+          in: query
+          required: false
+          description: "Only the messages of this status: `pending`, `sent` or `failed` (outbound), `posted` or `refused` (inbound)."
+          schema:
+            type: string
+            description: "A message's status. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [pending, sent, failed, posted, refused]
+        - name: outbound_delivery_id
+          in: query
+          required: false
+          description: Only the messages of this outbound delivery.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WMSMessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/connectors/{id}":
     get:
       operationId: getConnector
@@ -37899,6 +38608,7 @@ paths:
         - integration.duplicate_name
         - integration.invalid_secret_ref
         - integration.invalid_settings
+        - integration.plant_has_wms
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -37955,7 +38665,9 @@ paths:
         - integration.adapter_not_certified
         - integration.duplicate_name
         - integration.ebics_not_certified
+        - integration.invalid_settings
         - integration.invalid_status
+        - integration.plant_has_wms
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -39012,6 +39724,7 @@ paths:
         - procurement.contract_exceeded
         - procurement.currency_mismatch
         - procurement.intercompany_item_not_stock
+        - procurement.intercompany_item_value
         - procurement.intercompany_not_issued
         - procurement.intercompany_over_delivery
         - procurement.intercompany_supplier
@@ -54100,7 +54813,7 @@ components:
         supplying_plant_id:
           type: string
           format: uuid
-          description: "A plant of another company of the tenant that supplies the order, making it an intercompany stock transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`) of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422 `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the transfer price. Fixed once created; an intercompany order is not changed once released (409 `procurement.intercompany_order_change`)."
+          description: "A plant of another company of the tenant that supplies the order, making it an intercompany stock transport order (ADR-0082 As built S2i): an active plant (422 `procurement.supplying_plant_invalid`) of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422 `procurement.intercompany_over_delivery`) and with a value above zero (422 `procurement.intercompany_item_value`, naming its `unit_price`: the supplying company bills each item at its value, `createIntercompanyBilling`): it is received once the supplying company has posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the transfer price. Fixed once created; an intercompany order is not changed once released (409 `procurement.intercompany_order_change`)."
         items:
           type: array
           items:
@@ -62294,6 +63007,65 @@ components:
         posting_date: {type: string, format: date, description: "The posting date; absent: the one entered with the invoice, else today, the company's date in its time zone (`companies[].time_zone`)."}
       examples:
         - posting_date: "2026-11-11"
+    BadDebtReliefCreate:
+      type: object
+      description: "A claim of bad debt relief: the invoice written off, the write-off, the adjustment code and, where the company's country asks for it, when the customer was notified."
+      additionalProperties: false
+      required: [customer_invoice_id, write_off_journal_entry_id, tax_code]
+      properties:
+        customer_invoice_id: {type: string, format: uuid, description: "The posted customer invoice written off (`GET /v1/customer-invoices/{id}`)."}
+        write_off_journal_entry_id: {type: string, format: uuid, description: "The journal entry of the dispute case's write-off that wrote the invoice off (`write_off_journal_entry_id` of the case's resolution)."}
+        tax_code: {type: string, pattern: "^[A-Z0-9]{1,4}$", description: "The adjustment code (kind `adjustment`) the relief is posted under: an output code levying the emirate for a UAE company, an input GST/HST code for a Canadian one."}
+        customer_notified_on: {type: string, format: date, description: "The date the customer was notified of what was written off; required for a UAE company (Art. 64), recorded when given for another."}
+        posting_date: {type: string, format: date, description: "The relief's posting date and tax date; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
+      examples:
+        - customer_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          write_off_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          tax_code: AS
+          customer_notified_on: "2026-11-15"
+    BadDebtRelief:
+      type: object
+      description: "The output tax of a customer invoice written off as a bad debt, recovered by an adjustment the tax return reports (ADR-0049 As built, bad debt relief). It is recorded once, when it posts, and never changes."
+      required: [id, legal_entity_id, company_code, company_name, customer_invoice_id, customer_invoice_number, customer_id, customer_number, customer_name,
+        dispute_case_id, write_off_journal_entry_id, write_off_journal_entry_year, write_off_journal_entry_number, currency, written_off_amount, tax_amount,
+        local_written_off_amount, local_tax_amount, tax_code, posting_date, journal_entry_id, journal_entry_year, journal_entry_number, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company whose output tax is recovered.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer invoice written off (`GET /v1/customer-invoices/{id}`).", readOnly: true}
+        customer_invoice_number: {type: string, description: "The invoice's document number.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The invoice's customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        dispute_case_id: {type: string, format: uuid, description: "The dispute case whose write-off wrote the invoice off (`GET /v1/dispute-cases/{id}`).", readOnly: true}
+        write_off_journal_entry_id: {type: string, format: uuid, description: "The write-off's journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        write_off_journal_entry_year: {type: integer, format: int32, description: "The write-off entry's fiscal year.", readOnly: true}
+        write_off_journal_entry_number: {type: string, description: "The write-off entry's document number.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The invoice's currency (ISO 4217), which `written_off_amount` and `tax_amount` are in.", readOnly: true}
+        written_off_amount: {$ref: "#/components/schemas/Money", description: "What the write-off wrote off of the invoice."}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax recovered: the share of the invoice's output tax in what was written off."}
+        local_written_off_amount: {$ref: "#/components/schemas/Money", description: "What was written off in the company's currency, at the invoice's booked rate."}
+        local_tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax recovered in the company's currency, at the invoice's booked rate: what the return reports."}
+        tax_code: {type: string, description: "The adjustment code the relief was posted under.", readOnly: true}
+        customer_notified_on: {type: string, format: date, description: "The date the customer was notified of what was written off; absent when none was given.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The relief's posting date and tax date.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The relief's journal entry, its lines the tax recovered by emirate (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The relief entry's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The relief entry's document number.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When the relief was recorded.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The principal who recorded it.", readOnly: true}
+    BadDebtReliefPage:
+      type: object
+      description: One page of bad debt reliefs.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BadDebtRelief"}
+          description: The bad debt reliefs on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     CustomerInvoiceItem:
       type: object
       description: "An item of a customer invoice, with the tax calculated for it when the invoice was entered."
@@ -62351,7 +63123,7 @@ components:
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
-            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
+            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`); the intercompany billing that posted it (`GET /v1/intercompany-billings/{id}`, `createIntercompanyBilling`, S2i2), whose number is of the same `billing_document` range, so the id, not the number, tells which (an invoice whose id `getBillingDocument` does not find is an intercompany billing's when `getIntercompanyBilling` finds it); or, for a debit memo of dunning charges and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
             source_document_number: {type: string, description: "That document's number, a dunning notice's id for a dunning notice, which has no number; absent with `source_document_id`.", readOnly: true}
             reversal_entry_id: {type: string, format: uuid, description: "The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`, `reverseCustomerInvoice`). Absent unless `reversed`.", readOnly: true}
             reversal_entry_year: {type: integer, format: int32, description: "The reversal entry's fiscal year. Absent unless `reversed`.", readOnly: true}
@@ -64530,6 +65302,141 @@ components:
               tax_code: GO5
               order_item_no: 1
               credited_amount: {amount: "0.00", currency: CAD}
+    IntercompanyBillingCreate:
+      type: object
+      description: "Bill an intercompany stock transport order's posted goods issue to the business partner that is the receiving company (S2i2): every item of the order once, with the supplying company's revenue account and output tax."
+      required: [purchase_order_id, customer_id, items]
+      additionalProperties: false
+      properties:
+        purchase_order_id: {type: string, format: uuid, description: "The intercompany stock transport order (`GET /v1/purchase-orders/{id}`, naming `supplying_plant_id`) whose goods issue is billed."}
+        customer_id: {type: string, format: uuid, description: "The business partner whose group company is the order's company (`GET /v1/business-partners/{id}`), a customer of the supplying company."}
+        billing_date: {type: string, format: date, description: "The billing date, the customer invoice's invoice and tax date, not before the goods issue; absent: the supplying company's date today in its time zone."}
+        posting_date: {type: string, format: date, description: "The customer invoice's posting date; absent: the supplying company's date today in its time zone."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/IntercompanyBillingItemInput"}
+          description: "Every item of the order, each once."
+    IntercompanyBillingItemInput:
+      type: object
+      description: "How an item of the order is billed."
+      required: [po_item_no, account_id]
+      additionalProperties: false
+      properties:
+        po_item_no: {type: integer, format: int32, minimum: 1, description: "The order item."}
+        account_id: {type: string, format: uuid, description: "The supplying company's revenue account the item is credited to."}
+        tax_code: {type: string, minLength: 1, maxLength: 10, description: "The supplying company's output tax code; absent: no tax."}
+        tax_jurisdiction: {type: string, minLength: 1, maxLength: 10, description: "The subdivision the tax is levied in, where the code levies its lines' subdivision (the emirate of a UAE supply, `AE-SH`); absent with such a code: the supplying plant's emirate."}
+    IntercompanyBillingItem:
+      type: object
+      description: "An item of an intercompany billing: an order item's issued quantity at the order's price, credited to the supplying company's revenue account with its output tax."
+      required: [item_no, po_item_no, material_id, description, quantity, unit_price, price_unit, net_amount, tax_amount, account_id, account_number, account_name]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number in the billing, from 1, in the order of the request's items; the customer invoice's item of the same number.", readOnly: true}
+        po_item_no: {type: integer, format: int32, description: "The order item billed.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The ordered quantity, which the goods issue issued, in the order item's unit."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "The order's price per `price_unit`, the transfer price."}
+        price_unit: {type: integer, format: int32, description: "The quantity the unit price is for.", readOnly: true}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The item's amount: quantity × price ÷ price unit, rounded half away from zero, the order item's value."}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax the customer invoice's item bore; zero without a tax code."}
+        account_id: {type: string, format: uuid, description: "The revenue account credited.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
+        tax_code: {type: string, description: "The output tax code; absent: none.", readOnly: true}
+        tax_jurisdiction: {type: string, description: "The subdivision its tax is levied in; absent where the code levies none.", readOnly: true}
+    IntercompanyBilling:
+      type: object
+      description: "An intercompany billing (sales, ADR-0082 As built S2i, S2i2): the supplying company's bill of an intercompany stock transport order's goods issue to the business partner that is the receiving company, at the order's prices, posted at once as a customer invoice and never changed."
+      required: [id, document_number, legal_entity_id, company_code, customer_id, customer_number, customer_name, receiving_legal_entity_id,
+        receiving_company_code, purchase_order_id, purchase_order_number, issue_document_id, issue_document_number, billing_date, posting_date, currency,
+        net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number,
+        items, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, readOnly: true, description: "The billing's id."}
+        document_number: {type: string, description: "Its number, from the supplying company's `billing_document` range.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The supplying company, which bills.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The business partner that is the receiving company (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "Its business partner number.", readOnly: true}
+        customer_name: {type: string, description: "Its name, as it is now.", readOnly: true}
+        receiving_legal_entity_id: {type: string, format: uuid, description: "The receiving company, the order's.", readOnly: true}
+        receiving_company_code: {type: string, description: "That company's code.", readOnly: true}
+        purchase_order_id: {type: string, format: uuid, description: "The intercompany stock transport order billed (`GET /v1/purchase-orders/{id}`).", readOnly: true}
+        purchase_order_number: {type: string, description: "The order's document number.", readOnly: true}
+        issue_document_id: {type: string, format: uuid, description: "The order's goods issue (643, `GET /v1/material-documents/{id}`), which is billed once.", readOnly: true}
+        issue_document_number: {type: string, description: "The goods issue's number.", readOnly: true}
+        billing_date: {type: string, format: date, description: "The billing date, its customer invoice's invoice and tax date.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The date its customer invoice posted on.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217), which it is billed in.", readOnly: true}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts: the order's value, the transfer price."}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The output tax of its customer invoice."}
+        gross_amount: {$ref: "#/components/schemas/Money", description: "Net and tax: what the receiving company owes."}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer invoice it posted as (`GET /v1/customer-invoices/{id}`), the receiving company's open item in the supplying company.", readOnly: true}
+        customer_invoice_number: {type: string, description: "The customer invoice's document number.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The entry's document number.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyBillingItem"}
+          description: "The items, by item number."
+          readOnly: true
+        created_at: {type: string, format: date-time, readOnly: true, description: "When it was billed and posted."}
+        created_by: {type: string, format: uuid, readOnly: true, description: "Who billed it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da7"
+          document_number: BD000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d02"
+          company_code: AE01
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100077
+          customer_name: Maple Industries Canada
+          receiving_legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          receiving_company_code: "3000"
+          purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          purchase_order_number: PO000042
+          issue_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          issue_document_number: MD000007
+          billing_date: "2026-11-22"
+          posting_date: "2026-11-22"
+          currency: CAD
+          net_amount: {amount: "320.00", currency: CAD}
+          tax_amount: {amount: "0.00", currency: CAD}
+          gross_amount: {amount: "320.00", currency: CAD}
+          customer_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          customer_invoice_number: CI000003
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          journal_entry_year: 2026
+          journal_entry_number: "1400000003"
+          items:
+            - item_no: 1
+              po_item_no: 1
+              material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              description: Desk lamp DL-1
+              quantity: {value: "20", unit: EA}
+              unit_price: {amount: "16.00", currency: CAD}
+              price_unit: 1
+              net_amount: {amount: "320.00", currency: CAD}
+              tax_amount: {amount: "0.00", currency: CAD}
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              account_number: "4000"
+              account_name: Sales revenue
+              tax_code: Z0
+          created_at: "2026-11-22T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    IntercompanyBillingPage:
+      type: object
+      description: One page of intercompany billings.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/IntercompanyBilling"}
+          description: The intercompany billings on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     BillingDocumentPage:
       type: object
       description: One page of billing documents.
@@ -66617,6 +67524,122 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    SopPlanCreate:
+      type: object
+      description: "The S&OP review to start: a company and the months of its horizon."
+      required: [legal_entity_id]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company to review.", example: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01}
+        months: {type: integer, format: int32, minimum: 1, maximum: 12, default: 3, description: "The calendar months of the horizon, the first the one after the company's day begins in; 3 when absent."}
+    SopPlanUpdate:
+      type: object
+      description: "The consensus of lines of a draft plan version, by line key."
+      required: [consensus]
+      additionalProperties: false
+      properties:
+        consensus:
+          type: object
+          minProperties: 1
+          maxProperties: 1000
+          description: "A line's `key` mapped to its new consensus, a plain decimal in the line's unit."
+          additionalProperties:
+            type: string
+            maxLength: 30
+            pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$"
+    SopPlanLine:
+      type: object
+      description: "One material group's demand and supply in one unit and month of a plan version (ADR-0084 As built S2n), in that unit."
+      required: [key, material_group, unit, month, first_day, last_day, materials, forecast, orders, opening_stock, purchase_orders, stock_transports, proposals, consensus, projected_stock]
+      properties:
+        key: {type: string, description: "The line's key, `material_group/unit/month`, by which `updateSopPlan` names it.", readOnly: true}
+        material_group: {type: string, description: "The materials' group.", readOnly: true}
+        unit: {type: string, description: "The materials' base unit.", readOnly: true}
+        month: {type: string, pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$", description: "The calendar month, `YYYY-MM`.", readOnly: true}
+        first_day: {type: string, format: date, description: "The month's first day in the horizon: the day after the plan's `as_of` in its first month.", readOnly: true}
+        last_day: {type: string, format: date, description: "The month's last day.", readOnly: true}
+        materials: {type: integer, format: int32, description: "The materials of the group in the unit the plan reviews.", readOnly: true}
+        forecast: {$ref: "#/components/schemas/Quantity", description: "The forecast demand: per material and plant the greater of its moving average of goods issues over the month's days and its orders due in the month; never below `orders`."}
+        orders: {$ref: "#/components/schemas/Quantity", description: "What the plants' confirmed sales orders and the intercompany orders they supply order and they have not delivered or issued, due in the month."}
+        opening_stock: {$ref: "#/components/schemas/Quantity", description: "The stock at the month's start: the plants' stock in the first month, the previous month's projected stock after."}
+        purchase_orders: {$ref: "#/components/schemas/Quantity", description: "The purchase orders' open quantities, in the first month; zero after."}
+        stock_transports: {$ref: "#/components/schemas/Quantity", description: "Stock transport orders within the company in transit to the plants, in the first month; zero after."}
+        proposals: {$ref: "#/components/schemas/Quantity", description: "The requisitions planning runs proposed at the plants, not ordered, cancelled or rejected, in the first month; zero after."}
+        consensus: {$ref: "#/components/schemas/Quantity", description: "The demand agreed: the forecast until the planner changes it."}
+        projected_stock: {$ref: "#/components/schemas/Quantity", description: "The opening stock and receipts less the consensus; negative when the demand agreed is not covered."}
+    SopPlan:
+      description: "A version of a company's sales and operations plan (ADR-0084 As built S2n): a review of the demand forecast against supply by material group and month, fixed as the consensus."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, number, status, as_of, first_day, last_day, months, lines]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            number: {type: integer, format: int32, description: "The version's number in the company, from 1.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [draft, fixed]
+              description: "`draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            as_of: {type: string, format: date, description: "The company's day it reviewed on.", readOnly: true}
+            first_day: {type: string, format: date, description: "The horizon's first day, the day after `as_of`.", readOnly: true}
+            last_day: {type: string, format: date, description: "The horizon's last day, the last of its last month.", readOnly: true}
+            months: {type: integer, format: int32, description: "The months of the horizon.", readOnly: true}
+            fixed_at: {type: string, format: date-time, description: "When it was fixed; absent while it is a draft.", readOnly: true}
+            fixed_by: {type: string, format: uuid, description: "Who fixed it; absent while it is a draft.", readOnly: true}
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/SopPlanLine"
+              description: "Per material group, unit and month, by group, unit and month."
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-11-22T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-22T10:00:01Z"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          number: 1
+          status: draft
+          as_of: "2026-11-22"
+          first_day: "2026-11-23"
+          last_day: "2026-11-30"
+          months: 1
+          lines:
+            - key: FASTENERS/EA/2026-11
+              material_group: FASTENERS
+              unit: EA
+              month: "2026-11"
+              first_day: "2026-11-23"
+              last_day: "2026-11-30"
+              materials: 1
+              forecast: {value: "50", unit: EA}
+              orders: {value: "50", unit: EA}
+              opening_stock: {value: "36", unit: EA}
+              purchase_orders: {value: "0", unit: EA}
+              stock_transports: {value: "0", unit: EA}
+              proposals: {value: "40", unit: EA}
+              consensus: {value: "50", unit: EA}
+              projected_stock: {value: "26", unit: EA}
+    SopPlanPage:
+      type: object
+      description: One page of S&OP plan versions.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SopPlan"
+          description: The plan versions on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     Batch:
       type: object
       description: "A batch (SAP MCH1): a lot of a batch-managed material, with its manufacture and expiry dates. It does not change."
@@ -67812,7 +68835,7 @@ components:
         id: {type: string, format: uuid}
         customer_invoice_id: {type: string, format: uuid, description: "The customer invoice or credit memo it renders."}
         customer_invoice_number: {type: string, description: "Its document number, the e-invoice's number (IBT-001)."}
-        source_document_id: {type: [string, 'null'], format: uuid, description: "The document of another context the customer document posted from (a billing document, `getBillingDocument`); null for one entered in receivables."}
+        source_document_id: {type: [string, 'null'], format: uuid, description: "The document of another context the customer document posted from (a billing document, `getBillingDocument`, or an intercompany billing, `getIntercompanyBilling`); null for one entered in receivables."}
         source_document_number: {type: [string, 'null'], description: "That document's number; null with `source_document_id`."}
         legal_entity_id: {type: string, format: uuid, description: "The company that issues it, the seller."}
         company_code: {type: string, description: "The company's code."}
@@ -69075,6 +70098,63 @@ components:
           requested_by: 0192a000-0000-7000-8000-000000000101
           created_at: "2026-04-17T13:05:00Z"
           updated_at: "2026-04-17T13:05:09Z"
+    WMSMessage:
+      type: object
+      description: "A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, S2q1): an outbound delivery sent to pick, or a goods issue it reported back."
+      required: [id, connector_id, connector_name, direction, message_id, kind, body, status, attempts, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: Message id., readOnly: true}
+        connector_id: {type: string, format: uuid, description: "The `wms` connector (`getConnector`).", readOnly: true}
+        connector_name: {type: string, description: "The connector's name.", readOnly: true}
+        direction:
+          type: string
+          description: "`outbound` (to the warehouse system) or `inbound` (reported back). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [outbound, inbound]
+          readOnly: true
+        message_id: {type: string, description: "The message's id at the warehouse system: an outbound message's own id, which the warehouse system deduplicates on; an inbound one's, the warehouse system's.", readOnly: true}
+        kind:
+          type: string
+          description: "`outbound_delivery` (outbound) or `goods_issue` (inbound). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [outbound_delivery, goods_issue]
+          readOnly: true
+        legal_entity_id: {type: string, format: uuid, description: "The delivery's company; absent on an inbound message refused before its delivery was known.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        outbound_delivery_id: {type: string, format: uuid, description: "The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.", readOnly: true}
+        outbound_delivery_number: {type: string, description: "The outbound delivery's number.", readOnly: true}
+        plant_code: {type: string, description: "Outbound: the delivery's plant, which the connector manages.", readOnly: true}
+        body:
+          description: "A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as `{\"text\": ...}`, at most 1000 characters of it)."
+          readOnly: true
+        status:
+          type: string
+          description: "Outbound: `pending` (queued, or waiting for its next attempt), `sent` or `failed`; inbound: `posted` or `refused`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [pending, sent, failed, posted, refused]
+          readOnly: true
+        attempts: {type: integer, format: int32, minimum: 0, maximum: 6, description: "Outbound: the attempts made to send it; inbound: 0.", readOnly: true}
+        next_attempt_at: {type: string, format: date-time, description: "Pending: when it is next sent.", readOnly: true}
+        last_error_code: {type: string, description: "Outbound: the problem code of the last failed attempt; absent when none failed.", readOnly: true}
+        sent_at: {type: string, format: date-time, description: "Outbound: when the warehouse system took it.", readOnly: true}
+        problem_code: {type: string, description: "Refused: the problem that stopped its posting.", readOnly: true}
+        problem_detail: {type: string, description: "Refused: the problem's detail.", readOnly: true}
+        material_document_id: {type: string, format: uuid, description: "Posted: the goods issue's material document (`getMaterialDocument`).", readOnly: true}
+        material_document_number: {type: string, description: "Posted: the material document's number.", readOnly: true}
+        acknowledged_at: {type: string, format: date-time, description: "Inbound: when the warehouse system was told it is recorded.", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true}
+        updated_at: {type: string, format: date-time, readOnly: true}
+    WMSMessagePage:
+      type: object
+      description: One page of messages exchanged with warehouse systems.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/WMSMessage"}
+          description: The messages on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          readOnly: true
     CashExportPage:
       type: object
       description: One page of exports of snapshots to treasury systems.
@@ -74534,6 +75614,7 @@ components:
                 - ticketing
                 - treasury_export
                 - einvoice_provider
+                - wms
               readOnly: true
             name:
               type: string
@@ -74543,7 +75624,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`."
             secret_ref:
               type: string
               description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -74587,6 +75668,7 @@ components:
             - ticketing
             - treasury_export
             - einvoice_provider
+            - wms
         name:
           type: string
           description: Name, unique per tenant.
@@ -74595,7 +75677,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`."
         secret_ref:
           type: string
           description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -74617,7 +75699,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`."
         secret_ref:
           type:
             - string

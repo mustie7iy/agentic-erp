@@ -281,6 +281,10 @@ type CreateAuditEvidenceExportRes interface {
 	createAuditEvidenceExportRes()
 }
 
+type CreateBadDebtReliefRes interface {
+	createBadDebtReliefRes()
+}
+
 type CreateBatchRes interface {
 	createBatchRes()
 }
@@ -403,6 +407,10 @@ type CreateHierarchyRes interface {
 
 type CreateIncomingPaymentRes interface {
 	createIncomingPaymentRes()
+}
+
+type CreateIntercompanyBillingRes interface {
+	createIntercompanyBillingRes()
 }
 
 type CreateInternalOrderBudgetChangeRes interface {
@@ -585,6 +593,10 @@ type CreateSodRuleRes interface {
 	createSodRuleRes()
 }
 
+type CreateSopPlanRes interface {
+	createSopPlanRes()
+}
+
 type CreateStatisticalKeyFigurePostingRes interface {
 	createStatisticalKeyFigurePostingRes()
 }
@@ -705,6 +717,10 @@ type FinalizeConsolidationRunRes interface {
 	finalizeConsolidationRunRes()
 }
 
+type FixSopPlanRes interface {
+	fixSopPlanRes()
+}
+
 type GetAccountRes interface {
 	getAccountRes()
 }
@@ -783,6 +799,10 @@ type GetAuditEvidenceExportFileRes interface {
 
 type GetAuditEvidenceExportRes interface {
 	getAuditEvidenceExportRes()
+}
+
+type GetBadDebtReliefRes interface {
+	getBadDebtReliefRes()
 }
 
 type GetBalanceCarryForwardRes interface {
@@ -1011,6 +1031,10 @@ type GetHierarchyRes interface {
 
 type GetIncomingPaymentRes interface {
 	getIncomingPaymentRes()
+}
+
+type GetIntercompanyBillingRes interface {
+	getIntercompanyBillingRes()
 }
 
 type GetInternalOrderBudgetRes interface {
@@ -1309,6 +1333,10 @@ type GetSodRuleRes interface {
 	getSodRuleRes()
 }
 
+type GetSopPlanRes interface {
+	getSopPlanRes()
+}
+
 type GetStatisticalKeyFigureRes interface {
 	getStatisticalKeyFigureRes()
 }
@@ -1431,6 +1459,10 @@ type ListAuditEventsRes interface {
 
 type ListAuditEvidenceExportsRes interface {
 	listAuditEvidenceExportsRes()
+}
+
+type ListBadDebtReliefsRes interface {
+	listBadDebtReliefsRes()
 }
 
 type ListBalanceCarryForwardBalancesRes interface {
@@ -1683,6 +1715,10 @@ type ListHouseBanksRes interface {
 
 type ListIncomingPaymentsRes interface {
 	listIncomingPaymentsRes()
+}
+
+type ListIntercompanyBillingsRes interface {
+	listIntercompanyBillingsRes()
 }
 
 type ListIntercompanyDifferencesRes interface {
@@ -1993,6 +2029,10 @@ type ListSodRulesRes interface {
 	listSodRulesRes()
 }
 
+type ListSopPlansRes interface {
+	listSopPlansRes()
+}
+
 type ListStatisticalKeyFigureValuesRes interface {
 	listStatisticalKeyFigureValuesRes()
 }
@@ -2039,6 +2079,10 @@ type ListUnappliedReceiptsRes interface {
 
 type ListVarianceCommentsRes interface {
 	listVarianceCommentsRes()
+}
+
+type ListWMSMessagesRes interface {
+	listWMSMessagesRes()
 }
 
 type ListWebhookDeliveriesRes interface {
@@ -2667,6 +2711,10 @@ type UpdateRoleRes interface {
 
 type UpdateSegmentRes interface {
 	updateSegmentRes()
+}
+
+type UpdateSopPlanRes interface {
+	updateSopPlanRes()
 }
 
 type UpdateSupplierInvoiceRes interface {

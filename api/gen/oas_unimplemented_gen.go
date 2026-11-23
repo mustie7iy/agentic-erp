@@ -1529,6 +1529,57 @@ func (UnimplementedHandler) CreateAuditEvidenceExport(ctx context.Context, req *
 	return r, ht.ErrNotImplemented
 }
 
+// CreateBadDebtRelief implements createBadDebtRelief operation.
+//
+// Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049
+// As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a
+// short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice
+// (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a
+// credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United
+// Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country,
+// whose rule its tax specialist has not confirmed), written off by a dispute case's write-off
+// (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry
+// `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no
+// write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in
+// proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax
+// items, the total rounded once half away from zero and shared out by their tax, in the invoice's
+// currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share
+// rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under
+// Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months
+// have passed since the supply, counted by default from the later of the invoice's date and its net
+// due date (a relief dated on or before the day they pass is refused, 422
+// `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified
+// of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`);
+// a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given
+// is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code`
+// is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output
+// code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in
+// box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input
+// code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax
+// (ADR-0049 §11). A code of another kind or direction, or without a component of each of the
+// invoice's tax components with an account, levying the line's emirate exactly where the invoice's
+// item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal
+// entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on
+// `posting_date` (else today, the company's date in its time zone), which is its tax date and must be
+// in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422
+// `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the
+// tax recovered with the code and the emirate, and their total credited to the company's
+// `payment_difference_expense` account, which the write-off debited (422
+// `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax
+// in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial
+// write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409
+// `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross
+// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a
+// second dispute case writing the same item off again); two claims of one invoice at once are ordered
+// by the invoice's row lock. An audit record is written with it. A retry with the same
+// `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later
+// is not built yet. Human-only (`x-agent: false`).
+//
+// POST /v1/bad-debt-reliefs
+func (UnimplementedHandler) CreateBadDebtRelief(ctx context.Context, req *BadDebtReliefCreate, params CreateBadDebtReliefParams) (r CreateBadDebtReliefRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateBatch implements createBatch operation.
 //
 // Creates a batch of a batch-managed material (ADR-0082 As built S2f; SAP MSC1N, batch level
@@ -2297,6 +2348,47 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 //
 // POST /v1/incoming-payments
 func (UnimplementedHandler) CreateIncomingPayment(ctx context.Context, req *IncomingPaymentCreate, params CreateIncomingPaymentParams) (r CreateIncomingPaymentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateIntercompanyBilling implements createIntercompanyBilling operation.
+//
+// The supplying company bills the posted goods issue (643) of an intercompany stock transport order
+// (ADR-0082 As built S2i, S2i2; SAP's intercompany billing, billing type IV, from memory) to the
+// business partner that is the receiving company, and posts it at once as a customer invoice, in one
+// transaction. The order (`purchase_order_id`) is one of a company the caller may act in, supplied by
+// a plant of another company the caller may act in, which bills (422 `request.reference_not_found`
+// naming `purchase_order_id` otherwise); an order naming no supplying plant is refused (422
+// `sales.not_intercompany`), one whose goods issue is not posted yet (409
+// `sales.intercompany_not_issued`) or is billed already (409 `sales.intercompany_billed`: a goods
+// issue is billed once, and of two requests racing for one the second meets this). The customer
+// (`customer_id`) is the business partner whose group company is the order's company (422
+// `sales.intercompany_customer`), set up as a customer in the supplying company. Every item of the
+// order is billed once (422 `sales.intercompany_items` otherwise), its ordered quantity, which the
+// goods issue issued, at the order's price, the transfer price: its amount is the order item's value,
+// quantity × price ÷ price unit rounded half away from zero, in the order's currency, so the
+// billing's net amount is the order's. Each item names the supplying company's revenue account and,
+// optionally, its output tax code and tax jurisdiction; an item whose code levies the UAE's emirates
+// and that names none takes the supplying plant's emirate (the seller's side, ADR-0049 §11). The
+// billing is dated `billing_date`, else the supplying company's date today in its time zone, never
+// before the goods issue (422 `sales.billing_before_issue`), and numbered from that company's
+// `billing_document` range. Accounts receivable enters and posts the customer invoice (document type
+// `DR`) as for a billing document (`postBillingDocument`): the billing date its invoice and tax date,
+// the customer's payment term in the company, the output tax calculated by the items' codes, Dr the
+// customer's reconciliation account, Cr each item's account and the output tax; it names the billing
+// as its source. Its refusals leave nothing billed or posted and name the request's own fields
+// (`customer_id`, `items[i].account_id`, `items[i].tax_code`), such as a customer not set up in the
+// supplying company (422 `receivables.customer_not_usable`), an account not postable there (422
+// `receivables.account_not_postable`), a code that is no output tax code of that company (422
+// `receivables.unknown_tax_code`) and a closed period (409 `ledger.period_not_open`). The posting date
+// is the request's, else the supplying company's date today. The billing names its customer invoice,
+// the invoice's journal entry, its tax and gross amounts and each item's tax, and is never changed
+// (cancelling it is Later). Audited (`sales.intercompany_billing.create`); the invoice publishes
+// CustomerInvoiceChanged and CustomerInvoicePosted. A retry with the same `Idempotency-Key` answers
+// the billing created. Human-only (`x-agent: false`).
+//
+// POST /v1/intercompany-billings
+func (UnimplementedHandler) CreateIntercompanyBilling(ctx context.Context, req *IntercompanyBillingCreate, params CreateIntercompanyBillingParams) (r CreateIntercompanyBillingRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3339,6 +3431,41 @@ func (UnimplementedHandler) CreateSodRule(ctx context.Context, req *SodRuleCreat
 	return r, ht.ErrNotImplemented
 }
 
+// CreateSopPlan implements createSopPlan operation.
+//
+// Starts a sales and operations planning review of a company (ADR-0084 As built S2n;
+// plan-supply-chain.md §S2n; SAP IBP's S&OP review in monthly buckets, from memory): a new plan
+// version, `draft`, numbered per company from 1, that reviews the demand forecast against supply by
+// material group and month, on the company's day (`as_of`). It reviews every material the company
+// plans (`createMaterialPlan`, whatever its MRP type) that is active, kept in stock and extended to
+// the plant, at the plants it plans it; lines per material group, base unit (quantities of different
+// units are never added) and month, the `months` calendar months of the horizon from the day after
+// `as_of` (the first one from that day). Per line: the forecast, per material and plant the greater of
+// the moving average of its goods issues (to a cost center, a delivery's and an intercompany one, less
+// their reversals) over the 13 weeks to `as_of`, spread over the month's days, and what its orders due
+// in the month order and it has not delivered or issued: its confirmed sales orders (due the day the
+// customer asked for, else the order's date) and the intercompany orders it supplies and has not
+// issued (due on their items' delivery dates, else the order's date), whose goods issues the moving
+// average holds once issued; one due before the horizon in its first month — the demand forecasting
+// agent's rule (S2m) in months; orders, those orders; and in the first month the supply the plants
+// have: opening_stock (stock at their storage locations, not in transit), purchase_orders (open
+// quantities of purchase orders not closed or cancelled, intercompany ones received included),
+// stock_transports (stock transport orders within the company in transit to its plants) and proposals
+// (the requisitions planning runs proposed at the plants that are not ordered, cancelled or rejected).
+// The consensus starts as the forecast; `updateSopPlan` changes it; projected_stock is the opening
+// stock and receipts less the consensus, the next month's opening stock. Capacity is not reviewed (no
+// production). The company is an active one the caller may act in (422 `mrp.company_invalid`);
+// `months` from 1 to 12 (422 `mrp.invalid_horizon`); a company that plans no such material has nothing
+// to review (422 `mrp.sop_plan_empty`); a quantity in a unit the material no longer has cannot be
+// counted (409 `mrp.unit_not_convertible`); two versions of a company started at once: one is refused
+// (409 `mrp.sop_plan_concurrent`), to retry. Audited. A retry with the same `Idempotency-Key` answers
+// the plan created. Human-only (`x-agent: false`).
+//
+// POST /v1/sop-plans
+func (UnimplementedHandler) CreateSopPlan(ctx context.Context, req *SopPlanCreate, params CreateSopPlanParams) (r CreateSopPlanRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateStatisticalKeyFigure implements createStatisticalKeyFigure operation.
 //
 // Defines a statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as
@@ -3914,6 +4041,19 @@ func (UnimplementedHandler) FinalizeConsolidationRun(ctx context.Context, params
 	return r, ht.ErrNotImplemented
 }
 
+// FixSopPlan implements fixSopPlan operation.
+//
+// Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built
+// S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus
+// included (the database refuses any change); the company's consensus plan is its fixed version with
+// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/sop-plans/{id}:fix
+func (UnimplementedHandler) FixSopPlan(ctx context.Context, params FixSopPlanParams) (r FixSopPlanRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetAccount implements getAccount operation.
 //
 // Returns one general ledger account.
@@ -4253,6 +4393,17 @@ func (UnimplementedHandler) GetAuditEvidenceExport(ctx context.Context, params G
 //
 // GET /v1/audit-evidence-exports/{id}/files/{name}
 func (UnimplementedHandler) GetAuditEvidenceExportFile(ctx context.Context, params GetAuditEvidenceExportFileParams) (r GetAuditEvidenceExportFileRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetBadDebtRelief implements getBadDebtRelief operation.
+//
+// A bad debt relief of a company the caller may act in (ADR-0049 As built, bad debt relief): the
+// invoice and the write-off it relieves, what that wrote off and the tax recovered, the adjustment
+// code, the customer's notice and the journal entry that posted it.
+//
+// GET /v1/bad-debt-reliefs/{id}
+func (UnimplementedHandler) GetBadDebtRelief(ctx context.Context, params GetBadDebtReliefParams) (r GetBadDebtReliefRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5103,6 +5254,20 @@ func (UnimplementedHandler) GetHierarchyNode(ctx context.Context, params GetHier
 //
 // GET /v1/incoming-payments/{id}
 func (UnimplementedHandler) GetIncomingPayment(ctx context.Context, params GetIncomingPaymentParams) (r GetIncomingPaymentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetIntercompanyBilling implements getIntercompanyBilling operation.
+//
+// One intercompany billing (ADR-0082 As built S2i, S2i2) with the supplying company that billed and
+// the receiving company billed by id and code, its customer by number and name, the intercompany order
+// and its goods issue by id and number, its dates, its net, tax and gross amounts, the customer
+// invoice it posted as with that invoice's journal entry, and its items, each with the order item it
+// bills, the quantity, the order's price, its amount, its tax and its revenue account by number and
+// name. One the caller may act in neither company of is not found (404), as one that does not exist.
+//
+// GET /v1/intercompany-billings/{id}
+func (UnimplementedHandler) GetIntercompanyBilling(ctx context.Context, params GetIntercompanyBillingParams) (r GetIntercompanyBillingRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -6270,6 +6435,17 @@ func (UnimplementedHandler) GetSodRule(ctx context.Context, params GetSodRulePar
 	return r, ht.ErrNotImplemented
 }
 
+// GetSopPlan implements getSopPlan operation.
+//
+// One S&OP plan version (ADR-0084 As built S2n): its company, number, status, the day it reviewed on
+// and its horizon, who fixed it and when, and its lines by material group, unit and month, as
+// `createSopPlan` describes them. One of a company the caller cannot act in is not found.
+//
+// GET /v1/sop-plans/{id}
+func (UnimplementedHandler) GetSopPlan(ctx context.Context, params GetSopPlanParams) (r GetSopPlanRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetStatisticalKeyFigure implements getStatisticalKeyFigure operation.
 //
 // Returns one statistical key figure. A key figure of a legal entity the caller cannot act in is
@@ -6674,6 +6850,18 @@ func (UnimplementedHandler) ListAuditEvents(ctx context.Context, params ListAudi
 //
 // GET /v1/audit-evidence-exports
 func (UnimplementedHandler) ListAuditEvidenceExports(ctx context.Context, params ListAuditEvidenceExportsParams) (r ListAuditEvidenceExportsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBadDebtReliefs implements listBadDebtReliefs operation.
+//
+// The bad debt reliefs of the companies the caller may act in (ADR-0049 As built, bad debt relief),
+// each as `getBadDebtRelief` gives it, newest posting date last. Filtered by company, customer invoice
+// and posting date (the tax date, which decides the return that reports it). Sortable by:
+// `posting_date`.
+//
+// GET /v1/bad-debt-reliefs
+func (UnimplementedHandler) ListBadDebtReliefs(ctx context.Context, params ListBadDebtReliefsParams) (r ListBadDebtReliefsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -7531,6 +7719,18 @@ func (UnimplementedHandler) ListHouseBanks(ctx context.Context, params ListHouse
 //
 // GET /v1/incoming-payments
 func (UnimplementedHandler) ListIncomingPayments(ctx context.Context, params ListIncomingPaymentsParams) (r ListIncomingPaymentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListIntercompanyBillings implements listIntercompanyBillings operation.
+//
+// The intercompany billings (ADR-0082 As built S2i, S2i2) the caller may read, each as
+// `getIntercompanyBilling` gives it: those billed by a company the caller may act in, and those billed
+// to one (the receiving company of the order). Filtered by the billing company, the receiving company
+// and the purchase order billed. Sortable by: `billing_date` (the default), `document_number`.
+//
+// GET /v1/intercompany-billings
+func (UnimplementedHandler) ListIntercompanyBillings(ctx context.Context, params ListIntercompanyBillingsParams) (r ListIntercompanyBillingsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -8502,6 +8702,17 @@ func (UnimplementedHandler) ListSodRules(ctx context.Context, params ListSodRule
 	return r, ht.ErrNotImplemented
 }
 
+// ListSopPlans implements listSopPlans operation.
+//
+// The S&OP plan versions of the companies the caller may act in (ADR-0084 As built S2n), each as
+// `getSopPlan` gives it, in the order they were started. Filtered by company and status: a company's
+// consensus plan is its fixed version with the highest number. Sortable by: `created_at`.
+//
+// GET /v1/sop-plans
+func (UnimplementedHandler) ListSopPlans(ctx context.Context, params ListSopPlansParams) (r ListSopPlansRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListStatisticalKeyFigureValues implements listStatisticalKeyFigureValues operation.
 //
 // The values of a statistical key figure in a fiscal period (ADR-0064 As built T60j): per cost center
@@ -8654,6 +8865,44 @@ func (UnimplementedHandler) ListUnappliedReceipts(ctx context.Context, params Li
 //
 // GET /v1/variance-comments
 func (UnimplementedHandler) ListVarianceComments(ctx context.Context, params ListVarianceCommentsParams) (r ListVarianceCommentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListWMSMessages implements listWMSMessages operation.
+//
+// The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As
+// built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who
+// may act in every company, inbound ones refused before their delivery was known. Outbound
+// (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in
+// its `plants` is queued once as a message giving the warehouse system the delivery to pick (its
+// `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant
+// and storage location by code, the delivery by id and number with its sales order's and customer's
+// numbers, and each item's number, material number, quantity and unit), `pending` until the exchange
+// sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried
+// again after 1, 5 and 15 minutes, 1 and 4 hours, its code in `last_error_code`: the warehouse system
+// unreachable, or the connector not usable since (`integration.connector_disabled`,
+// `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`,
+// `integration.not_a_wms`, or the stand-in in production, `integration.adapter_not_certified`), which
+// its administrator may put right meanwhile; the warehouse system's refusal
+// (`integration.wms_refused`) or the sixth attempt's failure is final, and a last attempt whose
+// outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the warehouse
+// system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound
+// (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector
+// (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked
+// quantities recorded (an item it was sent and does not name picked at nothing) and its goods issue
+// posted (shipping's `pickOutboundDelivery` and `postOutboundDeliveryGoodsIssue`, as the exchange's
+// system principal acting for the delivery's company), naming the material document; or `refused` with
+// the problem that stopped it, nothing of it posted: one that is not a JSON `goods_issue` message
+// naming its own message id and an `outbound_delivery_id`, or that holds `\u0000`, which cannot be
+// kept as received (`integration.wms_message_unreadable`; its body kept as its text), larger than 1
+// MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent
+// (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`,
+// `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse
+// system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not
+// posted twice. Filters: connector, direction, status and the outbound delivery.
+//
+// GET /v1/wms-messages
+func (UnimplementedHandler) ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (r ListWMSMessagesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -11800,6 +12049,22 @@ func (UnimplementedHandler) UpdateRole(ctx context.Context, req *RoleUpdate, par
 //
 // PATCH /v1/segments/{id}
 func (UnimplementedHandler) UpdateSegment(ctx context.Context, req *SegmentUpdate, params UpdateSegmentParams) (r UpdateSegmentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateSopPlan implements updateSopPlan operation.
+//
+// Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412
+// otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in
+// the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a
+// key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set
+// to `null` is refused (400); a change to what every named line already is is 422
+// `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A
+// fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's
+// consensus before and after. Human-only (`x-agent: false`).
+//
+// PATCH /v1/sop-plans/{id}
+func (UnimplementedHandler) UpdateSopPlan(ctx context.Context, req *SopPlanUpdate, params UpdateSopPlanParams) (r UpdateSopPlanRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

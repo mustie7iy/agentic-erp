@@ -784,6 +784,20 @@ func encodeCreateAuditEvidenceExportRequest(
 	return nil
 }
 
+func encodeCreateBadDebtReliefRequest(
+	req *BadDebtReliefCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateBatchRequest(
 	req *BatchCreate,
 	r *http.Request,
@@ -1206,6 +1220,20 @@ func encodeCreateHierarchyRequest(
 
 func encodeCreateIncomingPaymentRequest(
 	req *IncomingPaymentCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateIntercompanyBillingRequest(
+	req *IntercompanyBillingCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1836,6 +1864,20 @@ func encodeCreateSegmentRequest(
 
 func encodeCreateSodRuleRequest(
 	req *SodRuleCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateSopPlanRequest(
+	req *SopPlanCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -3833,6 +3875,20 @@ func encodeUpdateRoleRequest(
 
 func encodeUpdateSegmentRequest(
 	req *SegmentUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateSopPlanRequest(
+	req *SopPlanUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

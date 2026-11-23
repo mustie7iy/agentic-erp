@@ -1231,6 +1231,99 @@ memory, for the specialist) and plan §S2i, which splits it into S2i1
   one-step transfers (645), stock in transit valuation and its list,
   customs (S2s).
 
+### S2i2 (2026-11-22)
+
+Intercompany billing, decided by default from SAP's intercompany billing
+of a cross-company stock transport order (billing type IV, from memory,
+for the specialist) and S2i's decisions above.
+
+- **A document of its own**, `sales.intercompany_billing` with its items
+  (migration 000448, 03 §3.29; schema tests in
+  `db/intercompany_billing_test.go`, the insert-only triggers also as the
+  owner, the down's refusal). A sales billing document bills a sales
+  order's delivered items, which its keys, triggers and readers
+  (returns, credit memo requests, revenue) rest on; a goods issue of a
+  purchase order has no sales order. Its number is of the supplying
+  company's `billing_document` range, as SAP numbers both kinds alike.
+- **Billed and posted at once**: `POST /v1/intercompany-billings`
+  (`sales.billing.post`, human-only) enters and posts the customer
+  invoice through receivables in the request's transaction and writes the
+  billing with it, or nothing (SAP releases an IV billing to accounting
+  as it is created, from memory). There is no `created` state and the
+  billing never changes; cancelling it, a credit memo of it and the
+  receiving side's reversal are Later.
+- **Once per goods issue**: an order whose goods issue is not posted is
+  refused (409 `sales.intercompany_not_issued`), one billed already too
+  (409 `sales.intercompany_billed`, read first and, for two racing, the
+  unique key `intercompany_billing_once`). An order naming no supplying
+  plant is no intercompany one (422 `sales.not_intercompany`).
+- **Who bills**: the caller acts in both companies, as for the goods
+  issue: the order is read through procurement's published
+  `Orders.Issued` (wired by the composition root, as sales does not
+  import procurement) for a caller who may act in its company, and the
+  supplying plant's company is one the caller acts in too (422
+  `request.reference_not_found` naming `purchase_order_id` otherwise).
+  Either company's people read the billing (`GET`, the list filtered by
+  either company and by order): it is the supplying company's bill and
+  the receiving company's invoice to enter (S2i3).
+- **Locks**: `Orders.Issued` reads the order `FOR SHARE`, so no change of
+  the order (each takes its row `FOR UPDATE`) runs beside the billing;
+  the goods issue is fixed already (`purchase_order_supply_fixed`).
+  Beyond it the billing takes what a billing document's post takes in
+  the supplying company (its number ranges, the invoice, the ledger's
+  posting); the receiving company's goods receipt of the order takes the
+  order and the receiving company's, so the two meet only on the order's
+  row, which the billing never waits for while holding the other's.
+- **Customer**: named by the request and checked as S2i1 checks the
+  order's supplier: the business partner whose group company is the
+  order's company (422 `sales.intercompany_customer`;
+  `partner.Customer.GroupCompanyID` added to the published read), set up
+  as a customer in the supplying company (receivables' check, 422
+  `receivables.customer_not_usable`). Its payment term is the
+  customer's in the supplying company.
+- **Prices and amounts**: every order item once (422
+  `sales.intercompany_items`), its ordered quantity, which the goods
+  issue issued, at the order's price; its amount is the order item's
+  value as procurement computes it (quantity × price ÷ price unit,
+  rounded half away from zero; a stored value out of range fails
+  closed), so the billing's net is the order's, the transfer price. An
+  intercompany order's item is valued above zero (422
+  `procurement.intercompany_item_value` when the order is created or
+  changed, review round 1): receivables refuses a customer invoice item
+  of zero, and every item of the goods issue is billed, so an order with
+  such an item could otherwise never be billed. The
+  billing's currency is the order's; the supplying company books it at
+  its average rate as any foreign-currency invoice.
+- **Account and tax**: each item names the supplying company's revenue
+  account and, optionally, its output tax code and jurisdiction, as a
+  sales item names them (SAP determines them by account determination,
+  key ERL, and the IV conditions, from memory: Later with the supplying
+  side's own pricing). An item whose code levies the UAE's emirates and
+  that names none takes the supplying plant's region (the seller's side,
+  ADR-0049 §11, the rule a sales item's default follows, one helper
+  `defaultedTo`). Receivables calculates the tax at the billing date's
+  rates and refuses what it refuses for any invoice, named by the
+  request's own fields (`asPosting`). Each item keeps the tax its
+  invoice item bore, for S2i3.
+- **Dates**: the billing date is the one given, else the supplying
+  company's date today, never before the goods issue (422
+  `sales.billing_before_issue`); it is the invoice and tax date. The
+  posting date is the one given, else that company's date today.
+- **Records**: audited (`sales.intercompany_billing.create`); no event of
+  its own, the invoice publishing CustomerInvoiceChanged and
+  CustomerInvoicePosted.
+- **The invoice's source**: a customer invoice's `source_document_id` may
+  now name an intercompany billing; the contract says so beside the
+  billing document it named alone (review round 1). Both are numbered
+  from the `billing_document` range, so the id tells them apart.
+- Walkthrough step 155, `step_intercompany_transport` (its
+  `intercompany_billing` part): Maple Gulf Trading bills Maple the
+  lamps it issued, CAD 320.00 zero-rated (Z0), Dr 1200 Cr 4000, once.
+- **Not built** (Later): cancelling or crediting a billing, billing a
+  partial or repeated issue (with them, plan §S2i), the supplying side's
+  own pricing and account determination, an outgoing e-invoice of a UAE
+  company's intercompany billing as a step of its own.
+
 ### S2f (2026-11-20)
 
 - Migrations 000428 and 000429 (03 §3.35, S2f): `materials.material.batch_managed`,
@@ -1636,3 +1729,176 @@ promotions and collaborative forecasts; reading only orders with a
 quantity still open (a sales order stays `confirmed` once delivered in
 full, so the run pages a material's delivered orders too, at a cost that
 grows with its history).
+
+### S2n (2026-11-22)
+
+A planner reviews a company's demand forecast against supply by
+material group and month and fixes a consensus plan version (plan
+§S2n). Decided by default (SAP IBP's S&OP from memory, for the SAP
+specialist; ADR-0084 As built S2n has the API and schema):
+
+- **Where it lives**: the planning context `mrp` (ADR-0084 decides
+  §S2k–S2n), not controlling's planning versions (T93a, ADR-0050 §8):
+  those plan amounts by cost element and account for the budget; S&OP
+  plans quantities by material group, unit and month, from the planning
+  context's own data (the materials it plans, MRP's proposals). A plan
+  version is `mrp.sop_plan`, numbered per company; the consensus plan is
+  the company's fixed version with the highest number. Capacity is not
+  reviewed (no production context, plan S2n).
+- **Scope**: the materials the company plans (planning data at a plant,
+  whatever its MRP type) that are active, kept in stock and extended to
+  the plant, at those plants; one line per material group, base unit
+  (quantities of different units are never added) and calendar month.
+- **Horizon**: 1 to 12 calendar months, 3 by default, from the day after
+  the company's day (`config.DocumentDay`), the first month from that
+  day: SAP IBP's S&OP buckets are months (from memory); S2m's weeks are
+  its own.
+- **Forecast** of a month at a plant: S2m's rule in months, computed by
+  the review, not read from the agent's recommendations (its forecast is
+  a recommendation's text for a planner, and the forecast kept per
+  material and plant is S2m's Later): the greater of the moving average
+  of the plant's goods issues over the 13 weeks (91 days) to the
+  company's day, never below nothing, spread over the month's days, and
+  the orders due in the month: the confirmed sales orders' undelivered
+  quantity (due the day the customer asked for, else the order's date)
+  and the intercompany orders the plant supplies and has not issued (due
+  on their items' delivery dates, else the order's date); one due before
+  the horizon in its first month, one due after it left out. The orders
+  consume the forecast, so a line's forecast is never below its orders
+  (`sop_plan_line_forecast_covers_orders`). An intercompany order is an
+  order, not a negative receipt: its goods issue (643) is in the history
+  the moving average is of, so taking it off the supply as well would
+  count it twice (review round 1). In this S2n differs from S2m's agent,
+  whose open orders are sales orders alone. The agent's recommendation on
+  each material stays beside it for the planner (`listRecommendations`).
+- **Supply**, all in the first month (receipts carry no date, as a
+  planning run counts them, ADR-0084 §6): the stock at the plants'
+  storage locations (not in transit), the purchase orders' open
+  quantities (intercompany orders received included), stock transport
+  orders within the company in transit to the plants (one not yet issued
+  moves stock between its plants only) and the requisitions planning runs
+  proposed that are not ordered, cancelled or rejected.
+- **Projected stock** of a month: its opening stock (the first month's
+  the plants' stock, after it the month before's projected stock) and
+  receipts less the consensus; computed on read, not stored.
+- **Consensus**: starts as the forecast; the planner sets it per line
+  while the version is a draft; fixed, the version and its lines change
+  no more (database triggers); every step audited. People only
+  (x-agent: false): no ADR lets an agent fix a plan.
+
+**Later** (the plan's S2n Later, and the tracker's S&OP variants):
+capacity and supply optimisation, scenario comparison, approval of the
+consensus plan, receipts and requisitions by their dates, a review per
+plant or material, the consensus released to planning (the reorder
+point or a forecast MRP reads), disaggregation of a group's consensus to
+its materials.
+
+### S2q (2026-11-22)
+
+The WMS connector (S2q1, plan-supply-chain.md §S2q) is the integration
+context's connector pattern, as the e-invoicing provider's and the
+treasury channel's are; no new ADR, and no import between contexts is
+added: integration declares the port it posts through
+(`integration.WMSDeliveries`), which the composition root wires to
+shipping's published `Pick` and `PostGoodsIssue` (`app.wmsDeliveries`),
+so shipping stays a leaf (ADR-0083 §1). Decided by default, from SAP's
+decentralised WMS (the delivery distributed by IDoc SHP_OBDLV_SAVE_REPLICA
+and confirmed by SHP_OBDLV_CONFIRM_DECENTRAL, from memory, for the
+specialist):
+
+- **Which plants.** A `wms` connector names the plants its warehouse
+  system manages, by company code and plant code (`settings.plants`); a
+  plant is managed by at most one active `wms` connector (409
+  `integration.plant_has_wms` on create, change or enable, under a
+  per-tenant advisory lock so two writes cannot both take a plant). No
+  plant is managed until a connector names it; the pilot has no external
+  warehouse (Pilot assumption above).
+- **The port.** `integration.Warehouse` is provider-neutral: send a
+  message by its id, list the confirmations not yet acknowledged, read
+  one (at most 1 MiB), acknowledge it. Its one adapter is the stand-in
+  (`wmstest`, its own protocol: `PUT /messages/{id}`, `GET
+  /confirmations`, `GET /confirmations/{id}`, `POST
+  /confirmations/{id}/acknowledge`), refused in production
+  (`integration.adapter_not_certified`), called through the egress client
+  (public addresses only, no redirects, 30 s a call; the walkthrough's
+  stand-in alone by `ERP_WALKTHROUGH_WMS` in development). Credentials are
+  the connector's `secret_ref`, resolved under the tenant's own vault
+  namespace with no transaction open (PO 2026-11-16), sent as a bearer
+  token. The ERP polls; it opens no endpoint for the warehouse system to
+  call (as for e-invoicing, PO 2026-11-09).
+- **Outbound, through the outbox.** Shipping publishes
+  OutboundDeliveryChanged (ADR-0007); the bus consumer `wms-outbound`
+  reads a delivery's first event (its creation, version 1) and, when an
+  active connector manages its plant, writes the message
+  (`integration.wms_message`, outbound, `pending`) in the tenant's
+  transaction, once per delivery (`wms_message_once`, so the event read
+  twice adds nothing): the outbox of the call. Its body, message type
+  `outbound_delivery` schema version 1, is built from the event alone: the
+  message id, the company, plant and storage location codes, the
+  delivery's id and number, the order's and customer's numbers (never
+  the customer's name, PO 2026-11-05) and each item's number, material
+  number, quantity and unit. The exchange (`integration.WMSExchange`,
+  modelled on the cash exporter) claims a due message `FOR UPDATE SKIP
+  LOCKED`, reads its connector, sends with no transaction open and
+  records the outcome guarded by the version its claim wrote; a failed
+  call is tried after 1, 5, 15 minutes, 1 and 4 hours, and so is one the
+  connector cannot make now (disabled, its secret or settings not
+  resolving, of another kind, the stand-in in production), which its
+  administrator may put right meanwhile; the sixth failure, the WMS's
+  refusal (a 4xx but 408 and 429, `integration.wms_refused`) or a lapsed
+  last claim (`integration.wms_outcome_unknown`) fails it, a worklist
+  (`GET /v1/wms-messages?status=failed`), not sent again (Later: by
+  hand). The message id is
+  the WMS's deduplication key, so a lapsed claim's resend is no second
+  delivery. A delivery created before its plant had a WMS is not sent.
+- **Inbound, posted once by the message's id.** Each poll (every 10 s,
+  per active connector with a secret) lists the WMS's confirmations and
+  records each under an advisory lock of its connector and message id,
+  in the transaction that posts it: an inbound row, unique per connector
+  and message id, the inbox. A confirmation of type `goods_issue` (its
+  own `message_id`, the `outbound_delivery_id` it was sent and the
+  quantity picked of each item in the item's unit; an item it was sent
+  and does not name is picked at nothing, whatever a person picked of it
+  before) posts, for a delivery
+  this connector was sent alone (`integration.wms_unknown_delivery`
+  otherwise), the picked quantities and the goods issue through
+  shipping's API as the exchange's system principal acting for the
+  delivery's company, at the delivery's version as it is, in a savepoint:
+  shipping's refusal (or an unreadable, too large or other message, or one jsonb cannot
+  keep as received, holding `\u0000`, kept as its text:
+  `integration.wms_message_unreadable`, `integration.wms_message_too_large`)
+  is recorded `refused` with its problem, nothing of it kept; a failure of
+  the machinery records nothing and the next poll takes it again, the
+  others taken still (an id over 200 characters, which no row holds, is
+  reported and never taken). After that commit the WMS is told
+  (`acknowledged_at`); one listed again is acknowledged again, not posted
+  twice.
+- **What a message is never changes** (`wms_message_kept`): its
+  connector, direction, id, kind, delivery, plant and body; an inbound
+  one's outcome; its acknowledgement once set; a sent or failed
+  outbound one's status. Every change is audited
+  (`integration.wms_message.queue`, `.send`, `.retry`, `.fail`, `.post`,
+  `.refuse`); no event is published (nothing inside the platform reacts
+  to one, and none is offered as a webhook until a consumer asks).
+- **Locks** (ADR-0008): a connector's create, change or enable takes its
+  row (`FOR UPDATE`, but on create) and then the tenant's wms advisory
+  lock; the queue's insert takes the connector's key share (its foreign
+  key) and nothing else; a send's claim and its record take the message's
+  row alone (`FOR UPDATE`, `SKIP LOCKED` to claim); a confirmation's
+  record takes the advisory lock of its connector and message id, then
+  shipping's locks in shipping's order (the delivery, the valuations and
+  stock, the sales order), as a person's goods issue takes them without
+  the advisory lock. No two writers take two of these in opposite orders.
+- **Read:** `GET /v1/wms-messages` (`integration.connector.read`), newest
+  first, by connector, direction, status and delivery, of the companies
+  the caller may act in (an inbound message refused before its delivery
+  was known, to a caller of every company).
+
+- Migrations 000449_wms_connector (the table, the kind check widened
+  NOT VALID) and 000450_validate_wms_connector_kind; schema tests
+  `db/wms_message_test.go`. Walkthrough step 160, `step_wms`.
+
+**Split, Later:** S2q2, inbound receipts (released purchase and stock
+transport orders' items at a WMS plant) and their goods receipt reported
+back, is its own leaf on this connector, table, port and exchange; the
+plan's §S2q lists what is Later.

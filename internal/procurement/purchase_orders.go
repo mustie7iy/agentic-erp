@@ -96,11 +96,18 @@ func scanOrder(row pgx.Row) (PurchaseOrder, error) {
 }
 
 func getOrder(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (PurchaseOrder, error) {
+	return visibleOrder(ctx, tx, orderQuery(lock), id)
+}
+
+// visibleOrder reads the order with the id $1 by query, one of a company
+// the caller may act in; another is not found, as one that does not
+// exist.
+func visibleOrder(ctx context.Context, tx pgx.Tx, query string, id uuid.UUID) (PurchaseOrder, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
-	o, err := scanOrder(tx.QueryRow(ctx, orderQuery(lock), id))
+	o, err := scanOrder(tx.QueryRow(ctx, query, id))
 	if err = authz.Visible(err, access, o.LegalEntityID, problem.NotFoundOf("purchase order"), "procurement: get purchase order %s", id); err != nil {
 		return PurchaseOrder{}, err
 	}

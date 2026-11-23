@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Whole-suite statement coverage of production code, with a minimum,
 # compared on exact statement counts.
-# Excluded from the figure: test-only packages (nfr, llmtest, app's apitest, einvoicing's einvoicetest, and the
+# Excluded from the figure: test-only packages (nfr, llmtest, app's apitest, einvoicing's einvoicetest, integration's wmstest, and the
 # platform's pgtest, authntest, natstest, tlstest, blobstoretest, sftptest, webhooktest, vaulttest, kmstest, workflowtest, fixture;
 # internal/layout's testSupport lists the same packages) and code generated from the
 # API contract (api/gen). Database-backed packages need DATABASE_URL; without
@@ -17,7 +17,7 @@
 #                                  counts as covered if any of them hit it
 set -euo pipefail
 MIN="${COVERAGE_MIN:-100.0}"
-excluded='/internal/(nfr|llm/llmtest|app/apitest|einvoicing/einvoicetest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|tlsconf/tlstest|blobstore/blobstoretest|sftpclient/sftptest|webhook/webhooktest|secrets/vaulttest|fieldcrypt/kmstest|workflow/workflowtest|fixture)/|/api/gen/'
+excluded='/internal/(nfr|llm/llmtest|app/apitest|einvoicing/einvoicetest|integration/wmstest)/|/internal/platform/(pgtest|authn/authntest|natsbus/natstest|tlsconf/tlstest|blobstore/blobstoretest|sftpclient/sftptest|webhook/webhooktest|secrets/vaulttest|fieldcrypt/kmstest|workflow/workflowtest|fixture)/|/api/gen/'
 
 # run OUT PKG... tests the packages and writes their reduced profile.
 run() {

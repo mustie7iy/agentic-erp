@@ -3394,8 +3394,9 @@ activate, and orders under them are refused.
 | Table | Purpose |
 |---|---|
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
-| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209); secrets by reference to the vault |
+| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
+| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, its body the JSON as sent; once per delivery, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
@@ -4921,6 +4922,26 @@ erDiagram
   reversal of the clearing entry, one undoing's (the key, tenant and
   reversal). Insert-only. The down migration
   is refused while a clearing or a payment was reset.
+- `receivables.bad_debt_relief` (migration 000446; ADR-0049 As built,
+  bad debt relief): the output tax of a customer invoice a dispute case's
+  write-off wrote off, recovered by an adjustment the return reports. It
+  names the invoice (`bad_debt_relief_invoice_fkey`), the write-off's
+  entry by year, id and number (1 to 40 characters,
+  `bad_debt_relief_write_off_number_check`) and the dispute case
+  (collections context), relieving each write-off of an invoice once
+  (`bad_debt_relief_once`); what was written off and the tax recovered,
+  in the invoice's currency and the company's (`currency`,
+  `local_currency`, both of ref.currency), the tax more than zero
+  (`bad_debt_relief_tax_check`, the local tax not negative,
+  `bad_debt_relief_tax_lc_check`) and less than what was written off
+  (`bad_debt_relief_tax_within`); the adjustment code
+  (`bad_debt_relief_tax_code_check`); the date the customer was notified,
+  where given, no later than the relief (`bad_debt_relief_notified_before`);
+  the posting date and its entry, one relief's (`bad_debt_relief_entry_once`,
+  its number 1 to 40 characters, `bad_debt_relief_entry_number_check`).
+  Insert-only (`bad_debt_relief_immutable`). The entry's lines and tax
+  items are the ledger's. The down migration is refused while a relief
+  is recorded.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
   `CustomerInvoiceReversed`,
@@ -5836,6 +5857,29 @@ erDiagram
   order's `version`. Insert-only. A billing document's status may now
   be `cancelled`, keeping what it posted with (`billing_document_posted`
   widened), set by that trigger alone (`billing_document_posted_once`).
+- `sales.intercompany_billing` and `sales.intercompany_billing_item` (S2i2, migration 000448;
+  ADR-0082 As built S2i): the supplying company's (`legal_entity_id`)
+  bill of an intercompany stock transport order's goods issue to the
+  business partner that is the receiving company (`customer_id`), written
+  once its customer invoice has posted and never changed (insert-only,
+  `platform.forbid_mutation`, no update grant). It names the order
+  (`purchase_order_id`, procurement context), its number and company
+  (`receiving_legal_entity_id`, another than the billing's,
+  `intercompany_billing_other_company`), the goods issue
+  (`issue_document_id`, inventory context, billed once:
+  `intercompany_billing_once`) and its number, the billing and posting
+  dates, the order's currency, the net amount (above zero) and the
+  invoice's tax (not below zero), the customer invoice by id (once,
+  `intercompany_billing_invoice_once`) and number and its journal entry
+  and year; numbered once per company from the `billing_document` range
+  (`intercompany_billing_number_once`); the numbers 1 to 40 characters
+  (`intercompany_billing_*_number_check`). An item bills an order item
+  once (`intercompany_billing_item_once`), numbered from 1, with its
+  material, description, quantity in its unit, the order's price per
+  price unit, its amount above zero, the revenue account, the output tax
+  code and jurisdiction (a jurisdiction or tax only with a code,
+  `intercompany_billing_item_tax`) and the tax its invoice item bore.
+  `intercompany_billing_by_order` finds an order's billing.
 - `sales.returns_order` (T85a, migration 000306; ADR-0067, As built
   T85a): quantities of a posted billing document's items that the
   customer sends back, numbered once per company
@@ -7144,3 +7188,57 @@ erDiagram
   run reads its open and taken-over proposals by `proposal_by_plant`, a
   run's replaced ones by `proposal_by_replacing_run`.
 - Permissions `mrp.plan.read`, `mrp.plan.write` and `mrp.run.start`.
+
+S&OP plan versions (S2n, migration 000447; ADR-0084 As built S2n): a
+company's review of its demand forecast against supply by material
+group, base unit and month, and the consensus a planner fixes.
+
+```mermaid
+erDiagram
+  sop_plan ||--|{ sop_plan_line : "lines"
+  sop_plan { uuid id PK
+    uuid legal_entity_id "tenancy"
+    integer number "from 1, once per company"
+    text status "draft, fixed"
+    date as_of "the company's day reviewed on"
+    date first_day "as_of + 1"
+    date last_day "its last month's last day"
+    smallint months "1 to 12"
+    timestamptz fixed_at "once fixed"
+    uuid fixed_by "once fixed"
+    integer version }
+  sop_plan_line { uuid plan_id PK
+    text material_group PK
+    text uom_code PK "ref: the base unit"
+    date month PK "its first day"
+    date first_day
+    date last_day
+    integer materials "1 or more"
+    numeric forecast "never below orders"
+    numeric orders "sales and intercompany"
+    numeric stock "first month"
+    numeric purchase_orders "first month"
+    numeric stock_transports "first month: in transit"
+    numeric proposals "first month"
+    numeric consensus "changes while a draft" }
+```
+
+- `mrp.sop_plan`: a version of a company numbered from 1, once per
+  company (`sop_plan_number_once`, `sop_plan_number_check`), `draft` or
+  `fixed` (`sop_plan_status_check`), of 1 to 12 months
+  (`sop_plan_months_check`) from the day after its review to the last day
+  of its last month (`sop_plan_horizon`); a fixed one names who fixed it
+  and when (`sop_plan_fixed_by`). A fixed version changes no more, its
+  company, number and horizon never, and none is deleted
+  (`sop_plan_fixed`, a trigger). Its version moves with every change
+  (`sop_plan_touch`); lists read by `sop_plan_by_created_at`.
+- `mrp.sop_plan_line`: a version's line per material group
+  (`sop_plan_line_material_group_check`), base unit
+  (`sop_plan_line_uom_fkey`) and month (`sop_plan_line_plan_fkey`), its
+  days of the month (`sop_plan_line_days`); its quantities not below zero
+  (`sop_plan_line_*_check`), its forecast never below its orders
+  (`sop_plan_line_forecast_covers_orders`). A line is added to a draft
+  alone, only its consensus changes, and only while its version is a
+  draft; no line is deleted (`sop_plan_line_fixed`, a trigger). The application updates
+  the consensus alone.
+- Permissions `mrp.sop.read` and `mrp.sop.write`.

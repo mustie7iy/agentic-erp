@@ -19,19 +19,12 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/netip"
@@ -43,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/tlsconf/tlstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/webhook"
 )
 
@@ -66,7 +60,7 @@ func run(ctx context.Context, addr, ca, secret, out string) error {
 	if err != nil || !ap.Addr().IsLoopback() {
 		return errors.New("addr: the walkthrough's receiver listens on a loopback address and port only")
 	}
-	cert, certPEM, err := selfSigned(ap.Addr())
+	cert, certPEM, err := tlstest.SelfSigned(ap.Addr(), "walkthrough webhook receiver")
 	if err != nil {
 		return err
 	}
@@ -92,24 +86,6 @@ func run(ctx context.Context, addr, ca, secret, out string) error {
 	case err := <-errc:
 		return fmt.Errorf("serve: %w", err)
 	}
-}
-
-// selfSigned is a certificate for ip, a day long, and its PEM.
-func selfSigned(ip netip.Addr) (tls.Certificate, []byte, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, nil, fmt.Errorf("key: %w", err)
-	}
-	now := time.Now()
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(now.UnixNano()), Subject: pkix.Name{CommonName: "walkthrough webhook receiver"},
-		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(24 * time.Hour), IPAddresses: []net.IP{ip.AsSlice()},
-		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true, IsCA: true}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		return tls.Certificate{}, nil, fmt.Errorf("certificate: %w", err)
-	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
 }
 
 // receiver verifies and keeps the deliveries.

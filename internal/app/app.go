@@ -524,12 +524,15 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 // §1): the ledger, the partner context, tenancy and the configuration
 // through its ports, as payables reads them. The payment terms are the
 // tenant's, for customers as for suppliers: partner.Suppliers is their one
-// reader.
+// reader. Bad debt relief reads a dispute case's write-off through
+// collections (ADR-0049 As built), which imports receivables, so the port
+// is wired here.
 func Receivables(cfg Config) *receivables.Endpoints {
 	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
 		Terms: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
 		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, OpenItems: ledger.OpenItems{}, Statements: receivablesStatements{},
-		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, WriteOffs: collections.WriteOffs{},
+		TaxItems: ledger.TaxItems{}, Now: cfg.Now}
 }
 
 // Sales is the sales context as the API wires it (ADR-0067 §1): the
@@ -556,7 +559,8 @@ func salesAndCredit(cfg Config) (*sales.Endpoints, *credit.Endpoints) {
 		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Invoices: Receivables(cfg), Entries: ledger.OpenItems{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{},
-		Uploads: uploads(cfg), OrderExtractor: cfg.OrderExtractor, Finder: partner.Payees{Keys: cfg.FieldKeys}, Materials: materials.Materials{}, Stock: Inventory(cfg), Now: cfg.Now}
+		Uploads: uploads(cfg), OrderExtractor: cfg.OrderExtractor, Finder: partner.Payees{Keys: cfg.FieldKeys}, Materials: materials.Materials{}, Stock: Inventory(cfg),
+		Intercompany: salesIntercompany{}, Now: cfg.Now}
 	c := &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
 		Partners: partner.Payees{}, Orders: s, Settings: configuration.Settings{}, Requests: opener(), Now: cfg.Now}
 	s.Credit = salesCredit{credit: c}

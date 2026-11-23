@@ -1214,3 +1214,140 @@ func TestIncomingPaymentCashDiscountRevert(t *testing.T) {
 	}
 	failsWith(t, exec(tx, down), "reverting would lose them")
 }
+
+// TestBadDebtReliefRules (migration 000446; ADR-0049 As built, bad debt
+// relief): a relief names a customer invoice and a write-off, which it
+// relieves once, with positive amounts of which the tax is a part, a tax
+// code of the code form, a notice dated no later than the relief, and an
+// entry of its own; it is never changed or deleted.
+func TestBadDebtReliefRules(t *testing.T) {
+	need(t)
+	const invoice = `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+		currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
+		VALUES ($1, $2, 'CI1', gen_random_uuid(), gen_random_uuid(), 'invoice', '2026-01-10', 'AED', 10000, 500, 10500, 'draft', $1, $1)`
+	const relief = `INSERT INTO receivables.bad_debt_relief (tenant_id, id, legal_entity_id, customer_invoice_id, write_off_entry_year,
+		write_off_entry_id, write_off_entry_number, dispute_case_id, currency, local_currency, written_off_amount, written_off_amount_lc,
+		tax_amount, tax_amount_lc, tax_code, customer_notified_on, posting_date, journal_entry_year, journal_entry_id, journal_entry_number, created_by)
+		VALUES ($1, gen_random_uuid(), gen_random_uuid(), $2, 2026, $3, $4, gen_random_uuid(), $5, $14, $6, $7, $8, $9, $10, $11, '2026-08-10', 2026,
+			$12, $13, $1)`
+	type row struct {
+		writeOff, entry       uuid.UUID
+		number, currency      string
+		local                 string
+		off, offLC, tax, taxL int64
+		code                  string
+		notified              *string
+		entryNumber           string
+	}
+	good := func() row {
+		return row{writeOff: id(), entry: id(), number: "100001", currency: "AED", local: "AED", off: 10500, offLC: 10500, tax: 500, taxL: 500, code: "AS",
+			entryNumber: "100002"}
+	}
+	with := func(f func(*row)) row { r := good(); f(&r); return r }
+	ins := func(tenant, doc uuid.UUID, r row) stmt {
+		return step(relief, tenant, doc, r.writeOff, r.number, r.currency, r.off, r.offLC, r.tax, r.taxL, r.code, r.notified, r.entry, r.entryNumber,
+			r.local)
+	}
+	before, after := "2026-08-01", "2026-08-11"
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, tenant, doc uuid.UUID) error
+		want string // empty: allowed
+	}{
+		{"a relief of an invoice", func(tx pgx.Tx, te, d uuid.UUID) error { return all(tx, step(invoice, te, d), ins(te, d, good())) }, ""},
+		{"notified before it", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.notified = &before })))
+		}, ""},
+		{"notified after it", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.notified = &after })))
+		}, "bad_debt_relief_notified_before"},
+		{"of no invoice", func(tx pgx.Tx, te, d uuid.UUID) error { return all(tx, ins(te, d, good())) }, "bad_debt_relief_invoice_fkey"},
+		{"a write-off relieved twice", func(tx pgx.Tx, te, d uuid.UUID) error {
+			r := good()
+			again := r
+			again.entry = id()
+			return all(tx, step(invoice, te, d), ins(te, d, r), ins(te, d, again))
+		}, "bad_debt_relief_once"},
+		{"an entry of two reliefs", func(tx pgx.Tx, te, d uuid.UUID) error {
+			r := good()
+			again := r
+			again.writeOff = id()
+			return all(tx, step(invoice, te, d), ins(te, d, r), ins(te, d, again))
+		}, "bad_debt_relief_entry_once"},
+		{"no tax", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.tax = 0 })))
+		}, "bad_debt_relief_tax_check"},
+		{"a negative local tax", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.taxL = -1 })))
+		}, "bad_debt_relief_tax_lc_check"},
+		{"tax of all that was written off", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.tax = r.off })))
+		}, "bad_debt_relief_tax_within"},
+		{"local tax above what was written off", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.taxL = r.offLC + 1 })))
+		}, "bad_debt_relief_tax_within"},
+		{"a code not of the code form", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.code = "as" })))
+		}, "bad_debt_relief_tax_code_check"},
+		{"an empty write-off number", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.number = "" })))
+		}, "bad_debt_relief_write_off_number_check"},
+		{"an entry number of 41 characters", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.entryNumber = strings.Repeat("1", 41) })))
+		}, "bad_debt_relief_entry_number_check"},
+		{"an unknown currency", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.currency = "XXA" })))
+		}, "bad_debt_relief_currency_fkey"},
+		{"an unknown local currency", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, with(func(r *row) { r.local = "XXA" })))
+		}, "bad_debt_relief_local_currency_fkey"},
+		// The trigger holds the owner too, past the application's grants;
+		// each statement is scoped to this tenant's invoice.
+		{"changed by the owner", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, good()), step(`SET LOCAL ROLE erp_owner`),
+				step(`UPDATE receivables.bad_debt_relief SET tax_code = 'AX' WHERE tenant_id = $1 AND customer_invoice_id = $2`, te, d))
+		}, "insert-only"},
+		{"deleted by the owner", func(tx pgx.Tx, te, d uuid.UUID) error {
+			return all(tx, step(invoice, te, d), ins(te, d, good()), step(`SET LOCAL ROLE erp_owner`),
+				step(`DELETE FROM receivables.bad_debt_relief WHERE tenant_id = $1 AND customer_invoice_id = $2`, te, d))
+		}, "insert-only"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error { return c.run(tx, tenant, doc) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestBadDebtReliefRevert (migration 000446's down): the revert is refused
+// while a relief is recorded.
+func TestBadDebtReliefRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000446_bad_debt_relief").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+			currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
+			VALUES ($1, $1, 'CI1', $1, $1, 'invoice', '2026-01-10', 'AED', 10000, 500, 10500, 'draft', $1, $1)`, tenant),
+		step(`INSERT INTO receivables.bad_debt_relief (tenant_id, id, legal_entity_id, customer_invoice_id, write_off_entry_year, write_off_entry_id,
+			write_off_entry_number, dispute_case_id, currency, local_currency, written_off_amount, written_off_amount_lc, tax_amount, tax_amount_lc,
+			tax_code, posting_date, journal_entry_year, journal_entry_id, journal_entry_number, created_by)
+			VALUES ($1, $1, $1, $1, 2026, gen_random_uuid(), '100001', $1, 'AED', 'AED', 10500, 10500, 500, 500, 'AS', '2026-08-10', 2026,
+				gen_random_uuid(), '100002', $1)`, tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "reverting would lose them")
+}

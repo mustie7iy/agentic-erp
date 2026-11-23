@@ -98,7 +98,9 @@ material type is not built.
   requisitions through ports and proposes requisitions through
   procurement's published API.
 - The rest of planning (S2l–S2n) and the connectors (S2q–S2s) are decided
-  by their own ADRs when they are built.
+  by their own ADRs when they are built; the WMS connector (S2q) needed
+  none: it is the integration context's connector pattern, recorded in
+  ADR-0082 As built S2q, and adds no import between contexts.
 
 ## S1 Foundation
 
@@ -798,11 +800,13 @@ customs (S2s).
     **Acceptance:** each company's entry balances, the supplying
     company's at its stock's value, the receiving company's at the order
     price. Walkthrough step `step_intercompany_transport`.
-  - **S2i2 Intercompany billing** (leaf): the supplying company bills the
-    posted goods issue to the receiving company's customer at the order's
-    prices (a billing document of the goods issue, not of a sales order),
-    its tax by the supplying company's tax code, posted as a customer
-    invoice (receivable and revenue); once per goods issue.
+  - **S2i2 Intercompany billing** (built, lane icbill, 2026-11-22; ADR-0082
+    As built S2i2): the supplying company bills the posted goods issue to
+    the receiving company's customer at the order's prices (a document of
+    its own, `sales.intercompany_billing`, not a sales billing document),
+    its tax by the supplying company's tax code, posted at once as a
+    customer invoice (receivable and revenue); once per goods issue.
+    `POST /v1/intercompany-billings`; walkthrough step 155.
   - **S2i3 The receiving company's supplier invoice from the billing**
     (leaf): the posted intercompany billing is entered as a supplier
     invoice of the receiving company for the supplier that is the
@@ -902,7 +906,7 @@ plant from its goods issues and open orders and states its accuracy
   orders, deliveries, requisitions and purchase orders, planning runs
   and planning data. `listSalesOrders` takes `plant_id` and
   `material_id`. No migration; suite `evals/demand_forecast`; walkthrough
-  step 157 (`step_demand_forecast_agent`, after `step_uae_cash_discount`).
+  step 158 (`step_demand_forecast_agent`, after `step_bad_debt_relief`).
 
 ### S2n S&OP review
 
@@ -911,6 +915,25 @@ capacity by material group and month and fixes a consensus plan version.
 **Later for Demand forecasting and S&OP:** statistical models beyond the
 agent's, promotions, collaborative forecasts with customers, IBP's
 supply optimisation.
+
+- **Detailed and as built** (lane sop, 2026-11-22; one slice, one leaf;
+  decided by default, ADR-0082 As built S2n and ADR-0084 As built S2n):
+  `createSopPlan` reviews a company on its day into a `draft` plan
+  version numbered per company (`mrp.sop_plan`): per material group,
+  base unit and calendar month of 1 to 12 (3 by default) from the day
+  after, the forecast (per planned material and plant the greater of the
+  moving average of 13 weeks' goods issues over the month's days and the
+  orders due in it, confirmed sales orders and intercompany orders it
+  supplies, S2m's rule in months), the orders, and in the first month the
+  stock, purchase orders, stock in transit and MRP's proposals still to
+  be ordered; the projected stock the opening stock
+  and receipts less the consensus, which starts as the forecast.
+  `updateSopPlan` sets the consensus by line key, `fixSopPlan` fixes the
+  version, which then changes no more (database triggers); audited;
+  people only. Capacity is not reviewed (no production context). Reads
+  inventory's `PlantIssues`, sales' `PlantRequirementsDue` and
+  procurement's `TransportReceipts` and `IntercompanyDue`, new in their published APIs.
+  Migration 000447; walkthrough step 159 (`step_sop_review`).
 
 ### S2o SAP migration of the material master (pilot)
 
@@ -992,6 +1015,58 @@ a later run.
 **Capability.** An external warehouse system receives deliveries and
 receipts to pick and put away and reports the movements back (the
 integration context's connector pattern).
+
+- **Split** (lane wms, 2026-11-22) into S2q1 (outbound deliveries and
+  their goods issue) and S2q2 (inbound receipts and their goods receipt),
+  each a leaf: both directions of both documents are more than one
+  half-day slice. Decided by default (ADR-0082 As built S2q).
+
+#### S2q1 Outbound deliveries to the WMS and their goods issue reported back
+
+**Capability.** An integration administrator connects a warehouse
+system for some plants; each outbound delivery created at such a plant
+is sent to it to pick, and the goods issue it reports back is posted
+once, as a warehouse clerk's would be.
+
+- **Adds:** the connector kind `wms` (settings `adapter`, `base_url`,
+  `plants` by company code; credentials by `secret_ref` in the tenant's
+  vault namespace, PO 2026-11-16; one active connector per plant, 409
+  `integration.plant_has_wms`); the provider-neutral port
+  `integration.Warehouse` (send a message; list, read and acknowledge
+  the confirmations) with the stand-in's adapter (`wmstest`, refused in
+  production: `integration.adapter_not_certified`), called through the
+  egress client (public addresses only; the walkthrough's stand-in by
+  `ERP_WALKTHROUGH_WMS`); `integration.wms_message` (000449); the bus
+  consumer `wms-outbound` reading shipping's OutboundDeliveryChanged
+  (ADR-0007) and queueing the delivery's message once; the exchange
+  worker sending the queue (retries 1, 5, 15 min, 1 h, 4 h; six attempts;
+  the WMS's refusal final) and polling each active connector every 10 s for its
+  confirmations; `GET /v1/wms-messages`.
+- **Walkthrough:** step 160, `step_wms` (before close).
+- **Acceptance:** a delivery at a WMS plant is sent once, whatever reads
+  its event twice; the goods issue the WMS reports is posted once by its
+  message id (a confirmation listed again is acknowledged, not posted);
+  a confirmation for a delivery the connector was not sent, or one
+  shipping refuses, is recorded refused and posts nothing.
+- **As built** (2026-11-22): ADR-0082 As built S2q.
+
+#### S2q2 Inbound receipts to the WMS and their goods receipt reported back
+
+**Capability.** The warehouse system is sent each released purchase
+order's (and stock transport order's) items for a plant it manages, as
+receipts expected to put away, and the goods receipt it reports back is
+posted once by its message id through procurement's published API.
+Built on S2q1's connector, table, port and exchange (a message kind each
+way).
+
+**Later for the WMS connector:** a vendor's adapter (when the pilot or
+a customer names one; until then the stand-in alone, refused in
+production); sending a delivery created before its plant had a WMS, or
+again, by hand; a person's pick or goods issue refused on a delivery a
+WMS holds (SAP's decentralised WMS locks the delivery, from memory);
+changes and cancellations of a sent delivery; handling units, bins and
+serial or batch numbers in the messages; a push endpoint for a WMS that
+cannot be polled (security posture, the product owner's).
 
 ### S2r TMS connector
 

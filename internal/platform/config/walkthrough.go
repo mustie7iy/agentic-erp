@@ -12,7 +12,9 @@ import (
 // the one local delivery the product owner allowed (2026-11-04, ADR-0041
 // As built), and the e-invoicing provider's stand-in, which the stand-in
 // adapter of an einvoice_provider connector reads from (ADR-0061 §3 As
-// built). Neither is a general local-delivery setting: each names one
+// built), and the warehouse system's stand-in, which a wms connector's
+// adapter calls (ADR-0082 As built S2q). None is a general local-delivery
+// setting: each names one
 // loopback address and port and the certificate that stand-in presents,
 // and only with ERP_ENV=development; any other environment refuses to
 // start with them.
@@ -25,6 +27,13 @@ type Walkthrough struct {
 	// ProviderRoots is ERP_WALKTHROUGH_PROVIDER_CA, a PEM file with the
 	// stand-in's certificate, trusted for it alone.
 	ProviderRoots *x509.CertPool
+	// WMS is ERP_WALKTHROUGH_WMS, the warehouse system's stand-in, which
+	// the stand-in adapter of a wms connector calls (ADR-0082 As built
+	// S2q), such as 127.0.0.1:18445; zero: none.
+	WMS netip.AddrPort
+	// WMSRoots is ERP_WALKTHROUGH_WMS_CA, a PEM file with the stand-in's
+	// certificate, trusted for it alone.
+	WMSRoots *x509.CertPool
 	// SFTP is ERP_WALKTHROUGH_SFTP, the SFTP stand-in (the treasury
 	// system's), the one loopback address and port a bank or treasury
 	// channel may reach (ADR-0041 As built, product owner 2026-11-16); zero:
@@ -38,6 +47,8 @@ func (l *loader) walkthrough(c *Config) {
 	c.Walkthrough.Receiver, c.Walkthrough.Roots = l.standIn(c, "ERP_WALKTHROUGH_RECEIVER", "let webhooks reach a loopback address, for the walkthrough alone (ADR-0041)")
 	c.Walkthrough.Provider, c.Walkthrough.ProviderRoots = l.standIn(c, "ERP_WALKTHROUGH_PROVIDER",
 		"let the e-invoicing stand-in be read on a loopback address, for the walkthrough alone (ADR-0061)")
+	c.Walkthrough.WMS, c.Walkthrough.WMSRoots = l.standIn(c, "ERP_WALKTHROUGH_WMS",
+		"let the warehouse system's stand-in be called on a loopback address, for the walkthrough alone (ADR-0082)")
 	c.Walkthrough.SFTP = l.sftpStandIn(c)
 }
 

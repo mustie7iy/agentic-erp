@@ -244,6 +244,10 @@ type Customer struct {
 	ReconciliationID uuid.UUID
 	PaymentTermCode  string
 	IsPostingBlocked bool
+	// GroupCompanyID is the company of the group the partner is (ADR-0059
+	// §4), nil for a third party: an intercompany billing's customer is
+	// the receiving company's (S2i2).
+	GroupCompanyID *uuid.UUID
 }
 
 // Usable reports why a receivables document cannot name the customer in
@@ -276,10 +280,10 @@ func (Customers) Customer(ctx context.Context, partnerID, legalEntity uuid.UUID)
 	var blocked *bool
 	err = tx.QueryRow(ctx, `SELECT p.number, p.name, p.status,
 			EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = 'customer'),
-			cc.reconciliation_account_id, cc.payment_term_code, cc.is_posting_blocked
+			cc.reconciliation_account_id, cc.payment_term_code, cc.is_posting_blocked, p.group_company_id
 		FROM partner.business_partner p
 		LEFT JOIN partner.customer_company cc ON cc.tenant_id = p.tenant_id AND cc.partner_id = p.id AND cc.legal_entity_id = $2
-		WHERE p.id = $1`, partnerID, legalEntity).Scan(&c.Number, &c.Name, &c.Status, &c.IsCustomer, &recon, &term, &blocked)
+		WHERE p.id = $1`, partnerID, legalEntity).Scan(&c.Number, &c.Name, &c.Status, &c.IsCustomer, &recon, &term, &blocked, &c.GroupCompanyID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Customer{}, false, nil
 	}

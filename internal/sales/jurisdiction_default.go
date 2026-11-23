@@ -30,15 +30,23 @@ const defaultedCountry = "AE"
 // of a material kept in stock, else from the company's establishment, when
 // the code levies that one.
 func (c itemCheck) defaultJurisdiction(it ItemInput, code ledger.TaxCode) *string {
-	fault, component := code.CheckJurisdiction(nil)
-	if it.Kept || fault != ledger.JurisdictionRequired || component.Jurisdiction != defaultedCountry {
+	if it.Kept {
 		return nil
 	}
 	candidate := c.doc.establishment
 	if it.MaterialID != nil && c.materials[*it.MaterialID].Stocked() && c.doc.plant != nil && c.doc.plant.Region != nil {
 		candidate = c.doc.plant.Region
 	}
-	if candidate == nil {
+	return defaultedTo(code, candidate)
+}
+
+// defaultedTo is candidate, the seller's side's region, as the
+// jurisdiction an item of the code that names none defaults to, nil for
+// none: only for a code that levies the UAE's emirates on its lines, and
+// only a region the code levies.
+func defaultedTo(code ledger.TaxCode, candidate *string) *string {
+	fault, component := code.CheckJurisdiction(nil)
+	if fault != ledger.JurisdictionRequired || component.Jurisdiction != defaultedCountry || candidate == nil {
 		return nil
 	}
 	if fault, _ := code.CheckJurisdiction(candidate); fault != ledger.JurisdictionOK {

@@ -13488,6 +13488,468 @@ type AwardRfqUnprocessableEntity Problem
 
 func (*AwardRfqUnprocessableEntity) awardRfqRes() {}
 
+// The output tax of a customer invoice written off as a bad debt, recovered by an adjustment the tax
+// return reports (ADR-0049 As built, bad debt relief). It is recorded once, when it posts, and never
+// changes.
+// Ref: #/components/schemas/BadDebtRelief
+type BadDebtRelief struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The company whose output tax is recovered.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer invoice written off (`GET /v1/customer-invoices/{id}`).
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The invoice's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The invoice's customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The dispute case whose write-off wrote the invoice off (`GET /v1/dispute-cases/{id}`).
+	DisputeCaseID uuid.UUID `json:"dispute_case_id"`
+	// The write-off's journal entry (`GET /v1/journal-entries/{id}`).
+	WriteOffJournalEntryID uuid.UUID `json:"write_off_journal_entry_id"`
+	// The write-off entry's fiscal year.
+	WriteOffJournalEntryYear int32 `json:"write_off_journal_entry_year"`
+	// The write-off entry's document number.
+	WriteOffJournalEntryNumber string `json:"write_off_journal_entry_number"`
+	// The invoice's currency (ISO 4217), which `written_off_amount` and `tax_amount` are in.
+	Currency string `json:"currency"`
+	// What the write-off wrote off of the invoice.
+	WrittenOffAmount Money `json:"written_off_amount"`
+	// The output tax recovered: the share of the invoice's output tax in what was written off.
+	TaxAmount Money `json:"tax_amount"`
+	// What was written off in the company's currency, at the invoice's booked rate.
+	LocalWrittenOffAmount Money `json:"local_written_off_amount"`
+	// The output tax recovered in the company's currency, at the invoice's booked rate: what the return
+	// reports.
+	LocalTaxAmount Money `json:"local_tax_amount"`
+	// The adjustment code the relief was posted under.
+	TaxCode string `json:"tax_code"`
+	// The date the customer was notified of what was written off; absent when none was given.
+	CustomerNotifiedOn OptDate `json:"customer_notified_on"`
+	// The relief's posting date and tax date.
+	PostingDate time.Time `json:"posting_date"`
+	// The relief's journal entry, its lines the tax recovered by emirate (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The relief entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The relief entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When the relief was recorded.
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who recorded it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *BadDebtRelief) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BadDebtRelief) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *BadDebtRelief) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *BadDebtRelief) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *BadDebtRelief) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *BadDebtRelief) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *BadDebtRelief) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *BadDebtRelief) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *BadDebtRelief) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetDisputeCaseID returns the value of DisputeCaseID.
+func (s *BadDebtRelief) GetDisputeCaseID() uuid.UUID {
+	return s.DisputeCaseID
+}
+
+// GetWriteOffJournalEntryID returns the value of WriteOffJournalEntryID.
+func (s *BadDebtRelief) GetWriteOffJournalEntryID() uuid.UUID {
+	return s.WriteOffJournalEntryID
+}
+
+// GetWriteOffJournalEntryYear returns the value of WriteOffJournalEntryYear.
+func (s *BadDebtRelief) GetWriteOffJournalEntryYear() int32 {
+	return s.WriteOffJournalEntryYear
+}
+
+// GetWriteOffJournalEntryNumber returns the value of WriteOffJournalEntryNumber.
+func (s *BadDebtRelief) GetWriteOffJournalEntryNumber() string {
+	return s.WriteOffJournalEntryNumber
+}
+
+// GetCurrency returns the value of Currency.
+func (s *BadDebtRelief) GetCurrency() string {
+	return s.Currency
+}
+
+// GetWrittenOffAmount returns the value of WrittenOffAmount.
+func (s *BadDebtRelief) GetWrittenOffAmount() Money {
+	return s.WrittenOffAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *BadDebtRelief) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetLocalWrittenOffAmount returns the value of LocalWrittenOffAmount.
+func (s *BadDebtRelief) GetLocalWrittenOffAmount() Money {
+	return s.LocalWrittenOffAmount
+}
+
+// GetLocalTaxAmount returns the value of LocalTaxAmount.
+func (s *BadDebtRelief) GetLocalTaxAmount() Money {
+	return s.LocalTaxAmount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *BadDebtRelief) GetTaxCode() string {
+	return s.TaxCode
+}
+
+// GetCustomerNotifiedOn returns the value of CustomerNotifiedOn.
+func (s *BadDebtRelief) GetCustomerNotifiedOn() OptDate {
+	return s.CustomerNotifiedOn
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BadDebtRelief) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *BadDebtRelief) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *BadDebtRelief) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *BadDebtRelief) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *BadDebtRelief) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *BadDebtRelief) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *BadDebtRelief) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BadDebtRelief) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *BadDebtRelief) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *BadDebtRelief) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *BadDebtRelief) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *BadDebtRelief) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *BadDebtRelief) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *BadDebtRelief) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *BadDebtRelief) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetDisputeCaseID sets the value of DisputeCaseID.
+func (s *BadDebtRelief) SetDisputeCaseID(val uuid.UUID) {
+	s.DisputeCaseID = val
+}
+
+// SetWriteOffJournalEntryID sets the value of WriteOffJournalEntryID.
+func (s *BadDebtRelief) SetWriteOffJournalEntryID(val uuid.UUID) {
+	s.WriteOffJournalEntryID = val
+}
+
+// SetWriteOffJournalEntryYear sets the value of WriteOffJournalEntryYear.
+func (s *BadDebtRelief) SetWriteOffJournalEntryYear(val int32) {
+	s.WriteOffJournalEntryYear = val
+}
+
+// SetWriteOffJournalEntryNumber sets the value of WriteOffJournalEntryNumber.
+func (s *BadDebtRelief) SetWriteOffJournalEntryNumber(val string) {
+	s.WriteOffJournalEntryNumber = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *BadDebtRelief) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetWrittenOffAmount sets the value of WrittenOffAmount.
+func (s *BadDebtRelief) SetWrittenOffAmount(val Money) {
+	s.WrittenOffAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *BadDebtRelief) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetLocalWrittenOffAmount sets the value of LocalWrittenOffAmount.
+func (s *BadDebtRelief) SetLocalWrittenOffAmount(val Money) {
+	s.LocalWrittenOffAmount = val
+}
+
+// SetLocalTaxAmount sets the value of LocalTaxAmount.
+func (s *BadDebtRelief) SetLocalTaxAmount(val Money) {
+	s.LocalTaxAmount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *BadDebtRelief) SetTaxCode(val string) {
+	s.TaxCode = val
+}
+
+// SetCustomerNotifiedOn sets the value of CustomerNotifiedOn.
+func (s *BadDebtRelief) SetCustomerNotifiedOn(val OptDate) {
+	s.CustomerNotifiedOn = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BadDebtRelief) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *BadDebtRelief) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *BadDebtRelief) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *BadDebtRelief) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *BadDebtRelief) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *BadDebtRelief) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+func (*BadDebtRelief) getBadDebtReliefRes() {}
+
+// A claim of bad debt relief: the invoice written off, the write-off, the adjustment code and, where
+// the company's country asks for it, when the customer was notified.
+// Ref: #/components/schemas/BadDebtReliefCreate
+type BadDebtReliefCreate struct {
+	// The posted customer invoice written off (`GET /v1/customer-invoices/{id}`).
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The journal entry of the dispute case's write-off that wrote the invoice off
+	// (`write_off_journal_entry_id` of the case's resolution).
+	WriteOffJournalEntryID uuid.UUID `json:"write_off_journal_entry_id"`
+	// The adjustment code (kind `adjustment`) the relief is posted under: an output code levying the
+	// emirate for a UAE company, an input GST/HST code for a Canadian one.
+	TaxCode string `json:"tax_code"`
+	// The date the customer was notified of what was written off; required for a UAE company (Art. 64),
+	// recorded when given for another.
+	CustomerNotifiedOn OptDate `json:"customer_notified_on"`
+	// The relief's posting date and tax date; absent: today, the company's date in its time zone
+	// (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *BadDebtReliefCreate) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetWriteOffJournalEntryID returns the value of WriteOffJournalEntryID.
+func (s *BadDebtReliefCreate) GetWriteOffJournalEntryID() uuid.UUID {
+	return s.WriteOffJournalEntryID
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *BadDebtReliefCreate) GetTaxCode() string {
+	return s.TaxCode
+}
+
+// GetCustomerNotifiedOn returns the value of CustomerNotifiedOn.
+func (s *BadDebtReliefCreate) GetCustomerNotifiedOn() OptDate {
+	return s.CustomerNotifiedOn
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BadDebtReliefCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *BadDebtReliefCreate) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetWriteOffJournalEntryID sets the value of WriteOffJournalEntryID.
+func (s *BadDebtReliefCreate) SetWriteOffJournalEntryID(val uuid.UUID) {
+	s.WriteOffJournalEntryID = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *BadDebtReliefCreate) SetTaxCode(val string) {
+	s.TaxCode = val
+}
+
+// SetCustomerNotifiedOn sets the value of CustomerNotifiedOn.
+func (s *BadDebtReliefCreate) SetCustomerNotifiedOn(val OptDate) {
+	s.CustomerNotifiedOn = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BadDebtReliefCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// BadDebtReliefHeaders wraps BadDebtRelief with response headers.
+type BadDebtReliefHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           BadDebtRelief
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BadDebtReliefHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *BadDebtReliefHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *BadDebtReliefHeaders) GetResponse() BadDebtRelief {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BadDebtReliefHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *BadDebtReliefHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BadDebtReliefHeaders) SetResponse(val BadDebtRelief) {
+	s.Response = val
+}
+
+func (*BadDebtReliefHeaders) createBadDebtReliefRes() {}
+
+// One page of bad debt reliefs.
+// Ref: #/components/schemas/BadDebtReliefPage
+type BadDebtReliefPage struct {
+	// The bad debt reliefs on this page.
+	Items []BadDebtRelief `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *BadDebtReliefPage) GetItems() []BadDebtRelief {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *BadDebtReliefPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *BadDebtReliefPage) SetItems(val []BadDebtRelief) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *BadDebtReliefPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*BadDebtReliefPage) listBadDebtReliefsRes() {}
+
 // Period totals per account and transaction currency, maintained by a projector from posted entries.
 // Ref: #/components/schemas/Balance
 type Balance struct {
@@ -28313,6 +28775,7 @@ func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
 func (*ConflictHeaders) createAssetTransferRes()                   {}
 func (*ConflictHeaders) createAuditEvidenceExportRes()             {}
+func (*ConflictHeaders) createBadDebtReliefRes()                   {}
 func (*ConflictHeaders) createBatchRes()                           {}
 func (*ConflictHeaders) createBillingDocumentRes()                 {}
 func (*ConflictHeaders) createBusinessPartnerRes()                 {}
@@ -28344,6 +28807,7 @@ func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
 func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
 func (*ConflictHeaders) createIncomingPaymentRes()                 {}
+func (*ConflictHeaders) createIntercompanyBillingRes()             {}
 func (*ConflictHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLeaseContractRes()                   {}
@@ -28387,6 +28851,7 @@ func (*ConflictHeaders) createSalesPriceRes()                      {}
 func (*ConflictHeaders) createScheduleLineRes()                    {}
 func (*ConflictHeaders) createSegmentRes()                         {}
 func (*ConflictHeaders) createSodRuleRes()                         {}
+func (*ConflictHeaders) createSopPlanRes()                         {}
 func (*ConflictHeaders) createStatisticalKeyFigureRes()            {}
 func (*ConflictHeaders) createStockTransportOrderRes()             {}
 func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
@@ -28415,6 +28880,7 @@ func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
+func (*ConflictHeaders) fixSopPlanRes()                            {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getArchivingRunFileRes()                   {}
@@ -28607,6 +29073,7 @@ func (*ConflictHeaders) updateRevenueContractRes()                 {}
 func (*ConflictHeaders) updateRiskRes()                            {}
 func (*ConflictHeaders) updateRoleRes()                            {}
 func (*ConflictHeaders) updateSegmentRes()                         {}
+func (*ConflictHeaders) updateSopPlanRes()                         {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) updateWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) updateYearCloseTaskRes()                   {}
@@ -28662,7 +29129,13 @@ type Connector struct {
 	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 	// are refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+	// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+	// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+	// by company code: a list of plant codes for each company, at least one plant, each once); its
+	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+	// connector at most: creating, changing or enabling one naming a plant another active one manages
+	// answers 409 `integration.plant_has_wms`.
 	Settings ConnectorSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28819,7 +29292,13 @@ type ConnectorCreate struct {
 	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 	// are refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+	// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+	// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+	// by company code: a list of plant codes for each company, at least one plant, each once); its
+	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+	// connector at most: creating, changing or enabling one naming a plant another active one manages
+	// answers 409 `integration.plant_has_wms`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28895,7 +29374,13 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 // credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 // are refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+// by company code: a list of plant codes for each company, at least one plant, each once); its
+// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+// connector at most: creating, changing or enabling one naming a plant another active one manages
+// answers 409 `integration.plant_has_wms`.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -29027,7 +29512,13 @@ func (*ConnectorPage) listConnectorsRes() {}
 // a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 // credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 // are refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+// by company code: a list of plant codes for each company, at least one plant, each once); its
+// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+// connector at most: creating, changing or enabling one naming a plant another active one manages
+// answers 409 `integration.plant_has_wms`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -29065,7 +29556,13 @@ type ConnectorUpdate struct {
 	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 	// are refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+	// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+	// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+	// by company code: a list of plant codes for each company, at least one plant, each once); its
+	// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+	// connector at most: creating, changing or enabling one naming a plant another active one manages
+	// answers 409 `integration.plant_has_wms`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -29126,7 +29623,13 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
 // credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
 // are refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As
+// built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor
+// is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages,
+// by company code: a list of plant codes for each company, at least one plant, each once); its
+// `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms`
+// connector at most: creating, changing or enabling one naming a plant another active one manages
+// answers 409 `integration.plant_has_wms`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -35098,6 +35601,22 @@ type CreateAuditEvidenceExportUnprocessableEntity Problem
 
 func (*CreateAuditEvidenceExportUnprocessableEntity) createAuditEvidenceExportRes() {}
 
+type CreateBadDebtReliefBadRequest Problem
+
+func (*CreateBadDebtReliefBadRequest) createBadDebtReliefRes() {}
+
+type CreateBadDebtReliefForbidden Problem
+
+func (*CreateBadDebtReliefForbidden) createBadDebtReliefRes() {}
+
+type CreateBadDebtReliefPreconditionRequired Problem
+
+func (*CreateBadDebtReliefPreconditionRequired) createBadDebtReliefRes() {}
+
+type CreateBadDebtReliefUnprocessableEntity Problem
+
+func (*CreateBadDebtReliefUnprocessableEntity) createBadDebtReliefRes() {}
+
 type CreateBatchBadRequest Problem
 
 func (*CreateBatchBadRequest) createBatchRes() {}
@@ -35698,6 +36217,22 @@ func (*CreateIncomingPaymentPreconditionRequired) createIncomingPaymentRes() {}
 type CreateIncomingPaymentUnprocessableEntity Problem
 
 func (*CreateIncomingPaymentUnprocessableEntity) createIncomingPaymentRes() {}
+
+type CreateIntercompanyBillingBadRequest Problem
+
+func (*CreateIntercompanyBillingBadRequest) createIntercompanyBillingRes() {}
+
+type CreateIntercompanyBillingForbidden Problem
+
+func (*CreateIntercompanyBillingForbidden) createIntercompanyBillingRes() {}
+
+type CreateIntercompanyBillingPreconditionRequired Problem
+
+func (*CreateIntercompanyBillingPreconditionRequired) createIntercompanyBillingRes() {}
+
+type CreateIntercompanyBillingUnprocessableEntity Problem
+
+func (*CreateIntercompanyBillingUnprocessableEntity) createIntercompanyBillingRes() {}
 
 type CreateInternalOrderBadRequest Problem
 
@@ -36515,6 +37050,18 @@ func (*CreateSodRulePreconditionRequired) createSodRuleRes() {}
 type CreateSodRuleUnprocessableEntity Problem
 
 func (*CreateSodRuleUnprocessableEntity) createSodRuleRes() {}
+
+type CreateSopPlanBadRequest Problem
+
+func (*CreateSopPlanBadRequest) createSopPlanRes() {}
+
+type CreateSopPlanForbidden Problem
+
+func (*CreateSopPlanForbidden) createSopPlanRes() {}
+
+type CreateSopPlanUnprocessableEntity Problem
+
+func (*CreateSopPlanUnprocessableEntity) createSopPlanRes() {}
 
 type CreateStatisticalKeyFigureBadRequest Problem
 
@@ -39494,10 +40041,14 @@ type CustomerInvoice struct {
 	// The entry's document number. Absent until posted.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The document the invoice was entered from: the billing document that posted it
-	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges
-	// and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`,
-	// `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent
-	// for an invoice a person entered (`createCustomerInvoice`).
+	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`); the intercompany billing that posted it
+	// (`GET /v1/intercompany-billings/{id}`, `createIntercompanyBilling`, S2i2), whose number is of the
+	// same `billing_document` range, so the id, not the number, tells which (an invoice whose id
+	// `getBillingDocument` does not find is an intercompany billing's when `getIntercompanyBilling` finds
+	// it); or, for a debit memo of dunning charges and interest, the dunning notice whose run's
+	// confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's
+	// cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered
+	// (`createCustomerInvoice`).
 	SourceDocumentID OptUUID `json:"source_document_id"`
 	// That document's number, a dunning notice's id for a dunning notice, which has no number; absent with
 	// `source_document_id`.
@@ -49551,6 +50102,26 @@ func (s *FiscalPeriodPage) SetTotalEstimate(val OptInt64) {
 
 func (*FiscalPeriodPage) listFiscalPeriodsRes() {}
 
+type FixSopPlanBadRequest Problem
+
+func (*FixSopPlanBadRequest) fixSopPlanRes() {}
+
+type FixSopPlanForbidden Problem
+
+func (*FixSopPlanForbidden) fixSopPlanRes() {}
+
+type FixSopPlanNotFound Problem
+
+func (*FixSopPlanNotFound) fixSopPlanRes() {}
+
+type FixSopPlanPreconditionFailed Problem
+
+func (*FixSopPlanPreconditionFailed) fixSopPlanRes() {}
+
+type FixSopPlanPreconditionRequired Problem
+
+func (*FixSopPlanPreconditionRequired) fixSopPlanRes() {}
+
 // A document a variance comment cites: one the attribution of the variance it explains lists
 // (`listForecastVarianceDocuments`).
 // Ref: #/components/schemas/ForecastVarianceCitation
@@ -51011,6 +51582,18 @@ func (*GetAuditEvidenceExportForbidden) getAuditEvidenceExportRes() {}
 type GetAuditEvidenceExportNotFound Problem
 
 func (*GetAuditEvidenceExportNotFound) getAuditEvidenceExportRes() {}
+
+type GetBadDebtReliefBadRequest Problem
+
+func (*GetBadDebtReliefBadRequest) getBadDebtReliefRes() {}
+
+type GetBadDebtReliefForbidden Problem
+
+func (*GetBadDebtReliefForbidden) getBadDebtReliefRes() {}
+
+type GetBadDebtReliefNotFound Problem
+
+func (*GetBadDebtReliefNotFound) getBadDebtReliefRes() {}
 
 type GetBalanceCarryForwardBadRequest Problem
 
@@ -52486,6 +53069,46 @@ func (s *GetIncomingPaymentOKHeaders) SetResponse(val IncomingPayment) {
 }
 
 func (*GetIncomingPaymentOKHeaders) getIncomingPaymentRes() {}
+
+type GetIntercompanyBillingBadRequest Problem
+
+func (*GetIntercompanyBillingBadRequest) getIntercompanyBillingRes() {}
+
+type GetIntercompanyBillingForbidden Problem
+
+func (*GetIntercompanyBillingForbidden) getIntercompanyBillingRes() {}
+
+type GetIntercompanyBillingNotFound Problem
+
+func (*GetIntercompanyBillingNotFound) getIntercompanyBillingRes() {}
+
+// GetIntercompanyBillingOKHeaders wraps IntercompanyBilling with response headers.
+type GetIntercompanyBillingOKHeaders struct {
+	ETag     OptString
+	Response IntercompanyBilling
+}
+
+// GetETag returns the value of ETag.
+func (s *GetIntercompanyBillingOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetIntercompanyBillingOKHeaders) GetResponse() IntercompanyBilling {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetIntercompanyBillingOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetIntercompanyBillingOKHeaders) SetResponse(val IntercompanyBilling) {
+	s.Response = val
+}
+
+func (*GetIntercompanyBillingOKHeaders) getIntercompanyBillingRes() {}
 
 type GetInternalOrderBadRequest Problem
 
@@ -54800,6 +55423,48 @@ func (s *GetSodRuleOKHeaders) SetResponse(val SodRule) {
 }
 
 func (*GetSodRuleOKHeaders) getSodRuleRes() {}
+
+type GetSopPlanBadRequest Problem
+
+func (*GetSopPlanBadRequest) getSopPlanRes() {}
+
+type GetSopPlanForbidden Problem
+
+func (*GetSopPlanForbidden) getSopPlanRes() {}
+
+type GetSopPlanNotFound Problem
+
+func (*GetSopPlanNotFound) getSopPlanRes() {}
+
+// GetSopPlanOKHeaders wraps SopPlan with response headers.
+type GetSopPlanOKHeaders struct {
+	ETag     OptString
+	Response SopPlan
+}
+
+// GetETag returns the value of ETag.
+func (s *GetSopPlanOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetSopPlanOKHeaders) GetResponse() SopPlan {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetSopPlanOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetSopPlanOKHeaders) SetResponse(val SopPlan) {
+	s.Response = val
+}
+
+func (*GetSopPlanOKHeaders) fixSopPlanRes()    {}
+func (*GetSopPlanOKHeaders) getSopPlanRes()    {}
+func (*GetSopPlanOKHeaders) updateSopPlanRes() {}
 
 type GetStatisticalKeyFigureBadRequest Problem
 
@@ -59576,6 +60241,719 @@ func (s *IncomingPaymentWriteOff) SetJournalEntryNumber(val string) {
 func (s *IncomingPaymentWriteOff) SetLineNo(val int32) {
 	s.LineNo = val
 }
+
+// An intercompany billing (sales, ADR-0082 As built S2i, S2i2): the supplying company's bill of an
+// intercompany stock transport order's goods issue to the business partner that is the receiving
+// company, at the order's prices, posted at once as a customer invoice and never changed.
+// Ref: #/components/schemas/IntercompanyBilling
+type IntercompanyBilling struct {
+	// The billing's id.
+	ID uuid.UUID `json:"id"`
+	// Its number, from the supplying company's `billing_document` range.
+	DocumentNumber string `json:"document_number"`
+	// The supplying company, which bills.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The business partner that is the receiving company (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// Its business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// Its name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The receiving company, the order's.
+	ReceivingLegalEntityID uuid.UUID `json:"receiving_legal_entity_id"`
+	// That company's code.
+	ReceivingCompanyCode string `json:"receiving_company_code"`
+	// The intercompany stock transport order billed (`GET /v1/purchase-orders/{id}`).
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The order's document number.
+	PurchaseOrderNumber string `json:"purchase_order_number"`
+	// The order's goods issue (643, `GET /v1/material-documents/{id}`), which is billed once.
+	IssueDocumentID uuid.UUID `json:"issue_document_id"`
+	// The goods issue's number.
+	IssueDocumentNumber string `json:"issue_document_number"`
+	// The billing date, its customer invoice's invoice and tax date.
+	BillingDate time.Time `json:"billing_date"`
+	// The date its customer invoice posted on.
+	PostingDate time.Time `json:"posting_date"`
+	// The order's currency (ISO 4217), which it is billed in.
+	Currency string `json:"currency"`
+	// The sum of the items' amounts: the order's value, the transfer price.
+	NetAmount Money `json:"net_amount"`
+	// The output tax of its customer invoice.
+	TaxAmount Money `json:"tax_amount"`
+	// Net and tax: what the receiving company owes.
+	GrossAmount Money `json:"gross_amount"`
+	// The customer invoice it posted as (`GET /v1/customer-invoices/{id}`), the receiving company's open
+	// item in the supplying company.
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The customer invoice's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The items, by item number.
+	Items []IntercompanyBillingItem `json:"items"`
+	// When it was billed and posted.
+	CreatedAt time.Time `json:"created_at"`
+	// Who billed it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *IntercompanyBilling) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *IntercompanyBilling) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IntercompanyBilling) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *IntercompanyBilling) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IntercompanyBilling) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *IntercompanyBilling) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *IntercompanyBilling) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetReceivingLegalEntityID returns the value of ReceivingLegalEntityID.
+func (s *IntercompanyBilling) GetReceivingLegalEntityID() uuid.UUID {
+	return s.ReceivingLegalEntityID
+}
+
+// GetReceivingCompanyCode returns the value of ReceivingCompanyCode.
+func (s *IntercompanyBilling) GetReceivingCompanyCode() string {
+	return s.ReceivingCompanyCode
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *IntercompanyBilling) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *IntercompanyBilling) GetPurchaseOrderNumber() string {
+	return s.PurchaseOrderNumber
+}
+
+// GetIssueDocumentID returns the value of IssueDocumentID.
+func (s *IntercompanyBilling) GetIssueDocumentID() uuid.UUID {
+	return s.IssueDocumentID
+}
+
+// GetIssueDocumentNumber returns the value of IssueDocumentNumber.
+func (s *IntercompanyBilling) GetIssueDocumentNumber() string {
+	return s.IssueDocumentNumber
+}
+
+// GetBillingDate returns the value of BillingDate.
+func (s *IntercompanyBilling) GetBillingDate() time.Time {
+	return s.BillingDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IntercompanyBilling) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *IntercompanyBilling) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *IntercompanyBilling) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *IntercompanyBilling) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *IntercompanyBilling) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *IntercompanyBilling) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *IntercompanyBilling) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IntercompanyBilling) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IntercompanyBilling) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IntercompanyBilling) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyBilling) GetItems() []IntercompanyBillingItem {
+	return s.Items
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IntercompanyBilling) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IntercompanyBilling) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *IntercompanyBilling) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *IntercompanyBilling) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IntercompanyBilling) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *IntercompanyBilling) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IntercompanyBilling) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *IntercompanyBilling) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *IntercompanyBilling) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetReceivingLegalEntityID sets the value of ReceivingLegalEntityID.
+func (s *IntercompanyBilling) SetReceivingLegalEntityID(val uuid.UUID) {
+	s.ReceivingLegalEntityID = val
+}
+
+// SetReceivingCompanyCode sets the value of ReceivingCompanyCode.
+func (s *IntercompanyBilling) SetReceivingCompanyCode(val string) {
+	s.ReceivingCompanyCode = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *IntercompanyBilling) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *IntercompanyBilling) SetPurchaseOrderNumber(val string) {
+	s.PurchaseOrderNumber = val
+}
+
+// SetIssueDocumentID sets the value of IssueDocumentID.
+func (s *IntercompanyBilling) SetIssueDocumentID(val uuid.UUID) {
+	s.IssueDocumentID = val
+}
+
+// SetIssueDocumentNumber sets the value of IssueDocumentNumber.
+func (s *IntercompanyBilling) SetIssueDocumentNumber(val string) {
+	s.IssueDocumentNumber = val
+}
+
+// SetBillingDate sets the value of BillingDate.
+func (s *IntercompanyBilling) SetBillingDate(val time.Time) {
+	s.BillingDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IntercompanyBilling) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *IntercompanyBilling) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *IntercompanyBilling) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *IntercompanyBilling) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *IntercompanyBilling) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *IntercompanyBilling) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *IntercompanyBilling) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IntercompanyBilling) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IntercompanyBilling) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IntercompanyBilling) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyBilling) SetItems(val []IntercompanyBillingItem) {
+	s.Items = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IntercompanyBilling) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IntercompanyBilling) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// Bill an intercompany stock transport order's posted goods issue to the business partner that is the
+// receiving company (S2i2): every item of the order once, with the supplying company's revenue account
+// and output tax.
+// Ref: #/components/schemas/IntercompanyBillingCreate
+type IntercompanyBillingCreate struct {
+	// The intercompany stock transport order (`GET /v1/purchase-orders/{id}`, naming `supplying_plant_id`)
+	// whose goods issue is billed.
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The business partner whose group company is the order's company (`GET /v1/business-partners/{id}`),
+	// a customer of the supplying company.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The billing date, the customer invoice's invoice and tax date, not before the goods issue; absent:
+	// the supplying company's date today in its time zone.
+	BillingDate OptDate `json:"billing_date"`
+	// The customer invoice's posting date; absent: the supplying company's date today in its time zone.
+	PostingDate OptDate `json:"posting_date"`
+	// Every item of the order, each once.
+	Items []IntercompanyBillingItemInput `json:"items"`
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *IntercompanyBillingCreate) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IntercompanyBillingCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetBillingDate returns the value of BillingDate.
+func (s *IntercompanyBillingCreate) GetBillingDate() OptDate {
+	return s.BillingDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IntercompanyBillingCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyBillingCreate) GetItems() []IntercompanyBillingItemInput {
+	return s.Items
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *IntercompanyBillingCreate) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IntercompanyBillingCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetBillingDate sets the value of BillingDate.
+func (s *IntercompanyBillingCreate) SetBillingDate(val OptDate) {
+	s.BillingDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IntercompanyBillingCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyBillingCreate) SetItems(val []IntercompanyBillingItemInput) {
+	s.Items = val
+}
+
+// IntercompanyBillingHeaders wraps IntercompanyBilling with response headers.
+type IntercompanyBillingHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           IntercompanyBilling
+}
+
+// GetETag returns the value of ETag.
+func (s *IntercompanyBillingHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *IntercompanyBillingHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *IntercompanyBillingHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *IntercompanyBillingHeaders) GetResponse() IntercompanyBilling {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *IntercompanyBillingHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *IntercompanyBillingHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *IntercompanyBillingHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *IntercompanyBillingHeaders) SetResponse(val IntercompanyBilling) {
+	s.Response = val
+}
+
+func (*IntercompanyBillingHeaders) createIntercompanyBillingRes() {}
+
+// An item of an intercompany billing: an order item's issued quantity at the order's price, credited
+// to the supplying company's revenue account with its output tax.
+// Ref: #/components/schemas/IntercompanyBillingItem
+type IntercompanyBillingItem struct {
+	// The item's number in the billing, from 1, in the order of the request's items; the customer
+	// invoice's item of the same number.
+	ItemNo int32 `json:"item_no"`
+	// The order item billed.
+	PoItemNo int32 `json:"po_item_no"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The order item's description.
+	Description string `json:"description"`
+	// The ordered quantity, which the goods issue issued, in the order item's unit.
+	Quantity Quantity `json:"quantity"`
+	// The order's price per `price_unit`, the transfer price.
+	UnitPrice Money `json:"unit_price"`
+	// The quantity the unit price is for.
+	PriceUnit int32 `json:"price_unit"`
+	// The item's amount: quantity × price ÷ price unit, rounded half away from zero, the order item's
+	// value.
+	NetAmount Money `json:"net_amount"`
+	// The output tax the customer invoice's item bore; zero without a tax code.
+	TaxAmount Money `json:"tax_amount"`
+	// The revenue account credited.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The output tax code; absent: none.
+	TaxCode OptString `json:"tax_code"`
+	// The subdivision its tax is levied in; absent where the code levies none.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *IntercompanyBillingItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *IntercompanyBillingItem) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *IntercompanyBillingItem) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetDescription returns the value of Description.
+func (s *IntercompanyBillingItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *IntercompanyBillingItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *IntercompanyBillingItem) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *IntercompanyBillingItem) GetPriceUnit() int32 {
+	return s.PriceUnit
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *IntercompanyBillingItem) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *IntercompanyBillingItem) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *IntercompanyBillingItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *IntercompanyBillingItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *IntercompanyBillingItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *IntercompanyBillingItem) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *IntercompanyBillingItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *IntercompanyBillingItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *IntercompanyBillingItem) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *IntercompanyBillingItem) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *IntercompanyBillingItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *IntercompanyBillingItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *IntercompanyBillingItem) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *IntercompanyBillingItem) SetPriceUnit(val int32) {
+	s.PriceUnit = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *IntercompanyBillingItem) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *IntercompanyBillingItem) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *IntercompanyBillingItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *IntercompanyBillingItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *IntercompanyBillingItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *IntercompanyBillingItem) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *IntercompanyBillingItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
+// How an item of the order is billed.
+// Ref: #/components/schemas/IntercompanyBillingItemInput
+type IntercompanyBillingItemInput struct {
+	// The order item.
+	PoItemNo int32 `json:"po_item_no"`
+	// The supplying company's revenue account the item is credited to.
+	AccountID uuid.UUID `json:"account_id"`
+	// The supplying company's output tax code; absent: no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The subdivision the tax is levied in, where the code levies its lines' subdivision (the emirate of a
+	// UAE supply, `AE-SH`); absent with such a code: the supplying plant's emirate.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *IntercompanyBillingItemInput) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *IntercompanyBillingItemInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *IntercompanyBillingItemInput) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *IntercompanyBillingItemInput) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *IntercompanyBillingItemInput) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *IntercompanyBillingItemInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *IntercompanyBillingItemInput) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *IntercompanyBillingItemInput) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
+// One page of intercompany billings.
+// Ref: #/components/schemas/IntercompanyBillingPage
+type IntercompanyBillingPage struct {
+	// The intercompany billings on this page.
+	Items []IntercompanyBilling `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *IntercompanyBillingPage) GetItems() []IntercompanyBilling {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *IntercompanyBillingPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *IntercompanyBillingPage) SetItems(val []IntercompanyBilling) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *IntercompanyBillingPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*IntercompanyBillingPage) listIntercompanyBillingsRes() {}
 
 // A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
 // elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a
@@ -67507,6 +68885,14 @@ type ListAuditEvidenceExportsForbidden Problem
 
 func (*ListAuditEvidenceExportsForbidden) listAuditEvidenceExportsRes() {}
 
+type ListBadDebtReliefsBadRequest Problem
+
+func (*ListBadDebtReliefsBadRequest) listBadDebtReliefsRes() {}
+
+type ListBadDebtReliefsForbidden Problem
+
+func (*ListBadDebtReliefsForbidden) listBadDebtReliefsRes() {}
+
 type ListBalanceCarryForwardBalancesBadRequest Problem
 
 func (*ListBalanceCarryForwardBalancesBadRequest) listBalanceCarryForwardBalancesRes() {}
@@ -68082,6 +69468,14 @@ func (*ListIncomingPaymentsBadRequest) listIncomingPaymentsRes() {}
 type ListIncomingPaymentsForbidden Problem
 
 func (*ListIncomingPaymentsForbidden) listIncomingPaymentsRes() {}
+
+type ListIntercompanyBillingsBadRequest Problem
+
+func (*ListIntercompanyBillingsBadRequest) listIntercompanyBillingsRes() {}
+
+type ListIntercompanyBillingsForbidden Problem
+
+func (*ListIntercompanyBillingsForbidden) listIntercompanyBillingsRes() {}
 
 type ListIntercompanyDifferencesBadRequest Problem
 
@@ -68787,6 +70181,14 @@ type ListSodRulesForbidden Problem
 
 func (*ListSodRulesForbidden) listSodRulesRes() {}
 
+type ListSopPlansBadRequest Problem
+
+func (*ListSopPlansBadRequest) listSopPlansRes() {}
+
+type ListSopPlansForbidden Problem
+
+func (*ListSopPlansForbidden) listSopPlansRes() {}
+
 type ListStatisticalKeyFigureValuesBadRequest Problem
 
 func (*ListStatisticalKeyFigureValuesBadRequest) listStatisticalKeyFigureValuesRes() {}
@@ -68910,6 +70312,14 @@ func (*ListVarianceCommentsBadRequest) listVarianceCommentsRes() {}
 type ListVarianceCommentsForbidden Problem
 
 func (*ListVarianceCommentsForbidden) listVarianceCommentsRes() {}
+
+type ListWMSMessagesBadRequest Problem
+
+func (*ListWMSMessagesBadRequest) listWMSMessagesRes() {}
+
+type ListWMSMessagesForbidden Problem
+
+func (*ListWMSMessagesForbidden) listWMSMessagesRes() {}
 
 type ListWebhookDeliveriesBadRequest Problem
 
@@ -85579,7 +86989,8 @@ type OutgoingEInvoice struct {
 	// Its document number, the e-invoice's number (IBT-001).
 	CustomerInvoiceNumber string `json:"customer_invoice_number"`
 	// The document of another context the customer document posted from (a billing document,
-	// `getBillingDocument`); null for one entered in receivables.
+	// `getBillingDocument`, or an intercompany billing, `getIntercompanyBilling`); null for one entered in
+	// receivables.
 	SourceDocumentID NilUUID `json:"source_document_id"`
 	// That document's number; null with `source_document_id`.
 	SourceDocumentNumber NilString `json:"source_document_number"`
@@ -97978,9 +99389,11 @@ type PurchaseOrderCreate struct {
 	// of another company than the order's (422 `procurement.supplying_plant_own_company`), whose company
 	// is the supplier's group company (422 `procurement.intercompany_supplier`). Every item is a stock
 	// item (422 `procurement.intercompany_item_not_stock`) without an over-delivery tolerance (422
-	// `procurement.intercompany_over_delivery`): it is received once the supplying company has posted its
-	// goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price, the
-	// transfer price. Fixed once created; an intercompany order is not changed once released (409
+	// `procurement.intercompany_over_delivery`) and with a value above zero (422
+	// `procurement.intercompany_item_value`, naming its `unit_price`: the supplying company bills each
+	// item at its value, `createIntercompanyBilling`): it is received once the supplying company has
+	// posted its goods issue (`postIntercompanyGoodsIssue`), at most what was issued, at the order price,
+	// the transfer price. Fixed once created; an intercompany order is not changed once released (409
 	// `procurement.intercompany_order_change`).
 	SupplyingPlantID OptUUID `json:"supplying_plant_id"`
 	// Items.
@@ -116134,6 +117547,546 @@ func (s *SodRuleSummary) SetValidTo(val OptDate) {
 	s.ValidTo = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/SopPlan
+type SopPlan struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The version's number in the company, from 1.
+	Number int32 `json:"number"`
+	// `draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The company's day it reviewed on.
+	AsOf time.Time `json:"as_of"`
+	// The horizon's first day, the day after `as_of`.
+	FirstDay time.Time `json:"first_day"`
+	// The horizon's last day, the last of its last month.
+	LastDay time.Time `json:"last_day"`
+	// The months of the horizon.
+	Months int32 `json:"months"`
+	// When it was fixed; absent while it is a draft.
+	FixedAt OptDateTime `json:"fixed_at"`
+	// Who fixed it; absent while it is a draft.
+	FixedBy OptUUID `json:"fixed_by"`
+	// Per material group, unit and month, by group, unit and month.
+	Lines []SopPlanLine `json:"lines"`
+}
+
+// GetID returns the value of ID.
+func (s *SopPlan) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *SopPlan) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SopPlan) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *SopPlan) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SopPlan) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *SopPlan) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SopPlan) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *SopPlan) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetNumber returns the value of Number.
+func (s *SopPlan) GetNumber() int32 {
+	return s.Number
+}
+
+// GetStatus returns the value of Status.
+func (s *SopPlan) GetStatus() string {
+	return s.Status
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *SopPlan) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetFirstDay returns the value of FirstDay.
+func (s *SopPlan) GetFirstDay() time.Time {
+	return s.FirstDay
+}
+
+// GetLastDay returns the value of LastDay.
+func (s *SopPlan) GetLastDay() time.Time {
+	return s.LastDay
+}
+
+// GetMonths returns the value of Months.
+func (s *SopPlan) GetMonths() int32 {
+	return s.Months
+}
+
+// GetFixedAt returns the value of FixedAt.
+func (s *SopPlan) GetFixedAt() OptDateTime {
+	return s.FixedAt
+}
+
+// GetFixedBy returns the value of FixedBy.
+func (s *SopPlan) GetFixedBy() OptUUID {
+	return s.FixedBy
+}
+
+// GetLines returns the value of Lines.
+func (s *SopPlan) GetLines() []SopPlanLine {
+	return s.Lines
+}
+
+// SetID sets the value of ID.
+func (s *SopPlan) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *SopPlan) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SopPlan) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *SopPlan) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SopPlan) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *SopPlan) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SopPlan) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *SopPlan) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetNumber sets the value of Number.
+func (s *SopPlan) SetNumber(val int32) {
+	s.Number = val
+}
+
+// SetStatus sets the value of Status.
+func (s *SopPlan) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *SopPlan) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetFirstDay sets the value of FirstDay.
+func (s *SopPlan) SetFirstDay(val time.Time) {
+	s.FirstDay = val
+}
+
+// SetLastDay sets the value of LastDay.
+func (s *SopPlan) SetLastDay(val time.Time) {
+	s.LastDay = val
+}
+
+// SetMonths sets the value of Months.
+func (s *SopPlan) SetMonths(val int32) {
+	s.Months = val
+}
+
+// SetFixedAt sets the value of FixedAt.
+func (s *SopPlan) SetFixedAt(val OptDateTime) {
+	s.FixedAt = val
+}
+
+// SetFixedBy sets the value of FixedBy.
+func (s *SopPlan) SetFixedBy(val OptUUID) {
+	s.FixedBy = val
+}
+
+// SetLines sets the value of Lines.
+func (s *SopPlan) SetLines(val []SopPlanLine) {
+	s.Lines = val
+}
+
+// The S&OP review to start: a company and the months of its horizon.
+// Ref: #/components/schemas/SopPlanCreate
+type SopPlanCreate struct {
+	// The company to review.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The calendar months of the horizon, the first the one after the company's day begins in; 3 when
+	// absent.
+	Months OptInt32 `json:"months"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SopPlanCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetMonths returns the value of Months.
+func (s *SopPlanCreate) GetMonths() OptInt32 {
+	return s.Months
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SopPlanCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetMonths sets the value of Months.
+func (s *SopPlanCreate) SetMonths(val OptInt32) {
+	s.Months = val
+}
+
+// SopPlanHeaders wraps SopPlan with response headers.
+type SopPlanHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           SopPlan
+}
+
+// GetETag returns the value of ETag.
+func (s *SopPlanHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *SopPlanHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *SopPlanHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *SopPlanHeaders) GetResponse() SopPlan {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *SopPlanHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *SopPlanHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *SopPlanHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SopPlanHeaders) SetResponse(val SopPlan) {
+	s.Response = val
+}
+
+func (*SopPlanHeaders) createSopPlanRes() {}
+
+// One material group's demand and supply in one unit and month of a plan version (ADR-0084 As built
+// S2n), in that unit.
+// Ref: #/components/schemas/SopPlanLine
+type SopPlanLine struct {
+	// The line's key, `material_group/unit/month`, by which `updateSopPlan` names it.
+	Key string `json:"key"`
+	// The materials' group.
+	MaterialGroup string `json:"material_group"`
+	// The materials' base unit.
+	Unit string `json:"unit"`
+	// The calendar month, `YYYY-MM`.
+	Month string `json:"month"`
+	// The month's first day in the horizon: the day after the plan's `as_of` in its first month.
+	FirstDay time.Time `json:"first_day"`
+	// The month's last day.
+	LastDay time.Time `json:"last_day"`
+	// The materials of the group in the unit the plan reviews.
+	Materials int32 `json:"materials"`
+	// The forecast demand: per material and plant the greater of its moving average of goods issues over
+	// the month's days and its orders due in the month; never below `orders`.
+	Forecast Quantity `json:"forecast"`
+	// What the plants' confirmed sales orders and the intercompany orders they supply order and they have
+	// not delivered or issued, due in the month.
+	Orders Quantity `json:"orders"`
+	// The stock at the month's start: the plants' stock in the first month, the previous month's projected
+	// stock after.
+	OpeningStock Quantity `json:"opening_stock"`
+	// The purchase orders' open quantities, in the first month; zero after.
+	PurchaseOrders Quantity `json:"purchase_orders"`
+	// Stock transport orders within the company in transit to the plants, in the first month; zero after.
+	StockTransports Quantity `json:"stock_transports"`
+	// The requisitions planning runs proposed at the plants, not ordered, cancelled or rejected, in the
+	// first month; zero after.
+	Proposals Quantity `json:"proposals"`
+	// The demand agreed: the forecast until the planner changes it.
+	Consensus Quantity `json:"consensus"`
+	// The opening stock and receipts less the consensus; negative when the demand agreed is not covered.
+	ProjectedStock Quantity `json:"projected_stock"`
+}
+
+// GetKey returns the value of Key.
+func (s *SopPlanLine) GetKey() string {
+	return s.Key
+}
+
+// GetMaterialGroup returns the value of MaterialGroup.
+func (s *SopPlanLine) GetMaterialGroup() string {
+	return s.MaterialGroup
+}
+
+// GetUnit returns the value of Unit.
+func (s *SopPlanLine) GetUnit() string {
+	return s.Unit
+}
+
+// GetMonth returns the value of Month.
+func (s *SopPlanLine) GetMonth() string {
+	return s.Month
+}
+
+// GetFirstDay returns the value of FirstDay.
+func (s *SopPlanLine) GetFirstDay() time.Time {
+	return s.FirstDay
+}
+
+// GetLastDay returns the value of LastDay.
+func (s *SopPlanLine) GetLastDay() time.Time {
+	return s.LastDay
+}
+
+// GetMaterials returns the value of Materials.
+func (s *SopPlanLine) GetMaterials() int32 {
+	return s.Materials
+}
+
+// GetForecast returns the value of Forecast.
+func (s *SopPlanLine) GetForecast() Quantity {
+	return s.Forecast
+}
+
+// GetOrders returns the value of Orders.
+func (s *SopPlanLine) GetOrders() Quantity {
+	return s.Orders
+}
+
+// GetOpeningStock returns the value of OpeningStock.
+func (s *SopPlanLine) GetOpeningStock() Quantity {
+	return s.OpeningStock
+}
+
+// GetPurchaseOrders returns the value of PurchaseOrders.
+func (s *SopPlanLine) GetPurchaseOrders() Quantity {
+	return s.PurchaseOrders
+}
+
+// GetStockTransports returns the value of StockTransports.
+func (s *SopPlanLine) GetStockTransports() Quantity {
+	return s.StockTransports
+}
+
+// GetProposals returns the value of Proposals.
+func (s *SopPlanLine) GetProposals() Quantity {
+	return s.Proposals
+}
+
+// GetConsensus returns the value of Consensus.
+func (s *SopPlanLine) GetConsensus() Quantity {
+	return s.Consensus
+}
+
+// GetProjectedStock returns the value of ProjectedStock.
+func (s *SopPlanLine) GetProjectedStock() Quantity {
+	return s.ProjectedStock
+}
+
+// SetKey sets the value of Key.
+func (s *SopPlanLine) SetKey(val string) {
+	s.Key = val
+}
+
+// SetMaterialGroup sets the value of MaterialGroup.
+func (s *SopPlanLine) SetMaterialGroup(val string) {
+	s.MaterialGroup = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *SopPlanLine) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetMonth sets the value of Month.
+func (s *SopPlanLine) SetMonth(val string) {
+	s.Month = val
+}
+
+// SetFirstDay sets the value of FirstDay.
+func (s *SopPlanLine) SetFirstDay(val time.Time) {
+	s.FirstDay = val
+}
+
+// SetLastDay sets the value of LastDay.
+func (s *SopPlanLine) SetLastDay(val time.Time) {
+	s.LastDay = val
+}
+
+// SetMaterials sets the value of Materials.
+func (s *SopPlanLine) SetMaterials(val int32) {
+	s.Materials = val
+}
+
+// SetForecast sets the value of Forecast.
+func (s *SopPlanLine) SetForecast(val Quantity) {
+	s.Forecast = val
+}
+
+// SetOrders sets the value of Orders.
+func (s *SopPlanLine) SetOrders(val Quantity) {
+	s.Orders = val
+}
+
+// SetOpeningStock sets the value of OpeningStock.
+func (s *SopPlanLine) SetOpeningStock(val Quantity) {
+	s.OpeningStock = val
+}
+
+// SetPurchaseOrders sets the value of PurchaseOrders.
+func (s *SopPlanLine) SetPurchaseOrders(val Quantity) {
+	s.PurchaseOrders = val
+}
+
+// SetStockTransports sets the value of StockTransports.
+func (s *SopPlanLine) SetStockTransports(val Quantity) {
+	s.StockTransports = val
+}
+
+// SetProposals sets the value of Proposals.
+func (s *SopPlanLine) SetProposals(val Quantity) {
+	s.Proposals = val
+}
+
+// SetConsensus sets the value of Consensus.
+func (s *SopPlanLine) SetConsensus(val Quantity) {
+	s.Consensus = val
+}
+
+// SetProjectedStock sets the value of ProjectedStock.
+func (s *SopPlanLine) SetProjectedStock(val Quantity) {
+	s.ProjectedStock = val
+}
+
+// One page of S&OP plan versions.
+// Ref: #/components/schemas/SopPlanPage
+type SopPlanPage struct {
+	// The plan versions on this page.
+	Items []SopPlan `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *SopPlanPage) GetItems() []SopPlan {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SopPlanPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *SopPlanPage) SetItems(val []SopPlan) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SopPlanPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*SopPlanPage) listSopPlansRes() {}
+
+// The consensus of lines of a draft plan version, by line key.
+// Ref: #/components/schemas/SopPlanUpdate
+type SopPlanUpdate struct {
+	// A line's `key` mapped to its new consensus, a plain decimal in the line's unit.
+	Consensus SopPlanUpdateConsensus `json:"consensus"`
+}
+
+// GetConsensus returns the value of Consensus.
+func (s *SopPlanUpdate) GetConsensus() SopPlanUpdateConsensus {
+	return s.Consensus
+}
+
+// SetConsensus sets the value of Consensus.
+func (s *SopPlanUpdate) SetConsensus(val SopPlanUpdateConsensus) {
+	s.Consensus = val
+}
+
+// A line's `key` mapped to its new consensus, a plain decimal in the line's unit.
+type SopPlanUpdateConsensus map[string]string
+
+func (s *SopPlanUpdateConsensus) init() SopPlanUpdateConsensus {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
 type StartAgentSessionBadRequest Problem
 
 func (*StartAgentSessionBadRequest) startAgentSessionRes() {}
@@ -122226,6 +124179,7 @@ func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()                   {}
 func (*TooManyRequestsHeaders) createAuditEvidenceExportRes()             {}
+func (*TooManyRequestsHeaders) createBadDebtReliefRes()                   {}
 func (*TooManyRequestsHeaders) createBatchRes()                           {}
 func (*TooManyRequestsHeaders) createBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()                 {}
@@ -122257,6 +124211,7 @@ func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
 func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
+func (*TooManyRequestsHeaders) createIntercompanyBillingRes()             {}
 func (*TooManyRequestsHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
@@ -122302,6 +124257,7 @@ func (*TooManyRequestsHeaders) createSalesPriceRes()                      {}
 func (*TooManyRequestsHeaders) createScheduleLineRes()                    {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                         {}
+func (*TooManyRequestsHeaders) createSopPlanRes()                         {}
 func (*TooManyRequestsHeaders) createStatisticalKeyFigurePostingRes()     {}
 func (*TooManyRequestsHeaders) createStatisticalKeyFigureRes()            {}
 func (*TooManyRequestsHeaders) createStockTransportOrderRes()             {}
@@ -122332,6 +124288,7 @@ func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
 func (*TooManyRequestsHeaders) finalizeConsolidationRunRes()              {}
+func (*TooManyRequestsHeaders) fixSopPlanRes()                            {}
 func (*TooManyRequestsHeaders) getAccountRes()                            {}
 func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                       {}
@@ -122352,6 +124309,7 @@ func (*TooManyRequestsHeaders) getAssetScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getAssetTransferRes()                      {}
 func (*TooManyRequestsHeaders) getAuditEvidenceExportFileRes()            {}
 func (*TooManyRequestsHeaders) getAuditEvidenceExportRes()                {}
+func (*TooManyRequestsHeaders) getBadDebtReliefRes()                      {}
 func (*TooManyRequestsHeaders) getBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                        {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()                    {}
@@ -122409,6 +124367,7 @@ func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()             {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                          {}
 func (*TooManyRequestsHeaders) getIncomingPaymentRes()                    {}
+func (*TooManyRequestsHeaders) getIntercompanyBillingRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderBudgetRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
@@ -122483,6 +124442,7 @@ func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
 func (*TooManyRequestsHeaders) getSerialNumberRes()                       {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) getSopPlanRes()                            {}
 func (*TooManyRequestsHeaders) getStatisticalKeyFigureRes()               {}
 func (*TooManyRequestsHeaders) getStockTransportOrderRes()                {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -122514,6 +124474,7 @@ func (*TooManyRequestsHeaders) listAssetTransfersRes()                    {}
 func (*TooManyRequestsHeaders) listAssetsRes()                            {}
 func (*TooManyRequestsHeaders) listAuditEventsRes()                       {}
 func (*TooManyRequestsHeaders) listAuditEvidenceExportsRes()              {}
+func (*TooManyRequestsHeaders) listBadDebtReliefsRes()                    {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*TooManyRequestsHeaders) listBalanceCarryForwardsRes()              {}
 func (*TooManyRequestsHeaders) listBalancesRes()                          {}
@@ -122577,6 +124538,7 @@ func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listIncomingPaymentsRes()                  {}
+func (*TooManyRequestsHeaders) listIntercompanyBillingsRes()              {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
 func (*TooManyRequestsHeaders) listInternalOrderBudgetChangesRes()        {}
@@ -122654,6 +124616,7 @@ func (*TooManyRequestsHeaders) listScheduleLinesRes()                     {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSerialNumbersRes()                     {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
+func (*TooManyRequestsHeaders) listSopPlansRes()                          {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFiguresRes()             {}
 func (*TooManyRequestsHeaders) listStockRes()                             {}
@@ -122666,6 +124629,7 @@ func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()               {}
 func (*TooManyRequestsHeaders) listTaxReturnsRes()                        {}
 func (*TooManyRequestsHeaders) listUnappliedReceiptsRes()                 {}
 func (*TooManyRequestsHeaders) listVarianceCommentsRes()                  {}
+func (*TooManyRequestsHeaders) listWMSMessagesRes()                       {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()                 {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()              {}
 func (*TooManyRequestsHeaders) listYearClosesRes()                        {}
@@ -122823,6 +124787,7 @@ func (*TooManyRequestsHeaders) updateRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) updateRiskRes()                            {}
 func (*TooManyRequestsHeaders) updateRoleRes()                            {}
 func (*TooManyRequestsHeaders) updateSegmentRes()                         {}
+func (*TooManyRequestsHeaders) updateSopPlanRes()                         {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) updateWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) updateYearCloseTaskRes()                   {}
@@ -123205,6 +125170,7 @@ func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
 func (*UnauthorizedHeaders) createAssetTransferRes()                   {}
 func (*UnauthorizedHeaders) createAuditEvidenceExportRes()             {}
+func (*UnauthorizedHeaders) createBadDebtReliefRes()                   {}
 func (*UnauthorizedHeaders) createBatchRes()                           {}
 func (*UnauthorizedHeaders) createBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()                 {}
@@ -123236,6 +125202,7 @@ func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
 func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
+func (*UnauthorizedHeaders) createIntercompanyBillingRes()             {}
 func (*UnauthorizedHeaders) createInternalOrderBudgetChangeRes()       {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
@@ -123281,6 +125248,7 @@ func (*UnauthorizedHeaders) createSalesPriceRes()                      {}
 func (*UnauthorizedHeaders) createScheduleLineRes()                    {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
 func (*UnauthorizedHeaders) createSodRuleRes()                         {}
+func (*UnauthorizedHeaders) createSopPlanRes()                         {}
 func (*UnauthorizedHeaders) createStatisticalKeyFigurePostingRes()     {}
 func (*UnauthorizedHeaders) createStatisticalKeyFigureRes()            {}
 func (*UnauthorizedHeaders) createStockTransportOrderRes()             {}
@@ -123311,6 +125279,7 @@ func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
 func (*UnauthorizedHeaders) finalizeConsolidationRunRes()              {}
+func (*UnauthorizedHeaders) fixSopPlanRes()                            {}
 func (*UnauthorizedHeaders) getAccountRes()                            {}
 func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                       {}
@@ -123331,6 +125300,7 @@ func (*UnauthorizedHeaders) getAssetScheduleRes()                      {}
 func (*UnauthorizedHeaders) getAssetTransferRes()                      {}
 func (*UnauthorizedHeaders) getAuditEvidenceExportFileRes()            {}
 func (*UnauthorizedHeaders) getAuditEvidenceExportRes()                {}
+func (*UnauthorizedHeaders) getBadDebtReliefRes()                      {}
 func (*UnauthorizedHeaders) getBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) getBankAccountRes()                        {}
 func (*UnauthorizedHeaders) getBankFileContentRes()                    {}
@@ -123388,6 +125358,7 @@ func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()             {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) getHierarchyRes()                          {}
 func (*UnauthorizedHeaders) getIncomingPaymentRes()                    {}
+func (*UnauthorizedHeaders) getIntercompanyBillingRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderBudgetRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
@@ -123462,6 +125433,7 @@ func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
 func (*UnauthorizedHeaders) getSerialNumberRes()                       {}
 func (*UnauthorizedHeaders) getSodRuleRes()                            {}
+func (*UnauthorizedHeaders) getSopPlanRes()                            {}
 func (*UnauthorizedHeaders) getStatisticalKeyFigureRes()               {}
 func (*UnauthorizedHeaders) getStockTransportOrderRes()                {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -123493,6 +125465,7 @@ func (*UnauthorizedHeaders) listAssetTransfersRes()                    {}
 func (*UnauthorizedHeaders) listAssetsRes()                            {}
 func (*UnauthorizedHeaders) listAuditEventsRes()                       {}
 func (*UnauthorizedHeaders) listAuditEvidenceExportsRes()              {}
+func (*UnauthorizedHeaders) listBadDebtReliefsRes()                    {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardBalancesRes()       {}
 func (*UnauthorizedHeaders) listBalanceCarryForwardsRes()              {}
 func (*UnauthorizedHeaders) listBalancesRes()                          {}
@@ -123556,6 +125529,7 @@ func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listIncomingPaymentsRes()                  {}
+func (*UnauthorizedHeaders) listIntercompanyBillingsRes()              {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
 func (*UnauthorizedHeaders) listInternalOrderBudgetChangesRes()        {}
@@ -123633,6 +125607,7 @@ func (*UnauthorizedHeaders) listScheduleLinesRes()                     {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSerialNumbersRes()                     {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
+func (*UnauthorizedHeaders) listSopPlansRes()                          {}
 func (*UnauthorizedHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*UnauthorizedHeaders) listStatisticalKeyFiguresRes()             {}
 func (*UnauthorizedHeaders) listStockRes()                             {}
@@ -123645,6 +125620,7 @@ func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()               {}
 func (*UnauthorizedHeaders) listTaxReturnsRes()                        {}
 func (*UnauthorizedHeaders) listUnappliedReceiptsRes()                 {}
 func (*UnauthorizedHeaders) listVarianceCommentsRes()                  {}
+func (*UnauthorizedHeaders) listWMSMessagesRes()                       {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()                 {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()              {}
 func (*UnauthorizedHeaders) listYearClosesRes()                        {}
@@ -123802,6 +125778,7 @@ func (*UnauthorizedHeaders) updateRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) updateRiskRes()                            {}
 func (*UnauthorizedHeaders) updateRoleRes()                            {}
 func (*UnauthorizedHeaders) updateSegmentRes()                         {}
+func (*UnauthorizedHeaders) updateSopPlanRes()                         {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) updateWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) updateYearCloseTaskRes()                   {}
@@ -125777,6 +127754,30 @@ type UpdateSegmentUnprocessableEntity Problem
 
 func (*UpdateSegmentUnprocessableEntity) updateSegmentRes() {}
 
+type UpdateSopPlanBadRequest Problem
+
+func (*UpdateSopPlanBadRequest) updateSopPlanRes() {}
+
+type UpdateSopPlanForbidden Problem
+
+func (*UpdateSopPlanForbidden) updateSopPlanRes() {}
+
+type UpdateSopPlanNotFound Problem
+
+func (*UpdateSopPlanNotFound) updateSopPlanRes() {}
+
+type UpdateSopPlanPreconditionFailed Problem
+
+func (*UpdateSopPlanPreconditionFailed) updateSopPlanRes() {}
+
+type UpdateSopPlanPreconditionRequired Problem
+
+func (*UpdateSopPlanPreconditionRequired) updateSopPlanRes() {}
+
+type UpdateSopPlanUnprocessableEntity Problem
+
+func (*UpdateSopPlanUnprocessableEntity) updateSopPlanRes() {}
+
 type UpdateSupplierInvoiceBadRequest Problem
 
 func (*UpdateSupplierInvoiceBadRequest) updateSupplierInvoiceRes() {}
@@ -127098,6 +129099,335 @@ func (*VerifyAuditChainPreconditionRequired) verifyAuditChainRes() {}
 type VerifyAuditChainUnprocessableEntity Problem
 
 func (*VerifyAuditChainUnprocessableEntity) verifyAuditChainRes() {}
+
+// A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, S2q1):
+// an outbound delivery sent to pick, or a goods issue it reported back.
+// Ref: #/components/schemas/WMSMessage
+type WMSMessage struct {
+	// Message id.
+	ID uuid.UUID `json:"id"`
+	// The `wms` connector (`getConnector`).
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The connector's name.
+	ConnectorName string `json:"connector_name"`
+	// `outbound` (to the warehouse system) or `inbound` (reported back). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Direction string `json:"direction"`
+	// The message's id at the warehouse system: an outbound message's own id, which the warehouse system
+	// deduplicates on; an inbound one's, the warehouse system's.
+	MessageID string `json:"message_id"`
+	// `outbound_delivery` (outbound) or `goods_issue` (inbound). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The delivery's company; absent on an inbound message refused before its delivery was known.
+	LegalEntityID OptUUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode OptString `json:"company_code"`
+	// The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.
+	OutboundDeliveryID OptUUID `json:"outbound_delivery_id"`
+	// The outbound delivery's number.
+	OutboundDeliveryNumber OptString `json:"outbound_delivery_number"`
+	// Outbound: the delivery's plant, which the connector manages.
+	PlantCode OptString `json:"plant_code"`
+	// A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound;
+	// a body that is not a JSON object is kept as `{"text": ...}`, at most 1000 characters of it).
+	Body jx.Raw `json:"body"`
+	// Outbound: `pending` (queued, or waiting for its next attempt), `sent` or `failed`; inbound: `posted`
+	// or `refused`. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Status string `json:"status"`
+	// Outbound: the attempts made to send it; inbound: 0.
+	Attempts int32 `json:"attempts"`
+	// Pending: when it is next sent.
+	NextAttemptAt OptDateTime `json:"next_attempt_at"`
+	// Outbound: the problem code of the last failed attempt; absent when none failed.
+	LastErrorCode OptString `json:"last_error_code"`
+	// Outbound: when the warehouse system took it.
+	SentAt OptDateTime `json:"sent_at"`
+	// Refused: the problem that stopped its posting.
+	ProblemCode OptString `json:"problem_code"`
+	// Refused: the problem's detail.
+	ProblemDetail OptString `json:"problem_detail"`
+	// Posted: the goods issue's material document (`getMaterialDocument`).
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// Posted: the material document's number.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
+	// Inbound: when the warehouse system was told it is recorded.
+	AcknowledgedAt OptDateTime `json:"acknowledged_at"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *WMSMessage) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *WMSMessage) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *WMSMessage) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetDirection returns the value of Direction.
+func (s *WMSMessage) GetDirection() string {
+	return s.Direction
+}
+
+// GetMessageID returns the value of MessageID.
+func (s *WMSMessage) GetMessageID() string {
+	return s.MessageID
+}
+
+// GetKind returns the value of Kind.
+func (s *WMSMessage) GetKind() string {
+	return s.Kind
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *WMSMessage) GetLegalEntityID() OptUUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *WMSMessage) GetCompanyCode() OptString {
+	return s.CompanyCode
+}
+
+// GetOutboundDeliveryID returns the value of OutboundDeliveryID.
+func (s *WMSMessage) GetOutboundDeliveryID() OptUUID {
+	return s.OutboundDeliveryID
+}
+
+// GetOutboundDeliveryNumber returns the value of OutboundDeliveryNumber.
+func (s *WMSMessage) GetOutboundDeliveryNumber() OptString {
+	return s.OutboundDeliveryNumber
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *WMSMessage) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetBody returns the value of Body.
+func (s *WMSMessage) GetBody() jx.Raw {
+	return s.Body
+}
+
+// GetStatus returns the value of Status.
+func (s *WMSMessage) GetStatus() string {
+	return s.Status
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *WMSMessage) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetNextAttemptAt returns the value of NextAttemptAt.
+func (s *WMSMessage) GetNextAttemptAt() OptDateTime {
+	return s.NextAttemptAt
+}
+
+// GetLastErrorCode returns the value of LastErrorCode.
+func (s *WMSMessage) GetLastErrorCode() OptString {
+	return s.LastErrorCode
+}
+
+// GetSentAt returns the value of SentAt.
+func (s *WMSMessage) GetSentAt() OptDateTime {
+	return s.SentAt
+}
+
+// GetProblemCode returns the value of ProblemCode.
+func (s *WMSMessage) GetProblemCode() OptString {
+	return s.ProblemCode
+}
+
+// GetProblemDetail returns the value of ProblemDetail.
+func (s *WMSMessage) GetProblemDetail() OptString {
+	return s.ProblemDetail
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *WMSMessage) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *WMSMessage) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
+}
+
+// GetAcknowledgedAt returns the value of AcknowledgedAt.
+func (s *WMSMessage) GetAcknowledgedAt() OptDateTime {
+	return s.AcknowledgedAt
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *WMSMessage) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *WMSMessage) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *WMSMessage) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *WMSMessage) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *WMSMessage) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetDirection sets the value of Direction.
+func (s *WMSMessage) SetDirection(val string) {
+	s.Direction = val
+}
+
+// SetMessageID sets the value of MessageID.
+func (s *WMSMessage) SetMessageID(val string) {
+	s.MessageID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *WMSMessage) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *WMSMessage) SetLegalEntityID(val OptUUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *WMSMessage) SetCompanyCode(val OptString) {
+	s.CompanyCode = val
+}
+
+// SetOutboundDeliveryID sets the value of OutboundDeliveryID.
+func (s *WMSMessage) SetOutboundDeliveryID(val OptUUID) {
+	s.OutboundDeliveryID = val
+}
+
+// SetOutboundDeliveryNumber sets the value of OutboundDeliveryNumber.
+func (s *WMSMessage) SetOutboundDeliveryNumber(val OptString) {
+	s.OutboundDeliveryNumber = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *WMSMessage) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetBody sets the value of Body.
+func (s *WMSMessage) SetBody(val jx.Raw) {
+	s.Body = val
+}
+
+// SetStatus sets the value of Status.
+func (s *WMSMessage) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *WMSMessage) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetNextAttemptAt sets the value of NextAttemptAt.
+func (s *WMSMessage) SetNextAttemptAt(val OptDateTime) {
+	s.NextAttemptAt = val
+}
+
+// SetLastErrorCode sets the value of LastErrorCode.
+func (s *WMSMessage) SetLastErrorCode(val OptString) {
+	s.LastErrorCode = val
+}
+
+// SetSentAt sets the value of SentAt.
+func (s *WMSMessage) SetSentAt(val OptDateTime) {
+	s.SentAt = val
+}
+
+// SetProblemCode sets the value of ProblemCode.
+func (s *WMSMessage) SetProblemCode(val OptString) {
+	s.ProblemCode = val
+}
+
+// SetProblemDetail sets the value of ProblemDetail.
+func (s *WMSMessage) SetProblemDetail(val OptString) {
+	s.ProblemDetail = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *WMSMessage) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *WMSMessage) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
+}
+
+// SetAcknowledgedAt sets the value of AcknowledgedAt.
+func (s *WMSMessage) SetAcknowledgedAt(val OptDateTime) {
+	s.AcknowledgedAt = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *WMSMessage) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *WMSMessage) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// One page of messages exchanged with warehouse systems.
+// Ref: #/components/schemas/WMSMessagePage
+type WMSMessagePage struct {
+	// The messages on this page, newest first.
+	Items []WMSMessage `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *WMSMessagePage) GetItems() []WMSMessage {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *WMSMessagePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *WMSMessagePage) SetItems(val []WMSMessage) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *WMSMessagePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*WMSMessagePage) listWMSMessagesRes() {}
 
 // One event sent, or to be sent, to a subscription's endpoint (ADR-0041). Kept 30 days.
 // Ref: #/components/schemas/WebhookDelivery
