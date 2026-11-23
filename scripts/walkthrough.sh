@@ -16743,6 +16743,106 @@ wms_receipt() {
   expect "the order's goods receipts after both" "$(field '.items | length')" 1
 }
 
+# step_tms is S2r (ADR-0082 As built S2r, plan-supply-chain.md §S2r): Ada
+# connects Toronto's transport management system for the Toronto plant, a
+# tms connector to the stand-in on this machine (step_wms's, free since
+# its wms connector was disabled; refused in production), its credentials
+# in Maple's vault namespace; a second for the plant is refused. Wade
+# creates an outbound delivery of a box of brackets: its creation's event,
+# read from the bus, queues the transport request giving the transport
+# system the delivery to plan, which the exchange sends once. The
+# transport system reports the shipment it planned the delivery in, with
+# its carrier and freight cost; the exchange records it on the delivery
+# once by the message's id, posting nothing, and acknowledges it; listed
+# again it is acknowledged, not recorded twice; a second shipment of the
+# delivery is refused. Wade then picks and issues the box by hand, the
+# shipment kept. Ada disables the connector.
+step_tms() {
+  heading "Step 157 — TMS connector: the Toronto plant's transport system is sent the outbound delivery created there to plan, once; the shipment it reports back, with its carrier and freight cost, is recorded on the delivery once by its message id, nothing posted; reported again, it is acknowledged, not recorded twice; a second shipment of the delivery is refused; a plant has one transport system"
+  local connector order delivery number message
+  [ -n "$MATERIAL" ] && [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
+  accounts
+  as ada
+  say "Maple plans its outbound freight in a transport management system (SAP TM's role, ADR-0082 As built S2r)."
+  say "Ada connects it for the Toronto plant: a tms connector naming the plants it plans for, P100, its credentials"
+  say "by secret_ref in Maple's vault namespace. It is the stand-in on this machine, as the warehouse system was,"
+  say "refused in production; a plant may have a warehouse system and a transport system, one of each:"
+  vault_put tms "$WORK/wms/token"
+  api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), plants \(.settings.plants | to_entries | map("\(.key) \(.value | join(" "))") | join(", "))"' \
+    createConnector -body "{\"kind\": \"tms\", \"name\": \"Toronto transport system\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
+  connector=$(field .id)
+  refused 409 integration.plant_has_tms createConnector -body "{\"kind\": \"tms\", \"name\": \"Second transport system\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
+  as sally
+  say "Sally sells Northwind another box of the bracket from the Toronto plant and confirms the order:"
+  api 201 '"sales order \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"1\", \"unit\": \"BOX\"}, \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    as ruth
+    say "Northwind is over its credit limit; Ruth releases the block:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$ETAG"
+  fi
+  as wade
+  say "Wade creates the outbound delivery. Its creation's event, read from the bus, queues a transport request for"
+  say "the transport system planning P100 (and none for the warehouse system, whose connector is disabled):"
+  api 201 '"outbound delivery \(.number) from \(.plant_code)/\(.storage_location_code): \(.status)"' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  delivery=$(field .id) number=$(field .number)
+  as ada
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listTMSMessages -p "outbound_delivery_id=$delivery" -p direction=outbound
+    if [ "$(field '.items[0].status // ""')" = sent ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id[0:8])… to \(.connector_name) for \(.company_code)/\(.plant_code): \(.outbound_delivery_number), \(.status) after \(.attempts) attempt"' \
+    listTMSMessages -p "outbound_delivery_id=$delivery" -p direction=outbound
+  expect "the delivery's transport request (after $i checks)" "$(field '[.items[] | "\(.kind) \(.status) \(.attempts) \(.outbound_delivery_number)"] | join(", ")')" "transport_request sent 1 $number"
+  message=$(field '.items[0].message_id')
+  [ -s "$WORK/wms/received/$message.json" ] || fail "the transport system's stand-in holds no message $message"
+  jq -r '"  \(.type) v\(.schema_version): \(.outbound_delivery_number) of \(.sales_order_number) for \(.customer_number) from \(.company_code)/\(.plant_code)/\(.storage_location_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.quantity) \(.unit)")' \
+    "$WORK/wms/received/$message.json"
+  QUIET=1 api 200 '' listWMSMessages -p "outbound_delivery_id=$delivery"
+  expect "the warehouse system's messages of the delivery" "$(field '.items | length')" 0
+  say "The transport system plans the delivery in a shipment with its carrier and reports it, a shipment message of"
+  say "its own id naming the delivery, the shipment's number, the carrier's code and the freight cost. The exchange"
+  say "polls it, records the shipment on the delivery through shipping as its system principal, once by the"
+  say "message's id, and acknowledges it. Nothing is posted: freight settlement is later in the plan."
+  printf '{"message_id": "TMS-SH-1", "type": "shipment", "outbound_delivery_id": "%s", "shipment_number": "SH-20261123-01", "carrier_code": "NLX", "freight_cost": {"amount": "185.40", "currency": "CAD"}}\n' \
+    "$delivery" >"$WORK/wms/confirmations/TMS-SH-1.json"
+  wms_acknowledged TMS-SH-1
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id): \(.status), \(.outbound_delivery_number), acknowledged \(.acknowledged_at != null)"' \
+    listTMSMessages -p "connector_id=$connector" -p direction=inbound
+  expect "the shipment reported" "$(field '[.items[] | "\(.message_id) \(.status) \(.outbound_delivery_number)"] | join(", ")')" "TMS-SH-1 recorded $number"
+  as wade
+  api 200 '"outbound delivery \(.number): \(.status), shipment \(.shipment.shipment_number) by \(.shipment.carrier_code), freight \(.shipment.freight_cost.amount) \(.shipment.freight_cost.currency)"' \
+    getOutboundDelivery -p "id=$delivery"
+  expect "the delivery's shipment" "$(field '"\(.status) \(.shipment.shipment_number) \(.shipment.freight_cost.amount) \(.shipment.freight_cost.currency)"')" "created SH-20261123-01 185.40 CAD"
+  say "The acknowledgement lost, TMS-SH-1 is listed again and acknowledged again, recording nothing twice; a second"
+  say "shipment of the delivery, under another id, is refused: a delivery's shipment is recorded once."
+  rm "$WORK/wms/confirmations/TMS-SH-1.acknowledged"
+  wms_acknowledged TMS-SH-1
+  printf '{"message_id": "TMS-SH-2", "type": "shipment", "outbound_delivery_id": "%s", "shipment_number": "SH-20261123-02", "carrier_code": "NLX", "freight_cost": {"amount": "90.00", "currency": "CAD"}}\n' \
+    "$delivery" >"$WORK/wms/confirmations/TMS-SH-2.json"
+  wms_acknowledged TMS-SH-2
+  as ada
+  api 200 '.items[] | "  \(.message_id): \(.status)\(if .problem_code then ", \(.problem_code)" else "" end)"' listTMSMessages -p "connector_id=$connector" -p direction=inbound
+  expect "the inbound messages" "$(field '[.items[] | "\(.message_id) \(.status) \(.problem_code // "")"] | join(", ")')" "TMS-SH-2 refused shipping.shipment_recorded, TMS-SH-1 recorded "
+  as wade
+  say "Wade picks the box and posts the goods issue by hand; the shipment stays on the delivery:"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$delivery"
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$delivery" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
+  api 200 '"outbound delivery \(.number): \(.status), shipment \(.shipment.shipment_number)"' postOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$ETAG"
+  expect "the delivery after its goods issue" "$(field '"\(.status) \(.shipment.shipment_number)"')" "goods_issued SH-20261123-01"
+  as ada
+  say "Ada disables the connector, so the later deliveries at P100 are planned by people:"
+  QUIET=1 api 200 '' getConnector -p "id=$connector"
+  api 200 '"connector \(.name): \(.status)"' disableConnector -p "id=$connector" -if-match "$ETAG" -body '{"reason": "The walkthrough goes on without the transport system"}'
+  passed
+}
+
 # wms_acknowledged ID waits for the exchange to acknowledge the warehouse
 # system's confirmation ID to the stand-in, which polls every 10 s.
 wms_acknowledged() {
@@ -18784,7 +18884,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_wms step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_wms step_tms step_close'
 
 main() {
   stop_unseen

@@ -3396,7 +3396,7 @@ activate, and orders under them are refused.
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
 | `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000445); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
-| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000445; S2q2's receipt kinds, 000447), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
+| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000445; S2q2's receipt kinds, 000447), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). A `tms` connector's messages (S2r, 000449) are its own kinds: `transport_request` (outbound, the delivery to plan, once per delivery beside its warehouse system's) and `shipment` (inbound, `recorded` on the delivery, never posted, or `refused`); only a shipment is recorded (`wms_message_direction`). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
@@ -6995,7 +6995,17 @@ erDiagram
   (`outbound_delivery_no_delete`). The list reads by
   `outbound_delivery_by_created_at`, an order's by
   `outbound_delivery_by_order`. Its picking status is computed from its
-  items: `not_picked`, `partly_picked`, `picked`.
+  items: `not_picked`, `partly_picked`, `picked`. Its shipment (S2r,
+  000449; ADR-0082 As built S2r), as a transport system reported it:
+  `shipment_number` and `carrier_code` of 1 to 40 characters
+  (`outbound_delivery_shipment_number_check`,
+  `outbound_delivery_carrier_code_check`), `freight_amount` in minor
+  units not below zero (`outbound_delivery_freight_amount_check`) of
+  `freight_currency` (`outbound_delivery_freight_currency_fkey`) and
+  `shipment_recorded_at`, all or none (`outbound_delivery_shipment`); set
+  once, while created or after the goods issue, a goods-issued delivery
+  changing by nothing else (`outbound_delivery_issued_fixed`), and never
+  changed once set (`outbound_delivery_shipment_kept`, the same trigger).
 - `shipping.outbound_delivery_item`: an item (LIPS) of a delivery
   (`outbound_delivery_item_delivery_fkey`), numbered from 1
   (`outbound_delivery_item_no_check`), of an order item once

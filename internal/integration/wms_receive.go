@@ -81,7 +81,7 @@ func (w *WMSExchange) pollTenants(ctx context.Context) ([]uuid.UUID, error) {
 		`SELECT DISTINCT tenant_id FROM integration.connector WHERE kind = ANY($1) AND status = 'active' AND tenant_id IN `+database.ActiveTenants,
 		[]string{WMS, TMS})
 	if err != nil {
-		return nil, fmt.Errorf("integration: list the tenants with wms connectors: %w", err)
+		return nil, fmt.Errorf("integration: list the tenants with wms or tms connectors: %w", err)
 	}
 	return tenants, nil
 }

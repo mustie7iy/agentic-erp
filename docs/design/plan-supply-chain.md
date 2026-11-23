@@ -1055,6 +1055,31 @@ cancellations of a sent order, and returns reported by the WMS.
 **Capability.** An external transport system receives outbound deliveries
 to plan and returns the shipment and freight cost.
 
+- **Adds:** the connector kind `tms` (a `wms` connector's settings; one
+  active connector a plant, 409 `integration.plant_has_tms`); the message
+  kinds `transport_request` (outbound) and `shipment` (inbound, status
+  `recorded`) of `integration.wms_message` (000449, validated by 000450),
+  on S2q's queue, exchange, port and stand-in; the delivery's `shipment`
+  (`shipping.outbound_delivery`'s shipment number, carrier code, freight
+  amount and currency, recorded at), set once by shipping's published
+  `RecordShipment` (`integration.TMSDeliveries`, `app.tmsDeliveries`);
+  `GET /v1/tms-messages`; OutboundDeliveryChanged's `shipment`.
+- **Walkthrough:** `step_tms` (after `step_wms`).
+- **Acceptance:** a delivery at a TMS plant is sent once to plan,
+  whatever reads its event twice, beside its WMS message; the shipment
+  the TMS reports (number, carrier, freight cost with its currency) is
+  recorded on the delivery once by its message id (listed again,
+  acknowledged, not recorded twice), also after the goods issue, nothing
+  posted; one of a delivery the connector was not sent, a second shipment
+  of a delivery or one shipping cannot hold is recorded refused.
+- **As built** (2026-11-23): ADR-0082 As built S2r.
+
+**Later for the TMS connector:** a vendor's adapter; the ship-to address,
+weights, volumes and dates in the request; a shipment of several
+deliveries and stages; changes and cancellations of a sent delivery or a
+reported shipment; a shipment entered by a person; freight settlement,
+carrier selection and shipment costs on the stock value.
+
 ### S2s Trade compliance connector
 
 **Capability.** An external trade compliance service screens deliveries'

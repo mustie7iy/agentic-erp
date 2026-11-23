@@ -2,6 +2,7 @@ package shipping_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -132,4 +133,38 @@ func TestRecordShipmentRefusals(t *testing.T) {
 			return err
 		})
 	})
+}
+
+// TestShipmentAndPickInEitherOrder (S2r; ADR-0008): a shipment recorded
+// and a person's pick both take the delivery's row lock alone, so either
+// waits for the other and both succeed, whichever comes first; no
+// deadlock.
+func TestShipmentAndPickInEitherOrder(t *testing.T) {
+	e := setup(t)
+	h := endpoints(t)
+	order := e.order(t, false, e.ofMaterial(e.bracket, "5 BOX"))
+	anyVersion := func(int32) error { return nil }
+	for i, shipmentFirst := range []bool{true, false} {
+		d, _ := e.Must(201, "POST", deliveries, e.create(order, "1 1 BOX"), "")
+		id := uuid.MustParse(d["id"].(string))
+		ship := func(ctx context.Context) error {
+			_, err := h.RecordShipment(ctx, id, shipment(fmt.Sprintf("SH-%d", i), "NWTRANS", "1.00 CAD"))
+			return err
+		}
+		pickIt := func(ctx context.Context) error {
+			_, err := h.Pick(ctx, id, anyVersion, []shipping.PickInput{{ItemNo: 1, Quantity: "1", Unit: "BOX"}})
+			return err
+		}
+		first, second := pickIt, ship
+		if shipmentFirst {
+			first, second = ship, pickIt
+		}
+		if a, b := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, first, second); a != nil || b != nil {
+			t.Errorf("shipment first %v: got %v and %v, want both done", shipmentFirst, a, b)
+		}
+		got, _ := e.Must(200, "GET", deliveries+"/"+id.String(), "", "")
+		if got["shipment"] == nil || got["picking_status"] != "picked" {
+			t.Errorf("shipment first %v: got shipment %v, %v; want both kept", shipmentFirst, got["shipment"], got["picking_status"])
+		}
+	}
 }

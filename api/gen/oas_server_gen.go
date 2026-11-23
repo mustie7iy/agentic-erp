@@ -7055,12 +7055,13 @@ type Handler interface {
 	// delivery (`getOutboundDelivery`'s `shipment`, as the exchange's system principal acting for the
 	// delivery's company), nothing posted; or `refused` with the problem that stopped it: one that is not
 	// a JSON `shipment` message naming its own message id and an `outbound_delivery_id`, or that holds
-	// `\u0000` (`integration.tms_message_unreadable`; its body kept as its text), larger than 1 MiB
-	// (`integration.wms_message_too_large`), of a delivery the connector was not sent
-	// (`integration.tms_unknown_delivery`), or that shipping refuses (`shipping.shipment_recorded` for a
-	// delivery with a shipment already, `shipping.invalid_shipment`, `request.invalid_amount`). The
-	// transport system is told after that commit (`acknowledged_at`); one listed again is acknowledged
-	// again, not recorded twice. Filters: connector, direction, status and the outbound delivery.
+	// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for both kinds; its body kept as
+	// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+	// not sent (`integration.tms_unknown_delivery`), or that shipping refuses
+	// (`shipping.shipment_recorded` for a delivery with a shipment already, `shipping.invalid_shipment`,
+	// `request.invalid_amount`). The transport system is told after that commit (`acknowledged_at`); one
+	// listed again is acknowledged again, not recorded twice. Filters: connector, direction, status and
+	// the outbound delivery.
 	//
 	// GET /v1/tms-messages
 	ListTMSMessages(ctx context.Context, params ListTMSMessagesParams) (ListTMSMessagesRes, error)
