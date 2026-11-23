@@ -388,11 +388,11 @@ func determination(co config.Company) (keys, numbers []string) {
 	keys = []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
 		"cash_discount", "down_payment", "retained_earnings", "contract_asset", "contract_liability", "right_of_use_asset", "lease_liability",
 		"lease_interest", "right_of_use_depreciation", "right_of_use_accumulated_depreciation", "payment_difference_expense",
-		"payment_difference_revenue"}
+		"payment_difference_revenue", "cash_discount_granted", "supplier_rebate"}
 	numbers = []string{ad.APReconciliation, ad.InputTax,
 		ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference, ad.CashDiscount, ad.DownPayment, co.YearEnd.RetainedEarningsAccount,
 		ad.ContractAsset, ad.ContractLiability, ad.RightOfUseAsset, ad.LeaseLiability, ad.LeaseInterest, ad.RightOfUseDepreciation,
-		ad.RightOfUseAccumulatedDepreciation, ad.PaymentDifferenceExpense, ad.PaymentDifferenceRevenue}
+		ad.RightOfUseAccumulatedDepreciation, ad.PaymentDifferenceExpense, ad.PaymentDifferenceRevenue, ad.CashDiscountGranted, ad.SupplierRebate}
 	for _, inv := range ad.Inventory {
 		for _, a := range inv.Accounts() {
 			keys, numbers = append(keys, config.InventoryKey(a[0], inv.ValuationClass)), append(numbers, a[1])

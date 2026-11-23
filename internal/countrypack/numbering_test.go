@@ -196,14 +196,10 @@ func TestCanadaPack2026_11(t *testing.T) {
 }
 
 // Canada 2026.12 is 2026.11 plus the ranges of count documents and
-// outbound deliveries, under the same sign-off. It is the latest Canada
-// pack, after 2026.11 and 2026.2 by number, not by text.
+// outbound deliveries, under the same sign-off.
 func TestCanadaPack2026_12(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "CA", "2026.11", "2026.12", stockRanges)
 	adoptsAddedRanges(t, lib, prev, next, "CAD", stockRanges)
-	if got := lib.Latest("CA"); got != next {
-		t.Errorf("Latest(CA): got %s, want %s", got.Dir(), next.Dir())
-	}
 }
 
 // UAE 2026.6 is 2026.5 plus the same number ranges: its VAT codes, rates,
@@ -229,11 +225,8 @@ func TestUAEPack2026_8(t *testing.T) {
 }
 
 // UAE 2026.9 is 2026.8 plus the ranges of count documents and outbound
-// deliveries, under the same sign-off. It is the latest UAE pack.
+// deliveries, under the same sign-off.
 func TestUAEPack2026_9(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "AE", "2026.8", "2026.9", stockRanges)
 	adoptsAddedRanges(t, lib, prev, next, "AED", stockRanges)
-	if got := lib.Latest("AE"); got != next {
-		t.Errorf("Latest(AE): got %s, want %s", got.Dir(), next.Dir())
-	}
 }

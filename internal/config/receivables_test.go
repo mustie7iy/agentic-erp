@@ -215,3 +215,25 @@ func TestDifferenceReasonsTier(t *testing.T) {
 		t.Errorf("reasons set: got %v, want one change per reason", reasons)
 	}
 }
+
+// TestDiscountKeysValid (ADR-0063 and ADR-0061 As built batch 92): a
+// company may name its cash discount granted account, an expense, and its
+// supplier rebate account, a revenue; both are accounts the system posts
+// to.
+func TestDiscountKeysValid(t *testing.T) {
+	c := fixture(t)
+	ad := &c.Companies[0].AccountDetermination
+	ad.CashDiscountGranted, ad.SupplierRebate = "520000", "400000"
+	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("both keys: got %v, want no errors", fs)
+	}
+	var automatic []string
+	for _, a := range c.Companies[0].AutomaticAccounts() {
+		if strings.HasPrefix(a.Path, "account_determination.") && (a.Account == "520000" || a.Account == "400000") {
+			automatic = append(automatic, a.Path+" "+a.Account)
+		}
+	}
+	if got, want := strings.Join(automatic, ", "), "account_determination.cash_discount_granted 520000, account_determination.supplier_rebate 400000"; got != want {
+		t.Errorf("automatic accounts: got %s, want %s", got, want)
+	}
+}

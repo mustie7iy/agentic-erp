@@ -181,12 +181,43 @@ func (e discountEnv) boxes(t *testing.T, start string, codes ...string) string {
 	return strings.Join(out, " ")
 }
 
+// TestUAECashDiscountGrantedAccount (ADR-0063 As built batch 92): a
+// company that names its cash discount granted account (SAP SKT) has the
+// discount's net debited there, not on its payment differences account
+// (680000), which the company without one falls back to
+// (TestUAECashDiscount): AED 100.00 in Dubai at 5%, 105.00 gross, paid
+// less 2%, 2.10, its net 2.00 on 681000 and its VAT 0.10 on the output
+// tax account.
+func TestUAECashDiscountGrantedAccount(t *testing.T) {
+	e := uaeEnv(t, func(c *config.Company) {
+		c.ChartOfAccounts = append(c.ChartOfAccounts, config.Account{Number: "681000", Name: "Cash discounts granted", Type: config.Expense})
+		c.AccountDetermination.CashDiscountGranted = "681000"
+	})
+	invoice := e.invoiced(t, "2026-03-10", e.item("100.00", "S5", "AE-DU"))
+	got, _ := e.Must(201, "POST", "/v1/incoming-payments", e.payment(e.receipt(t, 10290, "2026-03-20").ID, discounted(itemRef(invoice["journal_entry_id"], 1))), "")
+	if a := amount(t, got, "cash_discount"); a != "2.10 AED" {
+		t.Errorf("cash discount: got %s, want 2.10 AED", a)
+	}
+	var lines []string
+	for l := range strings.SplitSeq(e.jurisdictionLines(t, got["journal_entry_id"]), "; ") {
+		if strings.Contains(l, " S5 ") {
+			lines = append(lines, l)
+		}
+	}
+	if got, want := strings.Join(lines, "; "), "681000 200 S5 AE-DU; 230000 10 S5 AE-DU"; got != want {
+		t.Errorf("the discount's lines: got %s, want %s", got, want)
+	}
+}
+
 // TestUAECashDiscount (acceptance): an invoice of AED 1,000.00 in Dubai
 // and AED 500.00 in Abu Dhabi at 5% (S5) and AED 200.00 zero-rated (Z0),
 // 1,775.00 gross, is paid on 20 March, within its 14 days, less its 2%
 // discount: 35.50, of which 1.00 is Dubai's VAT and 0.50 Abu Dhabi's
 // (each item's tax over the gross), the net 34.00 shared by the bases,
-// 20.00, 10.00 and 4.00. The clearing entry debits them on 680000 and the
+// 20.00, 10.00 and 4.00. The clearing entry debits them on 680000 (the
+// company names no cash_discount_granted account, so the discount falls
+// back to payment_difference_expense: TestUAECashDiscountGrantedAccount)
+// and the
 // output tax account, each with its code and emirate; its tax items reduce
 // the VAT 201's boxes 1a, 1b and 4. Undoing the payment reverses them.
 func TestUAECashDiscount(t *testing.T) {

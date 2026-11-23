@@ -20,7 +20,9 @@ import (
 // on the day the receipt was received is cleared with it. The discount is
 // a debit of the clearing entry, split by the item's entry's tax items as
 // a supplier's discount is (T36d, discountTax): its net on the account
-// determination's payment_difference_expense account, with each code and
+// determination's cash_discount_granted account (SAP SKT; a company
+// without one, payment_difference_expense, which it shared until batch
+// 92: determinationFallbacks), with each code and
 // subdivision of the base it reduces, and its tax share on each output tax
 // line's account, naming the emirate the invoice's item named, so the
 // output tax items it writes reduce the tax the returns report. Lines and
@@ -34,13 +36,14 @@ func (a *application) receiptDiscounts(ctx context.Context, tx pgx.Tx, in Receip
 	if err != nil || total == 0 {
 		return err
 	}
-	account, ok, err := Accounts{}.Determination(ctx, le, "payment_difference_expense")
+	account, ok, err := Accounts{}.Determination(ctx, le, "cash_discount_granted")
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return problem.Unprocessable("ledger.no_payment_difference_account",
-			"The application grants a cash discount, and the legal entity has no payment_difference_expense account in its account determination.")
+			"The application grants a cash discount, and the legal entity has neither a cash_discount_granted nor a payment_difference_expense account "+
+				"in its account determination.")
 	}
 	// A customer's invoice is paid by a credit: the discount, in the sign
 	// it is paid in, is negative (discountTax).
@@ -70,7 +73,7 @@ func (a *application) addDiscountLines(receipt item, account uuid.UUID, lines []
 		if l.LC, l.GC, err = receiptRate(receipt, l.TC); err != nil {
 			return err
 		}
-		kind := "The cash discount's account (payment_difference_expense of the account determination)"
+		kind := "The cash discount's account (cash_discount_granted of the account determination, else payment_difference_expense)"
 		if l.AccountID != account {
 			kind = "The output tax account of tax code " + *l.TaxCode // only a tax share is on another account
 		}

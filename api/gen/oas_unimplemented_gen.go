@@ -2308,10 +2308,11 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 // Arab Emirates (the product owner, 2026-11-21): it is then paid net of the discount, the tier's
 // percent of its amount, and the discount is a debit of the clearing entry split by the invoice's tax
 // items in proportion to its gross, as a supplier's cash discount is (T36d): its net on the company's
-// `payment_difference_expense` account with each tax code and emirate of the base it reduces, its tax
+// `cash_discount_granted` account (SAP SKT), else, for a company that names none, its
+// `payment_difference_expense` account, with each tax code and emirate of the base it reduces, its tax
 // share on each output tax line's account with its code and the emirate the invoice's item named, all
 // at the receipt's rate, writing tax items that reduce the output tax the VAT 201 reports in that
-// emirate (422 `ledger.no_payment_difference_account` without the account). A company of another
+// emirate (422 `ledger.no_payment_difference_account` without either account). A company of another
 // country grants none: what a customer takes off is a payment difference without tax (a Canadian cash
 // discount makes no GST/HST adjustment, ETA s.161), and an item asking for one is refused, 422
 // `receivables.cash_discount_not_granted`. One clearing entry, document type `DZ`, `source_context`
@@ -3940,12 +3941,13 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // discount naming no order, IBT-013, is entered without one, as a credit memo needs none: of the one
 // supplier of the company holding the seller's TRN, else held with `payables.einvoice_seller_unknown`
 // or `payables.einvoice_seller_ambiguous`; each line an item of 1 `EA` with its net on the account of
-// discounts received, account determination `cash_discount`, which a person may change while it is
-// parked, held with `payables.capture_needs_account` when the company has none; its tax as stated, its
-// codes by its lines' category and rate as for any line; a tax credit note for another reason naming
-// no order is held with `payables.capture_needs_order` as before); one naming several invoices (IBG-03
-// repeated) is entered as one credit memo citing them all, without a `reference_invoice_id`, on hold
-// naming any that is no posted invoice of the supplier (batch 88; before it such a note was held with
+// supplier rebates, account determination `supplier_rebate`, else, for a company that names none,
+// `cash_discount`, the discounts received, which a person may change while it is parked, held with
+// `payables.capture_needs_account` when the company has neither; its tax as stated, its codes by its
+// lines' category and rate as for any line; a tax credit note for another reason naming no order is
+// held with `payables.capture_needs_order` as before); one naming several invoices (IBG-03 repeated)
+// is entered as one credit memo citing them all, without a `reference_invoice_id`, on hold naming any
+// that is no posted invoice of the supplier (batch 88; before it such a note was held with
 // `einvoicing.credit_note_names_several_invoices`). A tax invoice validated by a fetch before T65d,
 // and a tax credit note validated before T65e, is entered by the next one. When the fetch is done its
 // Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a

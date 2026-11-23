@@ -1283,7 +1283,14 @@ and for down payments (T46, ADR-0037) `down_payment`, the alternative
 reconciliation account of special G/L items: an asset that is a vendor
 reconciliation account, fixed once determined; and for revenue
 recognition runs (T81d, ADR-0068 §9) `contract_asset`, an asset, and
-`contract_liability`, a liability, neither a reconciliation account),
+`contract_liability`, a liability, neither a reconciliation account;
+and, migrations 000451 and 000452, `cash_discount_granted`, the expense
+a cash discount granted to a customer is debited to (SAP SKT), and
+`supplier_rebate`, the revenue a volume discount's credit memo naming no
+order is credited to, each falling back to the key it shared before,
+`payment_difference_expense` and `cash_discount`, in a company that does
+not set it: `ledger.Accounts.Determination`, ADR-0063 and ADR-0061 As
+built batch 92),
 the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`
 (direction, never changed; kind; UN/CEFACT category), `tax_component` (one
 per tax a code levies: jurisdiction, account key, never changed;

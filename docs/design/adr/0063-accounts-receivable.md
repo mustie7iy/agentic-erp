@@ -1702,3 +1702,37 @@ of what was written off recovered by `createBadDebtRelief`
 the VAT 201 or the GST34 reports, under the conditions of the company's
 country. The rules, the return lines and every default are in ADR-0049
 As built batch 90.
+
+### As built batch 92: cash discounts granted on an account determination key of their own
+
+The baseline leaf "Cash discounts granted to customers (SAP SKT, an
+expense) need an account determination key of their own": batch 89 posted
+the discount's net to `payment_difference_expense` (above, "The
+account"), the key the payment differences within the tolerance, the
+residuals' write-offs and the dispute write-offs post to as well. Built:
+
+- **The key.** `cash_discount_granted` (`config.AccountDetermination.
+  CashDiscountGranted`, `ledger.account_determination`, migrations 000451
+  and 000452), an expense (`config` refuses another type), SAP's SKT.
+  `ledger.application.receiptDiscounts` asks for it; the payment
+  differences, write-offs and bad debt relief keep
+  `payment_difference_expense`.
+- **Companies already set up** (decided by default): a company without
+  `cash_discount_granted` falls back to its `payment_difference_expense`
+  account, where its discounts went until now
+  (`ledger.Accounts.Determination`, `determinationFallbacks`), rather
+  than a migration filling the key, which the configuration document,
+  the source `ledger.Setup` applies, would not name. A company with
+  neither is refused as before, 422 `ledger.no_payment_difference_account`
+  (the code kept for clients; its detail names both keys).
+- **The packs' account** (decided by default): Canada 2026.13 and UAE
+  2026.10 add `6800` "Cash discounts granted", an expense, as
+  `cash_discount_granted` (ADR-0048 As built, batch 92). A Canadian
+  company grants no discount (above, "Which companies"), so the key is
+  there for its chart's completeness only.
+- Tests: `TestUAECashDiscountGrantedAccount` (the net on the key's own
+  account), `TestUAECashDiscount` (the fallback to 680000), ledger's
+  `TestDeterminationFallbacks`, db's `TestDiscountAccountKeys`, config's
+  `TestDiscountKeysValid`. Walkthrough step 156: the DZ entry's net lines
+  are on 6800, which UAE pack 2026.10 brought in step 41, and 6850 keeps
+  the payment differences.
