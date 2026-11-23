@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -69,6 +70,9 @@ func TestWMSSendOutcomes(t *testing.T) {
 	t.Run("tried again after its backoff, failed after the sixth", func(t *testing.T) {
 		id := e.queuedDelivery(t)
 		e.wms.Fail("PUT /messages", 6, http.StatusServiceUnavailable)
+		var log pgtest.SyncBuffer
+		x.Log = slog.New(slog.NewTextHandler(&log, nil))
+		defer func() { x.Log = nil }()
 		for i, wait := range []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour, 4 * time.Hour} {
 			send(t)
 			if s, n, code := e.wmsRow(t, id); s != "pending" || n != i+1 || code != "platform.internal" {
@@ -215,6 +219,7 @@ func TestWMSConfirmationOutcomes(t *testing.T) {
 		"another type":           {[]byte(`{"message_id": "M-type", "type": "goods_receipt", "outbound_delivery_id": "` + id + `"}`), "integration.wms_message_unreadable", ""},
 		"another message id":     {[]byte(`{"message_id": "M-x", "type": "goods_issue", "outbound_delivery_id": "` + id + `"}`), "integration.wms_message_unreadable", ""},
 		"no delivery":            {[]byte(`{"message_id": "M-none", "type": "goods_issue"}`), "integration.wms_message_unreadable", ""},
+		"items not a list":       {[]byte(`{"message_id": "M-items", "type": "goods_issue", "items": "all"}`), "integration.wms_message_unreadable", ""},
 		"a delivery not sent it": {goodsIssue("M-other", other, "1 1 BOX"), "integration.wms_unknown_delivery", ""},
 		"more than delivered":    {goodsIssue("M-more", id, "1 9 BOX"), "shipping.exceeds_delivery_quantity", ""},
 		"nothing picked":         {goodsIssue("M-nothing", id, "1 0 BOX"), "shipping.nothing_picked", ""},
@@ -222,7 +227,7 @@ func TestWMSConfirmationOutcomes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mid := "M-" + strings.ReplaceAll(name, " ", "-")
 			switch name {
-			case "a NUL in an object", "another type", "no delivery", "a delivery not sent it", "more than delivered", "nothing picked":
+			case "a NUL in an object", "items not a list", "another type", "no delivery", "a delivery not sent it", "more than delivered", "nothing picked":
 				mid = strings.Split(strings.Split(string(c.body), `"message_id": "`)[1], `"`)[0]
 			}
 			e.wms.Report(mid, c.body)
@@ -387,6 +392,29 @@ func TestWMSDatabaseFailures(t *testing.T) {
 		_, err := x.PollOnce(context.Background())
 		return err
 	}, func() bool { return e.inbound(t, "GI-db")["acknowledged_at"] != nil })
+	for name, c := range map[string]struct {
+		status int
+		want   string
+	}{"retried": {http.StatusServiceUnavailable, "pending"}, "refused": {http.StatusBadRequest, "failed"}} {
+		other := e.queuedDelivery(t)
+		until(t, "the send "+name, func(begin database.BeginFunc) error {
+			e.due(t, other, 0)
+			e.wms.Fail("PUT /messages", 1, c.status)
+			x := e.exchange(t, time.Now)
+			x.Begin = begin
+			_, err := x.SendOnce(context.Background())
+			return err
+		}, func() bool { s, n, _ := e.wmsRow(t, other); return s == c.want && n >= 1 })
+	}
+	refusedID, _ := e.delivery(t, e.p1, e.s1, "1")
+	e.queued(t, refusedID)
+	until(t, "the poll of a refusal", func(begin database.BeginFunc) error {
+		e.wms.Report("GI-db-refused", goodsIssue("GI-db-refused", refusedID, "1 9 BOX"))
+		x := e.exchange(t, time.Now)
+		x.Begin = begin
+		_, err := x.PollOnce(context.Background())
+		return err
+	}, func() bool { return e.inbound(t, "GI-db-refused")["acknowledged_at"] != nil })
 	t.Run("the worker role's reads", func(t *testing.T) {
 		x := e.exchange(t, time.Now)
 		x.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, pgtest.ErrInjected }

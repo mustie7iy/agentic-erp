@@ -294,6 +294,28 @@ func TestWMSFailures(t *testing.T) {
 			}
 		})
 	}
+	t.Run("outside a request", func(t *testing.T) {
+		if _, err := h.ListWMSMessages(context.Background(), gen.ListWMSMessagesParams{}); err == nil {
+			t.Error("got nil, want refused")
+		}
+	})
+	t.Run("a page token of another listing", func(t *testing.T) {
+		e.Problem(400, "request.invalid_page_token", "GET", "/v1/wms-messages?page_token=nonsense", "", "")
+	})
+	t.Run("pages", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE integration.connector SET status = 'active', version = version + 1 WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, conn)
+		other, _ := e.delivery(t, e.p1, e.s1, "1")
+		e.queued(t, other)
+		first, _ := e.Must(200, "GET", "/v1/wms-messages?page_size=1", "", "")
+		tok, _ := first["next_page_token"].(string)
+		if tok == "" {
+			t.Fatal("the first page names no next page")
+		}
+		second, _ := e.Must(200, "GET", "/v1/wms-messages?page_size=1&page_token="+tok, "", "")
+		if a, b := first["items"].([]any)[0].(map[string]any)["id"], second["items"].([]any)[0].(map[string]any)["id"]; a == b {
+			t.Errorf("the second page: got %v again, want the next message", b)
+		}
+	})
 	t.Run("another adapter in production", func(t *testing.T) {
 		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 			_, err := (&integration.Endpoints{RefuseEBICS: true}).CreateConnector(ctx, &gen.ConnectorCreate{Kind: integration.WMS, Name: "Acme",
