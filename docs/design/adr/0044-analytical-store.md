@@ -1302,7 +1302,13 @@ vulnerabilities found" on it). The libssl3 exception is removed and
 `.grype.yaml` accepts nothing for this base. On 2026-11-16 the pin moved to
 index `sha256:cb87acc574abe719b6e5c547384defa2f7b1f24af9605d3f618cf852495d8be2`,
 which carries zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1; the same grype
-reported "No vulnerabilities found" on it (ADR-0032 As built).
+reported "No vulnerabilities found" on it (ADR-0032 As built). On
+2026-11-23 it moved to index
+`sha256:532c7a94f9e96ba9db75eb9388f4227751131c7cb0a411d1a8521af4096135de`,
+which carries libc6 2.41-12+deb13u5 (CVE-2026-19499 and CVE-2026-5435
+fixed); the same grype found no fixable high in it on linux/amd64 or
+linux/arm64, and `.grype.yaml` again accepts nothing for this base
+(ADR-0032 As built).
 
 **The builder stays Debian 12** (`golang:1.26.11-bookworm`). The binary
 needs `libc.so.6`, `libm.so.6`, `libgcc_s.so.1` and `libstdc++.so.6`,

@@ -12925,7 +12925,7 @@
      },
      {
       "s": "T",
-      "t": "Pin images carrying glibc 2.41-12+deb13u5 (erp-analytics's distroless cc-debian13:nonroot base and PgBouncer) and remove the .grype.yaml libc6/libc-bin entries; by 2026-11-29 (CVE-2026-19499 and CVE-2026-5435, High, in glibc 2.41-12+deb13u4; accepted by the product owner on 2026-11-22 until then because neither image has a build carrying Debian's fix)",
+      "t": "Pin images carrying glibc 2.41-12+deb13u5 (erp-analytics's distroless cc-debian13:nonroot base and PgBouncer) and remove the .grype.yaml libc6/libc-bin entries; by 2026-11-29 (CVE-2026-19499 and CVE-2026-5435, High, in glibc 2.41-12+deb13u4; accepted by the product owner on 2026-11-22 until then because neither image has a build carrying Debian's fix). erp-analytics's half done on 2026-11-23: its base pinned to cc-debian13:nonroot sha256:532c7a94... (libc6 2.41-12+deb13u5) and the libc6 entries removed; PgBouncer's libc-bin remains",
       "r": "deploy/images/erp-analytics.Dockerfile · deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
       "src": "po:2026-11-22",
       "c": []
