@@ -521,3 +521,34 @@ func TestDisputedAtMostWhatIsOwed(t *testing.T) {
 	e.Problem(422, "collections.invalid_disputed_amount", "POST", "/v1/dispute-cases", disputeItems(e, []string{entry + " 30.01 EUR"}, ""), "")
 	e.open(t, disputeItems(e, []string{entry + " 30.00 EUR"}, ""))
 }
+
+// TestWrittenOffCreditLines: a write-off posts a debit and a credit per
+// item accepted, by item number, and WriteOffs names the credit of each
+// invoice by that order: of a case over three invoices whose second
+// accepts nothing, the third's credit is line 4, a credit to the customer
+// of what was accepted of it.
+func TestWrittenOffCreditLines(t *testing.T) {
+	e := setupResolving(t)
+	first, second, third := e.invoiceFor(t, "10.00 -"), e.invoiceFor(t, "20.00 -"), e.invoiceFor(t, "30.00 -")
+	id, tag := e.caseOn(t, fmt.Sprint(first["journal_entry_id"])+" 10.00", fmt.Sprint(second["journal_entry_id"])+" 20.00",
+		fmt.Sprint(third["journal_entry_id"])+" 30.00")
+	resolved, _ := e.Must(200, "POST", "/v1/dispute-cases/"+id+":resolve", `{"resolution": "write_off", "reason": "Uncollectable", "posting_date": "2026-06-30",
+		"items": [{"item_no": 1, "accepted_amount": {"amount": "10.00", "currency": "EUR"}}, {"item_no": 3, "accepted_amount": {"amount": "30.00", "currency": "EUR"}}]}`, tag)
+	writeOff := uuid.MustParse(apitest.String(t, resolved, "write_off_journal_entry_id"))
+	var w receivables.WrittenOff
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		var err error
+		w, _, err = collections.WriteOffs{}.WrittenOff(ctx, writeOff, 2026, uuid.MustParse(third["journal_entry_id"].(string)))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(w.CreditLines); got != "[4]" {
+		t.Fatalf("the third invoice's credit lines: got %s, want [4]", got)
+	}
+	entry, _ := e.Must(200, "GET", "/v1/journal-entries/"+writeOff.String(), "", "")
+	line := objects(t, entry, "lines")[3]
+	if got := fmt.Sprintf("%v %s %v", line["line_no"], amount(t, line, "amount"), line["partner_id"]); got != "4 -30.00 EUR "+e.north.String() {
+		t.Errorf("line 4 of the write-off: got %s, want the customer's credit of 30.00", got)
+	}
+}

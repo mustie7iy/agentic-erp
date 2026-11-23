@@ -242,7 +242,7 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 		return IncomingPayment{}, err
 	}
 	app.ledger.PostingDate = date
-	relieved, err := relievedOf(ctx, tx, le.ID, append([]uuid.UUID{in.CustomerID}, in.OtherCustomers...))
+	relieved, err := holdRelieved(ctx, tx, le.ID, append([]uuid.UUID{in.CustomerID}, in.OtherCustomers...))
 	if err != nil {
 		return IncomingPayment{}, err
 	}

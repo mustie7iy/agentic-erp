@@ -92,24 +92,15 @@ func chargeLines(c charge, groups []reliefGroup, expensed uuid.UUID, text *strin
 	for i, g := range groups {
 		taxes[i], locals[i] = g.tax, g.lc
 	}
-	tc := money.ShareOut(c.tax, taxes)
-	for i := range groups {
-		if tc[i] == 0 {
-			locals[i] = 0 // no line takes it
-		}
-	}
-	lc := money.ShareOut(c.lc, locals)
+	tc, lc := shareWithLocal(c.tax, c.lc, taxes, locals)
 	var lines []ledger.PostingLine
 	var posted money.Minor
 	for i, g := range groups {
 		if tc[i] == 0 {
 			continue
 		}
-		var local money.Minor
-		if lc != nil { // nil when no relief carried local tax
-			local = -lc[i]
-		}
-		posted -= local
+		local := -lc[i]
+		posted += lc[i]
 		code := g.code
 		lines = append(lines, ledger.PostingLine{AccountID: g.account, Amount: -tc[i], LC: &local, TaxCode: &code, TaxJurisdiction: g.jurisdiction, Text: text})
 	}

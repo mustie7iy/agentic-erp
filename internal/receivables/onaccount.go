@@ -126,7 +126,7 @@ func (e *Endpoints) ApplyOnAccount(ctx context.Context, in CreditInput) (Incomin
 	if err != nil {
 		return IncomingPayment{}, err
 	}
-	relieved, err := relievedOf(ctx, tx, le.ID, []uuid.UUID{v.CustomerID})
+	relieved, err := holdRelieved(ctx, tx, le.ID, []uuid.UUID{v.CustomerID})
 	if err != nil {
 		return IncomingPayment{}, err
 	}

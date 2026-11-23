@@ -107,7 +107,7 @@ func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, 
 	if err != nil {
 		return IncomingPayment{}, err
 	}
-	relieved, err := relievedOf(ctx, tx, v.LegalEntityID, v.customers())
+	relieved, err := holdRelieved(ctx, tx, v.LegalEntityID, v.customers())
 	if err != nil {
 		return IncomingPayment{}, err
 	}
@@ -248,7 +248,7 @@ func (e *Endpoints) recordReset(ctx context.Context, v IncomingPayment, le tenan
 }
 
 // customers are the payer and every customer whose items the payment
-// applied (relievedOf holds each once).
+// applied (holdRelieved holds each once).
 func (v IncomingPayment) customers() []uuid.UUID {
 	out := []uuid.UUID{v.CustomerID}
 	for _, it := range v.Items {

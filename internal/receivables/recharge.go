@@ -18,36 +18,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// Bad debt relief charged again (ADR-0049 As built batch 91; tracker leaf,
-// src po:2026-11-21): what the customer later pays of an invoice beyond
-// what its write-offs left owed is a recovery of the bad debt, and the
-// share of the tax its reliefs recovered is charged again, by an
-// adjustment the return reports, in the transaction that applies the
-// payment; undoing that application (T75i) charges back less. The
-// research of 2026-11-21 names Art. 64 and ETA s.231 for the relief and
-// the tracker leaf the charge again; how and where the return reports it
-// is this step's default (the relief's codes and lines, reversed), for
-// the tax specialist.
-//
-// What is charged again is a pure function of the invoice's state, so
-// each change of it posts the difference to what was charged so far:
-//
-//   - paid is what the incoming payments in force applied of the invoice:
-//     of its entry's items and of the residual items they left, net of
-//     residuals, write-offs and cash discounts, with what they applied of
-//     its reliefs' write-off credits (negative): a payment of the
-//     invoice's item with the write-off's credit pays only what was left;
-//   - recovered is paid beyond the gross less what the reliefs wrote
-//     off, from nothing to what they wrote off;
-//   - charged is the reliefs' tax times recovered over written off, in
-//     the invoice's currency and the company's, each rounded once half
-//     away from zero, so a full recovery charges exactly what the reliefs
-//     recovered.
-//
-// A relief and a payment of one customer run one after the other
-// (RechargeLock): a relief is refused once the invoice is paid beyond
-// what its write-offs leave (unpaid), and a payment after a relief
-// charges its tax again.
+// Bad debt relief charged again (ADR-0049 As built batch 91, which has
+// the rule and its defaults for the tax specialist). When the customer
+// later pays a relieved invoice, the share of the relieved tax it
+// recovers is charged again, in the transaction that applies the payment.
+// Undoing that application charges back less. What is charged is a
+// function of the invoice's state (rechargeInvoice), so each change posts
+// the difference to what was charged so far.
 
 // RechargeKey is the account determination key a charge again debits:
 // the payment differences account the relief credited (WrittenOffKey).
@@ -84,12 +61,12 @@ type PaymentRecharge struct {
 // in the order they were posted.
 const rechargeSelect = `coalesce((SELECT json_agg(json_build_object('id', b.id, 'customer_invoice_id', b.customer_invoice_id,
 			'customer_invoice_number', v.document_number, 'application_no', b.application_no, 'reset', b.reset, 'currency', b.currency,
-			'exponent', (SELECT x.exponent FROM ref.currency x WHERE x.code = b.currency), 'local_currency', b.local_currency,
-			'local_exponent', (SELECT x.exponent FROM ref.currency x WHERE x.code = b.local_currency), 'recovered_amount', b.recovered_amount,
+			'exponent', bc.exponent, 'local_currency', b.local_currency, 'local_exponent', bl.exponent, 'recovered_amount', b.recovered_amount,
 			'tax_amount', b.tax_amount, 'tax_amount_lc', b.tax_amount_lc, 'posting_date', b.posting_date, 'journal_entry_year', b.journal_entry_year,
 			'journal_entry_id', b.journal_entry_id, 'journal_entry_number', b.journal_entry_number, 'created_at', b.created_at, 'created_by', b.created_by)
 			ORDER BY b.created_at, b.id)
 		 FROM receivables.bad_debt_recharge b JOIN receivables.customer_invoice v ON v.tenant_id = b.tenant_id AND v.id = b.customer_invoice_id
+			JOIN ref.currency bc ON bc.code = b.currency JOIN ref.currency bl ON bl.code = b.local_currency
 		 WHERE b.tenant_id = p.tenant_id AND b.incoming_payment_id = p.id), '[]')`
 
 // RechargeLock is the advisory lock (database.LockTenant) a customer's
@@ -100,16 +77,15 @@ const rechargeSelect = `coalesce((SELECT json_agg(json_build_object('id', b.id, 
 // the other (no write skew), even before the invoice has a relief.
 const RechargeLock = "receivables.bad_debt"
 
-// relievedOf holds the customers of the company (RechargeLock, by id, so
-// two holders never wait on each other in a cycle) and locks their
-// invoices a bad debt relief relieved, by id, returning them. Every
-// caller takes them before any invoice row and any ledger entry lock of
-// its own: an application or undoing before the ledger's entries, a
-// relief before its invoice's row. A charge again inserts rows naming the
-// invoice, whose foreign key takes it FOR KEY SHARE after the ledger's
-// locks; holding the row from before them, as an invoice's reversal
-// takes it (row, then entries), keeps that wait out of a cycle.
-func relievedOf(ctx context.Context, tx pgx.Tx, company uuid.UUID, customers []uuid.UUID) ([]uuid.UUID, error) {
+// holdRelieved holds the customers of the company (RechargeLock), by id.
+// It then locks their invoices a bad debt relief relieved, by id, and
+// returns them. Every caller takes these locks before any of its own: an
+// application or undoing before the ledger's entries, a relief before its
+// invoice's row. A charge again's insert takes its invoice FOR KEY SHARE
+// (the foreign key) after the ledger's locks. The row is held from before
+// them, as an invoice's reversal takes it (row, then entries), so no wait
+// closes a cycle.
+func holdRelieved(ctx context.Context, tx pgx.Tx, company uuid.UUID, customers []uuid.UUID) ([]uuid.UUID, error) {
 	held := slices.Clone(customers)
 	slices.SortFunc(held, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
 	for _, c := range slices.Compact(held) {
@@ -122,7 +98,7 @@ func relievedOf(ctx context.Context, tx pgx.Tx, company uuid.UUID, customers []u
 		ORDER BY v.id FOR UPDATE OF v`, company, customers)
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
-		return nil, fmt.Errorf("receivables: the relieved invoices of %d customers: %w", len(customers), err)
+		return nil, fmt.Errorf("receivables: the relieved invoices of %d customers of company %s: %w", len(customers), company, err)
 	}
 	return ids, nil
 }
@@ -137,7 +113,7 @@ type recharging struct {
 }
 
 // recharge charges again what the change moved of each relieved invoice
-// (rechargeInvoice), in the order relievedOf read them.
+// (rechargeInvoice), in the order holdRelieved locked them.
 func (e *Endpoints) recharge(ctx context.Context, tx pgx.Tx, p reqctx.Principal, invoices []uuid.UUID, r recharging) error {
 	for _, id := range invoices {
 		if err := e.rechargeInvoice(ctx, tx, p, id, r); err != nil {
@@ -147,9 +123,11 @@ func (e *Endpoints) recharge(ctx context.Context, tx pgx.Tx, p reqctx.Principal,
 	return nil
 }
 
-// reliefState is what an invoice's reliefs wrote off and recovered and
-// what has been charged again, in its currency and the company's, with
-// the reliefs' entries and the write-offs' credits.
+// reliefState is what an invoice's reliefs wrote off and recovered, and
+// what has been charged again, in its currency and the company's. It
+// keeps the reliefs' entries and the write-offs' credits too. Every
+// amount is at most the invoice's gross, so sums and differences of them
+// are in range.
 type reliefState struct {
 	written, tax, lc   money.Minor
 	charged, chargedLC money.Minor
@@ -198,6 +176,10 @@ func (e *Endpoints) reliefStateOf(ctx context.Context, tx pgx.Tx, v Invoice) (re
 // were paid.
 func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef) (money.Minor, bool, error) {
 	years, entries, lines := ledger.ItemColumns(credits)
+	// applied: the payment items of the invoice's items and credits, and of
+	// the residual items they left, each with its application's clearing
+	// entry and difference. per: those in force, by application, with all
+	// the debits the application applied.
 	rows, _ := tx.Query(ctx, `WITH RECURSIVE applied AS (
 			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, `+itemPaid+` AS paid,
 				coalesce(a.clearing_entry_year, p.clearing_entry_year) AS cy, coalesce(a.clearing_entry_id, p.clearing_entry_id) AS ce,
@@ -231,7 +213,6 @@ func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef)
 	var paid, debits, difference, whole, total money.Minor
 	var translated, foreign bool
 	_, err := pgx.ForEachRow(rows, []any{&paid, &debits, &difference, &whole, &translated}, func() error {
-		// Applied amounts of one invoice's items and the debits beside them: in range.
 		total += paid
 		if difference > 0 && whole > 0 {
 			total -= partOf(difference, debits, whole) // debits are some of whole: at most the difference
@@ -261,13 +242,13 @@ func relievedOtherCurrency(v Invoice) error {
 // recovered is what is paid of the invoice beyond its gross less what its
 // reliefs wrote off, from nothing to that.
 func recovered(v Invoice, s reliefState, paid money.Minor) money.Minor {
-	// Paid amounts are applied amounts of one invoice's items: in range.
 	return max(0, min(paid-(v.Gross-s.written), s.written))
 }
 
-// partOf is total × part ÷ whole, rounded half away from zero; whole is
+// partOf is total × part ÷ whole, rounded half away from zero. Whole is
 // above zero and part at most it, so the result is at most total.
 func partOf(total, part, whole money.Minor) money.Minor {
+	// Exponent 0 and a result no larger than total: Round cannot fail.
 	out, _ := money.Round(new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(total)), big.NewInt(int64(part))), big.NewInt(int64(whole))), 0)
 	return out
 }
@@ -276,7 +257,7 @@ func partOf(total, part, whole money.Minor) money.Minor {
 // between what the invoice's recovery charges and what was charged so far
 // (see above); nothing when there is none.
 func (e *Endpoints) rechargeInvoice(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, r recharging) error {
-	v, err := get(ctx, tx, id, false) // locked by relievedOf
+	v, err := get(ctx, tx, id, false) // locked by holdRelieved
 	if err != nil {
 		return fmt.Errorf("receivables: relieved customer invoice %s: %w", id, err)
 	}
@@ -292,9 +273,8 @@ func (e *Endpoints) rechargeInvoice(ctx context.Context, tx pgx.Tx, p reqctx.Pri
 		return relievedOtherCurrency(v)
 	}
 	back := recovered(v, s, paid)
-	// The local tax follows the tax charged, so a full recovery is exact in
-	// both currencies and no change of the tax leaves none of the local
-	// tax; each part is at most the reliefs' tax: in range.
+	// The local tax follows the tax charged: a full recovery is exact in
+	// both currencies, and no change of the tax leaves local tax behind.
 	cumulative := partOf(s.tax, back, s.written)
 	tax, lc := cumulative-s.charged, partOf(s.lc, cumulative, s.tax)-s.chargedLC
 	if tax == 0 { // the local tax is the earlier charges' too

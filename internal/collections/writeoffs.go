@@ -30,8 +30,9 @@ func (WriteOffs) WrittenOff(ctx context.Context, writeOffEntry uuid.UUID, invoic
 		return receivables.WrittenOff{}, false, err
 	}
 	var w receivables.WrittenOff
-	// The write-off posts a debit and a credit per item accepted, by item
-	// number (writeOff): the credit of the n-th is line 2n of its entry.
+	// writeOff posts a debit and then a credit per item accepted, by item
+	// number: the credit of the n-th is line 2n of its entry
+	// (TestWrittenOffCreditLines holds the two to each other).
 	err = tx.QueryRow(ctx, `SELECT c.id, c.write_off_entry_year, c.write_off_entry_number, c.posting_date, sum(i.accepted_amount)::bigint,
 			sum(i.accepted_amount_lc)::bigint, array_agg(i.credit_line ORDER BY i.credit_line)
 		FROM collections.dispute_case c

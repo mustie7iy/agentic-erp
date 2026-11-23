@@ -2145,7 +2145,11 @@ owner's digest and the tax specialist:
   1,575.00 paid charges 25.00 of a 75.00 relief, the rest 50.00). A
   payment of only what the write-offs left owed, applying the invoice's
   item with the write-off's credit or leaving a residual, recovers
-  nothing. A credit memo's credit is not counted.
+  nothing. A credit memo's credit is not counted. Three of these are
+  defaults for the specialist: what an underpayment written off within
+  the tolerance takes off (its share of the application's debits), the
+  local tax following the cumulative tax rather than the payment's own
+  rate, and every charge rounded once half away from zero.
 - **The return lines.** The charge reverses the reliefs' lines: per
   adjustment code, account and emirate of the reliefs' tax items, in
   proportion to their tax (`money.ShareOut`), a credit (a charge back

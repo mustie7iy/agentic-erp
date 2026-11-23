@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // TestChargeLinesWithoutLocalTax: reliefs whose tax items carried no
@@ -29,5 +31,34 @@ func TestChargeLinesWithoutLocalTax(t *testing.T) {
 	}
 	if lines[1].TaxJurisdiction != nil {
 		t.Errorf("the second line's emirate: got %v, want none", *lines[1].TaxJurisdiction)
+	}
+}
+
+// TestPartOf: a part of nothing is nothing, the whole is all, and a half
+// rounds away from zero, either sign.
+func TestPartOf(t *testing.T) {
+	for _, c := range []struct {
+		total, part, whole, want money.Minor
+	}{{500, 0, 10500, 0}, {500, 10500, 10500, 500}, {1, 1, 2, 1}, {-1, 1, 2, -1}, {500, 10490, 10500, 500}} {
+		t.Run(fmt.Sprint(c.total, c.part, c.whole), func(t *testing.T) {
+			if got := partOf(c.total, c.part, c.whole); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+// TestRecovered: what is paid of a relieved invoice counts only beyond
+// what its write-offs left owed, and never more than they wrote off.
+func TestRecovered(t *testing.T) {
+	v, s := Invoice{Gross: 10500}, reliefState{written: 3500}
+	for _, c := range []struct {
+		paid, want money.Minor
+	}{{0, 0}, {7000, 0}, {7001, 1}, {10500, 3500}, {20000, 3500}} {
+		t.Run(fmt.Sprint(c.paid), func(t *testing.T) {
+			if got := recovered(v, s, c.paid); got != c.want {
+				t.Errorf("got %d, want %d", got, c.want)
+			}
+		})
 	}
 }

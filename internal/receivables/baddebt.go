@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"time"
 
@@ -226,7 +227,7 @@ func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in Re
 func (e *Endpoints) heldInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Invoice, error) {
 	v, err := get(ctx, tx, id, false)
 	if err == nil {
-		_, err = relievedOf(ctx, tx, v.LegalEntityID, []uuid.UUID{v.CustomerID})
+		_, err = holdRelieved(ctx, tx, v.LegalEntityID, []uuid.UUID{v.CustomerID})
 	}
 	if err == nil {
 		v, err = get(ctx, tx, id, true)
@@ -433,18 +434,31 @@ func (e *Endpoints) reliefShares(ctx context.Context, c *claim) error {
 		return problem.Invalid("receivables.no_output_tax", "customer_invoice_id", "Customer invoice "+c.invoice.DocumentNumber+" bore no output tax "+
 			"that what write-off "+c.written.EntryNumber+" wrote off would recover.")
 	}
-	tc := money.ShareOut(c.tax, taxes)
-	for i := range c.shares {
-		if c.shares[i].tc = tc[i]; tc[i] == 0 {
-			taxesLC[i] = 0 // no line takes it (reliefLines)
-		}
-	}
-	// nil when no item with a share carries local tax: none is shared, and
 	// reliefLines records the local tax the lines post.
-	for i, lc := range money.ShareOut(c.lc, taxesLC) {
-		c.shares[i].lc = lc
+	tc, lc := shareWithLocal(c.tax, c.lc, taxes, taxesLC)
+	for i := range c.shares {
+		c.shares[i].tc, c.shares[i].lc = tc[i], lc[i]
 	}
 	return nil
+}
+
+// shareWithLocal shares tax out by the weights taxes (money.ShareOut) and
+// lc by the weights locals, over those whose tax share is not nothing:
+// a share that rounds to nothing makes no line, so it takes no local
+// tax either. The local shares are all nothing when no such weight
+// carries local tax. taxes weighs something.
+func shareWithLocal(tax, lc money.Minor, taxes, locals []money.Minor) (tcs, lcs []money.Minor) {
+	tcs, weights := money.ShareOut(tax, taxes), slices.Clone(locals)
+	for i := range weights {
+		if tcs[i] == 0 {
+			weights[i] = 0
+		}
+	}
+	lcs = money.ShareOut(lc, weights)
+	if lcs == nil {
+		lcs = make([]money.Minor, len(taxes))
+	}
+	return tcs, lcs
 }
 
 // reliefAccounts finds the account each share posts to, its component's

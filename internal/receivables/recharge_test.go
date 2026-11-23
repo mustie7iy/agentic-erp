@@ -116,37 +116,44 @@ func TestUAEBadDebtRecharge(t *testing.T) {
 // relieved invoice (422 receivables.relieved_invoice_other_currency).
 func TestBadDebtRechargeOfWhatWasOwed(t *testing.T) {
 	e := reliefEnv(t)
-	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
-	writeOff := e.writtenOff(t, invoice, "35.00", "2026-03-15")
-	e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, writeOff, "AS", "2026-08-01", "2026-08-10"), "")
-	other := e.invoiced(t, "2026-01-10", e.item("10.00", "S5", "AE-DU"))
-	got, _ := e.Must(201, "POST", "/v1/incoming-payments", e.paying(e.receipt(t, 8050, "2026-09-15").ID, "2026-09-15",
-		itemRef(invoice["journal_entry_id"], 1), itemRef(writeOff, 2), itemRef(other["journal_entry_id"], 1)), "")
-	if r := recharges(t, got); r != "" {
-		t.Errorf("a payment of what was owed: got the charges %s, want none", r)
-	}
-	paid := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
-	paidOff := e.writtenOff(t, paid, "35.00", "2026-03-15")
-	e.Must(201, "POST", "/v1/incoming-payments", e.paying(e.receipt(t, 10500, "2026-04-01").ID, "2026-04-01", itemRef(paid["journal_entry_id"], 1)), "")
-	p := e.In(t).Problem(422, "receivables.bad_debt_paid", "POST", "/v1/bad-debt-reliefs", relief(paid, paidOff, "AS", "2026-08-01", "2026-08-10"), "")
-	if field(p) != "write_off_journal_entry_id" {
-		t.Errorf("the field: got %v, want write_off_journal_entry_id", field(p))
-	}
-	// A receipt in US dollars, one dirham to the dollar (T75n).
+	t.Run("a payment of what was owed", func(t *testing.T) {
+		invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+		writeOff := e.writtenOff(t, invoice, "35.00", "2026-03-15")
+		e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(invoice, writeOff, "AS", "2026-08-01", "2026-08-10"), "")
+		other := e.invoiced(t, "2026-01-10", e.item("10.00", "S5", "AE-DU"))
+		got, _ := e.Must(201, "POST", "/v1/incoming-payments", e.paying(e.receipt(t, 8050, "2026-09-15").ID, "2026-09-15",
+			itemRef(invoice["journal_entry_id"], 1), itemRef(writeOff, 2), itemRef(other["journal_entry_id"], 1)), "")
+		if r := recharges(t, got); r != "" {
+			t.Errorf("got the charges %s, want none", r)
+		}
+	})
+	t.Run("a relief of an invoice paid", func(t *testing.T) {
+		paid := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+		paidOff := e.writtenOff(t, paid, "35.00", "2026-03-15")
+		e.Must(201, "POST", "/v1/incoming-payments", e.paying(e.receipt(t, 10500, "2026-04-01").ID, "2026-04-01", itemRef(paid["journal_entry_id"], 1)), "")
+		p := e.In(t).Problem(422, "receivables.bad_debt_paid", "POST", "/v1/bad-debt-reliefs", relief(paid, paidOff, "AS", "2026-08-01", "2026-08-10"), "")
+		if field(p) != "write_off_journal_entry_id" {
+			t.Errorf("the field: got %v, want write_off_journal_entry_id", field(p))
+		}
+	})
+	// Receipts in US dollars, one dirham to the dollar (T75n).
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.25, 'test', $2),
 			($1, gen_random_uuid(), 'average', 'USD', 'AED', '2026-01-01', 1, 'test', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
-	dollars := func(amount int64, day string) ledger.Entry { return e.receiptIn(t, amount, "USD", day) }
-	foreign := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
-	foreignOff := e.writtenOff(t, foreign, "35.00", "2026-03-15")
-	e.Must(201, "POST", "/v1/incoming-payments", e.paying(dollars(1000, "2026-04-01").ID, "2026-04-01",
-		withCurrencyResidual(itemRef(foreign["journal_entry_id"], 1), "95.00", "USD", "short_payment")), "")
-	e.In(t).Problem(422, "receivables.relieved_invoice_other_currency", "POST", "/v1/bad-debt-reliefs",
-		relief(foreign, foreignOff, "AS", "2026-08-01", "2026-08-10"), "")
-	relieved := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
-	e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(relieved, e.writtenOff(t, relieved, "35.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-10"), "")
-	e.In(t).Problem(422, "receivables.relieved_invoice_other_currency", "POST", "/v1/incoming-payments", e.paying(dollars(1000, "2026-09-16").ID,
-		"2026-09-16", withCurrencyResidual(itemRef(relieved["journal_entry_id"], 1), "95.00", "USD", "short_payment")), "")
+	t.Run("a relief of an invoice paid in dollars", func(t *testing.T) {
+		foreign := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+		foreignOff := e.writtenOff(t, foreign, "35.00", "2026-03-15")
+		e.Must(201, "POST", "/v1/incoming-payments", e.paying(e.receiptIn(t, 1000, "USD", "2026-04-01").ID, "2026-04-01",
+			withCurrencyResidual(itemRef(foreign["journal_entry_id"], 1), "95.00", "USD", "short_payment")), "")
+		e.In(t).Problem(422, "receivables.relieved_invoice_other_currency", "POST", "/v1/bad-debt-reliefs",
+			relief(foreign, foreignOff, "AS", "2026-08-01", "2026-08-10"), "")
+	})
+	t.Run("a payment in dollars of a relieved invoice", func(t *testing.T) {
+		relieved := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+		e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(relieved, e.writtenOff(t, relieved, "35.00", "2026-03-15"), "AS", "2026-08-01", "2026-08-10"), "")
+		e.In(t).Problem(422, "receivables.relieved_invoice_other_currency", "POST", "/v1/incoming-payments", e.paying(e.receiptIn(t, 1000, "USD", "2026-09-16").ID,
+			"2026-09-16", withCurrencyResidual(itemRef(relieved["journal_entry_id"], 1), "95.00", "USD", "short_payment")), "")
+	})
 }
 
 // TestCanadianBadDebtRecharge: of an invoice of CAD 100.00 with 5.00 GST,
