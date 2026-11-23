@@ -6728,8 +6728,8 @@ type Handler interface {
 	// ListOutboundDeliveries implements listOutboundDeliveries operation.
 	//
 	// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-	// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
-	// Sortable by: `created_at`.
+	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
+	// status. Sortable by: `created_at`.
 	//
 	// GET /v1/outbound-deliveries
 	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)

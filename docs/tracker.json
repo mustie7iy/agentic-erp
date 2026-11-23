@@ -5838,9 +5838,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: GET /v1/outbound-deliveries filters by the delivery's number, so a document's reference finds its delivery as GET /v1/stock-transport-orders?number= finds its order",
-      "r": "listOutboundDeliveries · ADR-0083 · ADR-0082 As built S2h (review round 1)",
+      "r": "listOutboundDeliveries number · internal/shipping ListOutboundDeliveries · TestList (shipping) · ADR-0083 As built (delivery number filter) · ADR-0082 As built S2h (review round 1)",
       "src": "review:batch85",
       "c": []
      },

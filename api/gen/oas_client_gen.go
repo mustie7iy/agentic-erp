@@ -6749,8 +6749,8 @@ type Invoker interface {
 	// ListOutboundDeliveries invokes listOutboundDeliveries operation.
 	//
 	// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-	// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
-	// Sortable by: `created_at`.
+	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
+	// status. Sortable by: `created_at`.
 	//
 	// GET /v1/outbound-deliveries
 	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)
@@ -89956,8 +89956,8 @@ func (c *Client) sendListOrgUnits(ctx context.Context, params ListOrgUnitsParams
 // ListOutboundDeliveries invokes listOutboundDeliveries operation.
 //
 // The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
-// Sortable by: `created_at`.
+// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
+// status. Sortable by: `created_at`.
 //
 // GET /v1/outbound-deliveries
 func (c *Client) ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error) {
@@ -90019,6 +90019,23 @@ func (c *Client) sendListOutboundDeliveries(ctx context.Context, params ListOutb
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.LegalEntityID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Number.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {

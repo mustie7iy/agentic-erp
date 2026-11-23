@@ -95803,8 +95803,8 @@ func (s *Server) handleListOrgUnitsRequest(args [0]string, argsEscaped bool, w h
 // handleListOutboundDeliveriesRequest handles listOutboundDeliveries operation.
 //
 // The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
-// Sortable by: `created_at`.
+// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
+// status. Sortable by: `created_at`.
 //
 // GET /v1/outbound-deliveries
 func (s *Server) handleListOutboundDeliveriesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -95949,6 +95949,10 @@ func (s *Server) handleListOutboundDeliveriesRequest(args [0]string, argsEscaped
 					Name: "legal_entity_id",
 					In:   "query",
 				}: params.LegalEntityID,
+				{
+					Name: "number",
+					In:   "query",
+				}: params.Number,
 				{
 					Name: "sales_order_id",
 					In:   "query",

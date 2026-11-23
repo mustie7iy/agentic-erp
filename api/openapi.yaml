@@ -27227,7 +27227,7 @@ paths:
       tags:
         - shipping
       summary: List outbound deliveries
-      description: "The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status. Sortable by: `created_at`."
+      description: "The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and status. Sortable by: `created_at`."
       x-permission: shipping.delivery.read
       x-problem-codes:
         - request.invalid_order_by
@@ -27235,6 +27235,13 @@ paths:
         - request.invalid_page_token
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
+        - name: number
+          in: query
+          required: false
+          description: "Only the delivery with this number, as a document's reference names it (each company numbers its own, so `legal_entity_id` narrows it to one)."
+          schema:
+            type: string
+            maxLength: 40
         - name: sales_order_id
           in: query
           required: false
