@@ -5902,6 +5902,13 @@
      },
      {
       "s": "D",
+      "t": "fix: an MRP run does not count the supplying plant's requirement from an unissued stock transport order within the company (ADR-0084 §6, not followed: stock transport orders count only as receipts), so a plant that supplies another plant of its company proposes too little for what it must issue",
+      "r": "internal/mrp/net.go count, demand · procurement.Orders.TransportsDue, .TransportsOnOrder · ADR-0084 §2, §6, As built (stock transport orders, batch 92) · api/openapi.yaml startMrpRun, MrpRunLine.demand, .receipts · TestPlanningRunTransports, TestPlanningRunIntercompany · walkthrough step_mrp (step 152)",
+      "src": "review:batch91",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "The replenishment agent recommends what to order, from which supplier and when, from the run's proposals for a buyer to decide",
       "r": "S2l · docs/design/plan-supply-chain.md §S2l · ADR-0072 As built S2l · ADR-0084 As built S2l · internal/replenishmentagent · erp agent replenish -run ID · agent type replenishment · listPurchaseOrders, listContracts material_id · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
       "src": "po:2026-11-17",

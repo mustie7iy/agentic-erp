@@ -863,6 +863,14 @@ replaces its own open proposals and never a person's requisition.
   counted on neither side. No migration; test-only acceptance
   (`TestPlanningRunIntercompany`): step_mrp runs before any intercompany
   order exists in the walkthrough.
+- **Stock transport orders** (lane mrpsto, batch 92, review:batch91;
+  ADR-0084 As built): a stock transport order within the company is the
+  supplying plant's demand until issued (procurement's `TransportsDue`)
+  and the receiving plant's receipt until received, open or in transit
+  (`TransportsOnOrder`), as SAP's release order and receipt are; with
+  sales and intercompany orders, each order counted once on each side
+  (`TestPlanningRunTransports`). No migration; walkthrough step 152
+  (`step_mrp`): an open order of G20 gaskets from Toronto to Montreal.
 
 ### S2l Replenishment agent
 

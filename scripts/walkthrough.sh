@@ -16124,10 +16124,15 @@ step_serial_numbers() {
 # own requisition, which names no plant, is not counted. A rerun replaces
 # the proposal with a new one. Ben takes the new one over by changing it:
 # the next run counts it as a receipt, proposes nothing and leaves it, and
-# his own requisition, alone.
+# his own requisition, alone. A stock transport order within the company
+# counts on both sides (ADR-0084 As built, stock transport orders): Mira
+# creates the G20 gasket, kept at Toronto and Montreal, Wade enters 100 at
+# Toronto, Mira plans it at both plants and Pablo orders 80 from Toronto
+# to Montreal; Toronto's run counts the open order as its demand, and
+# Montreal's as its receipt, so neither proposes.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone"
-  local hinge sales own own_version run first second
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt"
+  local hinge sales own own_version run first second montreal store gasket plant
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -16176,13 +16181,14 @@ step_mrp() {
   refused 409 mrp.material_plan_exists createMaterialPlan -body "{\"plant_id\": \"$PLANT\", \"material_id\": \"$hinge\", \"mrp_type\": \"no_planning\",
       \"reorder_point\": \"0\", \"account_id\": \"$(account 6000)\"}"
   as ben
-  mrp_run() { # a run of the Toronto plant, carried out; the run is left in last.json, its hinge line printed
-    api 202 '"\(.kind) \(.status): \(.resource)"' startMrpRun -body "{\"plant_id\": \"$PLANT\"}"
+  mrp_run() { # a run of the plant ($1, else Toronto), carried out; the run is left in last.json, the material's line ($2, else the hinge's) printed
+    local plant=${1:-$PLANT} material=${2:-$hinge}
+    api 202 '"\(.kind) \(.status): \(.resource)"' startMrpRun -body "{\"plant_id\": \"$plant\"}"
     run=$(field .resource)
     run=${run##*/}
     wait_op
     api 200 '"run of \(.plant_code) on \(.run_date): \(.status), \(.materials_planned) planned, \(.proposals_created) proposed, \(.proposals_replaced) replaced",
-      (.lines[] | select(.material_id == "'"$hinge"'") | "  \(.material_number): demand \(.demand.value), stock \(.stock.value), receipts \(.receipts.value), reorder point \(.reorder_point.value), shortage \(.shortage.value) \(.shortage.unit) \(.requisition_number // "")")' \
+      (.lines[] | select(.material_id == "'"$material"'") | "  \(.material_number): demand \(.demand.value), stock \(.stock.value), receipts \(.receipts.value), reorder point \(.reorder_point.value), shortage \(.shortage.value) \(.shortage.unit) \(.requisition_number // "")")' \
       getMrpRun -p "id=$run"
   }
   say "Ben runs material requirements planning for the Toronto plant: the order's 50 against the 40 in stock is 10"
@@ -16212,6 +16218,44 @@ step_mrp() {
   expect "the proposal taken over" "$(field .status)" draft
   QUIET=1 api 200 '' getRequisition -p "id=$own"
   expect "Ben's own requisition" "$(field '"\(.status) \(.version)"')" "draft $own_version"
+  as mira
+  QUIET=1 api 200 '' listOrgUnits -p page_size=100
+  montreal=$(field '.items[] | select(.kind == "plant" and .code == "P200") | .id')
+  store=$(field '.items[] | select(.kind == "storage_location" and .code == "SL03" and .parent_id == "'"$montreal"'") | .id')
+  say "A stock transport order counts on both sides: Mira creates the G20 gasket, kept in Toronto's main store and the"
+  say "Montreal store; Priya approves it; Ines values it in Toronto and Wade enters 100 there (561):"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Gasket G20\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"SEALS\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}, {\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  gasket=$(field .id)
+  approve priya "$(material_request "$gasket")" "Standard gasket."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$gasket\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"0.50\", \"currency\": \"CAD\"}}"
+  as wade
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$gasket\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  as mira
+  say "Mira plans the gasket by a reorder point of 10 at Toronto and of 50 at Montreal:"
+  for plant in "$PLANT:10" "$montreal:50"; do
+    api 201 '"\(.material_number) at \(.plant_code): reorder point \(.reorder_point.value) \(.reorder_point.unit)"' createMaterialPlan \
+      -body "{\"plant_id\": \"${plant%%:*}\", \"material_id\": \"$gasket\", \"mrp_type\": \"reorder_point\", \"reorder_point\": \"${plant##*:}\",
+      \"account_id\": \"$(account 6000)\"}"
+  done
+  as pablo
+  say "Pablo orders 80 gaskets from Toronto's main store to the Montreal store; the order is open, not issued:"
+  api 201 '"stock transport order \(.number): \(.supplying_plant_code) to \(.receiving_plant_code), \(.status)"' createStockTransportOrder \
+    -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$montreal\", \"items\": [{\"material_id\": \"$gasket\",
+      \"quantity\": {\"value\": \"80\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\", \"receiving_storage_location_id\": \"$store\"}]}"
+  as ben
+  say "Toronto's run counts the order as its demand: 100 in stock less the 80 it must issue keeps it above its reorder"
+  say "point of 10, so nothing is proposed (counting none, it would see 100):"
+  mrp_run "$PLANT" "$gasket"
+  expect "Toronto's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value)"')" "80 100 0 0"
+  say "Montreal's run counts the order as its receipt: the 80 coming keep it above its reorder point of 50, so it proposes"
+  say "nothing (counting none, it would propose 50):"
+  mrp_run "$montreal" "$gasket"
+  expect "Montreal's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value) \(.requisition_id // "none")"')" "0 0 80 0 none"
   HINGE=$hinge
   passed
 }

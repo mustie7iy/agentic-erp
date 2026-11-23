@@ -11168,24 +11168,26 @@ func (UnimplementedHandler) StartMigrationRun(ctx context.Context, params StartM
 // that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales
 // orders (each standing item's ordered quantity less what is delivered) and the ordered quantities of
 // the intercompany purchase orders the plant supplies (`supplying_plant_id`) that are not closed,
-// cancelled or issued (their standing items), the plant's stock at its storage locations (not stock in
-// transit), and its open receipts (the open quantities of the stock items of purchase orders not
-// closed or cancelled at the plant, and of the requisitions earlier runs proposed that a person took
-// over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand
-// fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft
-// purchase requisition of the material in its base unit, raised by the person who started the run in
-// the company's currency at the material's valuation price at the plant (zero when it has none),
-// naming the planning data's account and needed by the run's day. Before it plans, the run cancels the
-// plant's earlier proposals still its own: drafts no person changed since a run proposed them. A
-// proposal a person changed or submitted is theirs from then on and is never touched; a requisition a
-// person raised is never touched either. The run's lines say what it counted and proposed per
-// material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`);
-// a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business
-// problem while planning (the company's requisition number range exhausted, the account no longer
-// postable, the requester no longer active, an open quantity in a unit the material no longer has:
-// `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation with the
-// problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails
-// it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+// cancelled or issued (their standing items) and of the stock transport orders within the company from
+// the plant that are not issued, the plant's stock at its storage locations (not stock in transit),
+// and its open receipts (the open quantities of the stock items of purchase orders not closed or
+// cancelled at the plant, the quantities of the stock transport orders within the company to the plant
+// that are not received, open or in transit, and the items of the requisitions earlier runs proposed
+// that a person took over and that are not ordered, cancelled or rejected). Where the stock and
+// receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is
+// proposed as a draft purchase requisition of the material in its base unit, raised by the person who
+// started the run in the company's currency at the material's valuation price at the plant (zero when
+// it has none), naming the planning data's account and needed by the run's day. Before it plans, the
+// run cancels the plant's earlier proposals still its own: drafts no person changed since a run
+// proposed them. A proposal a person changed or submitted is theirs from then on and is never touched;
+// a requisition a person raised is never touched either. The run's lines say what it counted and
+// proposed per material. The plant is an active plant of a company the caller may act in (422
+// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
+// names it. A business problem while planning (the company's requisition number range exhausted, the
+// account no longer postable, the requester no longer active, an open quantity in a unit the material
+// no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation
+// with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried
+// out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/mrp-runs
 func (UnimplementedHandler) StartMrpRun(ctx context.Context, req *MrpRunStart, params StartMrpRunParams) (r StartMrpRunRes, _ error) {
