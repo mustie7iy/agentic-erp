@@ -19,7 +19,8 @@ import (
 // MRP is the material requirements planning context as the API wires it
 // (ADR-0084 §1, §2): a leaf that reads tenancy's plants and companies,
 // materials, the ledger's accounts and the configuration's company days,
-// and, through mrpSupply, sales' demand, inventory's stock and prices and
+// and, through mrpSupply, sales' demand and that of the intercompany
+// orders the plant supplies, inventory's stock and prices and
 // procurement's receipts and requisitions, which it proposes and
 // withdraws through procurement's published API, and for S&OP reviews
 // inventory's goods issues, sales' and intercompany orders' demand by

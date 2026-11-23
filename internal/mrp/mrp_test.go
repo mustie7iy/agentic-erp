@@ -134,6 +134,67 @@ func (e env) ordered(t *testing.T, number, status, qty string) uuid.UUID {
 	return id
 }
 
+// icOrder is an intercompany order of the bracket P1 supplies to P9 of
+// company 1000: its number, status, its item's delivery date ("" for
+// none), quantity and unit, whether P1 issued it and whether its item is
+// removed.
+type icOrder struct {
+	number, status, delivery, qty, unit string
+	issued, removed                     bool
+}
+
+// intercompany writes the order straight into procurement and returns
+// its id.
+func (e env) intercompany(t *testing.T, o icOrder) uuid.UUID {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	var issue, delivery any
+	if o.issued {
+		issue = uuid.Must(uuid.NewV7())
+	}
+	if o.delivery != "" {
+		delivery = o.delivery
+	}
+	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
+		payment_term_code, status, supplying_plant_id, issue_document_id, issue_document_number, issue_date, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, gen_random_uuid(), 'USD', '2026-11-01', 'NT30', 'draft', $5, $6, CASE WHEN $6::uuid IS NULL THEN NULL ELSE 'MI' END,
+			CASE WHEN $6::uuid IS NULL THEN NULL ELSE date '2026-11-02' END, $7, $7)`,
+		e.Tenant.ID, id, o.number, e.US, e.p1, issue, e.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, material_id, description, quantity, uom_code,
+		unit_price, price_unit, account_id, plant_id, storage_location_id, delivery_date, is_removed)
+		VALUES ($1, $2, 1, $3, 'Bracket', $4::numeric, $5, 200, 1, $6, $7, gen_random_uuid(), $8::date, $9)`,
+		e.Tenant.ID, id, e.bracket, o.qty, o.unit, e.stock, e.p9, delivery, o.removed)
+	for _, s := range map[string][]string{"released": {"released"}, "closed": {"released", "closed"}, "cancelled": {"cancelled"}}[o.status] {
+		pgtest.Exec(t, `UPDATE procurement.purchase_order SET status = $2, version = version + 1 WHERE id = $1`, id, s)
+	}
+	return id
+}
+
+// transport writes a stock transport order within company 2000 of the
+// bracket in EA from the supplying plant to the receiving one, in the
+// status (open, in_transit or received, issued and received on its way),
+// straight into procurement.
+func (e env) transport(t *testing.T, number, status string, supplying, receiving uuid.UUID, qty int) {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	issued, received := any(nil), any(nil)
+	if status != "open" {
+		issued = uuid.Must(uuid.NewV7())
+	}
+	if status == "received" {
+		received = uuid.Must(uuid.NewV7())
+	}
+	pgtest.Exec(t, `INSERT INTO procurement.stock_transport_order (tenant_id, id, legal_entity_id, fiscal_year, number, supplying_plant_id, receiving_plant_id,
+		order_date, status, issue_document_id, issue_document_number, issue_date, receipt_document_id, receipt_document_number, receipt_date, created_by, updated_by)
+		VALUES ($1, $2, $3, 2026, $4, $5, $6, '2026-11-01', $7, $8, CASE WHEN $8::uuid IS NULL THEN NULL ELSE 'MD' END,
+			CASE WHEN $8::uuid IS NULL THEN NULL ELSE date '2026-11-01' END, $9, CASE WHEN $9::uuid IS NULL THEN NULL ELSE 'MR' END,
+			CASE WHEN $9::uuid IS NULL THEN NULL ELSE date '2026-11-02' END, $10, $10)`,
+		e.Tenant.ID, id, e.DE, number, supplying, receiving, status, issued, received, e.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO procurement.stock_transport_order_item (tenant_id, order_id, item_no, material_id, quantity, uom_code, base_quantity,
+		supplying_storage_location_id, receiving_storage_location_id) VALUES ($1, $2, 1, $3, $4, 'EA', $4, gen_random_uuid(), gen_random_uuid())`,
+		e.Tenant.ID, id, e.bracket, qty)
+}
+
 // plan plans the bracket at P1 by its reorder point and returns the plan.
 func (e env) plan(t *testing.T, material, reorderPoint string) (map[string]any, string) {
 	t.Helper()

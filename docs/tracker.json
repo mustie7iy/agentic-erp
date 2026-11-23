@@ -5929,9 +5929,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "fix: a planning run's demand leaves out the intercompany stock transport orders its plant supplies and has not issued (S2i): an MRP run nets only sales orders and the reorder point, so a supplying plant proposes nothing for what another company of the group ordered from it, which the S&OP review counts as demand (procurement.Orders.IntercompanyDue)",
-      "r": "internal/app/mrp.go Demand · internal/mrp runwork.go · procurement.Orders.IntercompanyDue · ADR-0084 As built S2n · S2k",
+      "s": "D",
+      "t": "fix: an MRP run's demand ignores unissued intercompany orders its plant must supply (internal/app/mrp.go Demand, S2k; ADR-0084), so a supplying plant proposes too little",
+      "r": "internal/mrp/net.go count · procurement.Orders.IntercompanyDue · ADR-0084 §2, As built (intercompany demand, batch 91) · api/openapi.yaml startMrpRun, MrpRunLine.demand · TestPlanningRunIntercompany, TestSopSupply",
       "src": "review:batch90",
       "c": []
      },
