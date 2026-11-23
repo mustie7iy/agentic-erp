@@ -290,4 +290,4 @@ As built S2n, which records why not controlling's planning versions):
 - No event (the plan's "What every slice reuses": none until a consumer
   asks); audited `mrp.sop_plan.create`, `.consensus` (each line's key
   and consensus before and after) and `.fix`.
-- Walkthrough step 157, `step_sop_review`.
+- Walkthrough step 159, `step_sop_review`.

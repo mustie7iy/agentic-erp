@@ -5959,14 +5959,14 @@
      {
       "s": "D",
       "t": "The demand forecasting agent forecasts a material's demand by plant from its goods issues and open orders and states its accuracy",
-      "r": "S2m · docs/design/plan-supply-chain.md §S2m · ADR-0072 As built S2m · ADR-0082 As built S2m · internal/demandagent · erp agent demand-forecast -company CODE -material NUMBER · agent type demand_forecast · listSalesOrders plant_id, material_id · evals/demand_forecast · walkthrough step_demand_forecast_agent (step 157)",
+      "r": "S2m · docs/design/plan-supply-chain.md §S2m · ADR-0072 As built S2m · ADR-0082 As built S2m · internal/demandagent · erp agent demand-forecast -company CODE -material NUMBER · agent type demand_forecast · listSalesOrders plant_id, material_id · evals/demand_forecast · walkthrough step_demand_forecast_agent (step 158)",
       "src": "po:2026-11-17",
       "c": []
      },
      {
       "s": "D",
       "t": "A planner reviews the forecast against supply by material group and month and fixes a consensus plan version",
-      "r": "S2n · docs/design/plan-supply-chain.md §S2n · ADR-0082 As built S2n · ADR-0084 As built S2n · internal/mrp sop.go, sopreview.go · migration 000447 · createSopPlan, listSopPlans, getSopPlan, updateSopPlan, fixSopPlan · mrp.sop.read, mrp.sop.write · walkthrough step_sop_review (step 157)",
+      "r": "S2n · docs/design/plan-supply-chain.md §S2n · ADR-0082 As built S2n · ADR-0084 As built S2n · internal/mrp sop.go, sopreview.go · migration 000447 · createSopPlan, listSopPlans, getSopPlan, updateSopPlan, fixSopPlan · mrp.sop.read, mrp.sop.write · walkthrough step_sop_review (step 159)",
       "src": "po:2026-11-17",
       "c": []
      },

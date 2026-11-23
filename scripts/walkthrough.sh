@@ -16994,7 +16994,7 @@ company_account() {
 # It counts every material Maple plans (the H30 hinge at Toronto, steps
 # 152 and 153) by material group, unit and month: the forecast, in each
 # month the greater of the moving average of the hinge's goods issues
-# over 13 weeks (the 4 to maintenance, step 156) spread over the month's
+# over 13 weeks (the 4 to maintenance, step 158) spread over the month's
 # days and Sally's confirmed order of 50 due now (the demand forecasting
 # agent's rule, in months); and in the first month the stock at Toronto,
 # its open purchase orders, stock transports and the planning runs'

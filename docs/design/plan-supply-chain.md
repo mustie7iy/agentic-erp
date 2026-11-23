@@ -906,7 +906,7 @@ plant from its goods issues and open orders and states its accuracy
   orders, deliveries, requisitions and purchase orders, planning runs
   and planning data. `listSalesOrders` takes `plant_id` and
   `material_id`. No migration; suite `evals/demand_forecast`; walkthrough
-  step 157 (`step_demand_forecast_agent`, after `step_uae_cash_discount`).
+  step 158 (`step_demand_forecast_agent`, after `step_uae_cash_discount`).
 
 ### S2n S&OP review
 
@@ -933,7 +933,7 @@ supply optimisation.
   people only. Capacity is not reviewed (no production context). Reads
   inventory's `PlantIssues`, sales' `PlantRequirementsDue` and
   procurement's `TransportReceipts` and `IntercompanyDue`, new in their published APIs.
-  Migration 000447; walkthrough step 157 (`step_sop_review`).
+  Migration 000447; walkthrough step 159 (`step_sop_review`).
 
 ### S2o SAP migration of the material master (pilot)
 
@@ -1042,7 +1042,7 @@ once, as a warehouse clerk's would be.
   worker sending the queue (retries 1, 5, 15 min, 1 h, 4 h; six attempts;
   the WMS's refusal final) and polling each active connector every 10 s for its
   confirmations; `GET /v1/wms-messages`.
-- **Walkthrough:** `step_wms` (before close).
+- **Walkthrough:** step 160, `step_wms` (before close).
 - **Acceptance:** a delivery at a WMS plant is sent once, whatever reads
   its event twice; the goods issue the WMS reports is posted once by its
   message id (a confirmation listed again is acknowledged, not posted);
