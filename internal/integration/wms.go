@@ -17,10 +17,10 @@ import (
 // management system a tenant connects for some of its plants. The ERP
 // sends it each outbound delivery created at such a plant to pick
 // (wms_queue.go, wms_send.go) and posts the goods issues it reports back,
-// once per message id (wms_receive.go). The connector names the plants it manages;
-// a plant is managed by one active wms connector at most, so a delivery
-// goes to one warehouse system and a goods issue is reported by the one
-// it was sent to. The WMS is reached through a provider-neutral port
+// once per message id (wms_receive.go). The connector names the plants
+// it manages; a plant is managed by one active wms connector at most, so
+// a delivery goes to one warehouse system and a goods issue is reported
+// by the one it was sent to. The WMS is reached through a provider-neutral port
 // (Warehouse), its adapter named by the settings: the stand-in's alone
 // until a vendor is chosen, refused in production.
 

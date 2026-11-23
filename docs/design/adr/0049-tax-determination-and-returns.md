@@ -2122,6 +2122,9 @@ product owner's digest:
   the invoice is already held: the order credit memos take. Two claims
   of one invoice wait on the row lock; the second meets the first's
   relief (409 `receivables.bad_debt_relief_claimed`).
+- **Walkthrough** step 157, `step_bad_debt_relief`: Bayview's invoice
+  written off and its GST recovered under GA (line 107), once; a UAE
+  invoice written off before six months refused.
 - **Later.** The tax charged again when the customer pays what was
   relieved (tracker leaf, src po:2026-11-21); a write-off of a residual
   item; a bad debt written off without a dispute case.

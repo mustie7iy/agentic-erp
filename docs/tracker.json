@@ -2773,7 +2773,7 @@
      {
       "s": "D",
       "t": "Bad debt relief as its own step: the output tax on a customer invoice written off as a bad debt by a dispute case's write-off (T86d) recovered by an adjustment the return reports (createBadDebtRelief, migration 000446): for a UAE company under Federal Decree-Law No. 8 of 2017 Art. 64 as the research states it (six months, counted by default from the later of the invoice's date and its due date, written off, the customer's notice date given; counted cumulatively, at most the invoice's tax), in the VAT 201's box 1 adjustment column of the item's emirate; for a Canadian one under the Excise Tax Act s.231 (written off), on the GST34's line 107; never by a plain write-off or a short payment; its evidence (the write-off entry, the notice date) kept with the relief; a person posts it (ADR-0049 As built batch 90)",
-      "r": "ADR-0049 As built batch 90 · ADR-0065 (write-offs) · T86d",
+      "r": "ADR-0049 As built batch 90 · ADR-0065 (write-offs) · T86d · migration 000446 · POST/GET /v1/bad-debt-reliefs · walkthrough step_bad_debt_relief (step 157)",
       "src": "po:2026-11-21",
       "c": []
      },
@@ -6007,7 +6007,7 @@
        {
         "s": "D",
         "t": "An external warehouse system is sent each outbound delivery created at a plant it manages to pick, and the goods issue it reports back is posted once by its message id",
-        "r": "S2q1 · docs/design/plan-supply-chain.md §S2q1 · ADR-0082 As built S2q",
+        "r": "S2q1 · docs/design/plan-supply-chain.md §S2q1 · ADR-0082 As built S2q · migrations 000449, 000450 · GET /v1/wms-messages · walkthrough step_wms (step 160)",
         "src": "po:2026-11-17",
         "c": []
        },

@@ -189,8 +189,8 @@ func (w *WMSExchange) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	return c, true, nil
 }
 
-// usable is a wms connector read for use, without its credentials.
-type usable struct {
+// wmsTarget is a wms connector read for use, without its credentials.
+type wmsTarget struct {
 	WMSConnection
 	id        uuid.UUID
 	secretRef string
@@ -200,33 +200,33 @@ type usable struct {
 // closed: one that is not an active wms connector naming a secret_ref,
 // whose settings no longer resolve, or is the stand-in in production, is
 // refused.
-func (w *WMSExchange) connection(ctx context.Context, tx pgx.Tx, id uuid.UUID) (usable, error) {
+func (w *WMSExchange) connection(ctx context.Context, tx pgx.Tx, id uuid.UUID) (wmsTarget, error) {
 	c, err := getConnector(ctx, tx, id, false)
 	switch {
 	case err != nil:
-		return usable{}, err
+		return wmsTarget{}, err
 	case c.Kind != WMS:
-		return usable{}, problem.Unprocessable("integration.not_a_wms", "Connector "+c.Name+" is a "+c.Kind+" connector, not a wms one.")
+		return wmsTarget{}, problem.Unprocessable("integration.not_a_wms", "Connector "+c.Name+" is a "+c.Kind+" connector, not a wms one.")
 	case c.Status != "active":
-		return usable{}, problem.Conflict("integration.connector_disabled", "The warehouse system's connector "+c.Name+" is disabled; enable it to use it.")
+		return wmsTarget{}, problem.Conflict("integration.connector_disabled", "The warehouse system's connector "+c.Name+" is disabled; enable it to use it.")
 	case c.SecretRef == nil:
-		return usable{}, problem.Unprocessable("integration.secret_required", "Connector "+c.Name+" names no secret_ref: the warehouse system's credentials are a secret.")
+		return wmsTarget{}, problem.Unprocessable("integration.secret_required", "Connector "+c.Name+" names no secret_ref: the warehouse system's credentials are a secret.")
 	}
 	s, err := wmsSettings(c.Settings)
 	if err != nil {
-		return usable{}, err
+		return wmsTarget{}, err
 	}
 	if w.RefuseStandIn && s.Adapter == StandInAdapter {
-		return usable{}, wmsStandInRefused()
+		return wmsTarget{}, wmsStandInRefused()
 	}
-	return usable{WMSConnection: WMSConnection{Name: c.Name, WMSSettings: s}, id: c.ID, secretRef: *c.SecretRef}, nil
+	return wmsTarget{WMSConnection: WMSConnection{Name: c.Name, WMSSettings: s}, id: c.ID, secretRef: *c.SecretRef}, nil
 }
 
 // warehouse resolves a connector's credentials under the tenant's own
 // namespace, with no transaction open, into the warehouse its adapter
 // names. A reference that names nothing, or is not the tenant's, is a
 // refusal; any other failure (the vault unreachable) is tried again.
-func (w *WMSExchange) warehouse(ctx context.Context, tenant uuid.UUID, c usable) (Warehouse, error) {
+func (w *WMSExchange) warehouse(ctx context.Context, tenant uuid.UUID, c wmsTarget) (Warehouse, error) {
 	secret, err := tenantSecret(ctx, w.Secrets, tenant, c.secretRef)
 	switch {
 	case errors.Is(err, secrets.ErrNotFound) || errors.Is(err, secrets.ErrNotTenants):
@@ -241,7 +241,7 @@ func (w *WMSExchange) warehouse(ctx context.Context, tenant uuid.UUID, c usable)
 
 // send makes the claimed call, within its bound.
 func (w *WMSExchange) send(ctx context.Context, c *wmsClaim) error {
-	wh, err := w.warehouse(ctx, c.tenant, usable{WMSConnection: c.conn, secretRef: c.secretRef})
+	wh, err := w.warehouse(ctx, c.tenant, wmsTarget{WMSConnection: c.conn, secretRef: c.secretRef})
 	if err != nil {
 		return err
 	}

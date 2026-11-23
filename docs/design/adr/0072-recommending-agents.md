@@ -1654,7 +1654,7 @@ A later slice adds its row here and its section under "As built".
   is read from the agent's prompt (`replay_vars`). Not run against a live
   model.
 - Walkthrough `step_demand_forecast_agent` (step 158, after
-  `step_uae_cash_discount`): Ada sets up the agent; Wade issues 4 H30
+  `step_bad_debt_relief`): Ada sets up the agent; Wade issues 4 H30
   hinges to CC-1100; the stand-in's line of its own is refused, then the
   line given (50 this week, Sally's confirmed order of step 152, then
   0.308 a week; accuracy none) is recommended; its own goods issue is

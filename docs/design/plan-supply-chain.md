@@ -906,7 +906,7 @@ plant from its goods issues and open orders and states its accuracy
   orders, deliveries, requisitions and purchase orders, planning runs
   and planning data. `listSalesOrders` takes `plant_id` and
   `material_id`. No migration; suite `evals/demand_forecast`; walkthrough
-  step 158 (`step_demand_forecast_agent`, after `step_uae_cash_discount`).
+  step 158 (`step_demand_forecast_agent`, after `step_bad_debt_relief`).
 
 ### S2n S&OP review
 

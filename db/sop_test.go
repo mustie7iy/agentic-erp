@@ -190,3 +190,22 @@ func TestSopPlanTriggersAsOwner(t *testing.T) {
 		})
 	}
 }
+
+// TestSopPlanDownRefused: 000447's down migration refuses to drop S&OP plan
+// versions (06 §6.4: a down migration loses no data), whichever tenant
+// holds them.
+func TestSopPlanDownRefused(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	s := sopScene{tenant: id(), plan: id(), company: id()}
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), s.planned(1),
+		step(`SELECT set_config('app.tenant_id', '', true)`)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, migrationNamed(t, "000447_sop_plan").Down), "S&OP plan versions exist")
+}

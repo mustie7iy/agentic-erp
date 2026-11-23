@@ -1894,6 +1894,10 @@ specialist):
   the caller may act in (an inbound message refused before its delivery
   was known, to a caller of every company).
 
+- Migrations 000449_wms_connector (the table, the kind check widened
+  NOT VALID) and 000450_validate_wms_connector_kind; schema tests
+  `db/wms_message_test.go`. Walkthrough step 160, `step_wms`.
+
 **Split, Later:** S2q2, inbound receipts (released purchase and stock
 transport orders' items at a WMS plant) and their goods receipt reported
 back, is its own leaf on this connector, table, port and exchange; the
