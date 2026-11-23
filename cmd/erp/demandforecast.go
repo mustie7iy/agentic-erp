@@ -13,7 +13,7 @@ import (
 // forecastDemand runs the demand forecasting agent on a company's
 // material.
 func forecastDemand(ctx context.Context, r *llm.Runner, c *apitools.Client, company, material string) (recommend.Result, error) {
-	return (&demandagent.Agent{LLM: r, API: c}).Forecast(ctx, company, material)
+	return (&demandagent.Agent{LLM: r, API: c, Now: agentDay}).Forecast(ctx, company, material)
 }
 
 // agentDemandForecast has the demand forecasting agent forecast a
