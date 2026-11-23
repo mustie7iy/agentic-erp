@@ -388,7 +388,8 @@ exceptions.
 - **Fourth exception (2026-11-22, batch 88).** CVE-2026-19499 and
   CVE-2026-5435 (High) in glibc 2.41-12+deb13u4 (libc6 of erp-analytics's
   runtime base, distroless cc-debian13:nonroot `sha256:cb87acc5...`, and
-  libc-bin of the PgBouncer pin), fixed in Debian 13's 2.41-12+deb13u5, are
+  libc-bin of the PgBouncer pin, which carries libc6 too: see the next
+  bullet), fixed in Debian 13's 2.41-12+deb13u5, are
   accepted by the product owner until 2026-11-29: both images load glibc, so
   this is a posture decision; nothing is deployed and the release scans again
   before it copies or signs. Neither image has a build carrying the fix yet;
