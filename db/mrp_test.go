@@ -10,7 +10,7 @@ import (
 )
 
 // TestMRPPermissions (S2k, migration 000436; ADR-0084 §5; S2n, migration
-// 000445): the permissions of material requirements planning and S&OP
+// 000447): the permissions of material requirements planning and S&OP
 // are seeded and are no approval permissions.
 func TestMRPPermissions(t *testing.T) {
 	need(t)

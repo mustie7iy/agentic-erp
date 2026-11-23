@@ -1238,7 +1238,7 @@ of a cross-company stock transport order (billing type IV, from memory,
 for the specialist) and S2i's decisions above.
 
 - **A document of its own**, `sales.intercompany_billing` with its items
-  (migration 000445, 03 §3.29; schema tests in
+  (migration 000448, 03 §3.29; schema tests in
   `db/intercompany_billing_test.go`, the insert-only triggers also as the
   owner, the down's refusal). A sales billing document bills a sales
   order's delivered items, which its keys, triggers and readers

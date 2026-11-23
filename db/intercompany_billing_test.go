@@ -11,7 +11,7 @@ import (
 
 // icBillingSQL is an intercompany billing of the scene's tenant by the
 // company $3 to $4's company $5, of the goods issue $6, with its number
-// $7, net $8 and tax $9 (migration 000445).
+// $7, net $8 and tax $9 (migration 000448).
 const icBillingSQL = `INSERT INTO sales.intercompany_billing (tenant_id, id, document_number, legal_entity_id, customer_id, purchase_order_id,
 		purchase_order_number, receiving_legal_entity_id, issue_document_id, issue_document_number, billing_date, posting_date, currency, net_amount,
 		tax_amount, customer_invoice_id, customer_invoice_number, journal_entry_year, journal_entry_id, created_by)
@@ -62,7 +62,7 @@ func (s icBilling) item(no, po int, net int64, code, jurisdiction any, tax int64
 	return step(icBillingItemSQL, s.tenant, s.billing, no, po, net, code, jurisdiction, tax)
 }
 
-// TestIntercompanyBillingRules (S2i2, migration 000445; ADR-0082 As built
+// TestIntercompanyBillingRules (S2i2, migration 000448; ADR-0082 As built
 // S2i): a billing bills another company, a goods issue once, with a net
 // amount above zero and a tax not below; its numbers are 1 to 40
 // characters; an invoice is of one billing; an item bills an order item
@@ -135,7 +135,7 @@ func TestIntercompanyBillingRules(t *testing.T) {
 	}
 }
 
-// TestIntercompanyBillingImmutable (S2i2, migration 000445): a billing
+// TestIntercompanyBillingImmutable (S2i2, migration 000448): a billing
 // and its items are never changed or deleted, by the application (no
 // grant) nor, past the grants, by the owner (the insert-only triggers).
 func TestIntercompanyBillingImmutable(t *testing.T) {
@@ -172,7 +172,7 @@ func TestIntercompanyBillingImmutable(t *testing.T) {
 	}
 }
 
-// TestIntercompanyBillingDownRefused: 000445's down migration refuses to
+// TestIntercompanyBillingDownRefused: 000448's down migration refuses to
 // drop intercompany billings (06 §6.4: a down migration loses no data).
 func TestIntercompanyBillingDownRefused(t *testing.T) {
 	need(t)
@@ -187,5 +187,5 @@ func TestIntercompanyBillingDownRefused(t *testing.T) {
 		step(`SELECT set_config('app.tenant_id', '', true)`)); err != nil {
 		t.Fatal(err)
 	}
-	failsWith(t, exec(tx, migrationNamed(t, "000445_intercompany_billing").Down), "intercompany billings exist")
+	failsWith(t, exec(tx, migrationNamed(t, "000448_intercompany_billing").Down), "intercompany billings exist")
 }

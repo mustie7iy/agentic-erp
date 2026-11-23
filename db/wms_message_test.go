@@ -51,7 +51,7 @@ func refusedIn() map[string]any {
 }
 
 // TestWMSMessageRules: every rule the database enforces on the messages
-// exchanged with warehouse systems (S2q1, 000445): the directions, kinds
+// exchanged with warehouse systems (S2q1, 000449): the directions, kinds
 // and statuses of each (one of none is refused by wms_message_direction,
 // which PostgreSQL checks before the columns' own checks), what an
 // outbound message names and an inbound one records, a time to wait for
@@ -158,7 +158,7 @@ func TestWMSMessageRules(t *testing.T) {
 // TestWMSMessageKept: what a message is never changes, an inbound one's
 // outcome stays as recorded and its acknowledgement is set once, and a
 // sent or failed outbound one keeps its status, for the owner too
-// (wms_message_kept, 000445); what the exchange changes it may.
+// (wms_message_kept, 000449); what the exchange changes it may.
 func TestWMSMessageKept(t *testing.T) {
 	need(t)
 	for name, c := range map[string]struct {
@@ -225,11 +225,11 @@ func TestWMSMessagePrivileges(t *testing.T) {
 	}
 }
 
-// TestWMSConnectorDown: 000445's down refuses, rather than drops, the wms
+// TestWMSConnectorDown: 000449's down refuses, rather than drops, the wms
 // connectors and messages the previous version cannot hold (06 §6.4).
 func TestWMSConnectorDown(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000445_wms_connector").Down
+	down := migrationNamed(t, "000449_wms_connector").Down
 	for name, seed := range map[string]string{
 		"a wms connector": `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, status, created_by, updated_by)
 			VALUES ($1, gen_random_uuid(), 'wms', 'W', '{}', 'active', $1, $1)`,

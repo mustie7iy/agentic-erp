@@ -256,7 +256,7 @@ as a receipt, having no plant.
 S&OP plan versions live in this context (decided by default, ADR-0082
 As built S2n, which records why not controlling's planning versions):
 
-- Migration 000445 (03 §3.37; schema tests `db/sop_test.go`, the
+- Migration 000447 (03 §3.37; schema tests `db/sop_test.go`, the
   triggers also as the owner): `mrp.sop_plan` and `mrp.sop_plan_line`;
   permissions `mrp.sop.read` and `mrp.sop.write`.
 - API: `createSopPlan`, `listSopPlans`, `getSopPlan`, `updateSopPlan`

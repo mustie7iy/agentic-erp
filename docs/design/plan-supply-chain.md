@@ -933,7 +933,7 @@ supply optimisation.
   people only. Capacity is not reviewed (no production context). Reads
   inventory's `PlantIssues`, sales' `PlantRequirementsDue` and
   procurement's `TransportReceipts` and `IntercompanyDue`, new in their published APIs.
-  Migration 000445; walkthrough step 157 (`step_sop_review`).
+  Migration 000447; walkthrough step 157 (`step_sop_review`).
 
 ### S2o SAP migration of the material master (pilot)
 
@@ -1036,7 +1036,7 @@ once, as a warehouse clerk's would be.
   the confirmations) with the stand-in's adapter (`wmstest`, refused in
   production: `integration.adapter_not_certified`), called through the
   egress client (public addresses only; the walkthrough's stand-in by
-  `ERP_WALKTHROUGH_WMS`); `integration.wms_message` (000445); the bus
+  `ERP_WALKTHROUGH_WMS`); `integration.wms_message` (000449); the bus
   consumer `wms-outbound` reading shipping's OutboundDeliveryChanged
   (ADR-0007) and queueing the delivery's message once; the exchange
   worker sending the queue (retries 1, 5, 15 min, 1 h, 4 h; six attempts;

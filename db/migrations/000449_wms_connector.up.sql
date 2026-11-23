@@ -13,7 +13,7 @@
 -- its row. document_id and legal_entity_id are the shipping and tenancy
 -- contexts': no foreign key leaves the schema (02 §2.1). Expand only: a
 -- new table, the connector kind check widened NOT VALID (validated by
--- 000446), which the previous version neither reads nor writes.
+-- 000450), which the previous version neither reads nor writes.
 ALTER TABLE integration.connector
   DROP CONSTRAINT connector_kind_check,
   ADD CONSTRAINT connector_kind_check

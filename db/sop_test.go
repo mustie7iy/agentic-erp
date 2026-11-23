@@ -33,7 +33,7 @@ func (s sopScene) line(group, unit, forecast, orders string) stmt {
 
 func (s sopScene) fixed() stmt { return step(sopFix, s.tenant, s.plan) }
 
-// TestSopPlanRules (S2n, migration 000445; ADR-0084 As built S2n): a
+// TestSopPlanRules (S2n, migration 000447; ADR-0084 As built S2n): a
 // version is numbered once per company, its horizon starts the day after
 // its review and ends on the last day of its last month, of 1 to 12
 // months; a fixed one names who fixed it and when, and changes no more,
@@ -141,7 +141,7 @@ func TestSopPlanRules(t *testing.T) {
 	}
 }
 
-// TestSopPlanTriggersAsOwner (S2n, migration 000445): past the grants, as
+// TestSopPlanTriggersAsOwner (S2n, migration 000447): past the grants, as
 // the owner, a fixed version and its lines do not change nor gain a line,
 // a draft's line changes only its consensus, and neither a version nor a
 // line is deleted.

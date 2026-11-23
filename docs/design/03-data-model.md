@@ -3394,9 +3394,9 @@ activate, and orders under them are refused.
 | Table | Purpose |
 |---|---|
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
-| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000445); secrets by reference to the vault |
+| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
-| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000445), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, its body the JSON as sent; once per delivery, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
+| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, its body the JSON as sent; once per delivery, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
@@ -5857,7 +5857,7 @@ erDiagram
   order's `version`. Insert-only. A billing document's status may now
   be `cancelled`, keeping what it posted with (`billing_document_posted`
   widened), set by that trigger alone (`billing_document_posted_once`).
-- `sales.intercompany_billing` and `sales.intercompany_billing_item` (S2i2, migration 000445;
+- `sales.intercompany_billing` and `sales.intercompany_billing_item` (S2i2, migration 000448;
   ADR-0082 As built S2i): the supplying company's (`legal_entity_id`)
   bill of an intercompany stock transport order's goods issue to the
   business partner that is the receiving company (`customer_id`), written
@@ -7189,7 +7189,7 @@ erDiagram
   run's replaced ones by `proposal_by_replacing_run`.
 - Permissions `mrp.plan.read`, `mrp.plan.write` and `mrp.run.start`.
 
-S&OP plan versions (S2n, migration 000445; ADR-0084 As built S2n): a
+S&OP plan versions (S2n, migration 000447; ADR-0084 As built S2n): a
 company's review of its demand forecast against supply by material
 group, base unit and month, and the consensus a planner fixes.
 
