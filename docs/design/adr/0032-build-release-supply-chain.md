@@ -393,6 +393,17 @@ exceptions.
   this is a posture decision; nothing is deployed and the release scans again
   before it copies or signs. Neither image has a build carrying the fix yet;
   the tracker item pins fixed digests and removes the entries.
+- **Fifth exception (2026-11-23, batch 89).** CVE-2026-112314,
+  CVE-2026-112320, CVE-2026-112321, CVE-2026-112322, CVE-2026-112323 and
+  CVE-2026-119079 (High) in MIT Kerberos 1.21.3-5+deb13u1 of the PgBouncer
+  pin (libgssapi-krb5-2, libk5crypto3, libkrb5-3, libkrb5support0), fixed in
+  Debian 13's 1.21.3-5+deb13u2, are accepted by the product owner until
+  2026-11-29 on the terms of the third and fourth: the libraries are in the
+  image, so this is a posture decision; nothing is deployed and the release
+  scans again before it copies or signs. No PgBouncer build carries the fix
+  yet (the newest trixie tag is still the pinned build); the tracker item
+  that pins a PgBouncer build for libcares2 also requires the fixed krb5 and
+  removes these entries.
 - **Checked by** `scripts/test-images.sh` with a fake grype: every pin,
   PgBouncer's and NATS's, scanned once by digest on `linux/arm64` with the
   threshold and `.grype.yaml`; a fixable high in a pin fails the scan; a

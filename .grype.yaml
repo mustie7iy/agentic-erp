@@ -62,3 +62,136 @@ ignore:
       name: libc-bin
       type: deb
       version: 2.41-12+deb13u4
+  # libgssapi-krb5-2, libk5crypto3, libkrb5-3 and libkrb5support0 (MIT
+  # Kerberos) 1.21.3-5+deb13u1 in the pinned PgBouncer image
+  # (ghcr.io/cloudnative-pg/pgbouncer 1.26.1-202611121015-trixie, arm64
+  # sha256:2df7fa82..., deploy/images/upstream.txt); Debian 13 fixes
+  # CVE-2026-112314, CVE-2026-112320, CVE-2026-112321, CVE-2026-112322,
+  # CVE-2026-112323 and CVE-2026-119079 (High) in 1.21.3-5+deb13u2, but no
+  # PgBouncer build carries it yet: the newest trixie tag is still the
+  # pinned build (2026-11-23). The libraries are in the image, so this is a
+  # posture decision, not a "nothing loads it" exception. Accepted by the
+  # product owner (2026-11-23), on the terms of the libcares2 and glibc
+  # entries: nothing is deployed (AWS deferred) and the release runs this
+  # scan again before it copies or signs any image. Until 2026-11-29, or
+  # sooner once a PgBouncer image with krb5 1.21.3-5+deb13u2 is pinned.
+  - vulnerability: CVE-2026-112314
+    package:
+      name: libgssapi-krb5-2
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112314
+    package:
+      name: libk5crypto3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112314
+    package:
+      name: libkrb5-3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112314
+    package:
+      name: libkrb5support0
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112320
+    package:
+      name: libgssapi-krb5-2
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112320
+    package:
+      name: libk5crypto3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112320
+    package:
+      name: libkrb5-3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112320
+    package:
+      name: libkrb5support0
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112321
+    package:
+      name: libgssapi-krb5-2
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112321
+    package:
+      name: libk5crypto3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112321
+    package:
+      name: libkrb5-3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112321
+    package:
+      name: libkrb5support0
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112322
+    package:
+      name: libgssapi-krb5-2
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112322
+    package:
+      name: libk5crypto3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112322
+    package:
+      name: libkrb5-3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112322
+    package:
+      name: libkrb5support0
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112323
+    package:
+      name: libgssapi-krb5-2
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112323
+    package:
+      name: libk5crypto3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112323
+    package:
+      name: libkrb5-3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-112323
+    package:
+      name: libkrb5support0
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-119079
+    package:
+      name: libgssapi-krb5-2
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-119079
+    package:
+      name: libk5crypto3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-119079
+    package:
+      name: libkrb5-3
+      type: deb
+      version: 1.21.3-5+deb13u1
+  - vulnerability: CVE-2026-119079
+    package:
+      name: libkrb5support0
+      type: deb
+      version: 1.21.3-5+deb13u1
