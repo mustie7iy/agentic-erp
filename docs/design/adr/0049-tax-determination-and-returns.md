@@ -2245,14 +2245,20 @@ for the product owner's digest:
   invoice's lines (every line of its entry, the residual items its
   incoming payments left, followed as paidOf follows them
   (`appliedItems`, now shared), and its reliefs' write-off credits)
-  together with an item that is no relieved invoice's line is refused,
-  422 `receivables.relieved_invoice_clearing` naming that item
+  together with an item that is not that invoice's line, another
+  relieved invoice's included (paid is counted per invoice: one's
+  write-off credit would settle the other), is refused, 422
+  `receivables.relieved_invoice_clearing` naming that item
   (`items[i]`): the customer's money is applied with an incoming
-  payment, which charges the tax again. A clearing of relieved lines
-  alone, such as the invoice's item with its write-off's credit,
-  settles nothing paid and is allowed (`paidOf` is unchanged by it). A
-  credit memo's credit is refused with the rest: a credit memo of a
-  relieved invoice is outside this leaf.
+  payment, which charges the tax again. A clearing of one invoice's
+  relieved lines alone, such as its item with a relieved write-off's
+  credit, settles nothing paid and is allowed (`paidOf` is unchanged by
+  it). A credit memo's credit is refused with the rest: a credit memo of
+  a relieved invoice is outside this leaf. The credit of a write-off
+  not yet relieved is not among the lines (the write-offs are read
+  through the reliefs), so clearing the invoice's item with it is
+  refused too, the safer side: it can be cleared before the invoice's
+  first relief, or applied with an incoming payment.
 - **The relief after such a clearing.** The same gap in the other
   order, a write-off whose invoice's item a clearing settled against a
   credit before any relief, is refused at the relief with the same code,
@@ -2261,8 +2267,9 @@ for the product owner's digest:
   The ledger answers it (`OpenItems.ClearedApart`): clearings whose
   entries are its own (`source_context` `ledger`, document type AB, so
   createClearing's alone; an incoming payment's or a reversal's are not)
-  that clear one of the lines with an item that is none of them; a
-  reset clearing clears nothing any more.
+  that clear one of the invoice's lines (the claimed write-off's credits
+  among them) with an item that is not one of them; a reset clearing
+  clears nothing any more.
 - **The port.** The ledger asks its `Clearings` port (`ClearingGuard`,
   implemented by `receivables.Clearings`, wired in internal/app) with the
   clearing's company, the partners of its items (read without a lock; a

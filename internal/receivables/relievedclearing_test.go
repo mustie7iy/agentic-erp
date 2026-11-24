@@ -40,10 +40,12 @@ func (e discountEnv) charged(t *testing.T, invoice map[string]any) string {
 // would settle the debt and charge none of the 5.00 again: it is refused
 // (422 receivables.relieved_invoice_clearing naming the credit), and so
 // is one of its write-off's credit against a debit posted to the customer
-// and one of the residual item a payment left against a credit. Its item
+// and one of the residual item a payment left against a credit; so is
+// one of its item against its own and another relieved invoice's
+// write-off credits, which would settle the one with the other's. Its item
 // cleared with its write-off's credit, which settles nothing paid, is
-// cleared and charges nothing; so is a clearing of another customer's
-// items.
+// cleared and charges nothing; so is a clearing of an invoice without a
+// relief.
 func TestRelievedInvoiceClearing(t *testing.T) {
 	e := reliefEnv(t)
 	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
@@ -75,6 +77,19 @@ func TestRelievedInvoiceClearing(t *testing.T) {
 		}
 		if got := e.charged(t, paid); got != "167" {
 			t.Errorf("the tax charged again: got %s, want 167, the payment's alone", got)
+		}
+	})
+	t.Run("its item against another relieved invoice's write-off credit", func(t *testing.T) {
+		a := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+		offA := e.writtenOff(t, a, "50.00", "2026-03-15")
+		e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(a, offA, "AS", "2026-08-01", "2026-08-10"), "")
+		b := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
+		offB := e.writtenOff(t, b, "55.00", "2026-03-15")
+		e.Must(201, "POST", "/v1/bad-debt-reliefs", relief(b, offB, "AS", "2026-08-01", "2026-08-10"), "")
+		p := e.In(t).Problem(422, "receivables.relieved_invoice_clearing", "POST", "/v1/clearings",
+			e.clearing("2026-09-15", itemRef(a["journal_entry_id"], 1), itemRef(offA, 2), itemRef(offB, 2)), "")
+		if field(p) != "items[2]" {
+			t.Errorf("the field: got %v, want items[2], the other invoice's credit", field(p))
 		}
 	})
 	t.Run("its item with its write-off's credit", func(t *testing.T) {

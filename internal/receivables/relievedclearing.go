@@ -41,10 +41,11 @@ func (r relievedLines) has(ref ledger.ItemRef) bool {
 	return (ref.FiscalYear == *r.invoice.EntryYear && ref.EntryID == *r.invoice.EntryID) || slices.Contains(r.lines, ref)
 }
 
-// relievedLinesOf reads the invoice's lines, credits its write-offs'
-// credits: the residual items are those its payments' items left
+// relievedLinesOf reads the residual items the invoice's payments left
 // (appliedItems), undone or not, since a residual an undoing reversed is
-// cleared with its reversal and no clearing takes it again.
+// cleared with its reversal and no clearing takes it again: with the
+// invoice's entry and credits, its write-offs' credits, they are its
+// relieved lines.
 func relievedLinesOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef) (relievedLines, error) {
 	years, entries, lines := ledger.ItemColumns(credits)
 	rows, _ := tx.Query(ctx, appliedItems+`
@@ -68,8 +69,8 @@ type Clearings struct {
 // GuardClearing holds the partners as customers of the company
 // (holdRelieved, which orders the clearing with the customers' payments
 // and reliefs and locks their relieved invoices), reads those invoices'
-// lines and refuses items that clear one of them with an item that is
-// none of them.
+// lines and refuses items that clear one invoice's lines with an item
+// that is not that invoice's (clearedApart).
 func (c Clearings) GuardClearing(ctx context.Context, legalEntity uuid.UUID, partners []uuid.UUID, items []ledger.ItemRef) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -99,26 +100,29 @@ func (c Clearings) GuardClearing(ctx context.Context, legalEntity uuid.UUID, par
 }
 
 // clearedApart refuses items of which one is a line of a relieved
-// invoice (of sets) and another is no such line, naming the first of
-// those in the request's items (422 receivables.relieved_invoice_clearing).
+// invoice (of sets) and another is not a line of that invoice, another
+// relieved invoice's included (each invoice's paid is its own: the
+// write-off credit of one would settle the other), naming the first such
+// item in the request's items (422 receivables.relieved_invoice_clearing).
 func clearedApart(sets []relievedLines, items []ledger.ItemRef) error {
-	var relieved *Invoice
-	other := -1
-	for i, it := range items {
-		at := slices.IndexFunc(sets, func(r relievedLines) bool { return r.has(it) })
-		switch {
-		case at < 0 && other < 0:
-			other = i
-		case at >= 0 && relieved == nil:
-			relieved = &sets[at].invoice
+	first := -1
+	for _, it := range items {
+		if first = slices.IndexFunc(sets, func(r relievedLines) bool { return r.has(it) }); first >= 0 {
+			break
 		}
 	}
-	if relieved == nil || other < 0 {
+	if first < 0 {
 		return nil
 	}
+	set := sets[first]
+	other := slices.IndexFunc(items, func(it ledger.ItemRef) bool { return !set.has(it) })
+	if other < 0 {
+		return nil
+	}
+	relieved := set.invoice
 	return problem.Unprocessable(relievedClearing, "Customer invoice "+relieved.DocumentNumber+" has a bad debt relief: what the customer pays of "+
 		"it is applied with an incoming payment (POST /v1/incoming-payments), which charges the relieved tax again, and its items, the residual "+
-		"items its payments left and its write-offs' credits are cleared against none but each other.",
+		"items its payments left and its write-offs' credits are cleared against none but each other, never another invoice's.",
 		problem.FieldError{Field: fmt.Sprintf("items[%d]", other), Code: "not_relieved_invoice",
 			Message: "a line of customer invoice " + relieved.DocumentNumber + ", a residual item its payments left or a credit of its write-offs"})
 }
