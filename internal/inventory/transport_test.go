@@ -14,9 +14,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
 const transports = "/v1/stock-transport-orders"
@@ -196,6 +198,141 @@ func TestStockTransportRefused(t *testing.T) {
 	e.Problem(409, "inventory.reverse_stock_transport", "POST", docs+"/"+issue["id"].(string)+":reverse", "", docTag)
 	if got := e.transit(t); got != "4" {
 		t.Errorf("in transit after the refused receipt: got %s, want 4", got)
+	}
+}
+
+// planned is what the stock transport orders the plants have not moved
+// count in planning (procurement's published reads, ADR-0084 As built):
+// P1's demand of the bracket (TransportsDue) and P2's receipts
+// (TransportsOnOrder).
+func (e env) planned(t *testing.T) string {
+	t.Helper()
+	ms := []uuid.UUID{uuid.MustParse(e.bracket)}
+	var due, on []procurement.OnOrder
+	if err := e.inRequest(t, func(ctx context.Context) error {
+		var err error
+		if due, err = (procurement.Orders{}).TransportsDue(ctx, e.p1, ms); err != nil {
+			return err
+		}
+		on, err = procurement.Orders{}.TransportsOnOrder(ctx, e.p2, ms)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sum := func(os []procurement.OnOrder) string {
+		var out []string
+		for _, o := range os {
+			out = append(out, o.Quantity+" "+o.Unit)
+		}
+		return strings.Join(out, ", ")
+	}
+	return sum(due) + "|" + sum(on)
+}
+
+// TestStockTransportCancel (review:batch92; ADR-0082 As built S2h,
+// cancellation): an open order is cancelled at the version read, and from
+// then on planning counts it neither as P1's demand nor as P2's receipt;
+// it moves no stock, is audited and published naming its company, plants
+// and materials; a cancelled order is neither cancelled again, issued nor
+// received, and one whose goods issue is posted is not cancelled.
+func TestStockTransportCancel(t *testing.T) {
+	e := setupWith(t, transportPerms...)
+	e.post(t, "561", e.item("10", "EA", nil))
+	o := e.transport(t, e.transportItem(e.bracket, "0.2", "BOX", nil))
+	if got, want := e.planned(t), "0.2 BOX|0.2 BOX"; got != want {
+		t.Errorf("planned while open: got %s, want %s", got, want)
+	}
+	url := transports + "/" + o["id"].(string)
+	e.Problem(412, "request.version_mismatch", "POST", url+":cancel", "", `"9"`)
+	_, tag := e.Must(200, "GET", url, "", "")
+	cancelled, after := e.Must(200, "POST", url+":cancel", "", tag)
+	if got, want := fmt.Sprint(cancelled["status"], " ", cancelled["version"], " ", after, " ", cancelled["issue_document_id"]), `cancelled 2 "2" <nil>`; got != want {
+		t.Errorf("the cancelled order: got %s, want %s", got, want)
+	}
+	if got := e.planned(t); got != "|" {
+		t.Errorf("planned once cancelled: got %s, want nothing on either side", got)
+	}
+	if got := e.stock(t, e.s1, "") + "|" + e.transit(t); got != "10 EA|none" {
+		t.Errorf("stock at S1 and in transit: got %s, want 10 EA|none", got)
+	}
+	if n := len(e.audits(t, o["id"].(string), "procurement.stock_transport_order.cancel")); n != 1 {
+		t.Errorf("audit records of the cancellation: got %d, want 1", n)
+	}
+	typ := outbox.Event{Context: "procurement", Name: "stock_transport_order_cancelled"}
+	events := apitest.CompanyNamed(t, apitest.Published(t, e.Tenant, typ))
+	if len(events) != 1 {
+		t.Fatalf("events: got %d, want 1", len(events))
+	}
+	ev := events[0]
+	it := rows(t, ev, "items")[0]
+	if got, want := fmt.Sprint(ev["stock_transport_order_id"] == o["id"], " ", ev["number"] == o["number"], " ", ev["supplying_plant_code"], ">",
+		ev["receiving_plant_code"], " ", ev["previous_status"], ">", ev["status"], " ", it["material_number"] == o["items"].([]any)[0].(map[string]any)["material_number"],
+		" ", it["quantity"], " ", it["base_quantity"]), "true true P1>P2 open>cancelled true map[unit:BOX value:0.2] map[unit:EA value:4]"; got != want {
+		t.Errorf("the event: got %s, want %s", got, want)
+	}
+	apitest.Conforms(t, typ, ev)
+	for action, code := range map[string]string{"cancel": "procurement.stock_transport_cancelled", "postGoodsIssue": "procurement.stock_transport_cancelled",
+		"postGoodsReceipt": "procurement.stock_transport_not_in_transit"} {
+		t.Run("cancelled, "+action, func(t *testing.T) { e.Problem(409, code, "POST", url+":"+action, "", after) })
+	}
+	if list, _ := e.Must(200, "GET", transports+"?status=cancelled", "", ""); len(rows(t, list, "items")) != 1 {
+		t.Errorf("the cancelled orders: got %v, want the one", list["items"])
+	}
+	issued := e.step(t, e.transport(t, e.transportItem(e.bracket, "1", "EA", nil)), "postGoodsIssue")
+	received := e.step(t, e.transport(t, e.transportItem(e.bracket, "1", "EA", nil)), "postGoodsIssue")
+	received = e.step(t, received, "postGoodsReceipt")
+	for name, moved := range map[string]map[string]any{"in transit": issued, "received": received} {
+		t.Run(name, func(t *testing.T) {
+			_, tag := e.Must(200, "GET", transports+"/"+moved["id"].(string), "", "")
+			e.Problem(409, "procurement.stock_transport_issued", "POST", transports+"/"+moved["id"].(string)+":cancel", "", tag)
+		})
+	}
+	if n := len(apitest.Published(t, e.Tenant, typ)); n != 1 {
+		t.Errorf("events after the refusals: got %d, want 1", n)
+	}
+}
+
+// TestStockTransportCancelRacesIssue: an order's cancellation and its
+// goods issue at the same version, at once: both lock the order first, so
+// one of them changes it and the other finds the version moved (412),
+// never an order both cancelled and issued.
+func TestStockTransportCancelRacesIssue(t *testing.T) {
+	e := setupWith(t, transportPerms...)
+	e.post(t, "561", e.item("10", "EA", nil))
+	for i := range 5 {
+		o := e.transport(t, e.transportItem(e.bracket, "1", "EA", nil))
+		var wg sync.WaitGroup
+		statuses := map[string]int{}
+		var mu sync.Mutex
+		for _, action := range []string{"cancel", "postGoodsIssue"} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				status, _, _ := e.Do("POST", transports+"/"+o["id"].(string)+":"+action, "", `"1"`)
+				mu.Lock()
+				statuses[action] = status
+				mu.Unlock()
+			}()
+		}
+		wg.Wait()
+		got, _ := e.Must(200, "GET", transports+"/"+o["id"].(string), "", "")
+		want := map[string]string{"cancel": "cancelled", "postGoodsIssue": "in_transit"}
+		winners := 0
+		for action, status := range statuses {
+			switch status {
+			case 200:
+				winners++
+				if got["status"] != want[action] {
+					t.Errorf("round %d: %s won, but the order is %v", i, action, got["status"])
+				}
+			case 412:
+			default:
+				t.Errorf("round %d: %s answered %d, want 200 or 412", i, action, status)
+			}
+		}
+		if winners != 1 {
+			t.Errorf("round %d: got %d writes answered 200 (%v), want 1", i, winners, statuses)
+		}
 	}
 }
 
@@ -386,6 +523,8 @@ func TestStockTransportDatabaseFailures(t *testing.T) {
 	e.post(t, "561", e.item("10", "EA", nil))
 	open := e.transport(t, e.transportItem(e.bracket, "1", "EA", nil))
 	issued := e.step(t, e.transport(t, e.transportItem(e.bracket, "1", "EA", nil)), "postGoodsIssue")
+	cancel := e.transport(t, e.transportItem(e.bracket, "1", "EA", nil))
+	cancelID := uuid.MustParse(cancel["id"].(string))
 	openID, issuedID := uuid.MustParse(open["id"].(string)), uuid.MustParse(issued["id"].(string))
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
@@ -408,6 +547,10 @@ func TestStockTransportDatabaseFailures(t *testing.T) {
 		},
 		"goods receipt": func(ctx context.Context) error {
 			_, err := h.PostStockTransportGoodsReceipt(ctx, gen.PostStockTransportGoodsReceiptParams{ID: issuedID, IfMatch: `"2"`})
+			return err
+		},
+		"cancel": func(ctx context.Context) error {
+			_, err := h.CancelStockTransportOrder(ctx, gen.CancelStockTransportOrderParams{ID: cancelID, IfMatch: `"1"`})
 			return err
 		},
 	}

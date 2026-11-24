@@ -614,6 +614,24 @@ type Handler interface {
 	//
 	// POST /v1/sales-orders/{id}:cancel
 	CancelSalesOrder(ctx context.Context, req *ReasonInput, params CancelSalesOrderParams) (CancelSalesOrderRes, error)
+	// CancelStockTransportOrder implements cancelStockTransportOrder operation.
+	//
+	// Cancels an open stock transport order (ADR-0082 As built S2h, cancellation; SAP's deletion of a
+	// stock transport order's items before their goods issue, from memory), one entered by mistake or no
+	// longer needed, at the version read (`If-Match`; 412 `request.version_mismatch`). Only an order whose
+	// goods issue is not posted is cancelled: one `in_transit` or `received` is refused (409
+	// `procurement.stock_transport_issued`), its stock having moved, and one already `cancelled` too (409
+	// `procurement.stock_transport_cancelled`). The order is `cancelled` and changes no more: it is
+	// neither issued (409 `procurement.stock_transport_cancelled`) nor received (409
+	// `procurement.stock_transport_not_in_transit`), and from then on a planning run counts it neither as
+	// the supplying plant's demand nor as the receiving plant's receipt (`startMrpRun`; ADR-0084 As
+	// built), and a sales and operations planning review never counts it (`createSopPlan`). It moves no
+	// stock and posts nothing. The order is read under its row lock. Audited, and published as
+	// StockTransportOrderCancelled. A retry with the same `Idempotency-Key` answers the order as it left
+	// it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders/{id}:cancel
+	CancelStockTransportOrder(ctx context.Context, params CancelStockTransportOrderParams) (CancelStockTransportOrderRes, error)
 	// CancelSupplierInvoice implements cancelSupplierInvoice operation.
 	//
 	// Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -8079,20 +8097,20 @@ type Handler interface {
 	//
 	// Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory),
 	// once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`,
-	// 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage
-	// location and is in transit to its receiving storage location, as one material document of movement
-	// type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered
-	// from its `material_document` range, its `reference` the order's number; its lines in transit
-	// (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each
-	// item is checked as at the order's creation, the material active and valued in both plants (422
-	// `inventory.no_valuation`), the supplying location's stock enough (409
-	// `inventory.insufficient_stock`) and counted by no open physical inventory document (409
-	// `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the
-	// stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at
-	// the price, the rest a price difference), posted in one WA journal entry between the valuation
-	// classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422
-	// `ledger.period_not_open`). The order is `in_transit`. Audited, and published as
-	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+	// 409 `procurement.stock_transport_issued`, or `procurement.stock_transport_cancelled` for one
+	// cancelled). Every item's quantity leaves its supplying storage location and is in transit to its
+	// receiving storage location, as one material document of movement type `351` (`issue_document_id`),
+	// posted on the company's date today in its time zone and numbered from its `material_document` range,
+	// its `reference` the order's number; its lines in transit (`in_transit`) are neither plant's stock
+	// (`listStock`) but the receiving plant's valuation. Each item is checked as at the order's creation,
+	// the material active and valued in both plants (422 `inventory.no_valuation`), the supplying
+	// location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical
+	// inventory document (409 `inventory.posting_blocked`). The issue takes the supplying stock's value as
+	// an issue does, and the stock in transit is worth what it took (at a standard price in the receiving
+	// plant, its quantity at the price, the rest a price difference), posted in one WA journal entry
+	// between the valuation classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's
+	// refusals, such as 422 `ledger.period_not_open`). The order is `in_transit`. Audited, and published
+	// as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
 	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/stock-transport-orders/{id}:postGoodsIssue

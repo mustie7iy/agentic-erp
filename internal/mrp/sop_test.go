@@ -158,13 +158,14 @@ func TestSopReview(t *testing.T) {
 // plant (a stock transport order within the company: 12) and the
 // proposals still to be ordered at the plant, a person's changed one with
 // its items of materials planned there only; a cancelled one counts
-// nothing. An intercompany order P1 supplies and has not issued (5) is an
+// nothing, nor does a cancelled stock transport order (review:batch92). An intercompany order P1 supplies and has not issued (5) is an
 // order due, which the forecast is never below, not a negative receipt.
 func TestSopSupply(t *testing.T) {
 	e := setup(t)
 	e.plan(t, e.bracket, "250")
 	other := e.material(t, "Unplanned bracket", "raw_material")
 	e.transport(t, "ST1", "in_transit", uuid.Must(uuid.NewV7()), e.p1, 12)
+	e.transport(t, "ST2", "cancelled", uuid.Must(uuid.NewV7()), e.p1, 30)
 	// P9's intercompany order from P1, not yet issued.
 	e.intercompany(t, icOrder{number: "PO2", status: "draft", qty: "5", unit: "EA"})
 	first := rows(t, e.run(t), "lines")[0]["requisition_id"].(string) // 200 in stock less the order's 5: 55 proposed

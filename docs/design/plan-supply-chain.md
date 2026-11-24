@@ -741,12 +741,12 @@ neither plant's unrestricted stock and adds up across the two movements.
   from memory). `:postGoodsReceipt` posts one `101` taking it out of
   transit into the receiving location, within the receiving plant's
   valuation, so nothing is posted. The order moves whole: `open`,
-  `in_transit`, `received`. Stock in transit is no location's stock
+  `in_transit`, `received`; an open order may be cancelled instead
+  (`cancelled`, review:batch92, ADR-0082 As built S2h). Stock in transit is no location's stock
   (`GET /v1/stock`) but the receiving plant's valuation; the material
   documents' lines say which line is in transit (`in_transit`).
   **Later:** partial issues and receipts, reversals of either (352, 102;
-  409 `inventory.reverse_stock_transport` until then), cancelling an open
-  order, a delivery between the plants (SAP's replenishment delivery,
+  409 `inventory.reverse_stock_transport` until then), a delivery between the plants (SAP's replenishment delivery,
   shipping), one-step transfers (SAP's 301 is S1c's), the stock in
   transit as a list of its own, stock in transit valued at the supplying
   plant until receipt.

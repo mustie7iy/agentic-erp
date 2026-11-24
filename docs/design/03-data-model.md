@@ -2224,13 +2224,15 @@ receiving plant (`stock_transport_order_plants`) of its company, numbered
 from the company's `stock_transport_order` range of its order date's
 fiscal year, 1 to 40 characters, once per company and year
 (`stock_transport_order_number_once`); `status` (`open`, `in_transit`,
-`received`; `stock_transport_order_status_check`); once issued its goods
-issue's material document, number and day, all three together and
-exactly when it is no longer open (`stock_transport_order_issued`), once
-received its goods receipt's the same way (`stock_transport_order_received`);
-what it is and its issue never change and its status moves from open to
-in transit to received alone (`stock_transport_order_fixed`, a trigger
-also for the owner); the application updates its status, steps,
+`received`, `cancelled` since migrations 000465 and 000466;
+`stock_transport_order_status_check`); once issued its goods issue's
+material document, number and day, all three together and exactly when
+it is in transit or received (`stock_transport_order_issued`; an open or
+cancelled order names none), once received its goods receipt's the same
+way (`stock_transport_order_received`); what it is and its issue never
+change and its status moves from open to in transit to received, or from
+open to cancelled, alone (`stock_transport_order_fixed`, a trigger also
+for the owner; review:batch92); the application updates its status, steps,
 `version` and `updated_by` alone, and never deletes it.
 `procurement.stock_transport_order_item`: items 1 to 100
 (`stock_transport_order_item_no_check`) of an order

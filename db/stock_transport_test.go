@@ -81,8 +81,9 @@ func (s transportScene) orderItem(no int, material uuid.UUID) stmt {
 // valuation, not to the location's stock, and no count blocks it; a 351
 // names its reference; a stock transport order is numbered once per
 // company and year, between two plants, issued once in transit or
-// received and received once received, moving forward only and keeping
-// what it is; its items, a material once each, are insert-only.
+// received and received once received, moving forward only (or from open
+// to cancelled, migration 000465, naming no goods issue) and keeping what
+// it is; its items, a material once each, are insert-only.
 func TestStockTransportRules(t *testing.T) {
 	need(t)
 	doc := id()
@@ -123,7 +124,24 @@ func TestStockTransportRules(t *testing.T) {
 			s.from = s.plant
 			return []stmt{s.orderRow("open", nil, nil)}
 		}, "stock_transport_order_plants"},
-		{"an unknown status", func(s transportScene) []stmt { return []stmt{s.orderRow("cancelled", &doc, nil)} }, "stock_transport_order_status_check"},
+		{"an unknown status", func(s transportScene) []stmt { return []stmt{s.orderRow("shipped", nil, nil)} }, "stock_transport_order_status_check"},
+		{"cancelled", func(s transportScene) []stmt { return []stmt{s.orderRow("cancelled", nil, nil)} }, ""},
+		{"cancelled with an issue", func(s transportScene) []stmt { return []stmt{s.orderRow("cancelled", &doc, nil)} }, "stock_transport_order_issued"},
+		{"cancelled with a receipt", func(s transportScene) []stmt { return []stmt{s.orderRow("cancelled", nil, &doc)} }, "stock_transport_order_received"},
+		{"open to cancelled", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("open", nil, nil), step(`UPDATE procurement.stock_transport_order SET status = 'cancelled', version = 2 WHERE id = $1`, s.order)}
+		}, ""},
+		{"in transit to cancelled", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("in_transit", &doc, nil), step(`UPDATE procurement.stock_transport_order SET status = 'cancelled', issue_document_id = NULL,
+				issue_document_number = NULL, issue_date = NULL WHERE id = $1`, s.order)}
+		}, "stock_transport_order_fixed"},
+		{"cancelled to open", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("cancelled", nil, nil), step(`UPDATE procurement.stock_transport_order SET status = 'open' WHERE id = $1`, s.order)}
+		}, "stock_transport_order_fixed"},
+		{"cancelled to in transit", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("cancelled", nil, nil), step(`UPDATE procurement.stock_transport_order SET status = 'in_transit', issue_document_id = $2,
+				issue_document_number = 'MD1', issue_date = '2026-11-20' WHERE id = $1`, s.order, doc)}
+		}, "stock_transport_order_fixed"},
 		{"in transit without its issue", func(s transportScene) []stmt { return []stmt{s.orderRow("in_transit", nil, nil)} }, "stock_transport_order_issued"},
 		{"open with an issue", func(s transportScene) []stmt { return []stmt{s.orderRow("open", &doc, nil)} }, "stock_transport_order_issued"},
 		{"received without its receipt", func(s transportScene) []stmt { return []stmt{s.orderRow("received", &doc, nil)} }, "stock_transport_order_received"},
@@ -226,9 +244,10 @@ func TestStockTransportRules(t *testing.T) {
 	})
 }
 
-// TestStockTransportTriggersAsOwner (S2h, migration 000418): past the
-// grants, as the owner, an order moves forward only and keeps what it is,
-// and its items are neither changed nor deleted.
+// TestStockTransportTriggersAsOwner (S2h, migrations 000418 and 000465):
+// past the grants, as the owner, an order moves forward only and keeps
+// what it is, a received one never cancelled, and its items are neither
+// changed nor deleted.
 func TestStockTransportTriggersAsOwner(t *testing.T) {
 	need(t)
 	ctx := context.Background()
@@ -237,7 +256,10 @@ func TestStockTransportTriggersAsOwner(t *testing.T) {
 		st   stmt
 		want string
 	}{
-		"received to open":  {step(`UPDATE procurement.stock_transport_order SET status = 'open' WHERE id = $1`, s.order), "stock_transport_order_fixed"},
+		"received to open": {step(`UPDATE procurement.stock_transport_order SET status = 'open' WHERE id = $1`, s.order), "stock_transport_order_fixed"},
+		"received to cancelled": {step(`UPDATE procurement.stock_transport_order SET status = 'cancelled', issue_document_id = NULL, issue_document_number = NULL,
+			issue_date = NULL, receipt_document_id = NULL, receipt_document_number = NULL, receipt_date = NULL WHERE id = $1`, s.order),
+			"stock_transport_order_fixed"},
 		"its plant changed": {step(`UPDATE procurement.stock_transport_order SET receiving_plant_id = $2 WHERE id = $1`, s.order, id()), "stock_transport_order_fixed"},
 		"an item changed": {step(`UPDATE procurement.stock_transport_order_item SET quantity = 2 WHERE order_id = $1`, s.order),
 			"is insert-only"},
@@ -282,4 +304,23 @@ func TestStockTransportDownRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	failsWith(t, exec(tx, migrationNamed(t, "000418_stock_transport").Down), "stock transport orders exist")
+}
+
+// TestStockTransportCancelDownRefused: 000465's down migration refuses,
+// rather than changes, a cancelled stock transport order, which the
+// previous version cannot hold (06 §6.4: a down migration loses no data).
+func TestStockTransportCancelDownRefused(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	s := newTransportScene()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), s.orderRow("cancelled", nil, nil),
+		step(`SELECT set_config('app.tenant_id', '', true)`)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, migrationNamed(t, "000465_stock_transport_cancel").Down), "cancelled stock transport orders exist")
 }
