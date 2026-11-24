@@ -13907,12 +13907,15 @@ paths:
       description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it expires before it was made), audited as `createBatch` is; dates given for an existing batch are its own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1; 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are. Another material's item names neither (422 `inventory.batch_not_allowed`, `inventory.serial_not_allowed`), and an item that is no stock item neither (422 `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of stock again."
       x-permission: procurement.receipt.post
       x-problem-codes:
+        # inventory.batch_exists is the database's answer to a second batch of a number (batch_number_once), which TestProblemCodes
+        # lists as a receipt creates batches; a receipt creates them ON CONFLICT DO NOTHING, so it is not expected to reach it.
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.amount_too_large
         - inventory.batch_dates
         - inventory.batch_dates_differ
+        - inventory.batch_exists
         - inventory.batch_invalid
         - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
@@ -14094,11 +14097,18 @@ paths:
       description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both quantities) if it would leave an order item received less than posted supplier documents invoiced of it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
       x-permission: procurement.receipt.post
       x-problem-codes:
+        # inventory.batch_dates, .batch_dates_differ, .batch_exists and .batch_manufacture_date_required are a receipt's refusals of
+        # the batch it names, which TestProblemCodes lists as a reversal posts through the receipt's code; a reversal takes its
+        # original's batches and names none, so it is not expected to reach them.
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.amount_too_large
+        - inventory.batch_dates
+        - inventory.batch_dates_differ
+        - inventory.batch_exists
         - inventory.batch_invalid
+        - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
         - inventory.batch_not_supported
         - inventory.batch_required
@@ -39815,6 +39825,10 @@ paths:
       description: "Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403 `identity.agent_not_allowed`, whoever created it."
       x-permission: integration.migration.run
       x-problem-codes:
+        # inventory.batch_dates, .batch_dates_differ, .batch_exists and .batch_manufacture_date_required and
+        # procurement.not_stock_item are a goods receipt's refusals of the batches and serial numbers it names, which
+        # TestProblemCodes lists as a run loads receipts through the receipt's code; a loaded receipt names none, so it is not
+        # expected to reach them.
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
@@ -39826,7 +39840,11 @@ paths:
         - integration.secret_unavailable
         - inventory.amount_not_allowed
         - inventory.amount_too_large
+        - inventory.batch_dates
+        - inventory.batch_dates_differ
+        - inventory.batch_exists
         - inventory.batch_invalid
+        - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
         - inventory.batch_not_supported
         - inventory.batch_required
@@ -40050,6 +40068,7 @@ paths:
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
         - procurement.no_gr_ir_account
+        - procurement.not_stock_item
         - procurement.order_not_released
         - procurement.over_delivery
         - procurement.reason_not_allowed

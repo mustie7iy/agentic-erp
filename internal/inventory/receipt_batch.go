@@ -80,11 +80,14 @@ func (e *Endpoints) receiptBatches(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 	if err != nil {
 		return err
 	}
-	if err := e.createBatches(ctx, tx, p, in, names, found, r); err != nil {
+	wrote, err := e.createBatches(ctx, tx, p, in, names, found, r)
+	if err != nil {
 		return err
 	}
-	if found, err = batchesNamed(ctx, tx, names); err != nil {
-		return err
+	if wrote { // the new ones, as this receipt or another created them
+		if found, err = batchesNamed(ctx, tx, names); err != nil {
+			return err
+		}
 	}
 	r.batches = map[uuid.UUID]Batch{}
 	for k, it := range in {
@@ -150,9 +153,10 @@ func batchesNamed(ctx context.Context, tx pgx.Tx, names []batchName) (map[batchN
 // each other in a cycle; a batch another receipt creates meanwhile is
 // left as that one made it (ON CONFLICT DO NOTHING, after waiting for it
 // to commit), and its dates are checked as an existing batch's are. Each
-// batch this receipt creates is audited as AddBatch's is.
+// batch this receipt creates is audited as AddBatch's is. It says whether
+// it wrote, so that the batches are read again.
 func (e *Endpoints) createBatches(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in []OrderItem, names []batchName, found map[batchName]Batch,
-	r *refs) error {
+	r *refs) (bool, error) {
 	var ids, ms []uuid.UUID
 	var numbers []string
 	var made []time.Time
@@ -163,14 +167,14 @@ func (e *Endpoints) createBatches(ctx context.Context, tx pgx.Tx, p reqctx.Princ
 		}
 		k, b := newBatch(in, n)
 		if b.ManufactureDate == nil {
-			return problem.Invalid("inventory.batch_manufacture_date_required", fmt.Sprintf("items[%d].batch.manufacture_date", k), "Material "+
+			return false, problem.Invalid("inventory.batch_manufacture_date_required", fmt.Sprintf("items[%d].batch.manufacture_date", k), "Material "+
 				r.materials[n.material].Number+" has no batch "+n.number+"; a new batch is created with the day it was made.")
 		}
 		ids, ms, numbers = append(ids, uuid.Must(uuid.NewV7())), append(ms, n.material), append(numbers, n.number)
 		made, expires = append(made, *b.ManufactureDate), append(expires, b.ExpiryDate)
 	}
 	if len(ids) == 0 {
-		return nil
+		return false, nil
 	}
 	rows, _ := tx.Query(ctx, `INSERT INTO inventory.batch (tenant_id, id, material_id, number, manufacture_date, expiry_date, created_by)
 		SELECT $1, x.id, x.m, x.n, x.d, x.e, $2 FROM unnest($3::uuid[], $4::uuid[], $5::text[], $6::date[], $7::date[]) WITH ORDINALITY AS x (id, m, n, d, e, o)
@@ -178,17 +182,17 @@ func (e *Endpoints) createBatches(ctx context.Context, tx pgx.Tx, p reqctx.Princ
 		p.TenantID, p.ID, ids, ms, numbers, made, expires)
 	created, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Batch, error) { return scanBatch(row) })
 	if err != nil {
-		return fmt.Errorf("inventory: create %d batches at a goods receipt: %w", len(ids), err)
+		return false, fmt.Errorf("inventory: create %d batches at a goods receipt: %w", len(ids), err)
 	}
 	slices.SortFunc(created, func(a, b Batch) int {
 		return batchName{a.MaterialID, a.Number}.compare(batchName{b.MaterialID, b.Number})
 	})
 	for _, b := range created {
 		if err := audit.Record(ctx, "inventory.batch.create", "inventory.batch", b.ID, batchDetail(b, r.materials[b.MaterialID])); err != nil {
-			return err // its error names the action
+			return false, err // its error names the action
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // newBatch is the first item naming a batch that gives its manufacture
