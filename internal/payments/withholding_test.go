@@ -42,12 +42,14 @@ func (e env) withheld(t *testing.T, run map[string]any) string {
 // posting the payment again posts nothing.
 func TestWithholdingAtPayment(t *testing.T) {
 	e := at(t, "2026-03-12")
-	e.discountTerms(t, e.Supplier)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.Withholding(t, config.WithholdingTaxCode{Code: "W1", Description: "10% at invoice", RatePercent: "10", Account: "236000", Posting: config.WithholdingAtInvoice},
 		config.WithholdingTaxCode{Code: "W2", Description: "15% of gross at payment", RatePercent: "15", Base: config.WithholdingGross, Account: "236000",
 			Posting: config.WithholdingAtPayment})
 	e.SupplierWithholding(t, e.Supplier, "W1", "W2")
+	// After the withholding codes' activation, which removes the cash
+	// discount key the document does not name (ADR-0048 As built batch 93).
+	e.discountTerms(t, e.Supplier)
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01") // W1 withholds 10.00 at invoice: 90.00 owed
 	run := e.run(t, "2026-03-10", "2026-03-20")
 	// 3% discount: 2.70; W2: 15% of 100.00 less 3%, 14.55; paid 90.00 - 2.70 - 14.55.
@@ -102,10 +104,12 @@ func TestWithholdingAtPayment(t *testing.T) {
 // its gross (T36d), not over what the withholding left.
 func TestWithholdingAndDiscountTax(t *testing.T) {
 	e := at(t, "2026-03-12")
-	e.discountTerms(t, e.Supplier)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.Withholding(t, config.WithholdingTaxCode{Code: "W1", Description: "10% at invoice", RatePercent: "10", Account: "236000", Posting: config.WithholdingAtInvoice})
 	e.SupplierWithholding(t, e.Supplier, "W1")
+	// After the withholding codes' activation, which removes the cash
+	// discount key the document does not name (ADR-0048 As built batch 93).
+	e.discountTerms(t, e.Supplier)
 	inv, _ := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": "INV-1",
 		"invoice_date": "2026-03-01", "gross_amount": {"amount": "119.00", "currency": "EUR"}, "tax_amount": {"amount": "19.00", "currency": "EUR"},
 		"items": [{"account_id": %q, "description": "Fees", "quantity": {"value": "1", "unit": "EA"}, "amount": {"amount": "100.00", "currency": "EUR"},
@@ -135,11 +139,13 @@ func TestWithholdingAndDiscountTax(t *testing.T) {
 // while another invoice keeps the supplier owed.
 func TestWithholdingBeyondTheItem(t *testing.T) {
 	e := at(t, "2026-03-12")
-	e.discountTerms(t, e.Supplier)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.Withholding(t, config.WithholdingTaxCode{Code: "W2", Description: "99.495% of gross at payment", RatePercent: "99.495", Base: config.WithholdingGross,
 		Account: "236000", Posting: config.WithholdingAtPayment})
 	e.SupplierWithholding(t, e.Supplier, "W2")
+	// After the withholding codes' activation, which removes the cash
+	// discount key the document does not name (ADR-0048 As built batch 93).
+	e.discountTerms(t, e.Supplier)
 	small := e.invoice(t, e.Supplier, "INV-1", "1.00", "2026-03-01")
 	e.invoice(t, e.Supplier, "INV-2", "100.00", "2026-03-01") // the supplier is still owed something
 	pgtest.Exec(t, `UPDATE partner.business_partner SET name = 'Tyrell Office Products', version = version + 1 WHERE id = $1`, e.Supplier)

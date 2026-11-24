@@ -568,12 +568,11 @@ type removedKey struct {
 	Posted  bool
 }
 
-// field is the key's path under companies[].account_determination.
+// field is the path under companies[].account_determination of a
+// valuation class's key, the only keys Posted holds for and movedStock
+// returns.
 func (r removedKey) field() string {
-	kind, class, ok := strings.Cut(strings.TrimPrefix(r.Key, "inventory_"), ":")
-	if !ok {
-		return r.Key
-	}
+	kind, class, _ := strings.Cut(strings.TrimPrefix(r.Key, "inventory_"), ":")
 	return "inventory[" + class + "]." + kind
 }
 
