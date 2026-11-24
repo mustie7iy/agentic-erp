@@ -295,7 +295,7 @@ func TestCycleCountsDueLastCount(t *testing.T) {
 	a := e.indicator(t, e.p1, "A", 30)
 	e.assign(t, e.bracket, a)
 	e.assign(t, bolt, a)
-	today := time.Now()
+	today := time.Now().UTC() // the test companies set no time zone: their day is UTC's
 	admin := pgtest.Admin(t)
 	dated := func(id string, days int) {
 		t.Helper()
