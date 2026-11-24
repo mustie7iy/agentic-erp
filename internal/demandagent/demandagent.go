@@ -62,7 +62,8 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // issue and receipt, an intercompany order's goods issue, a return's
 // receipt) and count, with every write of stock transport orders (their
 // creation and cancellation); every write of sales orders, returns orders and
-// their deliveries; every write of requisitions and purchase orders, the
+// their deliveries (a trade compliance block's release by hand included,
+// S2s); every write of requisitions and purchase orders, the
 // replenishment agent's never list (with a schedule line and its
 // call-off, which creates an order, and the GR/IR clearing); every write
 // of an RFQ (created, published, awarded, cancelled, closed); a planning
@@ -74,7 +75,7 @@ var Never = []string{
 	"createStockTransportOrder", "cancelStockTransportOrder", "postStockTransportGoodsIssue", "postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue",
 	"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences",
 	"createSalesOrder", "captureSalesOrder", "createSalesOrderUpload", "confirmSalesOrder", "releaseSalesOrderCreditBlock", "changeSalesOrder",
-	"cancelSalesOrder", "confirmSalesDelivery", "createOutboundDelivery", "pickOutboundDelivery",
+	"cancelSalesOrder", "confirmSalesDelivery", "createOutboundDelivery", "pickOutboundDelivery", "releaseOutboundDeliveryTradeComplianceBlock",
 	"createReturnsOrder", "confirmReturnsOrder", "confirmReturnReceipt",
 	"createRequisition", "updateRequisition", "submitRequisition", "cancelRequisition",
 	"createPurchaseOrder", "updatePurchaseOrder", "releasePurchaseOrder", "closePurchaseOrder", "cancelPurchaseOrder",

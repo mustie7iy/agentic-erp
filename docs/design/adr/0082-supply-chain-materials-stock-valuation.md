@@ -2325,8 +2325,9 @@ feeder system until GTS releases it), from memory, for the specialist:
   releases a block in GTS, not in the feeder system (from memory); a
   release in the ERP is the default for a service the ERP cannot reach,
   and a later answer of the service still counts. Human-only
-  (`x-agent: false`); no agent's scope covers deliveries' writes but the
-  count agent's goods movements, which this is not.
+  (`x-agent: false`), and on the demand forecasting agent's never list,
+  which holds every write of deliveries (ADR-0072; added in batch 93's
+  integration, its TestNever checking every delivery operation).
 - **Nothing is posted**: no journal entry, no stock moved. Screening of
   sales orders, purchase orders and business partners, customs
   declarations, preference calculation and licences are Later (the
