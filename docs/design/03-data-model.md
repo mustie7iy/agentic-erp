@@ -3422,9 +3422,9 @@ activate, and orders under them are refused.
 | Table | Purpose |
 |---|---|
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
-| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449, a transport management system, `tms` since 000462); secrets by reference to the vault |
+| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449, a transport management system, `tms` since 000462, a trade compliance service, `gts` since 000467); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
-| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449; S2q2's receipt kinds, 000453), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). A `tms` connector's messages (S2r, 000462) are its own kinds: `transport_request` (outbound, the delivery to plan, once per delivery beside its warehouse system's) and `shipment` (inbound, `recorded` on the delivery, never posted, or `refused`); only a shipment is recorded (`wms_message_direction`). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
+| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449; S2q2's receipt kinds, 000453), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). A `tms` connector's messages (S2r, 000462) are its own kinds: `transport_request` (outbound, the delivery to plan, once per delivery beside its warehouse system's) and `shipment` (inbound, `recorded` on the delivery, never posted, or `refused`); only a shipment is recorded (`wms_message_direction`). A trade compliance service's through a `gts` connector (S2s, 000467): `screening_request` (outbound, the delivery to screen, once per delivery, sent when it was created pending) and `screening_result` (inbound, `recorded` on the delivery, never posted, or `refused`); a shipment and a screening result alone are recorded (`wms_message_direction`). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
@@ -7109,7 +7109,21 @@ erDiagram
   `shipment_recorded_at`, all or none (`outbound_delivery_shipment`); set
   once, while created or after the goods issue, a goods-issued delivery
   changing by nothing else (`outbound_delivery_issued_fixed`), and never
-  changed once set (`outbound_delivery_shipment_kept`, the same trigger).
+  changed once set (`outbound_delivery_shipment_kept`, the same trigger). Its
+  trade compliance (S2s, 000467; ADR-0082 As built S2s):
+  `trade_compliance_status` `pending`, `released` or `blocked`
+  (`outbound_delivery_trade_compliance_status_check`), null when no
+  trade compliance service screened its plant at its creation;
+  `trade_compliance_reason`, the service's reason code of 1 to 40
+  characters (`outbound_delivery_trade_compliance_reason_check`),
+  `trade_compliance_screened_at`, when the service screened for its latest answer (as it reports it; its answers are ordered by it),
+  and `trade_compliance_released_by`, `_released_by_name` (the
+  person's name then) and `_released_at`, a person's release, together (`outbound_delivery_trade_compliance`: pending has
+  no answer, blocked has one, released has one or a person's release,
+  a reason only with an answer, a person's release only when released).
+  It changes only while the delivery is created
+  (`outbound_delivery_issued_fixed`); its goods issue waits while it is
+  pending or blocked.
 - `shipping.outbound_delivery_item`: an item (LIPS) of a delivery
   (`outbound_delivery_item_delivery_fkey`), numbered from 1
   (`outbound_delivery_item_no_check`), of an order item once

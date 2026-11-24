@@ -27509,7 +27509,7 @@ paths:
       tags:
         - shipping
       summary: List outbound deliveries
-      description: "The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and status. Sortable by: `created_at`."
+      description: "The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order, status and trade compliance status. Sortable by: `created_at`."
       x-permission: shipping.delivery.read
       x-problem-codes:
         - request.invalid_order_by
@@ -27540,6 +27540,15 @@ paths:
             maxLength: 20
             description: "Status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum: [created, goods_issued]
+        - name: trade_compliance_status
+          in: query
+          required: false
+          description: "Only deliveries whose trade compliance (S2s) is in this status: `blocked` or `pending` finds the deliveries whose goods issue waits (`releaseOutboundDeliveryTradeComplianceBlock`). A value that is no status matches none."
+          schema:
+            type: string
+            maxLength: 20
+            description: "Trade compliance status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [pending, released, blocked]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -27563,13 +27572,16 @@ paths:
       tags:
         - shipping
       summary: Create an outbound delivery for a sales order
-      description: "Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant and a storage location. The order is one of a company the caller may act in (422 `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`) and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422 `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422 `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422 `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service or free-text item, or a material of type `non_stock` or `service`, is confirmed by `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422 `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered (what is confirmed of it, for an item of an order with a plant, S2j) less what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`). An order that names a plant is delivered from that plant (422 `shipping.plant_mismatch`). Without `items` the delivery takes what is open of every order item of a material kept in stock at the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed below them, removed or cancelled while the delivery holds them. The delivery is created `created`, `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422 `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed material too, as it carries no serial numbers yet (S2g)."
+      description: "Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant and a storage location. The order is one of a company the caller may act in (422 `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`) and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422 `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422 `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422 `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service or free-text item, or a material of type `non_stock` or `service`, is confirmed by `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422 `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered (what is confirmed of it, for an item of an order with a plant, S2j) less what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`). An order that names a plant is delivered from that plant (422 `shipping.plant_mismatch`). Without `items` the delivery takes what is open of every order item of a material kept in stock at the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed below them, removed or cancelled while the delivery holds them. The delivery is created `created`, `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422 `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed material too, as it carries no serial numbers yet (S2g). A delivery at a plant an active `gts` connector names is created with its `trade_compliance` `pending` (S2s): a trade compliance service screens it (`listGTSMessages`), and its goods issue waits for the service's release, or a person's."
       x-permission: shipping.delivery.write
       x-agent: false
       x-problem-codes:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        # The active gts connectors' settings read when the plant's screening is (S2s): a connector whose settings no longer resolve
+        # screens nothing, so creating a delivery never answers it.
+        - integration.invalid_settings
         - ledger.no_fiscal_period
         - sales.exceeds_open_quantity
         - sales.invalid_quantity
@@ -27729,7 +27741,7 @@ paths:
       tags:
         - shipping
       summary: Post the goods issue of an outbound delivery
-      description: "Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is refused (409 `shipping.goods_issued`), as is one with nothing picked (409 `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as one material document of movement type `601` (`material_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical inventory count document counting the material there (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound delivery and the material document, each item with its cost, the order item's `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open again on the order. An order blocked for credit since the delivery was made is refused until its block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422 `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a serial-managed material too (422 `inventory.serial_not_supported`, S2g)."
+      description: "Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is refused (409 `shipping.goods_issued`), as is one with nothing picked (409 `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending` or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked quantity leaves the delivery's storage location as one material document of movement type `601` (`material_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical inventory count document counting the material there (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound delivery and the material document, each item with its cost, the order item's `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open again on the order. An order blocked for credit since the delivery was made is refused until its block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422 `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a serial-managed material too (422 `inventory.serial_not_supported`, S2g)."
       x-permission: shipping.goods_issue.post
       x-agent: false
       x-problem-codes:
@@ -27828,6 +27840,7 @@ paths:
         - sales.order_credit_blocked
         - shipping.goods_issued
         - shipping.nothing_picked
+        - shipping.trade_compliance_block
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -27858,6 +27871,51 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/outbound-deliveries/{id}:releaseTradeComplianceBlock":
+    post:
+      operationId: releaseOutboundDeliveryTradeComplianceBlock
+      tags:
+        - shipping
+      summary: Release the trade compliance block of an outbound delivery
+      description: "Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once, at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service has not answered, or its screening request could not be sent) or `blocked` (the service refused it) becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its goods issue may be posted; the service's reason code and when it answered are kept. A delivery that is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A later answer of the service still counts: a block it reports after the release blocks the delivery again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`), apart from posting the goods issue. Nothing is posted. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
+      x-permission: shipping.trade_compliance.release
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - shipping.goods_issued
+        - shipping.not_trade_compliance_blocked
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The outbound delivery, its trade compliance released.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -38814,6 +38872,7 @@ paths:
               - einvoice_provider
               - wms
               - tms
+              - gts
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -38846,6 +38905,7 @@ paths:
         - integration.ebics_not_certified
         - integration.invalid_secret_ref
         - integration.invalid_settings
+        - integration.plant_has_gts
         - integration.plant_has_tms
         - integration.plant_has_wms
         - integration.unknown_kind
@@ -39015,6 +39075,66 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/gts-messages:
+    get:
+      operationId: listGTSMessages
+      tags:
+        - integration
+      summary: List the messages exchanged with trade compliance services
+      description: "The messages exchanged with the tenant's trade compliance services through `gts` connectors (ADR-0082 As built S2s), newest first: those of the companies the caller may act in, and, to a caller who may act in every company, inbound ones refused before their delivery was known. Outbound (`screening_request`): each outbound delivery created at a plant an active `gts` connector names in its `plants` is created with its `trade_compliance` `pending` and queued once as a message giving the service the delivery to screen (its `body`, the message as sent: message type `screening_request`, schema version 1, its company, plant and storage location by code, the delivery by id and number with its sales order's and customer's numbers, and each item's number, material number, quantity and unit; the service holds the parties' and materials' master data by those numbers), sent, tried again and failed exactly as a warehouse system's message is (`listWMSMessages`; `integration.not_a_gts` when its connector is not a `gts` one). Inbound (`screening_result`): the service's answer, polled from each active `gts` connector (every 10 s) and recorded once per connector and its message id: `recorded`, the answer (its own `message_id`, type `screening`, the `outbound_delivery_id` it was sent, `result` `released` or `blocked`, optionally its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339, at most 5 minutes past the ERP's clock) recorded on the delivery (`getOutboundDelivery`'s `trade_compliance`, as the exchange's system principal acting for the delivery's company; the service's latest answer counts by `screened_at`, whatever the order the answers are read in), nothing posted; or `refused` with the problem that stopped it: one that is not a JSON `screening` message naming its own message id, an `outbound_delivery_id` and `screened_at`, or that holds `\\u0000` (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for a delivery whose goods issue is posted, `shipping.invalid_screening` for another result, a reason code out of bounds or a `screened_at` too far ahead, `shipping.screening_superseded` for an answer screened no later than the one the delivery holds). The service is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not recorded twice. Filters: connector, direction, status and the outbound delivery."
+      x-permission: integration.connector.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: connector_id
+          in: query
+          required: false
+          description: Only the messages of this `gts` connector.
+          schema:
+            type: string
+            format: uuid
+        - name: direction
+          in: query
+          required: false
+          description: "Only the messages of this direction: `outbound` (to the service) or `inbound` (its answers)."
+          schema:
+            type: string
+            description: "A message's direction. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [outbound, inbound]
+        - name: status
+          in: query
+          required: false
+          description: "Only the messages of this status: `pending`, `sent` or `failed` (outbound), `recorded` or `refused` (inbound)."
+          schema:
+            type: string
+            description: "A message's status. Open enumeration: values may be added within /v1."
+            x-extensible-enum: [pending, sent, failed, recorded, refused]
+        - name: outbound_delivery_id
+          in: query
+          required: false
+          description: Only the messages of this outbound delivery.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GTSMessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/connectors/{id}":
     get:
       operationId: getConnector
@@ -39057,6 +39177,7 @@ paths:
         - integration.duplicate_name
         - integration.invalid_secret_ref
         - integration.invalid_settings
+        - integration.plant_has_gts
         - integration.plant_has_tms
         - integration.plant_has_wms
         - request.version_mismatch
@@ -39117,6 +39238,7 @@ paths:
         - integration.ebics_not_certified
         - integration.invalid_settings
         - integration.invalid_status
+        - integration.plant_has_gts
         - integration.plant_has_tms
         - integration.plant_has_wms
         - request.version_mismatch
@@ -67512,6 +67634,21 @@ components:
         carrier_code: {type: string, minLength: 1, maxLength: 40, description: "The carrier's code as the transport system names it (not a supplier of the ERP's).", readOnly: true}
         freight_cost: {$ref: "#/components/schemas/Money", description: "The freight cost the transport system reported, in the currency it named.", readOnly: true}
         recorded_at: {type: string, format: date-time, description: "When it was recorded.", readOnly: true}
+    OutboundDeliveryTradeCompliance:
+      type: object
+      description: "An outbound delivery's trade compliance (S2s; ADR-0082 As built S2s): its screening by the trade compliance service a `gts` connector names for its plant (SAP GTS's sanctioned party list screening and export control, from memory). `pending` from its creation until the service answers, then `released` or `blocked` by the service's latest answer; a person holding `shipping.trade_compliance.release` may release a `pending` or `blocked` one (`releaseOutboundDeliveryTradeComplianceBlock`). Its goods issue waits while it is `pending` or `blocked` (409 `shipping.trade_compliance_block`). Nothing is posted."
+      required: [status]
+      properties:
+        status:
+          type: string
+          x-extensible-enum: [pending, released, blocked]
+          description: "`pending`, `released` or `blocked`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        reason_code: {type: string, minLength: 1, maxLength: 40, description: "The reason code the service gave with its latest answer, as the service names it; absent when it gave none.", readOnly: true}
+        screened_at: {type: string, format: date-time, description: "When the service screened the delivery for its latest answer, as the service reports it (its answers are ordered by it, to the microsecond; the API gives it to the second); absent while it has not answered.", readOnly: true}
+        released_by: {type: string, format: uuid, description: "Released by hand: who released it; absent otherwise.", readOnly: true}
+        released_by_name: {type: string, description: "Released by hand: that person's name when they released it; absent otherwise.", readOnly: true}
+        released_at: {type: string, format: date-time, description: "Released by hand: when; absent otherwise.", readOnly: true}
     OutboundDelivery:
       type: object
       description: "An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's storage location, its picking and its goods issue. Never deleted; it changes only until its goods issue is posted, but for its shipment (S2r), recorded once, also after the goods issue."
@@ -67538,6 +67675,7 @@ components:
         material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
         cost_of_goods_sold: {$ref: "#/components/schemas/Money", description: "Its items' costs added up, in the company's local currency; absent before its goods issue.", readOnly: true}
         shipment: {$ref: "#/components/schemas/OutboundDeliveryShipment", description: "The shipment a transport management system planned it in, as its `tms` connector reported it (S2r, `listTMSMessages`); absent until one is recorded. Recorded once, also after the goods issue; nothing is posted.", readOnly: true}
+        trade_compliance: {$ref: "#/components/schemas/OutboundDeliveryTradeCompliance", description: "Its screening by a trade compliance service (S2s, `listGTSMessages`); absent when no active `gts` connector screened its plant when it was created.", readOnly: true}
         status:
           type: string
           x-extensible-enum: [created, goods_issued]
@@ -70591,6 +70729,61 @@ components:
           requested_by: 0192a000-0000-7000-8000-000000000101
           created_at: "2026-04-17T13:05:00Z"
           updated_at: "2026-04-17T13:05:09Z"
+    GTSMessage:
+      type: object
+      description: "A message exchanged with a trade compliance service through a `gts` connector (ADR-0082 As built S2s): an outbound delivery sent to screen, or the service's answer."
+      required: [id, connector_id, connector_name, direction, message_id, kind, body, status, attempts, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid, description: Message id., readOnly: true}
+        connector_id: {type: string, format: uuid, description: "The `gts` connector (`getConnector`).", readOnly: true}
+        connector_name: {type: string, description: "The connector's name.", readOnly: true}
+        direction:
+          type: string
+          description: "`outbound` (to the service) or `inbound` (its answer). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [outbound, inbound]
+          readOnly: true
+        message_id: {type: string, description: "The message's id at the service: an outbound message's own id, which the service deduplicates on; an inbound one's, the service's.", readOnly: true}
+        kind:
+          type: string
+          description: "`screening_request` (outbound) or `screening_result` (inbound; one that cannot be read as one is recorded `screening_result`, refused). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [screening_request, screening_result]
+          readOnly: true
+        legal_entity_id: {type: string, format: uuid, description: "The delivery's company; absent on an inbound message refused before its delivery was known.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        outbound_delivery_id: {type: string, format: uuid, description: "The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.", readOnly: true}
+        outbound_delivery_number: {type: string, description: "The outbound delivery's number.", readOnly: true}
+        plant_code: {type: string, description: "Outbound: the delivery's plant, which the connector screens.", readOnly: true}
+        body:
+          description: "A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as `{\"text\": ...}`, at most 1000 characters of it)."
+          readOnly: true
+        status:
+          type: string
+          description: "Outbound: `pending` (queued, or waiting for its next attempt), `sent` or `failed`; inbound: `recorded` (the answer recorded on the delivery) or `refused`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [pending, sent, failed, recorded, refused]
+          readOnly: true
+        attempts: {type: integer, format: int32, minimum: 0, maximum: 6, description: "Outbound: the attempts made to send it; inbound: 0.", readOnly: true}
+        next_attempt_at: {type: string, format: date-time, description: "Pending: when it is next sent.", readOnly: true}
+        last_error_code: {type: string, description: "Outbound: the problem code of the last failed attempt; absent when none failed.", readOnly: true}
+        sent_at: {type: string, format: date-time, description: "Outbound: when the service took it.", readOnly: true}
+        problem_code: {type: string, description: "Refused: the problem that stopped its recording.", readOnly: true}
+        problem_detail: {type: string, description: "Refused: the problem's detail.", readOnly: true}
+        acknowledged_at: {type: string, format: date-time, description: "Inbound: when the service was told it is recorded.", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true}
+        updated_at: {type: string, format: date-time, readOnly: true}
+    GTSMessagePage:
+      type: object
+      description: One page of messages exchanged with trade compliance services.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/GTSMessage"}
+          description: The messages on this page, newest first.
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          readOnly: true
     TMSMessage:
       type: object
       description: "A message exchanged with a transport management system through a `tms` connector (ADR-0082 As built S2r): an outbound delivery sent to plan, or the shipment it reported back."
@@ -76166,6 +76359,7 @@ components:
                 - einvoice_provider
                 - wms
                 - tms
+                - gts
               readOnly: true
             name:
               type: string
@@ -76175,7 +76369,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082 As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref` names the credentials; a plant is planned by one active `tms` connector at most (409 `integration.plant_has_tms`), and may have a `wms` connector beside it."
+              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082 As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref` names the credentials; a plant is planned by one active `tms` connector at most (409 `integration.plant_has_tms`), and may have a `wms` connector beside it. A `gts` connector (a trade compliance service, ADR-0082 As built S2s) takes the same settings, `adapter` (`standin`, the service's stand-in, refused in production as above), `base_url` and `plants` (the plants whose outbound deliveries it screens), and its `secret_ref` names the credentials; a plant is screened by one active `gts` connector at most (409 `integration.plant_has_gts`)."
             secret_ref:
               type: string
               description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -76221,6 +76415,7 @@ components:
             - einvoice_provider
             - wms
             - tms
+            - gts
         name:
           type: string
           description: Name, unique per tenant.
@@ -76229,7 +76424,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082 As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref` names the credentials; a plant is planned by one active `tms` connector at most (409 `integration.plant_has_tms`), and may have a `wms` connector beside it."
+          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082 As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref` names the credentials; a plant is planned by one active `tms` connector at most (409 `integration.plant_has_tms`), and may have a `wms` connector beside it. A `gts` connector (a trade compliance service, ADR-0082 As built S2s) takes the same settings, `adapter` (`standin`, the service's stand-in, refused in production as above), `base_url` and `plants` (the plants whose outbound deliveries it screens), and its `secret_ref` names the credentials; a plant is screened by one active `gts` connector at most (409 `integration.plant_has_gts`)."
         secret_ref:
           type: string
           description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -76251,7 +76446,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082 As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref` names the credentials; a plant is planned by one active `tms` connector at most (409 `integration.plant_has_tms`), and may have a `wms` connector beside it."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`. A `wms` connector (a warehouse management system, ADR-0082 As built S2q) takes `adapter` (`standin`, the warehouse system's stand-in, the only one until a vendor is chosen, refused in production as above), `base_url` (https) and `plants` (the plants it manages, by company code: a list of plant codes for each company, at least one plant, each once); its `secret_ref` names the credentials, sent as a bearer token. A plant is managed by one active `wms` connector at most: creating, changing or enabling one naming a plant another active one manages answers 409 `integration.plant_has_wms`. A `tms` connector (a transport management system, ADR-0082 As built S2r) takes the same settings as a `wms` connector, `adapter` (`standin`, the transport system's stand-in, refused in production as above), `base_url` and `plants`, and its `secret_ref` names the credentials; a plant is planned by one active `tms` connector at most (409 `integration.plant_has_tms`), and may have a `wms` connector beside it. A `gts` connector (a trade compliance service, ADR-0082 As built S2s) takes the same settings, `adapter` (`standin`, the service's stand-in, refused in production as above), `base_url` and `plants` (the plants whose outbound deliveries it screens), and its `secret_ref` names the credentials; a plant is screened by one active `gts` connector at most (409 `integration.plant_has_gts`)."
         secret_ref:
           type:
             - string

@@ -1697,6 +1697,10 @@ type ListForecastVarianceDocumentsRes interface {
 	listForecastVarianceDocumentsRes()
 }
 
+type ListGTSMessagesRes interface {
+	listGTSMessagesRes()
+}
+
 type ListGoodsReceiptsRes interface {
 	listGoodsReceiptsRes()
 }
@@ -2347,6 +2351,10 @@ type ReleaseDunningBlockRes interface {
 
 type ReleaseInternalOrderRes interface {
 	releaseInternalOrderRes()
+}
+
+type ReleaseOutboundDeliveryTradeComplianceBlockRes interface {
+	releaseOutboundDeliveryTradeComplianceBlockRes()
 }
 
 type ReleasePaymentRunRes interface {

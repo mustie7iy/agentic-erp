@@ -2223,3 +2223,136 @@ deliveries and stages; changes and cancellations of a sent delivery or a
 reported shipment; a shipment entered by a person; freight settlement,
 carrier selection and shipment costs on the stock value (the tracker's
 "later: transport variants").
+
+### S2s (2026-11-23)
+
+The trade compliance connector (plan-supply-chain.md §S2s): an external
+trade compliance service screens the parties and materials of the
+outbound deliveries of the plants its connector names (sanctioned party
+lists, export classification) and blocks a delivery it refuses. It is
+S2q's connector pattern a third time, on S2q's machinery: the settings,
+the port and its stand-in, the queue, the exchange and
+`integration.wms_message`, a message kind each way (000467, validated by
+000468). No new ADR and no import between contexts: shipping declares the
+port it asks whether a plant is screened through (`shipping.Screening`,
+wired to `integration.TradeScreening`), and integration the port it
+records answers through (`integration.GTSDeliveries`, wired to shipping's
+published `RecordScreening` by `app.gtsDeliveries`). Decided by default,
+from SAP GTS's compliance management (sanctioned party list screening and
+the legal control of export classifications, a delivery blocked in the
+feeder system until GTS releases it), from memory, for the specialist:
+
+- **Which deliveries are screened.** Every outbound delivery created at a
+  plant an active `gts` connector names (`settings.plants`, a `wms`
+  connector's settings; one active `gts` connector a plant, 409
+  `integration.plant_has_gts`), screened at its creation: shipping writes
+  it with `trade_compliance` `pending` in the request's transaction, and
+  its creation's event (OutboundDeliveryChanged, version 1, carrying
+  `trade_compliance`) queues the screening request once
+  (`screening_request`, `wms_message_once`) for the connector screening
+  the plant when the event is read. A delivery created before its plant
+  was screened is not screened (Later: by hand). The pilot screens
+  nothing (Pilot assumption above).
+- **It waits for the answer.** A screened delivery's goods issue is
+  refused while its screening is `pending` or `blocked` (409
+  `shipping.trade_compliance_block`, naming the service's reason code),
+  whether a person posts it or a WMS reports it (S2q1's confirmation is
+  recorded refused). Best practice and SAP GTS's: nothing leaves the stock
+  unscreened; the goods issue is where the goods leave the company, so it
+  is the legal control's point. Picking is not blocked: the warehouse may
+  prepare a delivery the service has not answered yet; billing follows
+  the goods issue, so it waits with it.
+- **The request**, message type `screening_request` schema version 1: the
+  same body as a WMS's delivery (S2q), its type aside: the company, plant
+  and storage location codes, the delivery's id and number, the order's
+  and customer's numbers and each item's number, material number,
+  quantity and unit. The parties' names and addresses are not sent (no
+  customer name leaves in a message, PO 2026-11-05) and neither are the
+  materials' classifications: the service holds the business partners'
+  and products' master data by those numbers (SAP GTS's replicated
+  business partners and classified products, from memory). A service
+  that holds no master data is Later. Sent, retried and failed as a WMS
+  message is.
+- **The answer**, message type `screening`: its own `message_id`, the
+  `outbound_delivery_id` it was sent, `result` `released` or `blocked`,
+  optionally `reason_code` (1 to 40 characters, the service's own code,
+  such as its list hit), and `screened_at` (RFC 3339, required: when the
+  service screened). Recorded on the delivery (`status`, `reason_code`,
+  `screened_at` as the service reports it) once per connector and message
+  id under
+  S2q1's advisory lock, through shipping as the exchange's system
+  principal acting for the delivery's company, in a savepoint; the
+  inbound row is `recorded`, never `posted`. The service's latest answer
+  counts, by `screened_at`, not by when it is read: answers are polled
+  one by one, a failed read is taken again at the next poll and two
+  replicas may record two answers at once, so an answer screened no later
+  than the one the delivery holds is refused under the delivery's row
+  lock (409 `shipping.screening_superseded`, recorded refused), and a
+  release read late cannot undo a later block. Answers are ordered to the
+  microsecond the column keeps (the API shows the time to the second); a
+  `screened_at` more than 5 minutes past the ERP's clock is refused
+  (`shipping.invalid_screening`), so a service's bad clock cannot date a
+  release in the future and supersede every later block. The other side of
+  that default: a block from a service whose clock runs more than 5
+  minutes fast is refused too, for good (its message id is recorded
+  once), and the delivery keeps its earlier answer; the refusal is listed
+  (`listGTSMessages?status=refused`, `shipping.invalid_screening`) for an
+  operator to act on (the alternative, a block always taken with its time
+  capped at the ERP's clock, is the product owner's to choose). While the delivery is not
+  goods-issued: a later `released` releases a
+  block (SAP GTS's release of a blocked document, in the service), a
+  later `blocked` blocks it again, a person's release included. Refused,
+  nothing recorded: a delivery the connector was not sent
+  (`integration.gts_unknown_delivery`), one whose goods issue is posted
+  (`shipping.goods_issued`), another result or a reason code too long
+  (`shipping.invalid_screening`), and a message that is not a `screening`
+  of its own id naming a delivery (`integration.wms_message_unreadable`,
+  recorded as a `screening_result`); a message whose connector is no
+  longer a `gts` one is a failed attempt (`integration.not_a_gts`).
+- **Released by hand.** A person holding `shipping.trade_compliance.release`
+  releases a `pending` or `blocked` delivery
+  (`releaseOutboundDeliveryTradeComplianceBlock`, If-Match, once: 409
+  `shipping.not_trade_compliance_blocked` for one not screened or released
+  already), named with the time (`released_by`, and `released_by_name`
+  as the person was named then, as a credit release keeps it; `released_at`), the
+  service's reason code and time kept; audited
+  (`shipping.outbound_delivery.release_trade_compliance_block`) and
+  published. The permission is a trade compliance officer's, apart from
+  posting the goods issue, and no seeded role holds it (as
+  `sales.order.credit_release`). It covers what the service cannot answer:
+  a request that failed for good, or a delivery queued after its
+  connector was disabled, which would otherwise wait for ever. SAP GTS
+  releases a block in GTS, not in the feeder system (from memory); a
+  release in the ERP is the default for a service the ERP cannot reach,
+  and a later answer of the service still counts. Human-only
+  (`x-agent: false`); no agent's scope covers deliveries' writes but the
+  count agent's goods movements, which this is not.
+- **Nothing is posted**: no journal entry, no stock moved. Screening of
+  sales orders, purchase orders and business partners, customs
+  declarations, preference calculation and licences are Later (the
+  tracker's "later: trade variants").
+- **Locks** (ADR-0008). A delivery's creation reads the active `gts`
+  connectors (no lock: a connector enabled at the same moment screens the
+  next delivery); the queue's insert takes the connector's key share, as
+  a WMS message's; an answer's record takes the advisory lock of its
+  connector and message id, then the delivery's row (`FOR UPDATE`), as a
+  person's pick, goods issue or release takes the delivery without the
+  advisory lock; the goods issue checks the screening under the
+  delivery's row lock, so an answer and a goods issue are serialised (no
+  check before the lock that guards it). No two writers take two of these
+  in opposite orders.
+- **Read.** `GET /v1/gts-messages` (`integration.connector.read`) lists a
+  trade compliance service's messages as `GET /v1/tms-messages` lists a
+  transport system's; `GET /v1/outbound-deliveries/{id}` gives the
+  delivery's `trade_compliance`, and `GET
+  /v1/outbound-deliveries?trade_compliance_status=blocked` (or `pending`)
+  finds the deliveries waiting.
+- **Audit** as S2q1, `integration.wms_message.record` for a recorded
+  answer; shipping's `shipping.outbound_delivery.record_screening` names
+  the status before.
+
+**Later for the trade compliance connector:** a vendor's adapter; the
+parties' names and addresses and the materials' classifications in the
+request; screening of sales orders, purchase orders and business
+partners; a delivery sent again by hand; customs declarations,
+preference calculation and licences.

@@ -6091,9 +6091,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "An external trade compliance service screens deliveries' parties and materials and blocks a delivery it refuses, through a connector",
-      "r": "S2s · docs/design/plan-supply-chain.md §S2s",
+      "r": "S2s · docs/design/plan-supply-chain.md §S2s · ADR-0082 As built S2s",
       "src": "po:2026-11-17",
       "c": []
      },

@@ -2462,7 +2462,9 @@ type Invoker interface {
 	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 	// Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
 	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
-	// material too, as it carries no serial numbers yet (S2g).
+	// material too, as it carries no serial numbers yet (S2g). A delivery at a plant an active `gts`
+	// connector names is created with its `trade_compliance` `pending` (S2s): a trade compliance service
+	// screens it (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
@@ -6456,6 +6458,39 @@ type Invoker interface {
 	//
 	// GET /v1/liquidity-forecast-variance/documents
 	ListForecastVarianceDocuments(ctx context.Context, params ListForecastVarianceDocumentsParams) (ListForecastVarianceDocumentsRes, error)
+	// ListGTSMessages invokes listGTSMessages operation.
+	//
+	// The messages exchanged with the tenant's trade compliance services through `gts` connectors
+	// (ADR-0082 As built S2s), newest first: those of the companies the caller may act in, and, to a
+	// caller who may act in every company, inbound ones refused before their delivery was known. Outbound
+	// (`screening_request`): each outbound delivery created at a plant an active `gts` connector names in
+	// its `plants` is created with its `trade_compliance` `pending` and queued once as a message giving
+	// the service the delivery to screen (its `body`, the message as sent: message type
+	// `screening_request`, schema version 1, its company, plant and storage location by code, the delivery
+	// by id and number with its sales order's and customer's numbers, and each item's number, material
+	// number, quantity and unit; the service holds the parties' and materials' master data by those
+	// numbers), sent, tried again and failed exactly as a warehouse system's message is
+	// (`listWMSMessages`; `integration.not_a_gts` when its connector is not a `gts` one). Inbound
+	// (`screening_result`): the service's answer, polled from each active `gts` connector (every 10 s) and
+	// recorded once per connector and its message id: `recorded`, the answer (its own `message_id`, type
+	// `screening`, the `outbound_delivery_id` it was sent, `result` `released` or `blocked`, optionally
+	// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339, at
+	// most 5 minutes past the ERP's clock) recorded on the delivery (`getOutboundDelivery`'s
+	// `trade_compliance`, as the exchange's system principal acting for the delivery's company; the
+	// service's latest answer counts by `screened_at`, whatever the order the answers are read in),
+	// nothing posted; or `refused` with the problem that stopped it: one that is not a JSON `screening`
+	// message naming its own message id, an `outbound_delivery_id` and `screened_at`, or that holds
+	// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as
+	// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+	// not sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for
+	// a delivery whose goods issue is posted, `shipping.invalid_screening` for another result, a reason
+	// code out of bounds or a `screened_at` too far ahead, `shipping.screening_superseded` for an answer
+	// screened no later than the one the delivery holds). The service is told after that commit
+	// (`acknowledged_at`); one listed again is acknowledged again, not recorded twice. Filters: connector,
+	// direction, status and the outbound delivery.
+	//
+	// GET /v1/gts-messages
+	ListGTSMessages(ctx context.Context, params ListGTSMessagesParams) (ListGTSMessagesRes, error)
 	// ListGoodsReceipts invokes listGoodsReceipts operation.
 	//
 	// Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`.
@@ -6824,8 +6859,8 @@ type Invoker interface {
 	// ListOutboundDeliveries invokes listOutboundDeliveries operation.
 	//
 	// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
-	// status. Sortable by: `created_at`.
+	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order, status
+	// and trade compliance status. Sortable by: `created_at`.
 	//
 	// GET /v1/outbound-deliveries
 	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)
@@ -8030,26 +8065,28 @@ type Invoker interface {
 	// Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 	// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
 	// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-	// `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as
-	// one material document of movement type `601` (`material_document_id`), posted on the company's date
-	// today in its time zone and numbered from its `material_document` range, its `reference` the
-	// delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued
-	// (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`:
-	// picking reserves none), and no open physical inventory count document counting the material there
-	// (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an
-	// issue does (at a standard price the stock left at the price, at a moving price the value in
-	// proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the
-	// valuation class's stock account to its cost of goods sold account (422
-	// `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422
-	// `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and
-	// what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound
-	// delivery and the material document, each item with its cost, the order item's `delivered_quantity`
-	// rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open
-	// again on the order. An order blocked for credit since the delivery was made is refused until its
-	// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
-	// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
-	// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-	// Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
+	// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
+	// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
+	// quantity leaves the delivery's storage location as one material document of movement type `601`
+	// (`material_document_id`), posted on the company's date today in its time zone and numbered from its
+	// `material_document` range, its `reference` the delivery's number: the material active and kept there
+	// (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
+	// now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical
+	// inventory count document counting the material there (409 `inventory.posting_blocked`, naming the
+	// document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock
+	// left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods
+	// sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods
+	// sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals,
+	// such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the
+	// order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the
+	// outbound delivery and the material document, each item with its cost, the order item's
+	// `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was
+	// not picked is open again on the order. An order blocked for credit since the delivery was made is
+	// refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
+	// `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
+	// MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+	// delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422
 	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
 	// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 	//
@@ -8599,6 +8636,23 @@ type Invoker interface {
 	//
 	// POST /v1/internal-orders/{id}:release
 	ReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (ReleaseInternalOrderRes, error)
+	// ReleaseOutboundDeliveryTradeComplianceBlock invokes releaseOutboundDeliveryTradeComplianceBlock operation.
+	//
+	// Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
+	// at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
+	// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
+	// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
+	// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
+	// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
+	// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
+	// later answer of the service still counts: a block it reports after the release blocks the delivery
+	// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
+	// apart from posting the goods issue. Nothing is posted. Audited, and published as
+	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
+	ReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params ReleaseOutboundDeliveryTradeComplianceBlockParams) (ReleaseOutboundDeliveryTradeComplianceBlockRes, error)
 	// ReleasePaymentRun invokes releasePaymentRun operation.
 	//
 	// The F110 release step, a direct human transition (not an approval request), as an operation
@@ -29238,7 +29292,9 @@ func (c *Client) sendCreateOrgUnit(ctx context.Context, request *OrgUnitCreate, 
 // OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 // Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
 // `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
-// material too, as it carries no serial numbers yet (S2g).
+// material too, as it carries no serial numbers yet (S2g). A delivery at a plant an active `gts`
+// connector names is created with its `trade_compliance` `pending` (S2s): a trade compliance service
+// screens it (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
 //
 // POST /v1/outbound-deliveries
 func (c *Client) CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error) {
@@ -81760,6 +81816,252 @@ func (c *Client) sendListForecastVarianceDocuments(ctx context.Context, params L
 	return result, nil
 }
 
+// ListGTSMessages invokes listGTSMessages operation.
+//
+// The messages exchanged with the tenant's trade compliance services through `gts` connectors
+// (ADR-0082 As built S2s), newest first: those of the companies the caller may act in, and, to a
+// caller who may act in every company, inbound ones refused before their delivery was known. Outbound
+// (`screening_request`): each outbound delivery created at a plant an active `gts` connector names in
+// its `plants` is created with its `trade_compliance` `pending` and queued once as a message giving
+// the service the delivery to screen (its `body`, the message as sent: message type
+// `screening_request`, schema version 1, its company, plant and storage location by code, the delivery
+// by id and number with its sales order's and customer's numbers, and each item's number, material
+// number, quantity and unit; the service holds the parties' and materials' master data by those
+// numbers), sent, tried again and failed exactly as a warehouse system's message is
+// (`listWMSMessages`; `integration.not_a_gts` when its connector is not a `gts` one). Inbound
+// (`screening_result`): the service's answer, polled from each active `gts` connector (every 10 s) and
+// recorded once per connector and its message id: `recorded`, the answer (its own `message_id`, type
+// `screening`, the `outbound_delivery_id` it was sent, `result` `released` or `blocked`, optionally
+// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339, at
+// most 5 minutes past the ERP's clock) recorded on the delivery (`getOutboundDelivery`'s
+// `trade_compliance`, as the exchange's system principal acting for the delivery's company; the
+// service's latest answer counts by `screened_at`, whatever the order the answers are read in),
+// nothing posted; or `refused` with the problem that stopped it: one that is not a JSON `screening`
+// message naming its own message id, an `outbound_delivery_id` and `screened_at`, or that holds
+// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as
+// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+// not sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for
+// a delivery whose goods issue is posted, `shipping.invalid_screening` for another result, a reason
+// code out of bounds or a `screened_at` too far ahead, `shipping.screening_superseded` for an answer
+// screened no later than the one the delivery holds). The service is told after that commit
+// (`acknowledged_at`); one listed again is acknowledged again, not recorded twice. Filters: connector,
+// direction, status and the outbound delivery.
+//
+// GET /v1/gts-messages
+func (c *Client) ListGTSMessages(ctx context.Context, params ListGTSMessagesParams) (ListGTSMessagesRes, error) {
+	res, err := c.sendListGTSMessages(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListGTSMessages(ctx context.Context, params ListGTSMessagesParams) (res ListGTSMessagesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listGTSMessages"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/gts-messages"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListGTSMessagesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/gts-messages"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "connector_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "connector_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ConnectorID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "direction" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "direction",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Direction.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "outbound_delivery_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "outbound_delivery_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OutboundDeliveryID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListGTSMessagesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListGTSMessagesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListGoodsReceipts invokes listGoodsReceipts operation.
 //
 // Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`.
@@ -90451,8 +90753,8 @@ func (c *Client) sendListOrgUnits(ctx context.Context, params ListOrgUnitsParams
 // ListOutboundDeliveries invokes listOutboundDeliveries operation.
 //
 // The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
-// status. Sortable by: `created_at`.
+// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order, status
+// and trade compliance status. Sortable by: `created_at`.
 //
 // GET /v1/outbound-deliveries
 func (c *Client) ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error) {
@@ -90564,6 +90866,23 @@ func (c *Client) sendListOutboundDeliveries(ctx context.Context, params ListOutb
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "trade_compliance_status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "trade_compliance_status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.TradeComplianceStatus.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
@@ -110245,26 +110564,28 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 // Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
 // refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-// `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as
-// one material document of movement type `601` (`material_document_id`), posted on the company's date
-// today in its time zone and numbered from its `material_document` range, its `reference` the
-// delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued
-// (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`:
-// picking reserves none), and no open physical inventory count document counting the material there
-// (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an
-// issue does (at a standard price the stock left at the price, at a moving price the value in
-// proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the
-// valuation class's stock account to its cost of goods sold account (422
-// `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422
-// `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and
-// what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound
-// delivery and the material document, each item with its cost, the order item's `delivered_quantity`
-// rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open
-// again on the order. An order blocked for credit since the delivery was made is refused until its
-// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
-// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
-// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-// Human-only (`x-agent: false`). A batch-managed material is refused (422
+// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
+// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
+// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
+// quantity leaves the delivery's storage location as one material document of movement type `601`
+// (`material_document_id`), posted on the company's date today in its time zone and numbered from its
+// `material_document` range, its `reference` the delivery's number: the material active and kept there
+// (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
+// now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical
+// inventory count document counting the material there (409 `inventory.posting_blocked`, naming the
+// document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock
+// left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods
+// sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods
+// sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals,
+// such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the
+// order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the
+// outbound delivery and the material document, each item with its cost, the order item's
+// `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was
+// not picked is open again on the order. An order blocked for credit since the delivery was made is
+// refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
+// `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
+// MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+// delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422
 // `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
 // serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 //
@@ -115840,6 +116161,174 @@ func (c *Client) sendReleaseInternalOrder(ctx context.Context, params ReleaseInt
 
 	stage = "DecodeResponse"
 	result, err := decodeReleaseInternalOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReleaseOutboundDeliveryTradeComplianceBlock invokes releaseOutboundDeliveryTradeComplianceBlock operation.
+//
+// Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
+// at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
+// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
+// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
+// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
+// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
+// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
+// later answer of the service still counts: a block it reports after the release blocks the delivery
+// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
+// apart from posting the goods issue. Nothing is posted. Audited, and published as
+// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
+func (c *Client) ReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params ReleaseOutboundDeliveryTradeComplianceBlockParams) (ReleaseOutboundDeliveryTradeComplianceBlockRes, error) {
+	res, err := c.sendReleaseOutboundDeliveryTradeComplianceBlock(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params ReleaseOutboundDeliveryTradeComplianceBlockParams) (res ReleaseOutboundDeliveryTradeComplianceBlockRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseOutboundDeliveryTradeComplianceBlock"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outbound-deliveries/{id}:releaseTradeComplianceBlock"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReleaseOutboundDeliveryTradeComplianceBlockOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/outbound-deliveries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":releaseTradeComplianceBlock"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReleaseOutboundDeliveryTradeComplianceBlockOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReleaseOutboundDeliveryTradeComplianceBlockResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

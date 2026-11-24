@@ -25581,7 +25581,9 @@ func (s *Server) handleCreateOrgUnitRequest(args [0]string, argsEscaped bool, w 
 // OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 // Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
 // `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
-// material too, as it carries no serial numbers yet (S2g).
+// material too, as it carries no serial numbers yet (S2g). A delivery at a plant an active `gts`
+// connector names is created with its `trade_compliance` `pending` (S2s): a trade compliance service
+// screens it (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
 //
 // POST /v1/outbound-deliveries
 func (s *Server) handleCreateOutboundDeliveryRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -88339,6 +88341,240 @@ func (s *Server) handleListForecastVarianceDocumentsRequest(args [0]string, args
 	}
 }
 
+// handleListGTSMessagesRequest handles listGTSMessages operation.
+//
+// The messages exchanged with the tenant's trade compliance services through `gts` connectors
+// (ADR-0082 As built S2s), newest first: those of the companies the caller may act in, and, to a
+// caller who may act in every company, inbound ones refused before their delivery was known. Outbound
+// (`screening_request`): each outbound delivery created at a plant an active `gts` connector names in
+// its `plants` is created with its `trade_compliance` `pending` and queued once as a message giving
+// the service the delivery to screen (its `body`, the message as sent: message type
+// `screening_request`, schema version 1, its company, plant and storage location by code, the delivery
+// by id and number with its sales order's and customer's numbers, and each item's number, material
+// number, quantity and unit; the service holds the parties' and materials' master data by those
+// numbers), sent, tried again and failed exactly as a warehouse system's message is
+// (`listWMSMessages`; `integration.not_a_gts` when its connector is not a `gts` one). Inbound
+// (`screening_result`): the service's answer, polled from each active `gts` connector (every 10 s) and
+// recorded once per connector and its message id: `recorded`, the answer (its own `message_id`, type
+// `screening`, the `outbound_delivery_id` it was sent, `result` `released` or `blocked`, optionally
+// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339, at
+// most 5 minutes past the ERP's clock) recorded on the delivery (`getOutboundDelivery`'s
+// `trade_compliance`, as the exchange's system principal acting for the delivery's company; the
+// service's latest answer counts by `screened_at`, whatever the order the answers are read in),
+// nothing posted; or `refused` with the problem that stopped it: one that is not a JSON `screening`
+// message naming its own message id, an `outbound_delivery_id` and `screened_at`, or that holds
+// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as
+// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+// not sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for
+// a delivery whose goods issue is posted, `shipping.invalid_screening` for another result, a reason
+// code out of bounds or a `screened_at` too far ahead, `shipping.screening_superseded` for an answer
+// screened no later than the one the delivery holds). The service is told after that commit
+// (`acknowledged_at`); one listed again is acknowledged again, not recorded twice. Filters: connector,
+// direction, status and the outbound delivery.
+//
+// GET /v1/gts-messages
+func (s *Server) handleListGTSMessagesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listGTSMessages"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/gts-messages"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListGTSMessagesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListGTSMessagesOperation,
+			ID:   "listGTSMessages",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListGTSMessagesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListGTSMessagesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListGTSMessagesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListGTSMessagesOperation,
+			OperationSummary: "List the messages exchanged with trade compliance services",
+			OperationID:      "listGTSMessages",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "connector_id",
+					In:   "query",
+				}: params.ConnectorID,
+				{
+					Name: "direction",
+					In:   "query",
+				}: params.Direction,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "outbound_delivery_id",
+					In:   "query",
+				}: params.OutboundDeliveryID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListGTSMessagesParams
+			Response = ListGTSMessagesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListGTSMessagesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListGTSMessages(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListGTSMessages(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListGTSMessagesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListGoodsReceiptsRequest handles listGoodsReceipts operation.
 //
 // Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`.
@@ -96252,8 +96488,8 @@ func (s *Server) handleListOrgUnitsRequest(args [0]string, argsEscaped bool, w h
 // handleListOutboundDeliveriesRequest handles listOutboundDeliveries operation.
 //
 // The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
-// status. Sortable by: `created_at`.
+// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order, status
+// and trade compliance status. Sortable by: `created_at`.
 //
 // GET /v1/outbound-deliveries
 func (s *Server) handleListOutboundDeliveriesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -96410,6 +96646,10 @@ func (s *Server) handleListOutboundDeliveriesRequest(args [0]string, argsEscaped
 					Name: "status",
 					In:   "query",
 				}: params.Status,
+				{
+					Name: "trade_compliance_status",
+					In:   "query",
+				}: params.TradeComplianceStatus,
 				{
 					Name: "page_size",
 					In:   "query",
@@ -116039,26 +116279,28 @@ func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool,
 // Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
 // refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-// `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as
-// one material document of movement type `601` (`material_document_id`), posted on the company's date
-// today in its time zone and numbered from its `material_document` range, its `reference` the
-// delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued
-// (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`:
-// picking reserves none), and no open physical inventory count document counting the material there
-// (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an
-// issue does (at a standard price the stock left at the price, at a moving price the value in
-// proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the
-// valuation class's stock account to its cost of goods sold account (422
-// `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422
-// `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and
-// what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound
-// delivery and the material document, each item with its cost, the order item's `delivered_quantity`
-// rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open
-// again on the order. An order blocked for credit since the delivery was made is refused until its
-// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
-// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
-// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-// Human-only (`x-agent: false`). A batch-managed material is refused (422
+// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
+// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
+// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
+// quantity leaves the delivery's storage location as one material document of movement type `601`
+// (`material_document_id`), posted on the company's date today in its time zone and numbered from its
+// `material_document` range, its `reference` the delivery's number: the material active and kept there
+// (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
+// now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical
+// inventory count document counting the material there (409 `inventory.posting_blocked`, naming the
+// document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock
+// left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods
+// sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods
+// sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals,
+// such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the
+// order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the
+// outbound delivery and the material document, each item with its cost, the order item's
+// `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was
+// not picked is open again on the order. An order blocked for credit since the delivery was made is
+// refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
+// `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
+// MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+// delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422
 // `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
 // serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 //
@@ -123304,6 +123546,212 @@ func (s *Server) handleReleaseInternalOrderRequest(args [1]string, argsEscaped b
 	}
 
 	if err := encodeReleaseInternalOrderResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleReleaseOutboundDeliveryTradeComplianceBlockRequest handles releaseOutboundDeliveryTradeComplianceBlock operation.
+//
+// Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
+// at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
+// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
+// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
+// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
+// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
+// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
+// later answer of the service still counts: a block it reports after the release blocks the delivery
+// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
+// apart from posting the goods issue. Nothing is posted. Audited, and published as
+// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
+func (s *Server) handleReleaseOutboundDeliveryTradeComplianceBlockRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseOutboundDeliveryTradeComplianceBlock"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/outbound-deliveries/{id}:releaseTradeComplianceBlock"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ReleaseOutboundDeliveryTradeComplianceBlockOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ReleaseOutboundDeliveryTradeComplianceBlockOperation,
+			ID:   "releaseOutboundDeliveryTradeComplianceBlock",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ReleaseOutboundDeliveryTradeComplianceBlockOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeReleaseOutboundDeliveryTradeComplianceBlockParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ReleaseOutboundDeliveryTradeComplianceBlockRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ReleaseOutboundDeliveryTradeComplianceBlockOperation,
+			OperationSummary: "Release the trade compliance block of an outbound delivery",
+			OperationID:      "releaseOutboundDeliveryTradeComplianceBlock",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ReleaseOutboundDeliveryTradeComplianceBlockParams
+			Response = ReleaseOutboundDeliveryTradeComplianceBlockRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackReleaseOutboundDeliveryTradeComplianceBlockParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ReleaseOutboundDeliveryTradeComplianceBlock(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ReleaseOutboundDeliveryTradeComplianceBlock(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeReleaseOutboundDeliveryTradeComplianceBlockResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
