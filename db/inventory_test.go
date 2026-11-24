@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestInventoryPermissions (S1c, migration 000376, S1d, 000377, S2c, 000406, and S2d, 000407;
+// TestInventoryPermissions (S1c, migration 000376, S1d, 000377, S2c, 000406, S2d, 000407, and S2c2, 000464;
 // ADR-0082 §7-§8): the permissions of inventory are seeded and are no
 // approval permissions.
 func TestInventoryPermissions(t *testing.T) {
@@ -22,7 +22,7 @@ func TestInventoryPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "inventory.batch.write inventory.count.post inventory.count.write inventory.movement.post inventory.stock.read inventory.valuation.read inventory.valuation.write"; got != want {
+	if got, want := strings.Join(codes, " "), "inventory.batch.write inventory.count_plan.write inventory.count.post inventory.count.write inventory.movement.post inventory.stock.read inventory.valuation.read inventory.valuation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

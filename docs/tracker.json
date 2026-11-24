@@ -5726,9 +5726,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Cycle counting indicators: a plant's indicators (A, B, C, D or the tenant's own) with a count interval in days, a material's indicator at the plant, the counts due listed and created as count documents, the count planning agent counting by them",
-      "r": "S2c2 · docs/design/plan-supply-chain.md §S2c2 · ADR-0082 As built S2c2",
+      "r": "S2c2 · docs/design/plan-supply-chain.md §S2c2 · ADR-0082 As built S2c2 · ADR-0072 As built S2e · db/migrations/000464 · inventory.cycle_count_indicator, .cycle_count_material · POST/GET /v1/cycle-count-indicators, GET/PATCH /v1/cycle-count-indicators/{id} · POST/GET /v1/cycle-count-materials, GET/PATCH /v1/cycle-count-materials/{id} · GET /v1/cycle-counts-due · inventory.count_plan.write · countagent listCycleCountMaterials · TestCycleCountIndicators, TestCycleCountMaterials, TestCycleCountsDue, TestCycleCountLocks, TestPlanIndicators · walkthrough step_count",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },

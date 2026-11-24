@@ -678,8 +678,8 @@ creates count documents from them.
   `inventory.stock.read`), audited, no event; human-only.
 - **The counts due** (`GET /v1/cycle-counts-due?plant_id=`, SAP MICN,
   from memory): each material with an indicator at the plant, at each
-  storage location of the plant where it has a stock row (it moved there
-  once), that no open count holds there and that was never counted there
+  storage location of the plant where it has stock now (as `listStock`
+  lists it and the agent reads it), that no open count holds there and that was never counted there
   (a posted count; a rejected or withdrawn one is none) or whose last
   posted count there is its indicator's interval or more before the
   company's date today. Each names its material, storage location,

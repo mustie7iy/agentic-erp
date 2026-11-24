@@ -1760,11 +1760,69 @@ OMCO, from memory) and computed by the agent's run, not by the model:
   they rank a class's materials, the most first, then the last count,
   never first, then the oldest.
 
-**Later** (the plan's): cycle counting indicators on the plant data (the
-class and interval kept on the material at the plant rather than
-computed per run, with the tenant's own shares and intervals), materials
-with no stock counted, counts on a calendar, counting by risk learned
-from differences.
+**Later** (the plan's): materials with no stock counted, counts on a
+calendar, counting by risk learned from differences, the tenant's own
+shares of the ABC analysis. Cycle counting indicators on the plant data
+are S2c2's, which the agent reads.
+
+### S2c2 (2026-11-24)
+
+Cycle counting indicators, the first item of the tracker's "later: count
+variants" leaf (plan-supply-chain.md §S2c2), decided by default from
+SAP's cycle counting (T159C, MARC-ABCIN and MICN, all from memory, for
+the specialist):
+
+- **Indicators are a plant's** (`inventory.cycle_count_indicator`, as
+  SAP's T159C is keyed by plant): a code of one to four capitals or
+  digits (A, B, C, D or the tenant's own; SAP's is one character) once at
+  the plant, and an interval of 1 to 366 days: a material that carries
+  one is counted at least once a year, the safer bound for an annual
+  inventory by cycle counting. None is created for a plant by itself;
+  the controller creates the plant's (SAP delivers A to D per plant in
+  customizing, from memory). The interval changes at the indicator's
+  version (`PATCH`, If-Match); the code and plant do not (column grants).
+- **A material's indicator at a plant** (`inventory.cycle_count_material`,
+  SAP MARC-ABCIN): one per material and plant, of that plant's
+  indicators (a foreign key naming the plant with the indicator), changed
+  to another of the plant at its version. The material is one a count
+  document takes there (the checks are the count's, `refs.countable`):
+  the tenant's, not pending, kept in stock, extended to the plant,
+  neither batch- nor serial-managed. Taking an indicator off a material
+  is Later, as removing a material's MRP data is (ADR-0084 §4).
+- **The counts due** (`GET /v1/cycle-counts-due`, computed, not stored):
+  on the plant's company's date today, each material with an indicator
+  at each storage location of the plant where it has stock now (as
+  `listStock` and the count planning agent read it), not held by an open
+  count there, never counted there (a posted count: a rejected or
+  withdrawn one is none, as S2e reads it) or last counted there (the
+  latest posted count by its date) its interval or more days before
+  today; `due_on` is that count's date plus the interval. Never counted
+  first, then the longest due, paged by the day (never counted as
+  `-infinity`) and the stock row. Creating a count is the normal
+  `POST /v1/physical-inventory-documents` with a storage location's
+  materials as listed (at most 100 a document); the count's open items
+  take them off the list until it is posted.
+- **The count planning agent reads them** (decided: an indicator the
+  controller set governs over the class the run computes, as SAP's MICN
+  plans by MARC-ABCIN): `listCycleCountMaterials` before its session; a
+  material with an indicator at the plant is due by its interval, its
+  line names the indicator, and it keeps its computed class for the
+  rank; the others are as S2e. ADR-0072 As built S2e.
+- **Permissions and agents.** `inventory.count_plan.write` maintains
+  both (`x-agent: false`), on the never lists of the count planning and
+  demand forecasting agents; reads are `inventory.stock.read`'s. Audited
+  (`inventory.cycle_count_indicator.create`/`.change`,
+  `inventory.cycle_count_material.create`/`.change`, the change with the
+  values before and after); no event, as no other context reads them.
+- **Locks.** A change takes its row `FOR NO KEY UPDATE`; a material given
+  an indicator, or moved to one, takes the indicator's key share through
+  the foreign key, which that leaves free: no writer waits for another
+  (`TestCycleCountLocks`, both orders).
+
+**Later:** an indicator taken off a material, indicators set from the
+ABC analysis (SAP MIBC), float time and a share of counts per period,
+counts due per storage location's own indicator, a calendar of planned
+counts; the tracker's "later: count variants".
 
 ### S2m (2026-11-22)
 

@@ -198,12 +198,22 @@ func (e *Endpoints) CreateCount(ctx context.Context, in CountInput) (CountDocume
 	return d, recordCount(ctx, "inventory.count_document.create", d, r)
 }
 
+// plant is an active plant of a company the caller may act in, read
+// among the refs (422 inventory.plant_invalid naming plant_id otherwise).
+func (r refs) plant(id uuid.UUID) (tenancy.Unit, error) {
+	u, ok := r.units[id]
+	if !ok || u.Kind != kindPlant || u.Status != tenancy.Active || !r.access.Allows(u.LegalEntityID) {
+		return tenancy.Unit{}, problem.Invalid("inventory.plant_invalid", "plant_id", "No active plant with this id in a company you can access.")
+	}
+	return u, nil
+}
+
 // countLocation checks the document's plant, an active plant of a company
 // the caller may act in, and its storage location, an active one under it.
 func countLocation(in CountInput, r refs) (tenancy.Unit, error) {
-	u, ok := r.units[in.PlantID]
-	if !ok || u.Kind != kindPlant || u.Status != tenancy.Active || !r.access.Allows(u.LegalEntityID) {
-		return tenancy.Unit{}, problem.Invalid("inventory.plant_invalid", "plant_id", "No active plant with this id in a company you can access.")
+	u, err := r.plant(in.PlantID)
+	if err != nil {
+		return tenancy.Unit{}, err
 	}
 	l, ok := r.units[in.StorageLocationID]
 	if !ok || l.Kind != kindStorageLocation || l.Status != tenancy.Active || l.ParentID == nil || *l.ParentID != in.PlantID {
@@ -213,33 +223,47 @@ func countLocation(in CountInput, r refs) (tenancy.Unit, error) {
 	return u, nil
 }
 
-// countLines checks each material counted and makes a line of no quantity
-// of it at the document's location, numbered as its item: a stocked
-// material of the tenant, not pending (a blocked one's stock is still
-// counted), kept at the storage location, named once.
+// countable checks a material a count takes at a plant (named field in
+// the request): a stocked material of the tenant, not pending (a blocked
+// one's stock is still counted), extended to the plant, neither batch-
+// nor serial-managed. A count document's items and a material's cycle
+// counting indicator (S2c2) are checked by it.
+func (r refs) countable(id, plant uuid.UUID, field string) error {
+	m, ok := r.materials[id]
+	switch {
+	case !ok:
+		return problem.Invalid("inventory.material_invalid", field, "No material with this id.")
+	case m.Status == materials.Pending:
+		return problem.Invalid("inventory.material_not_usable", field, "Material "+m.Number+" is pending its approval; it has no stock to count.")
+	case !m.Stocked():
+		return problem.Invalid("inventory.material_not_stocked", field, "Material "+m.Number+" is of type "+m.Type+", which is kept in no stock.")
+	case !hasPlant(m, plant):
+		return problem.Invalid("inventory.plant_not_extended", field, "Material "+m.Number+" is not extended to plant "+r.units[plant].Code+".")
+	case m.BatchManaged:
+		return problem.Invalid("inventory.batch_not_supported", field, "Material "+m.Number+" is managed in batches; a count by batch "+
+			"is not built yet.")
+	case m.SerialManaged:
+		return problem.Invalid("inventory.serial_not_supported", field, "Material "+m.Number+" has a serial number profile; a count by "+
+			"serial number is not built yet.")
+	}
+	return nil
+}
+
+// countLines checks each material counted (countable at the document's
+// plant, kept at its storage location, named once) and makes a line of no
+// quantity of it at the document's location, numbered as its item.
 func countLines(in CountInput, r refs) ([]Line, error) {
 	lines := make([]Line, 0, len(in.Materials))
 	for i, id := range in.Materials {
 		field := fmt.Sprintf("items[%d].material_id", i)
-		m, ok := r.materials[id]
+		if err := r.countable(id, in.PlantID, field); err != nil {
+			return nil, err
+		}
+		m := r.materials[id]
 		switch {
-		case !ok:
-			return nil, problem.Invalid("inventory.material_invalid", field, "No material with this id.")
-		case m.Status == materials.Pending:
-			return nil, problem.Invalid("inventory.material_not_usable", field, "Material "+m.Number+" is pending its approval; it has no stock to count.")
-		case !m.Stocked():
-			return nil, problem.Invalid("inventory.material_not_stocked", field, "Material "+m.Number+" is of type "+m.Type+", which is kept in no stock.")
-		case !hasPlant(m, in.PlantID):
-			return nil, problem.Invalid("inventory.plant_not_extended", field, "Material "+m.Number+" is not extended to plant "+r.units[in.PlantID].Code+".")
 		case !m.KeptAt(in.PlantID, in.StorageLocationID):
 			return nil, problem.Invalid("inventory.storage_location_not_extended", field, "Material "+m.Number+" is not kept at storage location "+
 				r.units[in.StorageLocationID].Code+".")
-		case m.BatchManaged:
-			return nil, problem.Invalid("inventory.batch_not_supported", field, "Material "+m.Number+" is managed in batches; a count by batch "+
-				"is not built yet.")
-		case m.SerialManaged:
-			return nil, problem.Invalid("inventory.serial_not_supported", field, "Material "+m.Number+" has a serial number profile; a count by "+
-				"serial number is not built yet.")
 		case slices.Contains(in.Materials[:i], id):
 			return nil, problem.Invalid("inventory.duplicate_material", field, "Material "+m.Number+" is counted once in a document.")
 		}

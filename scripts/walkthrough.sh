@@ -15174,23 +15174,52 @@ step_dispute_resolution() {
 # document freezes their book quantities and blocks their postings there
 # until it is closed; a second count of the brackets there is refused. He
 # enters the bracket's count, which is not entered twice, and the bolts'
-# in a second entry; the document is then counted.
+# in a second entry; the document is then counted. First, S2c2 (ADR-0082
+# As built S2c2): Ines plans cycle counting at the plant, indicator A
+# every 90 days for the brackets and C every 365 for the bolts; never
+# counted, both are due at the main store, and Wade's count document is
+# made from that list, which then leaves them out; counted, they are not
+# due again until their intervals have passed.
 step_count() {
-  local loss brackets
-  heading "Step 141 — Physical inventory: a count document of the main store's brackets and bolts freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves"
+  local loss brackets ind_a ind_c due
+  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
   local doc book
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
+  as ines
+  say "Ines, the inventory controller, plans cycle counting at the Toronto plant (S2c2; SAP T159C, from memory): indicator"
+  say "A counts a material every 90 days, C every 365. A code is used once at a plant:"
+  api 201 '"indicator \(.code) at \(.plant_code): every \(.interval_days) days"' createCycleCountIndicator \
+    -body "{\"plant_id\": \"$PLANT\", \"code\": \"A\", \"interval_days\": 90}"
+  ind_a=$(field .id)
+  api 201 '"indicator \(.code) at \(.plant_code): every \(.interval_days) days"' createCycleCountIndicator \
+    -body "{\"plant_id\": \"$PLANT\", \"code\": \"C\", \"interval_days\": 365}"
+  ind_c=$(field .id)
+  refused 409 inventory.cycle_count_indicator_exists createCycleCountIndicator -body "{\"plant_id\": \"$PLANT\", \"code\": \"A\", \"interval_days\": 30}"
+  say "She gives the brackets indicator A and the bolts C at the plant (SAP MARC-ABCIN, from memory); one each:"
+  api 201 '"\(.material_number) \(.material_description) at \(.plant_code): indicator \(.indicator_code), every \(.interval_days) days"' \
+    createCycleCountMaterial -body "{\"material_id\": \"$MATERIAL\", \"indicator_id\": \"$ind_a\"}"
+  api 201 '"\(.material_number) \(.material_description) at \(.plant_code): indicator \(.indicator_code), every \(.interval_days) days"' \
+    createCycleCountMaterial -body "{\"material_id\": \"$BOLT\", \"indicator_id\": \"$ind_c\"}"
+  refused 409 inventory.cycle_count_material_exists createCycleCountMaterial -body "{\"material_id\": \"$MATERIAL\", \"indicator_id\": \"$ind_c\"}"
+  say "Neither was ever counted at the main store, so both are due there today (SAP MICN, from memory):"
+  api 200 '.items[] | "  \(.material_number) \(.material_description) at \(.plant_code)/\(.storage_location_code): indicator \(.indicator_code), \(.last_count_number // "never counted")"' \
+    listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
+  expect "the counts due at the main store" "$(field '[.items[] | "\(.material_id) \(.indicator_code) \(.due_on // "now")"] | sort | join(",")')" \
+    "$(printf '%s\n' "$MATERIAL A now" "$BOLT C now" | sort | paste -sd, -)"
+  due=$(jq -c --arg m "$MATERIAL" '[.items[] | {material_id}] | sort_by(.material_id != $m)' "$WORK/last.json")
   as wade
-  say "Wade counts the main store's brackets and bolts (SAP MI01): the count document freezes their book quantities"
-  say "and blocks their postings there until it is closed:"
+  say "Wade counts the main store's brackets and bolts from the list (SAP MI01): the count document freezes their book"
+  say "quantities and blocks their postings there until it is closed:"
   api 201 '"count document \(.number): \(.status) at \(.plant_code)/\(.storage_location_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.material_description), book \(.book_quantity.value) \(.book_quantity.unit)")' \
-    createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"material_id\": \"$MATERIAL\"},
-      {\"material_id\": \"$BOLT\"}]}"
+    createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": $due}"
   case "$(field .number)" in PI*) ;; *) fail "the count document's number: got $(field .number), want one of the PI range" ;; esac
   doc=$(field .id)
   book=$(field '.items[0].book_quantity.value')
   brackets=$book
   expect "the bracket's book quantity" "$book EA" "$(stock_at "$MAIN_STORE")"
+  say "The list leaves out what an open count holds:"
+  QUIET=1 api 200 '' listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
+  expect "the counts due while counted" "$(field '.items | length')" 0
   say "While it is counted no bracket leaves the main store, whatever posts it:"
   QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
   refused 409 inventory.posting_blocked createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\",
@@ -15242,6 +15271,9 @@ step_count() {
   api 200 '"count document \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): \(.difference.value) \(.difference.unit) worth \(.difference_value.amount), material document \(.material_document_number)")' \
     getPhysicalInventoryDocument -p "id=$doc"
   expect "after the approval" "$(field '[.status, (.items[] | .difference_value.amount)] | join(" ")')" "posted 5.02 -55.00"
+  say "Counted today, the brackets fall due again in 90 days and the bolts in 365; nothing is due at the main store:"
+  api 200 '"  \(.items | length) counts due"' listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
+  expect "the counts due once counted" "$(field '.items | length')" 0
   passed
 }
 
