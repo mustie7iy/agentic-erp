@@ -481,7 +481,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.9, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.10, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -1900,7 +1900,10 @@ step_pack() {
   say "ranges the pilot's settings added themselves: returns orders, credit memo requests, lease contracts, expense reports,"
   say "material documents and the WA and PR journals of valued goods movements, under the same sign-off (product"
   say "owner, 2026-11-19). 2026.12 is 2026.11 plus the ranges of count documents (step 141) and outbound deliveries"
-  say "(step 142), under it too (the batch 83 review; product owner's rule of 2026-11-18): the latest signed-off version."
+  say "(step 142), under it too (the batch 83 review; product owner's rule of 2026-11-18). 2026.13 is 2026.12 plus two"
+  say "accounts and their account determination keys: 6800 for the cash discounts customers take (cash_discount_granted,"
+  say "SAP SKT) and 4830 for supplier rebates (supplier_rebate), its tax content unchanged, under the same sign-off"
+  say "(batch 92, by default): the latest signed-off version."
   say "The pilot's settings add only Maple's material range: material numbers are unique in the tenant, so no pack ships"
   say "one prefix for every company."
   expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
@@ -1911,6 +1914,8 @@ step_pack() {
     "30 number ranges, signed off: true"
   expect "Canada 2026.12" "$(field '.items[] | select(.country == "CA" and .version == "2026.12") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "32 number ranges, signed off: true"
+  expect "Canada 2026.13" "$(field '.items[] | select(.country == "CA" and .version == "2026.13") | "\(.contents.accounts) accounts, \(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "23 accounts, 32 number ranges, signed off: true"
   expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
@@ -5035,10 +5040,11 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.9 (2026.4, signed off by the tax
+# applies the UAE pack to it, 2026.10 (2026.4, signed off by the tax
 # specialist, with the box labels' markers dropped in 2026.5, the number ranges added in 2026.6, journal_dd in
-# 2026.7, the ranges the pilot's settings added in 2026.8 and those of
-# count documents and outbound deliveries in 2026.9), so without a note
+# 2026.7, the ranges the pilot's settings added in 2026.8, those of
+# count documents and outbound deliveries in 2026.9 and the accounts of
+# cash discounts granted and supplier rebates in 2026.10), so without a note
 # (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
@@ -5062,10 +5068,13 @@ step_uae() {
   say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13); 2026.7 adds the"
   say "journal range of customer debit memos, journal_dd, under it too (product owner, 2026-11-18), and 2026.8 the ranges"
   say "of returns orders, credit memo requests, lease contracts, expense reports, material documents and the WA and PR"
-  say "journals (product owner, 2026-11-19); 2026.9 adds those of count documents and outbound deliveries."
+  say "journals (product owner, 2026-11-19); 2026.9 adds those of count documents and outbound deliveries. 2026.10 adds two"
+  say "accounts and their account determination keys, 6800 for the cash discounts customers take (cash_discount_granted,"
+  say "SAP SKT, step 156) and 4830 for supplier rebates (supplier_rebate, step 144), under the same sign-off (batch 92, by"
+  say "default)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true, 2026.9 9 true"
-  expect "UAE 2026.9's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.9") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true, 2026.9 9 true, 2026.10 9 true"
+  expect "UAE 2026.10's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.10") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -5085,10 +5094,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest signed-off UAE pack, 2026.9, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.10, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.9\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.10\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -5231,7 +5240,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.9 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.10 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -5283,10 +5292,10 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(packs/ae/TAX-PENDING-T61k.md); 2026.9's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.10's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.9"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.10"
   expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
     "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
@@ -15464,18 +15473,20 @@ step_evatra_inbound() {
 # for a volume discount (BTAE-03 VD) naming no invoice and no order; the
 # fetch enters it as a credit memo without an order or a reference, not
 # held: the supplier the one holding the seller's TRN, its line 1 EA of
-# AED 250.00 on the account of discounts received (4800, cash_discount),
+# AED 250.00 on the account of supplier rebates (4830, supplier_rebate,
+# which UAE pack 2026.10 brings; batch 92: not 4800, the cash discounts
+# received, cash_discount),
 # its 12.50 VAT as stated, on hold for Alex to choose its input code
 # between V5 and VB5, both charging 5% in category S; he releases it,
 # chooses V5 and posts it.
 evatra_volume_discount() {
-  local connector=$1 ae recon discounts supplier op memo trn=100777777700003
+  local connector=$1 ae recon rebates supplier op memo trn=100777777700003
   as alex
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   recon=$(field '.items[] | select(.number == "2000") | .id')
-  discounts=$(field '.items[] | select(.number == "4800") | .id')
+  rebates=$(field '.items[] | select(.number == "4830") | .id')
   say "Emirates Workspace Supplies grants $AE a volume discount on the year's office supplies, bought without purchase"
   say "orders. Alex sets it up as a supplier of $AE with its TRN (illustrative); Carla approves it:"
   api 201 '"supplier \(.name), \(.country_code), \(.status)"' createBusinessPartner \
@@ -15490,8 +15501,9 @@ evatra_volume_discount() {
   printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/evatra/EVA-77002.receiver"
   as alex
   say "Alex fetches. A credit memo needs no order (the product owner, 2026-11-21): the volume discount is entered without"
-  say "one, not held, the supplier the one of $AE holding the seller's TRN, its line on the account of discounts received"
-  say "(4800, the account determination's cash_discount), its VAT as stated:"
+  say "one, not held, the supplier the one of $AE holding the seller's TRN, its line on the account of supplier rebates (4830,"
+  say "the account determination's supplier_rebate, from the pack; not 4800, the cash discounts payments take), its VAT as"
+  say "stated:"
   api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
   wait_op
   op=$(field .id)
@@ -15505,7 +15517,7 @@ evatra_volume_discount() {
     getSupplierInvoice -p "id=$memo"
   expect "the credit memo without an order" "$(field '"\(.kind) \(.supplier_reference) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \(.purchase_order_id // "-") \(.reference_invoice_id // "-") \(.credit_reason.code)"')" \
     "credit_memo EWS-501 einvoice 262.50 12.50 - - VD"
-  expect "its item, on the account of discounts received" "$(field '.items[] | "\(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.account_id)"')" "1 EA 250.00 $discounts"
+  expect "its item, on the account of supplier rebates" "$(field '.items[] | "\(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.account_id)"')" "1 EA 250.00 $rebates"
   expect "on hold for its input code" "$(field '"\(.status) \(.hold_reason | contains("V5, VB5"))"')" "on_hold true"
   say "Two input codes charge 5% in category S, V5 and the blocked VB5 (Executive Regulation Art. 53), so the memo waits for"
   say "Alex to choose: he releases it, gives its item V5, as the supplies' VAT was recovered, and posts it:"
@@ -16226,10 +16238,15 @@ step_serial_numbers() {
 # own requisition, which names no plant, is not counted. A rerun replaces
 # the proposal with a new one. Ben takes the new one over by changing it:
 # the next run counts it as a receipt, proposes nothing and leaves it, and
-# his own requisition, alone.
+# his own requisition, alone. A stock transport order within the company
+# counts on both sides (ADR-0084 As built, stock transport orders): Mira
+# creates the G20 gasket, kept at Toronto and Montreal, Wade enters 100 at
+# Toronto, Mira plans it at both plants and Pablo orders 80 from Toronto
+# to Montreal; Toronto's run counts the open order as its demand, and
+# Montreal's as its receipt, so neither proposes.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone"
-  local hinge sales own own_version run first second
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt"
+  local hinge sales own own_version run first second montreal store gasket plant
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -16278,13 +16295,14 @@ step_mrp() {
   refused 409 mrp.material_plan_exists createMaterialPlan -body "{\"plant_id\": \"$PLANT\", \"material_id\": \"$hinge\", \"mrp_type\": \"no_planning\",
       \"reorder_point\": \"0\", \"account_id\": \"$(account 6000)\"}"
   as ben
-  mrp_run() { # a run of the Toronto plant, carried out; the run is left in last.json, its hinge line printed
-    api 202 '"\(.kind) \(.status): \(.resource)"' startMrpRun -body "{\"plant_id\": \"$PLANT\"}"
+  mrp_run() { # a run of the plant ($1, else Toronto), carried out; the run is left in last.json, the material's line ($2, else the hinge's) printed
+    local plant=${1:-$PLANT} material=${2:-$hinge}
+    api 202 '"\(.kind) \(.status): \(.resource)"' startMrpRun -body "{\"plant_id\": \"$plant\"}"
     run=$(field .resource)
     run=${run##*/}
     wait_op
     api 200 '"run of \(.plant_code) on \(.run_date): \(.status), \(.materials_planned) planned, \(.proposals_created) proposed, \(.proposals_replaced) replaced",
-      (.lines[] | select(.material_id == "'"$hinge"'") | "  \(.material_number): demand \(.demand.value), stock \(.stock.value), receipts \(.receipts.value), reorder point \(.reorder_point.value), shortage \(.shortage.value) \(.shortage.unit) \(.requisition_number // "")")' \
+      (.lines[] | select(.material_id == "'"$material"'") | "  \(.material_number): demand \(.demand.value), stock \(.stock.value), receipts \(.receipts.value), reorder point \(.reorder_point.value), shortage \(.shortage.value) \(.shortage.unit) \(.requisition_number // "")")' \
       getMrpRun -p "id=$run"
   }
   say "Ben runs material requirements planning for the Toronto plant: the order's 50 against the 40 in stock is 10"
@@ -16314,6 +16332,44 @@ step_mrp() {
   expect "the proposal taken over" "$(field .status)" draft
   QUIET=1 api 200 '' getRequisition -p "id=$own"
   expect "Ben's own requisition" "$(field '"\(.status) \(.version)"')" "draft $own_version"
+  as mira
+  QUIET=1 api 200 '' listOrgUnits -p page_size=100
+  montreal=$(field '.items[] | select(.kind == "plant" and .code == "P200") | .id')
+  store=$(field '.items[] | select(.kind == "storage_location" and .code == "SL03" and .parent_id == "'"$montreal"'") | .id')
+  say "A stock transport order counts on both sides: Mira creates the G20 gasket, kept in Toronto's main store and the"
+  say "Montreal store; Priya approves it; Ines values it in Toronto and Wade enters 100 there (561):"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Gasket G20\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"SEALS\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}, {\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  gasket=$(field .id)
+  approve priya "$(material_request "$gasket")" "Standard gasket."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$gasket\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"0.50\", \"currency\": \"CAD\"}}"
+  as wade
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$gasket\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  as mira
+  say "Mira plans the gasket by a reorder point of 10 at Toronto and of 50 at Montreal:"
+  for plant in "$PLANT:10" "$montreal:50"; do
+    api 201 '"\(.material_number) at \(.plant_code): reorder point \(.reorder_point.value) \(.reorder_point.unit)"' createMaterialPlan \
+      -body "{\"plant_id\": \"${plant%%:*}\", \"material_id\": \"$gasket\", \"mrp_type\": \"reorder_point\", \"reorder_point\": \"${plant##*:}\",
+      \"account_id\": \"$(account 6000)\"}"
+  done
+  as pablo
+  say "Pablo orders 80 gaskets from Toronto's main store to the Montreal store; the order is open, not issued:"
+  api 201 '"stock transport order \(.number): \(.supplying_plant_code) to \(.receiving_plant_code), \(.status)"' createStockTransportOrder \
+    -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$montreal\", \"items\": [{\"material_id\": \"$gasket\",
+      \"quantity\": {\"value\": \"80\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\", \"receiving_storage_location_id\": \"$store\"}]}"
+  as ben
+  say "Toronto's run counts the order as its demand: 100 in stock less the 80 it must issue keeps it above its reorder"
+  say "point of 10, so nothing is proposed (counting none, it would see 100):"
+  mrp_run "$PLANT" "$gasket"
+  expect "Toronto's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value)"')" "80 100 0 0"
+  say "Montreal's run counts the order as its receipt: the 80 coming keep it above its reorder point of 50, so it proposes"
+  say "nothing (counting none, it would propose 50):"
+  mrp_run "$montreal" "$gasket"
+  expect "Montreal's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value) \(.requisition_id // "none")"')" "0 0 80 0 none"
   HINGE=$hinge
   passed
 }
@@ -16750,8 +16806,11 @@ uae_camt() {
 # As built, cash discount granted; the product owner's answer of
 # 2026-11-21, ADR-0049 As built batch 88): Ada gives Maple Gulf Trading a
 # house bank at Emirates NBD with its incoming payments clearing account,
-# and an expense account for payment differences and cash discounts
-# granted (6850, payment_difference_expense), through a governed change.
+# and an expense account for payment differences (6850,
+# payment_difference_expense), through a governed change; its cash
+# discounts granted have an account of their own, 6800
+# (cash_discount_granted, SAP SKT, which UAE pack 2026.10 brings; batch
+# 92).
 # Ruth creates Oasis Office Supplies, a UAE customer on 2/10N30, and
 # invoices it AED 1,000.00 of desks in Dubai and AED 200.00 of chairs from
 # Sharjah at 5% (S5), 1,260.00 gross. Oasis pays within the ten days, less
@@ -16761,20 +16820,21 @@ uae_camt() {
 # the receivables tests). Ruth applies the receipt taking the discount:
 # 25.20, of which 1.00 is Dubai's VAT and 0.20 Sharjah's (each emirate's
 # VAT over the gross), the net 20.00 and 4.00. The clearing entry debits
-# the net per emirate on 6850 and the VAT on 2300, each line naming its
+# the net per emirate on 6800 and the VAT on 2300, each line naming its
 # emirate: tax items that reduce the output tax the VAT 201 reports in
 # boxes 1b and 1c (the return of a quarter not yet ended is not computed:
 # TestUAECashDiscount proves the boxes).
 step_uae_cash_discount() {
   heading "Step 156 — A cash discount a UAE customer takes: an invoice paid within its discount period less its 2%, the discount's VAT taken off the output tax of each emirate"
-  local ae base recon sales vat customer invoice entry bank st receipt body payment clearing
+  local ae base recon sales vat granted customer invoice entry bank st receipt body payment clearing
   as ada
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
   say "Maple Gulf Trading's customers pay into its account at Emirates NBD, and some pay within the discount period of"
   say "their terms, less the discount. In the UAE a cash discount reduces the VAT of the supply (the product owner,"
   say "2026-11-21), as a supplier's does the input tax. Ada proposes the bank with its incoming payments clearing account"
-  say "and an expense account for payment differences and cash discounts granted, a change of the chart, tier 4:"
+  say "and an expense account for payment differences, a change of the chart, tier 4 (the cash discounts granted have one"
+  say "of their own, 6800, cash_discount_granted, which the UAE pack brought in step 41):"
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   base=$(field '.items[0].number')
   jq --arg ae "$AE" --argjson base "$base" '{title: "Emirates NBD and cash discounts of \($ae)", rationale: "Customer receipts and cash discounts granted of the UAE company (ADR-0063)",
@@ -16782,7 +16842,7 @@ step_uae_cash_discount() {
       .chart_of_accounts += [{number: "1050", name: "Bank - Emirates NBD", type: "asset"},
         {number: "1051", name: "Bank clearing - Emirates NBD", type: "asset", open_items: true},
         {number: "1055", name: "Bank incoming - Emirates NBD", type: "asset", open_items: true},
-        {number: "6850", name: "Payment differences and cash discounts granted", type: "expense"}]
+        {number: "6850", name: "Customer payment differences", type: "expense"}]
       | .account_determination.payment_difference_expense = "6850"
       | .house_banks = ((.house_banks // []) + [{name: "ENBD", iban: "AE070331234567890123456", bic: "EBILAEAD", gl_account: "1051",
           main_gl_account: "1050", incoming_gl_account: "1055", currency: "AED"}])
@@ -16790,7 +16850,7 @@ step_uae_cash_discount() {
       else . end))}' "$WORK/last.json" >"$WORK/uae-discount.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-discount.json
   governed "$(field .id)" "the UAE company's bank and discount account"
-  recon=$(company_account "$ae" 1200) sales=$(company_account "$ae" 4000) vat=$(company_account "$ae" 2300)
+  recon=$(company_account "$ae" 1200) sales=$(company_account "$ae" 4000) vat=$(company_account "$ae" 2300) granted=$(company_account "$ae" 6800)
   as ruth
   say "Ruth creates Oasis Office Supplies, a UAE customer of $AE on 2/10N30: 2% off within ten days, net in thirty."
   say "Carla approves it:"
@@ -16839,12 +16899,13 @@ step_uae_cash_discount() {
     "1234.80 25.20 25.20 0.00 1234.80"
   say "The discount is taken off the gross, so it carries VAT: of 25.20, Dubai's 50.00 of VAT in 1,260.00 gives 1.00 and"
   say "Sharjah's 10.00 gives 0.20; the net, 20.00 and 4.00, is the discount on each emirate's sales. The DZ entry debits"
-  say "them on 6850 and on the VAT account 2300, each line with S5 and its emirate, so the quarter's VAT 201 reports"
+  say "them on 6800, the cash discounts granted (not 6850's payment differences), and on the VAT account 2300, each line"
+  say "with S5 and its emirate, so the quarter's VAT 201 reports"
   say "Dubai's and Sharjah's output tax reduced (boxes 1b and 1c):"
   api 200 '"journal entry \(.document_number)", (.lines[] | "  \(.account_id[0:8])… \(.amount.amount) \(.amount.currency) \(.tax_code // "") \(.tax_jurisdiction // "")")' \
     getJournalEntry -p "id=$clearing"
-  expect "the discount's lines" "$(field "[.lines[] | select(.tax_code != null) | \"\(.account_id == \"$vat\") \(.amount.amount) \(.tax_code) \(.tax_jurisdiction)\"] | join(\", \")")" \
-    "false 20.00 S5 AE-DU, false 4.00 S5 AE-SH, true 1.00 S5 AE-DU, true 0.20 S5 AE-SH"
+  expect "the discount's lines" "$(field "[.lines[] | select(.tax_code != null) | \"\(if .account_id == \"$vat\" then 2300 elif .account_id == \"$granted\" then 6800 else .account_id end) \(.amount.amount) \(.tax_code) \(.tax_jurisdiction)\"] | join(\", \")")" \
+    "6800 20.00 S5 AE-DU, 6800 4.00 S5 AE-SH, 2300 1.00 S5 AE-DU, 2300 0.20 S5 AE-SH"
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$ae" -p "partner_id=$customer" -p page_size=100
   expect "Oasis's open items" "$(field '.items | length')" 0
   QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
@@ -17279,6 +17340,106 @@ wms_receipt() {
   as ben
   QUIET=1 api 200 '' listGoodsReceipts -p "purchase_order_id=$po"
   expect "the order's goods receipts after both" "$(field '.items | length')" 1
+}
+
+# step_tms is S2r (ADR-0082 As built S2r, plan-supply-chain.md §S2r): Ada
+# connects Toronto's transport management system for the Toronto plant, a
+# tms connector to the stand-in on this machine (step_wms's, free since
+# its wms connector was disabled; refused in production), its credentials
+# in Maple's vault namespace; a second for the plant is refused. Wade
+# creates an outbound delivery of a box of brackets: its creation's event,
+# read from the bus, queues the transport request giving the transport
+# system the delivery to plan, which the exchange sends once. The
+# transport system reports the shipment it planned the delivery in, with
+# its carrier and freight cost; the exchange records it on the delivery
+# once by the message's id, posting nothing, and acknowledges it; listed
+# again it is acknowledged, not recorded twice; a second shipment of the
+# delivery is refused. Wade then picks and issues the box by hand, the
+# shipment kept. Ada disables the connector.
+step_tms() {
+  heading "Step 161 — TMS connector: the Toronto plant's transport system is sent the outbound delivery created there to plan, once; the shipment it reports back, with its carrier and freight cost, is recorded on the delivery once by its message id, nothing posted; reported again, it is acknowledged, not recorded twice; a second shipment of the delivery is refused; a plant has one transport system"
+  local connector order delivery number message
+  [ -n "$MATERIAL" ] && [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
+  accounts
+  as ada
+  say "Maple plans its outbound freight in a transport management system (SAP TM's role, ADR-0082 As built S2r)."
+  say "Ada connects it for the Toronto plant: a tms connector naming the plants it plans for, P100, its credentials"
+  say "by secret_ref in Maple's vault namespace. It is the stand-in on this machine, as the warehouse system was,"
+  say "refused in production; a plant may have a warehouse system and a transport system, one of each:"
+  vault_put tms "$WORK/wms/token"
+  api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), plants \(.settings.plants | to_entries | map("\(.key) \(.value | join(" "))") | join(", "))"' \
+    createConnector -body "{\"kind\": \"tms\", \"name\": \"Toronto transport system\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
+  connector=$(field .id)
+  refused 409 integration.plant_has_tms createConnector -body "{\"kind\": \"tms\", \"name\": \"Second transport system\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
+  as sally
+  say "Sally sells Northwind another box of the bracket from the Toronto plant and confirms the order:"
+  api 201 '"sales order \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"1\", \"unit\": \"BOX\"}, \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    as ruth
+    say "Northwind is over its credit limit; Ruth releases the block:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$ETAG"
+  fi
+  as wade
+  say "Wade creates the outbound delivery. Its creation's event, read from the bus, queues a transport request for"
+  say "the transport system planning P100 (and none for the warehouse system, whose connector is disabled):"
+  api 201 '"outbound delivery \(.number) from \(.plant_code)/\(.storage_location_code): \(.status)"' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  delivery=$(field .id) number=$(field .number)
+  as ada
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listTMSMessages -p "outbound_delivery_id=$delivery" -p direction=outbound
+    if [ "$(field '.items[0].status // ""')" = sent ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id[0:8])… to \(.connector_name) for \(.company_code)/\(.plant_code): \(.outbound_delivery_number), \(.status) after \(.attempts) attempt"' \
+    listTMSMessages -p "outbound_delivery_id=$delivery" -p direction=outbound
+  expect "the delivery's transport request (after $i checks)" "$(field '[.items[] | "\(.kind) \(.status) \(.attempts) \(.outbound_delivery_number)"] | join(", ")')" "transport_request sent 1 $number"
+  message=$(field '.items[0].message_id')
+  [ -s "$WORK/wms/received/$message.json" ] || fail "the transport system's stand-in holds no message $message"
+  jq -r '"  \(.type) v\(.schema_version): \(.outbound_delivery_number) of \(.sales_order_number) for \(.customer_number) from \(.company_code)/\(.plant_code)/\(.storage_location_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.quantity) \(.unit)")' \
+    "$WORK/wms/received/$message.json"
+  QUIET=1 api 200 '' listWMSMessages -p "outbound_delivery_id=$delivery"
+  expect "the warehouse system's messages of the delivery" "$(field '.items | length')" 0
+  say "The transport system plans the delivery in a shipment with its carrier and reports it, a shipment message of"
+  say "its own id naming the delivery, the shipment's number, the carrier's code and the freight cost. The exchange"
+  say "polls it, records the shipment on the delivery through shipping as its system principal, once by the"
+  say "message's id, and acknowledges it. Nothing is posted: freight settlement is later in the plan."
+  printf '{"message_id": "TMS-SH-1", "type": "shipment", "outbound_delivery_id": "%s", "shipment_number": "SH-20261123-01", "carrier_code": "NLX", "freight_cost": {"amount": "185.40", "currency": "CAD"}}\n' \
+    "$delivery" >"$WORK/wms/confirmations/TMS-SH-1.json"
+  wms_acknowledged TMS-SH-1
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id): \(.status), \(.outbound_delivery_number), acknowledged \(.acknowledged_at != null)"' \
+    listTMSMessages -p "connector_id=$connector" -p direction=inbound
+  expect "the shipment reported" "$(field '[.items[] | "\(.message_id) \(.status) \(.outbound_delivery_number)"] | join(", ")')" "TMS-SH-1 recorded $number"
+  as wade
+  api 200 '"outbound delivery \(.number): \(.status), shipment \(.shipment.shipment_number) by \(.shipment.carrier_code), freight \(.shipment.freight_cost.amount) \(.shipment.freight_cost.currency)"' \
+    getOutboundDelivery -p "id=$delivery"
+  expect "the delivery's shipment" "$(field '"\(.status) \(.shipment.shipment_number) \(.shipment.freight_cost.amount) \(.shipment.freight_cost.currency)"')" "created SH-20261123-01 185.40 CAD"
+  say "The acknowledgement lost, TMS-SH-1 is listed again and acknowledged again, recording nothing twice; a second"
+  say "shipment of the delivery, under another id, is refused: a delivery's shipment is recorded once."
+  rm "$WORK/wms/confirmations/TMS-SH-1.acknowledged"
+  wms_acknowledged TMS-SH-1
+  printf '{"message_id": "TMS-SH-2", "type": "shipment", "outbound_delivery_id": "%s", "shipment_number": "SH-20261123-02", "carrier_code": "NLX", "freight_cost": {"amount": "90.00", "currency": "CAD"}}\n' \
+    "$delivery" >"$WORK/wms/confirmations/TMS-SH-2.json"
+  wms_acknowledged TMS-SH-2
+  as ada
+  api 200 '.items[] | "  \(.message_id): \(.status)\(if .problem_code then ", \(.problem_code)" else "" end)"' listTMSMessages -p "connector_id=$connector" -p direction=inbound
+  expect "the inbound messages" "$(field '[.items[] | "\(.message_id) \(.status) \(.problem_code // "")"] | join(", ")')" "TMS-SH-2 refused shipping.shipment_recorded, TMS-SH-1 recorded "
+  as wade
+  say "Wade picks the box and posts the goods issue by hand; the shipment stays on the delivery:"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$delivery"
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$delivery" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
+  api 200 '"outbound delivery \(.number): \(.status), shipment \(.shipment.shipment_number)"' postOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$ETAG"
+  expect "the delivery after its goods issue" "$(field '"\(.status) \(.shipment.shipment_number)"')" "goods_issued SH-20261123-01"
+  as ada
+  say "Ada disables the connector, so the later deliveries at P100 are planned by people:"
+  QUIET=1 api 200 '' getConnector -p "id=$connector"
+  api 200 '"connector \(.name): \(.status)"' disableConnector -p "id=$connector" -if-match "$ETAG" -body '{"reason": "The walkthrough goes on without the transport system"}'
+  passed
 }
 
 # wms_acknowledged ID waits for the exchange to acknowledge the warehouse
@@ -19322,7 +19483,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_close'
 
 main() {
   stop_unseen

@@ -295,7 +295,7 @@ func (c itemCheck) outputCode(ctx context.Context, i int, code string) (ledger.T
 // output tax code with a rate in force then. codes holds the codes read
 // for one company and date, so each is read once; a code that is not one
 // is read again, each caller refusing it in its own terms (an item
-// entered, itemCheck.outputCode; an item billed, billCheck.taxCode).
+// entered, itemCheck.outputCode; an item rechecked, recheck.taxCode).
 func (e *Endpoints) outputCodeOn(ctx context.Context, codes map[string]ledger.TaxCode, le uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error) {
 	if t, ok := codes[code]; ok {
 		return t, true, nil

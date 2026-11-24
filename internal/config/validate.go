@@ -748,7 +748,9 @@ func (v *validator) customerReconciliation(ap string, a *Account) {
 // use is one and no other account; the FX accounts are optional, the
 // GR/IR account comes with a price difference account, the cash discount
 // account is a revenue (SAP SKE, cash discount received; its presence is
-// required by the payment terms, paymentTerms), the down payment
+// required by the payment terms, paymentTerms), the optional cash
+// discount granted account an expense (SAP SKT) and the optional supplier
+// rebate account a revenue, as cash discounts received are, the down payment
 // account is an asset vendor reconciliation account (ADR-0037), the
 // contract asset and contract liability accounts are an asset and a
 // liability that reconcile nothing (ADR-0068 §9), and so are a lease's
@@ -776,6 +778,12 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	}
 	if ad.CashDiscount != "" {
 		check("cash_discount", ad.CashDiscount, Revenue, false)
+	}
+	if ad.CashDiscountGranted != "" {
+		check("cash_discount_granted", ad.CashDiscountGranted, Expense, false)
+	}
+	if ad.SupplierRebate != "" {
+		check("supplier_rebate", ad.SupplierRebate, Revenue, false)
 	}
 	if ad.DownPayment != "" {
 		check("down_payment", ad.DownPayment, Asset, true)

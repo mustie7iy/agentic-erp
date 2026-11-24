@@ -435,3 +435,49 @@ func TestCashPorts(t *testing.T) {
 		})
 	}
 }
+
+// TestDeterminationFallbacks (ADR-0063 and ADR-0061 As built batch 92):
+// cash_discount_granted and supplier_rebate name their own accounts, and a
+// company that has not set one gets the account of the key it shared
+// before, payment_difference_expense and cash_discount; with neither set
+// there is none. The fallback is the key's alone: the shared keys answer
+// for themselves only.
+func TestDeterminationFallbacks(t *testing.T) {
+	e := setup(t)
+	a := ledger.Accounts{}
+	own, shared := e.account(t, "2000", "520000"), e.account(t, "2000", "530000")
+	set := func(key, account string) {
+		pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $2, $3, $4, $5)`,
+			e.ten.ID, e.de, key, account, e.ten.Human.ID)
+	}
+	lookup := func(key string) string {
+		t.Helper()
+		var got string
+		if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+			id, ok, err := a.Determination(ctx, e.de, key)
+			got = map[bool]string{true: id.String(), false: "none"}[ok]
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	for _, c := range []struct{ key, fallback string }{{"cash_discount_granted", "payment_difference_expense"}, {"supplier_rebate", "cash_discount"}} {
+		t.Run(c.key, func(t *testing.T) {
+			if got := lookup(c.key); got != "none" {
+				t.Errorf("neither set: got %s, want none", got)
+			}
+			set(c.fallback, shared)
+			if got := lookup(c.key); got != shared {
+				t.Errorf("only %s set: got %s, want its account %s", c.fallback, got, shared)
+			}
+			set(c.key, own)
+			if got := lookup(c.key); got != own {
+				t.Errorf("both set: got %s, want the key's own account %s", got, own)
+			}
+			if got := lookup(c.fallback); got != shared {
+				t.Errorf("%s itself: got %s, want its own account %s", c.fallback, got, shared)
+			}
+		})
+	}
+}

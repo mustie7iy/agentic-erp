@@ -521,6 +521,7 @@ const (
 	ListStockTransportOrdersOperation              OperationName = "ListStockTransportOrders"
 	ListSupplierInvoicesOperation                  OperationName = "ListSupplierInvoices"
 	ListSupplierQuotationsOperation                OperationName = "ListSupplierQuotations"
+	ListTMSMessagesOperation                       OperationName = "ListTMSMessages"
 	ListTaxPeriodsOperation                        OperationName = "ListTaxPeriods"
 	ListTaxRegistrationsOperation                  OperationName = "ListTaxRegistrations"
 	ListTaxReturnDraftItemsOperation               OperationName = "ListTaxReturnDraftItems"

@@ -118,12 +118,12 @@ func TestPlanningRun(t *testing.T) {
 // issued, released or not, in the base unit (100 EA and 2 BOX, 40 EA),
 // so it proposes what their 140 take below the reorder point; an issued
 // order (its stock gone from P1), a closed or cancelled one and a removed
-// item demand nothing, and stock transport orders within the company are
-// counted on neither side (ADR-0084 §2): one from P1 is no demand, one to
-// P1, open or in transit, no receipt. The intercompany orders are no
-// receipts of P1; P9 counts the open ones as its purchase orders'
-// receipts, the issued one until it is received, so each is counted once
-// on each side.
+// item demand nothing. Stock transport orders within the company count
+// too (As built, stock transport orders; TestPlanningRunTransports): the
+// open one from P1 as demand (60), those to P1, open or in transit, as
+// receipts (8 and 6). The intercompany orders are no receipts of P1; P9
+// counts the open ones as its purchase orders' receipts, the issued one
+// until it is received, so each is counted once on each side.
 func TestPlanningRunIntercompany(t *testing.T) {
 	e := setup(t)
 	e.plan(t, e.bracket, "50")
@@ -136,8 +136,9 @@ func TestPlanningRunIntercompany(t *testing.T) {
 	e.transport(t, "ST1", "open", e.p1, uuid.Must(uuid.NewV7()), 60)
 	e.transport(t, "ST2", "open", uuid.Must(uuid.NewV7()), e.p1, 8)
 	e.transport(t, "ST3", "in_transit", uuid.Must(uuid.NewV7()), e.p1, 6)
-	if got := line(t, e.run(t), e.bracket); got != "170 200 0 20 PR100000" {
-		t.Errorf("the run's line: got %s, want demand 170 (30 sold, 140 to P9), stock 200, no receipts and a shortage of 20 proposed", got)
+	if got := line(t, e.run(t), e.bracket); got != "230 200 14 66 PR100000" {
+		t.Errorf("the run's line: got %s, want demand 230 (30 sold, 140 to P9, 60 to another plant), stock 200, receipts 14 and a shortage of 66 proposed",
+			got)
 	}
 	var receipts []procurement.OnOrder
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
@@ -149,6 +150,64 @@ func TestPlanningRunIntercompany(t *testing.T) {
 	}
 	if got, want := fmt.Sprint(receipts), fmt.Sprintf("[{%s BOX 2} {%s EA 170}]", e.bracket, e.bracket); got != want {
 		t.Errorf("P9's receipts: got %s, want %s (IC1, IC2 and the issued IC3)", got, want)
+	}
+}
+
+// extend extends the bracket to the plant's storage location through a
+// change approved by two approvers.
+func (e env) extend(t *testing.T, plant, location uuid.UUID) {
+	t.Helper()
+	_, tag := e.Must(200, "GET", "/v1/materials/"+e.bracket, "", "")
+	c, _ := e.Must(200, "PATCH", "/v1/materials/"+e.bracket, mustJSON(t, map[string]any{"plants": []any{
+		map[string]any{"plant_id": e.p1, "storage_location_ids": []any{e.s1}}, map[string]any{"plant_id": plant, "storage_location_ids": []any{location}}}}), tag)
+	e.Approve(t, c["pending_change_id"].(string))
+}
+
+// TestPlanningRunTransports (S2k, S2h, S2i; ADR-0084 As built, stock
+// transport orders, review:batch91): the stock transport orders within
+// company 2000, the intercompany orders and the sales orders counted
+// together, each order once on each side. P1's run counts as demand its
+// confirmed sales order (30), the intercompany order it supplies to P9
+// and has not issued (40) and the stock transport order to P2 it has not
+// issued (60); the one it issued (25, in transit) and the one P2 received
+// (5) demand nothing more at P1. As receipts, P1 counts the stock
+// transport orders from P2 not yet received, open (15) or in transit (7).
+// P2's run counts those two as its demand only while open (15) and the
+// orders from P1 as its receipts while open or in transit (60 and 25),
+// never the received one; P9 counts the intercompany order as its
+// purchase order's receipt.
+func TestPlanningRunTransports(t *testing.T) {
+	e := setup(t)
+	p2 := e.orgUnit(t, e.DE, "plant", "P2", nil)
+	e.extend(t, p2, e.orgUnit(t, e.DE, "storage_location", "S2", &p2))
+	e.plan(t, e.bracket, "50")
+	e.planAt(t, p2, e.bracket, "100")
+	e.confirmed(t, "30 EA")
+	e.intercompany(t, icOrder{number: "IC1", status: "released", qty: "40", unit: "EA"})
+	for _, o := range []struct {
+		number, status string
+		from, to       uuid.UUID
+		qty            int
+	}{{"ST1", "open", e.p1, p2, 60}, {"ST2", "in_transit", e.p1, p2, 25}, {"ST3", "received", e.p1, p2, 5}, {"ST4", "open", p2, e.p1, 15},
+		{"ST5", "in_transit", p2, e.p1, 7}} {
+		e.transport(t, o.number, o.status, o.from, o.to, o.qty)
+	}
+	if got := line(t, e.run(t), e.bracket); got != "130 200 22 0 -" {
+		t.Errorf("P1's line: got %s, want demand 130 (30 sold, 40 to P9, 60 to P2), stock 200, receipts 22 (15 and 7 from P2), nothing short", got)
+	}
+	if got := line(t, e.runAt(t, p2), e.bracket); got != "15 0 85 30 PR100000" {
+		t.Errorf("P2's line: got %s, want demand 15 (to P1, open), no stock, receipts 85 (60 and 25 from P1) and 30 short of 100 proposed", got)
+	}
+	var receipts []procurement.OnOrder
+	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		var err error
+		receipts, err = procurement.Orders{}.OpenReceipts(ctx, e.p9, []uuid.UUID{uuid.MustParse(e.bracket)})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprint(receipts), fmt.Sprintf("[{%s EA 40}]", e.bracket); got != want {
+		t.Errorf("P9's receipts: got %s, want %s (IC1)", got, want)
 	}
 }
 

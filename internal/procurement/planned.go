@@ -59,21 +59,66 @@ func (Orders) OpenReceipts(ctx context.Context, plant uuid.UUID, materials []uui
 // left the supplying plant and is no plant's until received. An order not
 // yet issued moves stock between the company's plants only, and an
 // intercompany order the plant receives is a purchase order
-// (OpenReceipts), so neither is here. It reads the orders as they are,
-// locking nothing. Company access is not applied: the caller reads a plant
-// of a company it may act in.
+// (OpenReceipts), so neither is here: what an S&OP review of the company
+// counts. It reads the orders as they are, locking nothing. Company
+// access is not applied: the caller reads a plant of a company it may act
+// in.
 func (Orders) TransportReceipts(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
+	return transports(ctx, plant, receiving, []string{"in_transit"}, materials)
+}
+
+// TransportsDue is what the stock transport orders within the company
+// the plant ($1) supplies and has not issued (open) order of the
+// materials ($2), by material and unit in that order: the plant's
+// requirement from the company's other plants, which a planning run
+// counts as demand as it counts sales orders (S2h, S2k; ADR-0084 As built,
+// stock transport orders). Once issued the stock has left the plant, so
+// the order demands nothing more there. It reads the orders as they are,
+// locking nothing. Company access is not applied: the caller reads a
+// plant of a company it may act in.
+func (Orders) TransportsDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
+	return transports(ctx, plant, supplying, []string{"open"}, materials)
+}
+
+// TransportsOnOrder is what the stock transport orders within the
+// company to the plant ($1) not yet received (open or in transit) bring of
+// the materials ($2), by material and unit in that order: the plant's
+// receipts from the company's other plants, which a planning run counts
+// as it counts purchase orders' (S2h, S2k; ADR-0084 As built, stock
+// transport orders). It reads the orders as they are, locking nothing.
+// Company access is not applied: the caller reads a plant of a company it
+// may act in.
+func (Orders) TransportsOnOrder(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]OnOrder, error) {
+	return transports(ctx, plant, receiving, []string{"open", "in_transit"}, materials)
+}
+
+// side is which of a stock transport order's plants a read is of.
+type side string
+
+const (
+	supplying side = "supplying"
+	receiving side = "receiving"
+)
+
+// transports sums the items of the materials of the stock transport
+// orders the plant supplies or receives (its side), in the given
+// statuses, by material and unit in that order. An order's items are
+// insert-only and it moves them whole, so an item's quantity is what it
+// moves. Each plant column is compared on its own, so an index of either
+// could serve it.
+func transports(ctx context.Context, plant uuid.UUID, of side, statuses []string, materials []uuid.UUID) ([]OnOrder, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	rows, _ := tx.Query(ctx, `SELECT i.material_id, i.uom_code, trim_scale(sum(i.quantity))::text
 		FROM procurement.stock_transport_order_item i JOIN procurement.stock_transport_order o ON o.tenant_id = i.tenant_id AND o.id = i.order_id
-		WHERE o.receiving_plant_id = $1 AND o.status = 'in_transit' AND i.material_id = ANY($2)
-		GROUP BY i.material_id, i.uom_code ORDER BY i.material_id, i.uom_code`, plant, materials)
+		WHERE ($3 = 'supplying' AND o.supplying_plant_id = $1 OR $3 = 'receiving' AND o.receiving_plant_id = $1) AND o.status = ANY($4)
+			AND i.material_id = ANY($2)
+		GROUP BY i.material_id, i.uom_code ORDER BY i.material_id, i.uom_code`, plant, materials, string(of), statuses)
 	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[OnOrder])
 	if err != nil {
-		return nil, fmt.Errorf("procurement: stock in transit of %d materials to plant %s: %w", len(materials), plant, err)
+		return nil, fmt.Errorf("procurement: stock transport orders of %d materials %s at plant %s, %v: %w", len(materials), of, plant, statuses, err)
 	}
 	return out, nil
 }

@@ -48,7 +48,7 @@ const BankSFTP = "bank_sftp"
 // the cash context exports its companies' snapshots to (ADR-0051 §14).
 const TreasuryExport = "treasury_export"
 
-var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport, EInvoiceProvider, WMS}
+var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport, EInvoiceProvider, WMS, TMS}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -127,8 +127,8 @@ func checkSettings(kind string, settings map[string]any) error {
 	case EInvoiceProvider:
 		_, err := einvoiceSettings(settings)
 		return err
-	case WMS:
-		_, err := wmsSettings(settings)
+	case WMS, TMS:
+		_, err := plantSettings(kind, settings)
 		return err
 	}
 	return nil
@@ -330,7 +330,7 @@ func CreateConnector(ctx context.Context, in NewConnector) (Connector, error) {
 		return Connector{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	if err := checkWMSActive(ctx, tx, id, in.Kind, "active", in.Settings); err != nil {
+	if err := checkPlantsActive(ctx, tx, id, in.Kind, "active", in.Settings); err != nil {
 		return Connector{}, err
 	}
 	c, err := scanConnector(tx.QueryRow(ctx, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
@@ -374,7 +374,7 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		if err := checkSettings(c.Kind, ch.Settings); err != nil {
 			return Connector{}, err
 		}
-		if err := checkWMSActive(ctx, tx, id, c.Kind, c.Status, ch.Settings); err != nil {
+		if err := checkPlantsActive(ctx, tx, id, c.Kind, c.Status, ch.Settings); err != nil {
 			return Connector{}, err
 		}
 		c.Settings = ch.Settings
@@ -547,7 +547,7 @@ func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnec
 		if err := e.refuseUncertified(c.Kind, c.Settings); err != nil {
 			return err
 		}
-		return checkWMSActive(ctx, tx, c.ID, c.Kind, "active", c.Settings)
+		return checkPlantsActive(ctx, tx, c.ID, c.Kind, "active", c.Settings)
 	})
 	if err != nil {
 		return nil, err

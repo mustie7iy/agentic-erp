@@ -156,9 +156,12 @@ type Delivery struct {
 	MaterialDocumentNumber *string
 	// Currency and Exponent are its items' costs', the company's; ""
 	// before its goods issue.
-	Currency  string
-	Exponent  int
-	Items     []Item
+	Currency string
+	Exponent int
+	Items    []Item
+	// Shipment is the shipment a transport system planned it in (S2r);
+	// nil until one is recorded.
+	Shipment  *Shipment
 	Version   int32
 	CreatedAt time.Time
 	CreatedBy uuid.UUID

@@ -21,7 +21,12 @@ import (
 )
 
 // WMSExchange is the exchange with warehouse systems (S2q1; ADR-0082 As
-// built S2q), as the cash exporter sends its exports: a round finds the
+// built S2q) and transport systems (S2r, the same messages of their own
+// kinds). "WMS" in its name, its port's (Warehouse), settings'
+// (WMSSettings), queue's and table's (integration.wms_message) names the
+// machinery S2q built, which both kinds share, not the kind; renaming the
+// exported names and the table is churn without a consumer. It works as
+// the cash exporter sends its exports: a round finds the
 // tenants with messages due, then, per message, claims it in one short
 // transaction of its tenant (FOR UPDATE SKIP LOCKED, so replicas share
 // the queue) and reads its connector, resolves the credentials and sends
@@ -47,6 +52,9 @@ type WMSExchange struct {
 	// Orders posts a goods receipt a WMS reports (procurement, wired by
 	// the composition root; S2q2).
 	Orders WMSOrders
+	// Shipments records a shipment a TMS reports (shipping, wired by the
+	// composition root; S2r).
+	Shipments TMSDeliveries
 	// RefuseStandIn refuses the stand-in's adapter at use (production): a
 	// connector stored before, or changed since, that the API would refuse.
 	RefuseStandIn bool
@@ -175,10 +183,10 @@ func (w *WMSExchange) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 		if c.attempt >= maxWMSAttempts { // the last attempt's claim lapsed
 			c.attempt, settled = maxWMSAttempts, true
 			return failWMS(ctx, tx, c, problem.Conflict(wmsOutcomeUnknown,
-				"The exchange stopped without an outcome on the last attempt; the warehouse system may have the message."))
+				"The exchange stopped without an outcome on the last attempt; the "+systemName(connectorKind(c.kind))+" may have the message."))
 		}
 		c.attempt++
-		conn, err := w.connection(ctx, tx, c.connector)
+		conn, err := w.connection(ctx, tx, c.connector, connectorKind(c.kind))
 		if err != nil {
 			settled = true
 			return w.retry(ctx, tx, c, err, now)
@@ -193,37 +201,59 @@ func (w *WMSExchange) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	return c, true, nil
 }
 
-// wmsTarget is a wms connector read for use, without its credentials.
+// wmsTarget is a wms or tms connector read for use, without its
+// credentials.
 type wmsTarget struct {
 	WMSConnection
 	id        uuid.UUID
 	secretRef string
 }
 
-// connection reads the wms connector of a message for use, failing
-// closed: one that is not an active wms connector naming a secret_ref,
-// whose settings no longer resolve, or is the stand-in in production, is
-// refused.
-func (w *WMSExchange) connection(ctx context.Context, tx pgx.Tx, id uuid.UUID) (wmsTarget, error) {
+// connectorKind is the kind of connector a message of the kind is
+// exchanged with: a transport request a tms one's (S2r), the others a wms
+// one's.
+func connectorKind(messageKind string) string {
+	if messageKind == TMSTransportRequest {
+		return TMS
+	}
+	return WMS
+}
+
+// notOfKind refuses a message's connector of another kind than its
+// messages are exchanged with (changed by hand).
+func notOfKind(c Connector, kind string) error {
+	detail := "Connector " + c.Name + " is a " + c.Kind + " connector, not a " + kind + " one."
+	if kind == TMS {
+		return problem.Unprocessable("integration.not_a_tms", detail)
+	}
+	return problem.Unprocessable("integration.not_a_wms", detail)
+}
+
+// connection reads the connector of a message for use, of the kind its
+// messages are exchanged with, failing closed: one that is not an active
+// connector of the kind naming a secret_ref, whose settings no longer
+// resolve, or is the stand-in in production, is refused.
+func (w *WMSExchange) connection(ctx context.Context, tx pgx.Tx, id uuid.UUID, kind string) (wmsTarget, error) {
 	c, err := getConnector(ctx, tx, id, false)
 	switch {
 	case err != nil:
 		return wmsTarget{}, err
-	case c.Kind != WMS:
-		return wmsTarget{}, problem.Unprocessable("integration.not_a_wms", "Connector "+c.Name+" is a "+c.Kind+" connector, not a wms one.")
+	case c.Kind != kind:
+		return wmsTarget{}, notOfKind(c, kind)
 	case c.Status != "active":
-		return wmsTarget{}, problem.Conflict("integration.connector_disabled", "The warehouse system's connector "+c.Name+" is disabled; enable it to use it.")
+		return wmsTarget{}, problem.Conflict("integration.connector_disabled", "The "+systemName(kind)+"'s connector "+c.Name+" is disabled; enable it to use it.")
 	case c.SecretRef == nil:
-		return wmsTarget{}, problem.Unprocessable("integration.secret_required", "Connector "+c.Name+" names no secret_ref: the warehouse system's credentials are a secret.")
+		return wmsTarget{}, problem.Unprocessable("integration.secret_required", "Connector "+c.Name+" names no secret_ref: the "+systemName(kind)+
+			"'s credentials are a secret.")
 	}
-	s, err := wmsSettings(c.Settings)
+	s, err := plantSettings(c.Kind, c.Settings)
 	if err != nil {
 		return wmsTarget{}, err
 	}
 	if w.RefuseStandIn && s.Adapter == StandInAdapter {
-		return wmsTarget{}, wmsStandInRefused()
+		return wmsTarget{}, logisticsStandInRefused(c.Kind)
 	}
-	return wmsTarget{WMSConnection: WMSConnection{Name: c.Name, WMSSettings: s}, id: c.ID, secretRef: *c.SecretRef}, nil
+	return wmsTarget{WMSConnection: WMSConnection{Name: c.Name, Kind: c.Kind, WMSSettings: s}, id: c.ID, secretRef: *c.SecretRef}, nil
 }
 
 // warehouse resolves a connector's credentials under the tenant's own
@@ -235,7 +265,7 @@ func (w *WMSExchange) warehouse(ctx context.Context, tenant uuid.UUID, c wmsTarg
 	switch {
 	case errors.Is(err, secrets.ErrNotFound) || errors.Is(err, secrets.ErrNotTenants):
 		return nil, problem.Unprocessable("integration.secret_unavailable",
-			"The warehouse system's credentials ("+c.secretRef+") cannot be resolved.").WithCause(err)
+			"The "+systemName(c.Kind)+"'s credentials ("+c.secretRef+") cannot be resolved.").WithCause(err)
 	case err != nil:
 		return nil, fmt.Errorf("integration: the credentials of connector %s: %w", c.Name, err)
 	}

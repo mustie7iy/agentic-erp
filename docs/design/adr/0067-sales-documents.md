@@ -2204,3 +2204,30 @@ post and E2 renders them (ADR-0061 As built E2, Gaps found, closed).
   the delivery is billed and posted, the customer invoice's item and its
   entry's revenue and tax lines naming AE-DU, and the invoice renders as
   a valid PINT AE tax invoice 380.
+
+**An order from a quotation checks its items again** (lane salesfix,
+batch 92; leaf src review:batch85). `fromQuotation` copied the
+quotation's items as they were checked on the quotation's date, so an
+order made later could carry an account no longer postable, a tax code
+without a rate that day or an emirate its code no longer levies, found
+only when the order was billed. `createSalesOrder` with `quotation_id`
+now holds each item, on the order's date, to the rules an item entered
+directly meets there (§4; `itemCheck`'s account and output tax code, and
+the jurisdiction rule), through the check billing uses on the billing
+date (`recheck`, shared by `billableOn` and `orderableOn`). An item that
+fails refuses the order, 422 `sales.quotation_item_not_orderable` naming
+`quotation_id`, with the item, the date and the reason in the message;
+nothing is written and the quotation stays accepted, ordered once the
+configuration allows it. Decided by default: (1) a refusal rather than an
+order with the failing item corrected or left out: SAP's copy control
+from a quotation (VA01 with reference) copies the items and runs the
+order's own checks on them, so an item that fails is the user's to fix in
+the quotation's master data (from memory, for the specialist); (2) prices
+and emirates stay as offered (a quotation keeps its emirates; the
+emirate on a sales item above): an item that names no emirate where its
+code now levies one is refused, not defaulted from the order's plant; (3)
+the item's material, unit and quantity are not checked again: the leaf
+names the account, tax code and jurisdiction, and a material's status
+since is the delivery's and the availability check's concern (S2j).
+Tests: `TestOrderFromQuotationRechecked` (sales), reproducing the stale
+check first.

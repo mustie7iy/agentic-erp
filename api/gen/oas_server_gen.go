@@ -2008,10 +2008,11 @@ type Handler interface {
 	// Arab Emirates (the product owner, 2026-11-21): it is then paid net of the discount, the tier's
 	// percent of its amount, and the discount is a debit of the clearing entry split by the invoice's tax
 	// items in proportion to its gross, as a supplier's cash discount is (T36d): its net on the company's
-	// `payment_difference_expense` account with each tax code and emirate of the base it reduces, its tax
+	// `cash_discount_granted` account (SAP SKT), else, for a company that names none, its
+	// `payment_difference_expense` account, with each tax code and emirate of the base it reduces, its tax
 	// share on each output tax line's account with its code and the emirate the invoice's item named, all
 	// at the receipt's rate, writing tax items that reduce the output tax the VAT 201 reports in that
-	// emirate (422 `ledger.no_payment_difference_account` without the account). A company of another
+	// emirate (422 `ledger.no_payment_difference_account` without either account). A company of another
 	// country grants none: what a customer takes off is a payment difference without tax (a Canadian cash
 	// discount makes no GST/HST adjustment, ETA s.161), and an item asking for one is refused, 422
 	// `receivables.cash_discount_not_granted`. One clearing entry, document type `DZ`, `source_context`
@@ -2884,7 +2885,12 @@ type Handler interface {
 	// field given). The quotation is one of a company the caller may act in (422
 	// `request.reference_not_found` naming `quotation_id`) that the customer accepted (409
 	// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
-	// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
+	// `sales.quotation_ordered`). The quotation's items are checked again on the order's date, as an item
+	// entered directly is: an item whose account can no longer be posted in the company, whose tax code is
+	// no output tax code of the company with a rate on that date, or whose tax jurisdiction that code does
+	// not levy then (none where the code levies its items' subdivision, or one it does not levy) refuses
+	// the order (422 `sales.quotation_item_not_orderable` naming `quotation_id`, with the item in the
+	// message); the quotation stays accepted. Without `quotation_id`, the request gives `legal_entity_id`,
 	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
 	// the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed
 	// or serial-managed material is refused, 422 `sales.material_not_usable`, S2f, S2g), on the order's
@@ -3452,12 +3458,13 @@ type Handler interface {
 	// discount naming no order, IBT-013, is entered without one, as a credit memo needs none: of the one
 	// supplier of the company holding the seller's TRN, else held with `payables.einvoice_seller_unknown`
 	// or `payables.einvoice_seller_ambiguous`; each line an item of 1 `EA` with its net on the account of
-	// discounts received, account determination `cash_discount`, which a person may change while it is
-	// parked, held with `payables.capture_needs_account` when the company has none; its tax as stated, its
-	// codes by its lines' category and rate as for any line; a tax credit note for another reason naming
-	// no order is held with `payables.capture_needs_order` as before); one naming several invoices (IBG-03
-	// repeated) is entered as one credit memo citing them all, without a `reference_invoice_id`, on hold
-	// naming any that is no posted invoice of the supplier (batch 88; before it such a note was held with
+	// supplier rebates, account determination `supplier_rebate`, else, for a company that names none,
+	// `cash_discount`, the discounts received, which a person may change while it is parked, held with
+	// `payables.capture_needs_account` when the company has neither; its tax as stated, its codes by its
+	// lines' category and rate as for any line; a tax credit note for another reason naming no order is
+	// held with `payables.capture_needs_order` as before); one naming several invoices (IBG-03 repeated)
+	// is entered as one credit memo citing them all, without a `reference_invoice_id`, on hold naming any
+	// that is no posted invoice of the supplier (batch 88; before it such a note was held with
 	// `einvoicing.credit_note_names_several_invoices`). A tax invoice validated by a fetch before T65d,
 	// and a tax credit note validated before T65e, is entered by the next one. When the fetch is done its
 	// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
@@ -6773,8 +6780,8 @@ type Handler interface {
 	// ListOutboundDeliveries implements listOutboundDeliveries operation.
 	//
 	// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-	// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
-	// Sortable by: `created_at`.
+	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
+	// status. Sortable by: `created_at`.
 	//
 	// GET /v1/outbound-deliveries
 	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)
@@ -7281,6 +7288,34 @@ type Handler interface {
 	//
 	// GET /v1/rfqs/{id}/quotations
 	ListSupplierQuotations(ctx context.Context, params ListSupplierQuotationsParams) (ListSupplierQuotationsRes, error)
+	// ListTMSMessages implements listTMSMessages operation.
+	//
+	// The messages exchanged with the tenant's transport management systems through `tms` connectors
+	// (ADR-0082 As built S2r), newest first: those of the companies the caller may act in, and, to a
+	// caller who may act in every company, inbound ones refused before their delivery was known. Outbound
+	// (`transport_request`): each outbound delivery created at a plant an active `tms` connector names in
+	// its `plants` is queued once as a message giving the transport system the delivery to plan (its
+	// `body`, the message as sent: message type `transport_request`, schema version 1, its company, plant
+	// and storage location by code, the delivery by id and number with its sales order's and customer's
+	// numbers, and each item's number, material number, quantity and unit), sent, tried again and failed
+	// exactly as a warehouse system's message is (`listWMSMessages`; `integration.not_a_tms` when its
+	// connector is not a `tms` one). Inbound (`shipment`): the shipment the transport system reports back,
+	// polled from each active `tms` connector (every 10 s) and recorded once per connector and its message
+	// id: `recorded`, the shipment (its own `message_id`, the `outbound_delivery_id` it was sent,
+	// `shipment_number`, `carrier_code` and `freight_cost` with `amount` and `currency`) recorded on the
+	// delivery (`getOutboundDelivery`'s `shipment`, as the exchange's system principal acting for the
+	// delivery's company), nothing posted; or `refused` with the problem that stopped it: one that is not
+	// a JSON `shipment` message naming its own message id and an `outbound_delivery_id`, or that holds
+	// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for both kinds; its body kept as
+	// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+	// not sent (`integration.tms_unknown_delivery`), or that shipping refuses
+	// (`shipping.shipment_recorded` for a delivery with a shipment already, `shipping.invalid_shipment`,
+	// `request.invalid_amount`). The transport system is told after that commit (`acknowledged_at`); one
+	// listed again is acknowledged again, not recorded twice. Filters: connector, direction, status and
+	// the outbound delivery.
+	//
+	// GET /v1/tms-messages
+	ListTMSMessages(ctx context.Context, params ListTMSMessagesParams) (ListTMSMessagesRes, error)
 	// ListTaxPeriods implements listTaxPeriods operation.
 	//
 	// The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its
@@ -9528,24 +9563,26 @@ type Handler interface {
 	// that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales
 	// orders (each standing item's ordered quantity less what is delivered) and the ordered quantities of
 	// the intercompany purchase orders the plant supplies (`supplying_plant_id`) that are not closed,
-	// cancelled or issued (their standing items), the plant's stock at its storage locations (not stock in
-	// transit), and its open receipts (the open quantities of the stock items of purchase orders not
-	// closed or cancelled at the plant, and of the requisitions earlier runs proposed that a person took
-	// over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand
-	// fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft
-	// purchase requisition of the material in its base unit, raised by the person who started the run in
-	// the company's currency at the material's valuation price at the plant (zero when it has none),
-	// naming the planning data's account and needed by the run's day. Before it plans, the run cancels the
-	// plant's earlier proposals still its own: drafts no person changed since a run proposed them. A
-	// proposal a person changed or submitted is theirs from then on and is never touched; a requisition a
-	// person raised is never touched either. The run's lines say what it counted and proposed per
-	// material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`);
-	// a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business
-	// problem while planning (the company's requisition number range exhausted, the account no longer
-	// postable, the requester no longer active, an open quantity in a unit the material no longer has:
-	// `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation with the
-	// problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails
-	// it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+	// cancelled or issued (their standing items) and of the stock transport orders within the company from
+	// the plant that are not issued, the plant's stock at its storage locations (not stock in transit),
+	// and its open receipts (the open quantities of the stock items of purchase orders not closed or
+	// cancelled at the plant, the quantities of the stock transport orders within the company to the plant
+	// that are not received, open or in transit, and the items of the requisitions earlier runs proposed
+	// that a person took over and that are not ordered, cancelled or rejected). Where the stock and
+	// receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is
+	// proposed as a draft purchase requisition of the material in its base unit, raised by the person who
+	// started the run in the company's currency at the material's valuation price at the plant (zero when
+	// it has none), naming the planning data's account and needed by the run's day. Before it plans, the
+	// run cancels the plant's earlier proposals still its own: drafts no person changed since a run
+	// proposed them. A proposal a person changed or submitted is theirs from then on and is never touched;
+	// a requisition a person raised is never touched either. The run's lines say what it counted and
+	// proposed per material. The plant is an active plant of a company the caller may act in (422
+	// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
+	// names it. A business problem while planning (the company's requisition number range exhausted, the
+	// account no longer postable, the requester no longer active, an open quantity in a unit the material
+	// no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation
+	// with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried
+	// out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
 	//
 	// POST /v1/mrp-runs
 	StartMrpRun(ctx context.Context, req *MrpRunStart, params StartMrpRunParams) (StartMrpRunRes, error)

@@ -41,7 +41,8 @@ func rebateNote(number, trn string) []byte {
 }
 
 // rebateAccount gives company 5000 the account of discounts received
-// (account determination cash_discount), 400000, and returns it.
+// (account determination cash_discount), 400000, and returns it: the
+// account a volume discount falls back to without a supplier_rebate one.
 func (s *entering) rebateAccount(t *testing.T) uuid.UUID {
 	t.Helper()
 	account := s.f.Account(t, "5000", "400000")
@@ -284,6 +285,30 @@ func TestEnterVolumeDiscountWithoutOrder(t *testing.T) {
 	}
 	if strings.Contains(detail, "100999999900003") {
 		t.Errorf("VD-2's detail: got %q, want no TRN in clear", detail)
+	}
+}
+
+// TestVolumeDiscountOnSupplierRebates (ADR-0061 As built batch 92): a
+// company that names its supplier rebate account (supplier_rebate) has a
+// volume discount naming no order credited there, not on its account of
+// discounts received (cash_discount), which a company without one falls
+// back to (TestEnterVolumeDiscountWithoutOrder).
+func TestVolumeDiscountOnSupplierRebates(t *testing.T) {
+	s := enteringScene(t)
+	discounts, rebates := s.rebateAccount(t), s.f.Account(t, "5000", "530000")
+	pgtest.Exec(t, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by)
+		VALUES ($1, $2, 'supplier_rebate', $3, $4)`, s.f.Tenant.ID, s.le, rebates, s.f.Tenant.Human.ID)
+	s.srv.Deliver("VD-1", uaeParticipant, rebateNote("VD-1", supplierTRN))
+	op := uuid.Must(uuid.NewV7())
+	s.recordAll(t, op)
+	if got, err := s.e.ProcessEInvoices(context.Background(), s.connector, op, s.within()); err != nil || got.Entered != 1 {
+		t.Fatalf("got %+v (%v), want VD-1 entered", got, err)
+	}
+	var account uuid.UUID
+	pgtest.Scan(t, `SELECT it.account_id FROM payables.supplier_invoice i JOIN payables.supplier_invoice_item it ON it.supplier_invoice_id = i.id
+		WHERE i.tenant_id = $1 AND i.supplier_reference = 'VD-1'`, []any{s.f.Tenant.ID}, &account)
+	if account != rebates {
+		t.Errorf("VD-1's item account: got %s, want the supplier rebate account %s, not the discounts received account %s", account, rebates, discounts)
 	}
 }
 

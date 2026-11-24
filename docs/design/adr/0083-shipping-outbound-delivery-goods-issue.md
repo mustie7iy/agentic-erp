@@ -269,3 +269,13 @@ deliveries and partial goods issue: all Later in the plan.
 `cost_of_sales` and `margin`, `includes_cost` is true (ADR-0075 As
 built), and a goods issue of an order in another currency counts in
 `foreign_currency_documents`.
+
+**Delivery number filter** (lane salesfix, batch 92; leaf src
+review:batch85): `GET /v1/outbound-deliveries?number=` lists the delivery
+with that number, so a material document's or billing document's
+reference finds its delivery as `GET /v1/stock-transport-orders?number=`
+finds its order (ADR-0082 As built S2h). Each company numbers its own
+deliveries per fiscal year (`outbound_delivery_number_once`), so
+`legal_entity_id` narrows it to one per fiscal year; the filter combines
+with the others and is part of the page token's scope. Additive: no
+existing parameter or response changed.

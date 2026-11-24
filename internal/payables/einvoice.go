@@ -186,10 +186,13 @@ func trnEnding(trn string) string {
 const reasonVolumeDiscount = "VD"
 
 // rebateKey is the account determination key a volume discount naming no
-// order is credited to: the discounts received from suppliers (SAP SKE),
-// the account its credit is of the same nature as; the clerk who posts the
-// memo may change it while it is parked (ADR-0061 As built batch 89).
-const rebateKey = "cash_discount"
+// order is credited to: the supplier rebates received, a key of its own
+// since batch 92, which a company without it falls back from to the
+// discounts received from suppliers (cash_discount, SAP SKE), the key it
+// shared until then (ledger.Accounts.Determination); the clerk who posts
+// the memo may change it while it is parked (ADR-0061 As built batch 89
+// and batch 92).
+const rebateKey = "supplier_rebate"
 
 // enteredInput is the invoice input of a received e-invoice: a credit memo
 // for a volume discount naming no purchase order is entered without one
@@ -213,7 +216,7 @@ func (e *Endpoints) enteredInput(ctx context.Context, tx pgx.Tx, d EInvoice, ext
 // reference; a credit memo needs no order): the supplier of the company
 // holding the seller's TRN (sellerSupplier); its amounts in the document's
 // currency as stated; each line an item of quantity 1 EA and the line's
-// net on the account of discounts received (rebateKey), as a discount is
+// net on the account of supplier rebates (rebateKey), as a discount is
 // credited by amount and the document's units are not mapped to the ERP's
 // (ADR-0061 §6), its tax code by capturedTax's rule from the line's
 // category and rate. A company without that account holds the document
@@ -229,8 +232,8 @@ func (e *Endpoints) rebateInput(ctx context.Context, d EInvoice, ext *capture.Ex
 	}
 	if !ok {
 		return Input{}, problem.Unprocessable("payables.capture_needs_account", "The volume discount names no purchase order and the company has "+
-			"no account for discounts received (account determination "+rebateKey+") to credit it to; set that account in the company's "+
-			"account determination, or enter the credit memo by hand.")
+			"no account for supplier rebates (account determination "+rebateKey+", else cash_discount) to credit it to; set that account in the "+
+			"company's account determination, or enter the credit memo by hand.")
 	}
 	date, err := documentDate(ext)
 	if err != nil {

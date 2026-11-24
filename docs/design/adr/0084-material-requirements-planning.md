@@ -62,9 +62,12 @@ APIs, which `app` adapts into mrp's own types.
   plant (entered, or the company's only one), so an order naming none is
   one of services alone or one confirmed before that rule. Besides, the
   intercompany orders the plant supplies and has not issued
-  (procurement, `Orders.IntercompanyDue`; As built, batch 91).
+  (procurement, `Orders.IntercompanyDue`; As built, batch 91) and the
+  stock transport orders within the company it supplies and has not
+  issued (`Orders.TransportsDue`; As built, stock transport orders).
 - **Stock** (inventory, `PlantStock`, S2j's read): what the plant's
-  storage locations hold; stock in transit is not counted.
+  storage locations hold; stock in transit is not counted as stock, but
+  as a receipt of the plant it goes to (below).
 - **Prices** (inventory, `PlantPrices`, new): the material's valuation
   price at the plant, which a proposal is estimated at.
 - **Receipts** (procurement, `Orders.OpenReceipts`, new): the open
@@ -74,7 +77,10 @@ APIs, which `app` adapts into mrp's own types.
   memory); and the items of the requisitions earlier runs proposed that a
   person took over and that are not ordered, cancelled or rejected
   (`Orders.Requisitions`, new). A requisition a person raised names no
-  plant (requisition items have none), so it is not counted.
+  plant (requisition items have none), so it is not counted. Besides,
+  the stock transport orders within the company to the plant not yet
+  received, open or in transit (`Orders.TransportsOnOrder`; As built,
+  stock transport orders).
 - **Requisitions** are written through procurement's published API:
   `ProposeRequisition` creates a draft as `createRequisition` does (its
   checks, number, audit) for the run's requester; `WithdrawProposal`
@@ -161,7 +167,9 @@ runs or change plans.
 
 Followed (from memory): planning per plant; MRP types VB (reorder point)
 and ND; net requirements of stock plus fixed receipts (purchase orders,
-purchase requisitions) against sales requirements; a rerun deleting its
+purchase requisitions, stock transport orders) against sales
+requirements and the release orders of stock transport orders (As built,
+stock transport orders); a rerun deleting its
 own planned proposals that nobody firmed and keeping the firmed ones; one
 purchase requisition per material proposed at its valuation price.
 
@@ -169,8 +177,7 @@ Not followed (Later, plan §S2l "Later"): lot sizing procedures (the
 shortage is ordered exactly), safety stock, MRP areas, planned orders for
 production, scheduling with lead times and calendars (a proposal is
 needed by the run's day), the planning time fence and firming by date,
-stock in transit and stock transport orders as receipts, net change
-planning (every run plans every material of the plant), a run over
+net change planning (every run plans every material of the plant), a run over
 several plants, exception messages, and source determination (a
 proposal names no supplier). A requisition a person raised is not counted
 as a receipt, having no plant.
@@ -322,3 +329,43 @@ Decided by default:
   (`TestPlanningRunIntercompany`). SAP's MRP counts a stock transport
   order's requirement at the supplying plant (its release order), from
   memory, for the SAP specialist.
+  Superseded for stock transport orders within the company by the next
+  section.
+
+### Stock transport orders (batch 92, 2026-11-23; review:batch91)
+
+A run counted a stock transport order within the company (S2h) on
+neither side (§6, not followed), so a plant that supplies another plant
+of its company proposed too little for what it must issue, and the
+receiving plant proposed again what the order brings. Decided by
+default (SAP's MRP, from memory, for the SAP specialist: a stock
+transport order is a release order requirement at the supplying plant
+and a receipt at the receiving plant until its goods receipt):
+
+- **Demand at the supplying plant**: what the orders it supplies order
+  while open (not issued), through procurement's `Orders.TransportsDue`.
+  Once issued (351) the stock has left the plant, so the order demands
+  nothing more there.
+- **Receipts at the receiving plant**: what the orders to it bring
+  until received, open or in transit, through `Orders.TransportsOnOrder`;
+  stock in transit is no plant's stock (§2), so it is counted once, as
+  the receipt. Received, the stock is the receiving plant's.
+- Both reads are siblings of `TransportReceipts` (S2n), one query by the
+  plant's side and the orders' statuses; S2n's review keeps counting the
+  stock in transit alone, since a company's review sums its plants, where
+  an open order's demand and receipt cancel out.
+- **No double counting**: an order is a demand of one plant and a
+  receipt of another, never of one plant twice (the order's plants
+  differ, `stock_transport_order_plants`); an intercompany order is a
+  purchase order (§2's receipts and `IntercompanyDue`), never a stock
+  transport order, so no order is in both pairs of reads. Sales orders,
+  intercompany orders and stock transport orders counted together in one
+  run of each plant: `TestPlanningRunTransports`.
+- No contract shape changes: the run's line's `demand` and `receipts`
+  hold them, and their descriptions say so (`startMrpRun`,
+  `MrpRunLine`). No migration.
+- Walkthrough: `step_mrp` (step 152) plans the G20 gasket at Toronto
+  and Montreal; an open order of 80 from Toronto to Montreal is Toronto's
+  demand and Montreal's receipt, so neither run proposes. The gasket has
+  a group of its own (`SEALS`), so step 159's S&OP figures of the hinge's
+  group stay as they were.

@@ -1298,10 +1298,17 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Cash discounts granted to customers (SAP SKT, an expense) need an account determination key of their own",
-      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Finance / Payments and bank communication: customer side, with AR)",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Finance / Payments and bank communication: customer side, with AR) · built in batch 92: key cash_discount_granted (an expense; migrations 000460, 000461), the receipt application's discount net posted to it (ledger receiptDiscounts), a company without it falling back to payment_difference_expense (ledger.Accounts.Determination, determinationFallbacks); packs Canada 2026.13 and UAE 2026.10 bring 6800 Cash discounts granted · TestUAECashDiscountGrantedAccount · TestDeterminationFallbacks · TestDiscountAccountKeys · TestDiscountKeysValid · TestCanadaPack2026_13 · TestUAEPack2026_10 · ADR-0063 As built batch 92 · ADR-0048 As built (the discount keys) · walkthrough step 156 (step_uae_cash_discount: the net on 6800)",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: an account determination key a company's configuration stops naming is not removed by ledger.Setup (it only upserts rows), so the company keeps posting to the old account although its document names none; with batch 92's fallbacks a company that drops cash_discount_granted or supplier_rebate keeps posting discounts or rebates there instead of falling back to payment_difference_expense or cash_discount",
+      "r": "internal/ledger/setup.go applyCompany (account determination upsert) · ledger.Accounts.Determination, determinationFallbacks · ADR-0063 and ADR-0061 As built batch 92",
+      "src": "review:batch92",
       "c": []
      },
      {
@@ -2874,9 +2881,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A dedicated account determination key for supplier rebates, for the credit memos entered from volume discount credit notes (BTAE-03 VD) instead of cash_discount (SAP books vendor rebates through a key of its own, BO1, from memory and unverified); until then they stay on cash_discount (product owner 2026-11-22)",
-        "r": "ADR-0061 As built batch 89 · payables.rebateInput",
+        "r": "ADR-0061 As built batch 89 · payables.rebateInput · built in batch 92: key supplier_rebate (a revenue; migrations 000460, 000461), payables.rebateKey, a company without it falling back to cash_discount (ledger.Accounts.Determination, determinationFallbacks); packs Canada 2026.13 and UAE 2026.10 bring 4830 Supplier rebates received · TestVolumeDiscountOnSupplierRebates · TestRebateInput · TestDeterminationFallbacks · TestDiscountAccountKeys · ADR-0061 As built batch 92 · ADR-0048 As built (the discount keys) · walkthrough step 144 (evatra_volume_discount: EWS-501 on 4830)",
         "src": "po:2026-11-22",
         "c": []
        },
@@ -5159,9 +5166,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fix: a sales order made from a quotation re-checks each item's account, tax code and tax jurisdiction on the order's date, as an order entered directly is checked, rather than copying the quotation's items as they were checked on the quotation's date",
-        "r": "internal/sales/orders.go fromQuotation · ADR-0067 §4 · ADR-0067 As built, the emirate on a sales item",
+        "r": "internal/sales/orders.go fromQuotation, orderableOn · internal/sales/recheck.go (shared with billableOn) · sales.quotation_item_not_orderable · TestOrderFromQuotationRechecked · ADR-0067 §4 · ADR-0067 As built (an order from a quotation checks its items again; the emirate on a sales item)",
         "src": "review:batch85",
         "c": []
        },
@@ -5789,6 +5796,20 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: no operation cancels a stock transport order within the company, so one entered by mistake counts for ever as the supplying plant's MRP demand and the receiving plant's receipt (ADR-0084 As built, stock transport orders)",
+      "r": "procurement stock transport orders (S2h) · procurement.Orders.TransportsDue, .TransportsOnOrder · internal/mrp/net.go · ADR-0084 As built (stock transport orders, batch 92)",
+      "src": "review:batch92",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "fix: GET /v1/stock-transport-orders?number= says legal_entity_id narrows it to one order, but a stock transport order's number is unique per company and fiscal year (stock_transport_order_number_once): the description says one per fiscal year, as the outbound deliveries' number filter does",
+      "r": "api/openapi.yaml listStockTransportOrders number · db/migrations/000418 stock_transport_order_number_once · contract description only",
+      "src": "review:batch92",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "S2i1 A planner of one company orders stock from a plant of another company of the tenant: the receiving company's purchase order names the supplying plant and the supplier that is the supplying company; the supplying company's goods issue (643) takes it out of its stock against cost of goods sold, and the receiving company's goods receipt takes it in at the order price, the transfer price, against GR/IR, at most what was issued",
       "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082 As built S2i · db/migrations/000443, 000444 · procurement.purchase_order.supplying_plant_id, issue_document_id · movement type 643 · POST /v1/purchase-orders (supplying_plant_id) · :postIntercompanyGoodsIssue · inventory.Endpoints.IssueForIntercompany · partner.Supplier.GroupCompanyID · walkthrough step_intercompany_transport (step 155)",
@@ -5845,9 +5866,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: GET /v1/outbound-deliveries filters by the delivery's number, so a document's reference finds its delivery as GET /v1/stock-transport-orders?number= finds its order",
-      "r": "listOutboundDeliveries · ADR-0083 · ADR-0082 As built S2h (review round 1)",
+      "r": "listOutboundDeliveries number · internal/shipping ListOutboundDeliveries · TestList (shipping) · ADR-0083 As built (delivery number filter) · ADR-0082 As built S2h (review round 1)",
       "src": "review:batch85",
       "c": []
      },
@@ -5894,9 +5915,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "contract step: sales.delivery_assignment.plant_id NOT NULL, once every server writes it (S2j's expand step left it nullable; ShipInput.PlantID and GoodsIssue.PlantID required since), with its schema test",
-      "r": "db/migrations/000430_sales_availability · ADR-0082 As built S2j · 06 §6.4 (expand, migrate, contract)",
+      "r": "db/migrations/000430_sales_availability · db/migrations/000458_delivery_assignment_plant_required (backfill, check NOT VALID) · db/migrations/000459_validate_delivery_assignment_plant (VALIDATE, SET NOT NULL) · TestDeliveryAssignmentPlantRequired · TestDeliveryAssignmentRules (db) · ADR-0082 As built S2j (contract step) · 06 §6.4 (expand, migrate, contract)",
       "src": "review:batch86",
       "c": []
      },
@@ -5943,9 +5964,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: an MRP run does not count the supplying plant's requirement from an unissued stock transport order within the company (ADR-0084 §6, not followed: stock transport orders count only as receipts), so a plant that supplies another plant of its company proposes too little for what it must issue",
-      "r": "internal/mrp/net.go count · inventory stock transport orders (S2h) · ADR-0084 §6, As built (intercompany demand, batch 91) · S2k",
+      "r": "internal/mrp/net.go count, demand · procurement.Orders.TransportsDue, .TransportsOnOrder · ADR-0084 §2, §6, As built (stock transport orders, batch 92) · api/openapi.yaml startMrpRun, MrpRunLine.demand, .receipts · TestPlanningRunTransports, TestPlanningRunIntercompany · walkthrough step_mrp (step 152)",
       "src": "review:batch91",
       "c": []
      },
@@ -6049,9 +6070,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "An external transport system receives outbound deliveries to plan and returns the shipment and freight cost through a connector",
-      "r": "S2r · docs/design/plan-supply-chain.md §S2r",
+      "r": "S2r · docs/design/plan-supply-chain.md §S2r · ADR-0082 As built S2r · migrations 000462, 000463 · GET /v1/tms-messages · shipping.RecordShipment · walkthrough step_tms (step 161)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -12367,6 +12388,13 @@
         "t": "getMemoRecord lists the 422 response it gives since the one company-date helper refuses a memo record whose legal entity the directory does not know (request.reference_not_found); every other operation whose call graph reaches config.EntityDay lists 422 already",
         "r": "found in batch 28's integration review: api/openapi.yaml getMemoRecord listed no 422 · checked by the operations whose handler reaches config.EntityDay in TestProblemCodes' call graph: acceptMemoRecordProposal, approveApprovalRequest, assignProfitCenter, cancelMemoRecord, createCostCenter, createMemoRecord, getMemoRecord, listMemoRecords, lockCostCenter, lockProfitCenter, moveCostCenter, moveProfitCenter, postSupplierInvoice, proposeMemoRecord, realiseMemoRecord, redateCostCenter, redateProfitCenter, rejectMemoRecordProposal, releasePaymentRun, reverseGoodsReceipt, reverseSupplierInvoice, submitRequisition, updateMemoRecord; listMemoRecords reaches it only through readDaysOf's filter, which answers an empty page rather than refusing, so it gives no 422 · built: getMemoRecord's 422 response (additive, oasdiff) and its description · ADR-0051 as built (one company-date helper) · no walkthrough step: a contract fix",
         "src": "review:batch28",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A contract test that every status a handler can answer is declared on its operation (for example an {id} operation's 404 for a document not found or not visible): TestProblemCodes checks the problem codes only, so ics3's undeclared 404 (batch 91) was caught by review alone",
+        "r": "api/problemcodes_test.go TestProblemCodes (codes, not statuses) · api/openapi.yaml responses · batch 91 review round 1 (pre-existing) · enterIntercompanySupplierInvoice's 404",
+        "src": "review:batch91",
         "c": []
        },
        {

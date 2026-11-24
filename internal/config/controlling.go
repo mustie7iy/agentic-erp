@@ -108,7 +108,8 @@ type AutomaticAccount struct {
 func determinationKeys(ad AccountDetermination) [][2]string {
 	return [][2]string{{"ap_reconciliation", ad.APReconciliation}, {"input_tax", ad.InputTax}, {"bank", ad.Bank},
 		{"fx_gain", ad.FXGain}, {"fx_loss", ad.FXLoss}, {"gr_ir", ad.GRIR}, {"price_difference", ad.PriceDifference},
-		{"cash_discount", ad.CashDiscount}, {"down_payment", ad.DownPayment}, {"contract_asset", ad.ContractAsset},
+		{"cash_discount", ad.CashDiscount}, {"cash_discount_granted", ad.CashDiscountGranted}, {"supplier_rebate", ad.SupplierRebate},
+		{"down_payment", ad.DownPayment}, {"contract_asset", ad.ContractAsset},
 		{"contract_liability", ad.ContractLiability},
 		{"right_of_use_asset", ad.RightOfUseAsset}, {"lease_liability", ad.LeaseLiability}, {"lease_interest", ad.LeaseInterest},
 		{"right_of_use_depreciation", ad.RightOfUseDepreciation}, {"right_of_use_accumulated_depreciation", ad.RightOfUseAccumulatedDepreciation},

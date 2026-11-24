@@ -21,8 +21,10 @@ const (
 )
 
 // Warehouse is an external warehouse management system as one tenant's
-// connector reaches it (ADR-0082 As built S2q). Implementations: the
-// stand-in (tests, walkthrough); a vendor's WMS is one more adapter.
+// connector reaches it (ADR-0082 As built S2q), or a transport management
+// system (S2r), which exchanges messages alike. Implementations: the
+// stand-in (tests, walkthrough); a vendor's WMS or TMS is one more
+// adapter.
 type Warehouse interface {
 	// Send gives the WMS one message, its body as kept; the WMS takes a
 	// message id it holds already as delivered, so a send whose answer was
@@ -46,10 +48,11 @@ func NewWMSClient(opts ...egress.Option) (*egress.Client, error) {
 	return egress.New(append([]egress.Option{egress.ResponseLimit(MaxWMSMessage), egress.CallTimeout(WMSCallTimeout)}, opts...)...)
 }
 
-// WMSConnection is what an adapter needs of a wms connector: its name,
-// settings and resolved credentials.
+// WMSConnection is what an adapter needs of a wms or tms connector: its
+// name, kind, settings and resolved credentials.
 type WMSConnection struct {
 	Name   string
+	Kind   string // wms, or tms (S2r)
 	Secret string
 	WMSSettings
 }
@@ -62,7 +65,7 @@ func WMSAdapters(client *egress.Client) func(WMSConnection) (Warehouse, error) {
 		if client == nil {
 			return nil, problem.Unavailable("This server has no client for warehouse systems.", 0)
 		}
-		return &WMSStandIn{Client: client, BaseURL: strings.TrimSuffix(c.BaseURL, "/"), Token: c.Secret}, nil
+		return &WMSStandIn{Client: client, BaseURL: strings.TrimSuffix(c.BaseURL, "/"), Token: c.Secret, System: systemName(c.Kind)}, nil
 	}
 }
 
@@ -81,6 +84,7 @@ type WMSStandIn struct {
 	Client  *egress.Client
 	BaseURL string // without a trailing slash
 	Token   string
+	System  string // what it stands in for, as errors name it: "warehouse system" or "transport system"
 }
 
 func (s *WMSStandIn) header() http.Header {
@@ -97,23 +101,23 @@ func (s *WMSStandIn) Send(ctx context.Context, id string, body []byte) error {
 	resp, err := s.Client.Do(ctx, http.MethodPut, s.BaseURL+"/messages/"+url.PathEscape(id), s.header(), body)
 	switch {
 	case err != nil:
-		return fmt.Errorf("integration: send message %s to the warehouse system: %w", id, err)
+		return fmt.Errorf("integration: send message %s to the %s: %w", id, s.System, err)
 	case resp.Status >= 200 && resp.Status < 300:
 		return nil
 	case resp.Status >= 400 && resp.Status < 500 && resp.Status != http.StatusRequestTimeout && resp.Status != http.StatusTooManyRequests:
-		return problem.Unprocessable(wmsRefused, fmt.Sprintf("The warehouse system refused message %s (HTTP %d).", id, resp.Status))
+		return problem.Unprocessable(wmsRefused, fmt.Sprintf("The %s refused message %s (HTTP %d).", s.System, id, resp.Status))
 	}
-	return fmt.Errorf("integration: send message %s to the warehouse system: answered %d", id, resp.Status)
+	return fmt.Errorf("integration: send message %s to the %s: answered %d", id, s.System, resp.Status)
 }
 
 // Confirmations implements Warehouse.
 func (s *WMSStandIn) Confirmations(ctx context.Context) ([]string, error) {
 	resp, err := s.Client.Get(ctx, s.BaseURL+"/confirmations", s.header())
 	if err != nil {
-		return nil, fmt.Errorf("integration: list the warehouse system's confirmations: %w", err)
+		return nil, fmt.Errorf("integration: list the %s's confirmations: %w", s.System, err)
 	}
 	if resp.Status != http.StatusOK || resp.Truncated {
-		return nil, fmt.Errorf("integration: list the warehouse system's confirmations: answered %d (truncated %v)", resp.Status, resp.Truncated)
+		return nil, fmt.Errorf("integration: list the %s's confirmations: answered %d (truncated %v)", s.System, resp.Status, resp.Truncated)
 	}
 	var list struct {
 		Confirmations []struct {
@@ -121,7 +125,7 @@ func (s *WMSStandIn) Confirmations(ctx context.Context) ([]string, error) {
 		} `json:"confirmations"`
 	}
 	if err := json.Unmarshal(resp.Body, &list); err != nil {
-		return nil, fmt.Errorf("integration: read the warehouse system's confirmations: %w", err)
+		return nil, fmt.Errorf("integration: read the %s's confirmations: %w", s.System, err)
 	}
 	ids := make([]string, len(list.Confirmations))
 	for i, c := range list.Confirmations {

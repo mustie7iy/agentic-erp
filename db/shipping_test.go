@@ -218,7 +218,8 @@ func TestShippingTriggersAsOwner(t *testing.T) {
 // is never below zero and, with what is delivered, never above what was
 // ordered; an order holding some is not cancelled, and once all is given
 // back it is. Assignments are insert-only, and the application does not
-// set what is in delivery itself.
+// set what is in delivery itself. An assignment names the plant its
+// delivery ships from (migrations 000458, 000459: plant_id NOT NULL).
 func TestDeliveryAssignmentRules(t *testing.T) {
 	need(t)
 	const header = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date,
@@ -228,7 +229,7 @@ func TestDeliveryAssignmentRules(t *testing.T) {
 		net_amount, account_id) VALUES ($1, $2, 1, 'Bracket', 5, 'EA', 100, 1, 100, gen_random_uuid())`
 	const confirm = `UPDATE sales.sales_order SET status = 'confirmed', version = version + 1, updated_by = tenant_id WHERE id = $1`
 	const assignment = `INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id,
-		outbound_delivery_number, quantity, created_by) VALUES ($1, gen_random_uuid(), $2, 1, gen_random_uuid(), 'OD1', $3::numeric, $4)`
+		outbound_delivery_number, quantity, created_by, plant_id) VALUES ($1, gen_random_uuid(), $2, 1, gen_random_uuid(), 'OD1', $3::numeric, $4, gen_random_uuid())`
 	const delivered = `WITH d AS (INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, created_by)
 		VALUES ($1, gen_random_uuid(), $2, 1, '2026-03-14', $1) RETURNING id)
 		INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity) SELECT $1, d.id, $2, 1, $3::numeric FROM d`
@@ -284,8 +285,13 @@ func TestDeliveryAssignmentRules(t *testing.T) {
 		}, "delivery_assignment_quantity_check"},
 		{"an empty delivery number", func(tx pgx.Tx, s scene) error {
 			return all(tx, confirmed(s, step(`INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id,
-				outbound_delivery_number, quantity, created_by) VALUES ($1, gen_random_uuid(), $2, 1, gen_random_uuid(), '', 1, $1)`, s.tenant, s.order))...)
+				outbound_delivery_number, quantity, created_by, plant_id) VALUES ($1, gen_random_uuid(), $2, 1, gen_random_uuid(), '', 1, $1, gen_random_uuid())`,
+				s.tenant, s.order))...)
 		}, "delivery_assignment_number_check"},
+		{"an assignment without a plant", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, step(`INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id,
+				outbound_delivery_number, quantity, created_by) VALUES ($1, gen_random_uuid(), $2, 1, gen_random_uuid(), 'OD1', 1, $1)`, s.tenant, s.order))...)
+		}, `null value in column "plant_id" of relation "delivery_assignment"`},
 		{"an assignment of a draft order", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(header, s.tenant, s.order, "SO1"), step(item, s.tenant, s.order), step(assignment, s.tenant, s.order, "1", s.actor))
 		}, "its sales order is not confirmed"},
@@ -340,7 +346,7 @@ func TestDeliveryAssignmentRulesAsOwner(t *testing.T) {
 			net_amount, account_id) VALUES ($1, $2, 1, 'Bracket', 5, 'EA', 100, 1, 100, gen_random_uuid())`, tenant, order),
 		step(`UPDATE sales.sales_order SET status = 'confirmed', version = version + 1, updated_by = tenant_id WHERE id = $1`, order),
 		step(`INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id, outbound_delivery_number,
-			quantity, created_by) VALUES ($1, gen_random_uuid(), $2, 1, gen_random_uuid(), 'OD1', 1, $1)`, tenant, order),
+			quantity, created_by, plant_id) VALUES ($1, gen_random_uuid(), $2, 1, gen_random_uuid(), 'OD1', 1, $1, gen_random_uuid())`, tenant, order),
 	}
 	for name, c := range map[string]struct {
 		replica bool

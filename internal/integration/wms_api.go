@@ -50,49 +50,92 @@ func scanWMSMessage(row pgx.Row) (WMSMessage, error) {
 var wmsMessageSort = pagination.Sort{Default: "created_at", DefaultDesc: true,
 	Fields: []pagination.Field{{Name: "created_at", Column: "created_at", Type: "timestamptz"}}}
 
-// ListWMSMessages implements GET /v1/wms-messages: the messages of the
-// companies the caller may act in, and, to a caller who may act in every
-// company, those of no known company, newest first.
+// ListWMSMessages implements GET /v1/wms-messages: the messages exchanged
+// with warehouse systems of the companies the caller may act in, and, to
+// a caller who may act in every company, those of no known company,
+// newest first.
 func (e *Endpoints) ListWMSMessages(ctx context.Context, params gen.ListWMSMessagesParams) (gen.ListWMSMessagesRes, error) {
-	tx, _, err := reqctx.Request(ctx)
+	// An unset id filter is the nil UUID in the scope, which no row has.
+	ms, next, n, err := e.messages(ctx, messageQuery{kinds: wmsKinds, connector: params.ConnectorID, direction: params.Direction.Value,
+		status: params.Status.Value, delivery: params.OutboundDeliveryID, order: params.PurchaseOrderID, size: params.PageSize, token: params.PageToken,
+		scope: fmt.Sprintf("listWMSMessages|%s|%s|%s|%s|%s", params.ConnectorID.Value, params.Direction.Value, params.Status.Value,
+			params.OutboundDeliveryID.Value, params.PurchaseOrderID.Value)})
 	if err != nil {
 		return nil, err
+	}
+	page := &gen.WMSMessagePage{Items: make([]gen.WMSMessage, len(ms)), NextPageToken: next}
+	for i, m := range ms {
+		page.Items[i] = n.toAPI(m)
+	}
+	return page, nil
+}
+
+// ListTMSMessages implements GET /v1/tms-messages (S2r): the messages
+// exchanged with transport systems, as ListWMSMessages lists those of
+// warehouse systems.
+func (e *Endpoints) ListTMSMessages(ctx context.Context, params gen.ListTMSMessagesParams) (gen.ListTMSMessagesRes, error) {
+	ms, next, n, err := e.messages(ctx, messageQuery{kinds: tmsKinds, connector: params.ConnectorID, direction: params.Direction.Value,
+		status: params.Status.Value, delivery: params.OutboundDeliveryID, size: params.PageSize, token: params.PageToken,
+		scope: fmt.Sprintf("listTMSMessages|%s|%s|%s|%s", params.ConnectorID.Value, params.Direction.Value, params.Status.Value,
+			params.OutboundDeliveryID.Value)})
+	if err != nil {
+		return nil, err
+	}
+	page := &gen.TMSMessagePage{Items: make([]gen.TMSMessage, len(ms)), NextPageToken: next}
+	for i, m := range ms {
+		page.Items[i] = n.tmsToAPI(m)
+	}
+	return page, nil
+}
+
+// messageQuery is a page of the messages of some kinds, filtered.
+type messageQuery struct {
+	kinds             []string
+	connector         gen.OptUUID
+	delivery, order   gen.OptUUID
+	direction, status string
+	size              gen.OptInt32
+	token             gen.OptString
+	scope             string // the page token's: the operation and its filters
+}
+
+// messages reads a page of the messages of the query's kinds, of the
+// companies the caller may act in, with what names their connectors and
+// companies, and the next page's token.
+func (e *Endpoints) messages(ctx context.Context, mq messageQuery) ([]WMSMessage, gen.OptString, wmsNames, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, gen.OptString{}, wmsNames{}, err
 	}
 	access, err := authz.Companies(ctx)
 	if err != nil {
-		return nil, err
+		return nil, gen.OptString{}, wmsNames{}, err
 	}
-	// An unset id filter is the nil UUID in the scope, which no row has.
-	scope := fmt.Sprintf("listWMSMessages|%s|%s|%s|%s|%s", params.ConnectorID.Value, params.Direction.Value, params.Status.Value, params.OutboundDeliveryID.Value,
-		params.PurchaseOrderID.Value)
-	ks, err := e.Pages.Keyset(wmsMessageSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
+	ks, err := e.Pages.Keyset(wmsMessageSort, mq.scope, apitypes.Page(gen.OptString{}, mq.size, mq.token))
 	if err != nil {
-		return nil, err
+		return nil, gen.OptString{}, wmsNames{}, err
 	}
 	q, args := ks.SQL(`SELECT `+wmsMessageColumns+` FROM integration.wms_message
-		WHERE ($1::uuid IS NULL OR connector_id = $1) AND ($2 = '' OR direction = $2) AND ($3 = '' OR status = $3)
+		WHERE kind = ANY($10) AND ($1::uuid IS NULL OR connector_id = $1) AND ($2 = '' OR direction = $2) AND ($3 = '' OR status = $3)
 		  AND ($4::uuid IS NULL OR document_id = $4 AND kind = ANY($7)) AND ($8::uuid IS NULL OR document_id = $8 AND kind = ANY($9))
 		  AND ($5 OR legal_entity_id = ANY($6))`,
-		[]any{apitypes.Ptr[uuid.UUID](params.ConnectorID), params.Direction.Value, params.Status.Value, apitypes.Ptr[uuid.UUID](params.OutboundDeliveryID),
-			access.All, access.IDs, deliveryKinds, apitypes.Ptr[uuid.UUID](params.PurchaseOrderID), orderKinds})
+		[]any{apitypes.Ptr[uuid.UUID](mq.connector), mq.direction, mq.status, apitypes.Ptr[uuid.UUID](mq.delivery),
+			access.All, access.IDs, deliveryKinds, apitypes.Ptr[uuid.UUID](mq.order), orderKinds, mq.kinds})
 	rows, _ := tx.Query(ctx, q, args...)
 	ms, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (WMSMessage, error) { return scanWMSMessage(r) })
 	if err != nil {
-		return nil, fmt.Errorf("integration: list wms messages: %w", err)
+		return nil, gen.OptString{}, wmsNames{}, fmt.Errorf("integration: list %v messages: %w", mq.kinds, err)
 	}
 	ms, next := pagination.Page(ks, ms, func(m WMSMessage) (string, uuid.UUID) { return pagination.Instant(m.CreatedAt), m.ID })
 	n, err := e.wmsNames(ctx, tx, ms)
 	if err != nil {
-		return nil, err
+		return nil, gen.OptString{}, wmsNames{}, err
 	}
-	page := &gen.WMSMessagePage{Items: make([]gen.WMSMessage, len(ms))}
-	for i, m := range ms {
-		page.Items[i] = n.toAPI(m)
-	}
+	var token gen.OptString
 	if next != "" {
-		page.NextPageToken.SetTo(next)
+		token.SetTo(next)
 	}
-	return page, nil
+	return ms, token, n, nil
 }
 
 // wmsNames are the connectors' names and the companies' codes of a page.
@@ -129,10 +172,13 @@ func (e *Endpoints) wmsNames(ctx context.Context, tx pgx.Tx, ms []WMSMessage) (w
 }
 
 // The kinds whose document is an outbound delivery, and those whose
-// document is a purchase order (S2q2).
+// document is a purchase order (S2q2); the kinds a warehouse system's
+// messages are of, and a transport system's (S2r).
 var (
-	deliveryKinds = []string{WMSOutboundDelivery, WMSGoodsIssue}
+	deliveryKinds = []string{WMSOutboundDelivery, WMSGoodsIssue, TMSTransportRequest, TMSShipment}
 	orderKinds    = []string{WMSInboundReceipt, WMSGoodsReceipt}
+	wmsKinds      = []string{WMSOutboundDelivery, WMSGoodsIssue, WMSInboundReceipt, WMSGoodsReceipt}
+	tmsKinds      = []string{TMSTransportRequest, TMSShipment}
 )
 
 func (n wmsNames) toAPI(m WMSMessage) gen.WMSMessage {
@@ -152,6 +198,18 @@ func (n wmsNames) toAPI(m WMSMessage) gen.WMSMessage {
 		out.OutboundDeliveryID, out.OutboundDeliveryNumber = apitypes.OptUUID(m.DocumentID), apitypes.OptString(m.DocumentNumber)
 	}
 	return out
+}
+
+// tmsToAPI is a transport system's message as the API gives it: a
+// warehouse system's but for the purchase order and material document,
+// which a transport system's never names.
+func (n wmsNames) tmsToAPI(m WMSMessage) gen.TMSMessage {
+	w := n.toAPI(m)
+	return gen.TMSMessage{ID: w.ID, ConnectorID: w.ConnectorID, ConnectorName: w.ConnectorName, Direction: w.Direction, MessageID: w.MessageID,
+		Kind: w.Kind, LegalEntityID: w.LegalEntityID, CompanyCode: w.CompanyCode, OutboundDeliveryID: w.OutboundDeliveryID,
+		OutboundDeliveryNumber: w.OutboundDeliveryNumber, PlantCode: w.PlantCode, Body: w.Body, Status: w.Status, Attempts: w.Attempts,
+		NextAttemptAt: w.NextAttemptAt, LastErrorCode: w.LastErrorCode, SentAt: w.SentAt, ProblemCode: w.ProblemCode, ProblemDetail: w.ProblemDetail,
+		AcknowledgedAt: w.AcknowledgedAt, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt}
 }
 
 // wmsBody is a kept body, a JSON object, passed through as stored.

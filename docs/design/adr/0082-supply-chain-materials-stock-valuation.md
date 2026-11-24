@@ -1659,6 +1659,21 @@ specialist) and S2i's and S2i2's decisions above.
 - **Not built** (Later, plan §S2j): checking rules with replenishment
   lead time and planned receipts, back-order processing, product
   allocation, global ATP across plants, per-item plants.
+- **Contract step** (lane salesfix, batch 92; leaf src review:batch86):
+  migrations 000458 and 000459 make `sales.delivery_assignment.plant_id`
+  NOT NULL, as 06 §6.4 adds a NOT NULL column: every server writes it
+  since S2j (sales' `assign` refuses a delivery without a plant), so 000458
+  gives an assignment that lacks it (one a server of the release before
+  S2j wrote during the rolling upgrade) its delivery's plant, as 000430's
+  backfill did, and adds `delivery_assignment_plant_required` NOT VALID;
+  000459 validates it, sets the column NOT NULL (the validated check
+  spares the scan) and drops the check. Decided by default: a backfill
+  rather than a guard that stops the migration, since the delivery always
+  names the plant and stopping the release would need a person to run the
+  same update. `TestDeliveryAssignmentPlantRequired`,
+  `TestDeliveryAssignmentRules` (an assignment without a plant) (db).
+  `delivery_assignment_by_plant` keeps its `plant_id IS NOT NULL`
+  predicate, which every row now meets.
 
 ### S2j: the plant required, and the emirate from it (2026-11-21)
 
@@ -2059,3 +2074,107 @@ memory, for the specialist):
 within a company; changes and cancellations of a sent order; a goods
 receipt's own document date, delivery note, batches and serial numbers
 from the WMS; returns (122) reported by the WMS.
+
+### S2r (2026-11-23)
+
+The TMS connector (plan-supply-chain.md §S2r): an external transport
+management system plans the outbound deliveries of the plants its
+connector names and returns the shipment it planned each in, with its
+carrier and freight cost. It is S2q's connector pattern again, and runs
+on S2q's machinery: the settings, the port and its stand-in, the queue,
+the exchange and `integration.wms_message`, a message kind each way
+(000462, validated by 000463), as S2q2's receipts are. No new ADR and no
+import between contexts: integration declares `integration.TMSDeliveries`,
+which the composition root wires to shipping's published
+`RecordShipment` (`app.tmsDeliveries`), so shipping stays a leaf
+(ADR-0083 §1). Decided by default, from SAP TM's freight order and LE-TRA's
+shipment (VTTK) with its shipment cost document (VFKK), from memory, for
+the specialist:
+
+- **Which plants and deliveries.** A `tms` connector takes a `wms`
+  connector's settings (`adapter` `standin`, `base_url`, `plants` by
+  company code) and a `secret_ref`; a plant is planned by one active
+  `tms` connector at most (409 `integration.plant_has_tms`, under the
+  tenant's tms advisory lock, as for a WMS), and may have a `wms` one
+  beside it. A delivery is sent when it is created (OutboundDeliveryChanged
+  version 1, read from the bus by `wms-outbound`) at a plant an active
+  `tms` connector names, once (`wms_message_once`, its kind
+  `transport_request`), beside its WMS message when a `wms` connector
+  manages the plant too. A delivery created before its plant had a TMS, or
+  while its connector is disabled, is not sent (Later: by hand). The pilot
+  has no external transport system (Pilot assumption above).
+- **The request**, message type `transport_request` schema version 1: the
+  same body as a WMS's delivery (S2q), its type aside: the message id, the
+  company, plant and storage location codes, the delivery's id and number,
+  the order's and customer's numbers (never the customer's name, PO
+  2026-11-05) and each item's number, material number, quantity and unit.
+  The ship-to address, weights and volumes and the planned dates are
+  Later: the event does not carry them, and a TMS that plans by customer
+  number holds the customer's master data (SAP TM's replicated business
+  partner, from memory). Sent, retried and failed as a WMS message is.
+- **What is returned**, message type `shipment`: its own `message_id`, the
+  `outbound_delivery_id` it was sent, `shipment_number` and `carrier_code`
+  (1 to 40 characters each, as the transport system names them) and
+  `freight_cost` (`amount`, a decimal with exactly its currency's
+  minor-unit digits, and `currency`, any ISO 4217 code `ref.currency`
+  holds, not converted). Recorded on the delivery (`shipment`: number,
+  carrier, freight cost in `money.Minor` with its currency, and when) once
+  per connector and message id under S2q1's advisory lock, through
+  shipping as the exchange's system principal acting for the delivery's
+  company, in a savepoint; the inbound row is `recorded`, never `posted`,
+  and names no material document. Refused, nothing recorded: a delivery
+  the connector was not sent (`integration.tms_unknown_delivery`), a
+  delivery with a shipment already (`shipping.shipment_recorded`, 409: a
+  delivery is planned in one shipment, and a change of a reported shipment
+  is Later), a number or carrier empty or too long, an unknown currency or
+  a negative cost (`shipping.invalid_shipment`), an amount without its
+  currency's decimals (`request.invalid_amount`), and a message that is
+  not a `shipment` of its own id naming a delivery (S2q1's
+  `integration.wms_message_unreadable`, recorded as a `shipment`). The
+  exchange's own codes stay the WMS's for both kinds
+  (`integration.wms_refused`, `integration.wms_outcome_unknown`,
+  `integration.wms_message_unreadable`, `integration.wms_message_too_large`);
+  a message whose connector is no longer a `tms` one is a failed attempt
+  (`integration.not_a_tms`).
+- **When.** A shipment is recorded whatever the delivery's status: a
+  transport system plans before the goods issue, but its report may come
+  after it, and a freight cost often does (SAP's shipment cost document
+  follows the shipment's completion, from memory). The trigger that keeps
+  a goods-issued delivery fixed lets its shipment alone be set, once
+  (`outbound_delivery_issued_fixed`), and a recorded shipment never
+  changes (`outbound_delivery_shipment_kept`).
+- **Nothing is posted** (SAP's practice, from memory: freight is settled
+  from the shipment cost document to the carrier as a supplier, and
+  planned delivery costs may go onto the stock's value at the goods
+  receipt; both are "later" in the plan): no journal entry, accrual or
+  supplier invoice, and the carrier is not matched to a supplier. Freight
+  settlement, carrier selection and shipment costs on the stock value are
+  the tracker's "later: transport variants" leaf.
+- **The published write.** `shipping.Endpoints.RecordShipment` reads the
+  delivery under its row lock (ADR-0008), of a company the caller may act
+  in, takes no If-Match (the transport system's report is not a change of
+  what its caller read), moves the version, audits
+  `shipping.outbound_delivery.record_shipment` and publishes
+  OutboundDeliveryChanged, whose payload now carries `shipment` (null
+  before; asyncapi). No API operation calls it, so no agent's never list
+  changes; a person's entry of a shipment is Later.
+- **Locks.** The queue's insert of a transport request takes its
+  connector's key share, as a WMS message's; a shipment's record takes the
+  advisory lock of its connector and message id, then the delivery's row
+  (`FOR UPDATE`), as a person's pick or goods issue takes the delivery
+  without the advisory lock; no two writers take two of these in opposite
+  orders.
+- **Read.** `GET /v1/tms-messages` (`integration.connector.read`) lists a
+  transport system's messages as `GET /v1/wms-messages` lists a warehouse
+  system's, by connector, direction, status and delivery; each list holds
+  its own kinds alone. `GET /v1/outbound-deliveries/{id}` gives the
+  delivery's `shipment`.
+- **Audit** as S2q1, `integration.wms_message.record` for a recorded
+  shipment.
+
+**Later for the TMS connector:** a vendor's adapter; the ship-to address,
+weights, volumes and dates in the request; a shipment of several
+deliveries and stages; changes and cancellations of a sent delivery or a
+reported shipment; a shipment entered by a person; freight settlement,
+carrier selection and shipment costs on the stock value (the tracker's
+"later: transport variants").

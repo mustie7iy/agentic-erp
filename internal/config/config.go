@@ -486,9 +486,17 @@ type AccountDetermination struct {
 	PriceDifference string `yaml:"price_difference,omitempty" json:"price_difference,omitempty"`
 	// CashDiscount takes the cash discounts payments take from suppliers
 	// (SAP SKE, cash discount received); required in every company once a
-	// payment term has discounts (T36a). Discounts granted to customers
-	// (SAP SKT, an expense) will need a key of their own.
+	// payment term has discounts (T36a).
 	CashDiscount string `yaml:"cash_discount,omitempty" json:"cash_discount,omitempty"`
+	// CashDiscountGranted takes the cash discounts customers take (SAP
+	// SKT, an expense; ADR-0063 As built, cash discount granted), and
+	// SupplierRebate the supplier rebates a volume discount's credit memo
+	// naming no order credits (a revenue, as cash discounts received are;
+	// ADR-0061 As built batch 92). Each is optional: a company without it
+	// posts to the key it shared until batch 92, PaymentDifferenceExpense
+	// and CashDiscount (ledger.Accounts.Determination).
+	CashDiscountGranted string `yaml:"cash_discount_granted,omitempty" json:"cash_discount_granted,omitempty"`
+	SupplierRebate      string `yaml:"supplier_rebate,omitempty" json:"supplier_rebate,omitempty"`
 	// DownPayment is the alternative reconciliation account of down
 	// payments (SAP T074, special G/L A; ADR-0037): an asset that is a
 	// vendor reconciliation account. Once activated it stays

@@ -569,15 +569,34 @@ func (Postings) IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UU
 	return cleared, nil
 }
 
+// determinationFallbacks are the keys that split off a key they shared
+// (ADR-0063 and ADR-0061 As built batch 92), each with the key it shared:
+// a company that has not set the new key posts to the account it posted
+// to before, as companies set up before it was added do, rather than
+// failing for want of an account it never needed.
+var determinationFallbacks = map[string]string{
+	// SAP SKT: what a customer takes off as a cash discount granted.
+	"cash_discount_granted": "payment_difference_expense",
+	// The supplier rebates a volume discount's credit memo is credited to.
+	"supplier_rebate": "cash_discount",
+}
+
 // Determination returns the account automatic postings use for the key
-// (ap_reconciliation, input_tax, bank, ...) in the legal entity.
+// (ap_reconciliation, input_tax, bank, ...) in the legal entity, or, for
+// a key with a fallback the company has not set (determinationFallbacks),
+// the fallback's.
 func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return uuid.Nil, false, err
 	}
+	keys := []string{key}
+	if fallback, ok := determinationFallbacks[key]; ok {
+		keys = append(keys, fallback)
+	}
 	var id uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT account_id FROM ledger.account_determination WHERE legal_entity_id = $1 AND key = $2`, legalEntity, key).Scan(&id)
+	err = tx.QueryRow(ctx, `SELECT account_id FROM ledger.account_determination WHERE legal_entity_id = $1 AND key = ANY($2)
+		ORDER BY array_position($2, key) LIMIT 1`, legalEntity, keys).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, false, nil
 	}

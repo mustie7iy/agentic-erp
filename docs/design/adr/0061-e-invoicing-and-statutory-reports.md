@@ -2017,3 +2017,44 @@ and a credit memo needs no order. Built (`payables.enteredInput`,
   correcting purchases whose input tax was blocked (VB5) needs the
   blocked code rather than V5 (the walkthrough assumes the supplies'
   VAT was recovered).
+
+### Batch 92: supplier rebates on an account determination key of their own (po:2026-11-22)
+
+The product owner kept `cash_discount` for a volume discount's credit
+memo on 2026-11-22 and asked for a key of its own (tracker leaf, src
+po:2026-11-22). Built:
+
+- **The key.** `supplier_rebate` (`config.AccountDetermination.
+  SupplierRebate`, `ledger.account_determination`, migrations 000460 and
+  000461): the supplier rebates received, a revenue as `cash_discount`'s
+  discounts received are (`config` refuses another type). `rebateInput`
+  asks for it (`payables.rebateKey`); nothing else in payables changed.
+- **Companies already set up** (decided by default): a company without
+  `supplier_rebate` falls back to its `cash_discount` account, the key it
+  shared until now (`ledger.Accounts.Determination`,
+  `determinationFallbacks`), rather than a migration filling the key: the
+  account determination is the configuration document's, applied by
+  `ledger.Setup`, and a row the document does not name would be undone by
+  no change request and seen in none. A company with neither still holds
+  the document with `payables.capture_needs_account`, whose detail now
+  names both keys. To post rebates elsewhere a company names the key in
+  its configuration (tier 3, posting-related) or applies the packs below.
+- **The packs' account** (decided by default): neither chart had a
+  rebate account, so Canada 2026.13 and UAE 2026.10 add `4830` "Supplier
+  rebates received", a revenue beside `4800` "Purchase discounts
+  received", as `supplier_rebate` (ADR-0048 As built, batch 92). SAP books
+  vendor rebates through an account key of its own (BO1, from memory [M],
+  still on the specialist list); the type is revenue rather than a
+  reduction of the cost of purchases (IAS 2.11 deducts rebates from the
+  cost of inventories, from memory [M]) because the memo credits by
+  amount, not against the stock or the cost of the goods it was earned
+  on; a company that keeps rebates in its cost of sales names its own
+  revenue-typed contra account or changes the account while the memo is
+  parked.
+- Tests: `TestVolumeDiscountOnSupplierRebates` (einvoicing: a company
+  with both keys credits the rebate's account),
+  `TestEnterVolumeDiscountWithoutOrder` (the fallback to `cash_discount`),
+  `TestRebateInput` (payables asks for `supplier_rebate`), ledger's
+  `TestDeterminationFallbacks`, db's `TestDiscountAccountKeys`, config's
+  `TestDiscountKeysValid`. Walkthrough step 144: EWS-501's item is on
+  4830, which UAE pack 2026.10 brought in step 41.

@@ -2061,6 +2061,10 @@ type ListSupplierQuotationsRes interface {
 	listSupplierQuotationsRes()
 }
 
+type ListTMSMessagesRes interface {
+	listTMSMessagesRes()
+}
+
 type ListTaxPeriodsRes interface {
 	listTaxPeriodsRes()
 }
