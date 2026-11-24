@@ -2,7 +2,9 @@
 # Tests scripts/each-module.sh on a throwaway repository, and that the
 # gates which must see every Go module (govulncheck, staticcheck, gosec)
 # reach them only through it in scripts/ci-local.sh, ci.yml and weekly.yml:
-# run as `<tool> ./...` from the root they skip temporal/ (06 §6.5).
+# run as `<tool> ./...` from the root they skip temporal/ (06 §6.5); and
+# govulncheck through the exceptions gate, scripts/vulncheck.sh, in all
+# three (scripts/test-vulncheck.sh tests the gate itself).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
@@ -56,6 +58,12 @@ rc=0
 "$repo/scripts/each-module.sh" >/dev/null 2>&1 || rc=$?
 check "no command is refused" "$rc" 2
 
+cp "$work/record" "$repo/scripts/record"
+: >"$log"
+(cd "$work" && "$repo/scripts/each-module.sh" ./scripts/record ./...) >/dev/null
+check "a command given as a relative path is the repository's file, in every module" \
+  "$(cat "$log")" "$(printf '. ./...\ntemporal ./...')"
+
 git -C "$repo" rm -q --cached go.mod
 rc=0
 "$repo/scripts/each-module.sh" "$work/record" >/dev/null 2>&1 || rc=$?
@@ -69,8 +77,9 @@ for f in scripts/ci-local.sh .github/workflows/ci.yml .github/workflows/weekly.y
   check "$f runs govulncheck, staticcheck and gosec through each-module.sh" "$bare" ""
 done
 for f in scripts/ci-local.sh .github/workflows/ci.yml .github/workflows/weekly.yml; do
-  n="$(grep -c 'each-module\.sh .*govulncheck' "$root/$f" || true)"
-  check "$f runs govulncheck in every module" "$n" 1
+  n="$(grep -c 'each-module\.sh \./scripts/vulncheck\.sh .*govulncheck' "$root/$f" || true)"
+  check "$f runs govulncheck in every module through the exceptions gate" "$n" 1
+  check "$f gives the gate no other exceptions file" "$(grep -c GOVULNCHECK_EXCEPTIONS "$root/$f" || true)" 0
 done
 finished
 exit "$failed"

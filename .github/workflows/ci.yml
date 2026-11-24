@@ -372,9 +372,13 @@ jobs:
         run: make lint-all GOLANGCI=golangci-lint
       - name: Static analysis
         run: ./scripts/each-module.sh staticcheck ./...
+      - name: The govulncheck gate's own tests
+        # Here rather than with the other scripts' tests: it builds cmd/vulngate.
+        run: ./scripts/test-vulncheck.sh
       - name: Vulnerabilities
-        # In every module: from the root alone, ./... skips temporal/.
-        run: ./scripts/each-module.sh govulncheck ./...
+        # In every module: from the root alone, ./... skips temporal/; the
+        # exceptions .govulncheck.yaml accepts until their dates (vulncheck.sh).
+        run: ./scripts/each-module.sh ./scripts/vulncheck.sh govulncheck
       - name: Static security analysis
         # Excluded by decision (docs/design/06-engineering-process.md): G104 (errors ignored on purpose carry a comment),
         # G115 (integer conversions of bounded domain values), G304 and G107 (paths and URLs come from settings and flags by design).

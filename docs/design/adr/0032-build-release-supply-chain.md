@@ -429,3 +429,38 @@ exceptions.
   CI's image job do that. Not yet known: whether pulling NATS from
   Docker Hub anonymously on every image job meets its pull limits on
   shared runners; if it does, an authenticated pull is the remedy.
+- **govulncheck exceptions (2026-11-23, batch 91).** govulncheck, which
+  covers the Go modules and the standard library that the SBOM scan does
+  not, gets time-boxed exceptions in the style of `.grype.yaml`'s, with the
+  expiry enforced rather than left to review. `scripts/vulncheck.sh` runs
+  the pinned govulncheck with `-format json ./...` in each module (through
+  `scripts/each-module.sh`, the same line in `scripts/ci-local.sh`, ci.yml
+  and weekly.yml) and hands the result to `cmd/vulngate`, which fails on
+  every finding whose trace reaches a vulnerable function (the
+  symbol-level findings text mode fails on) unless `.govulncheck.yaml`
+  lists that GO- id for that module (its directory: `.` or `temporal`)
+  with an `expires` date not yet past in UTC, and a `reason`. An expired
+  entry fails the gate, and so does one that no called vulnerability of
+  its module matches, so a stale entry is removed rather than left to
+  cover a later finding; an entry naming no module of the repository, a
+  missing field or a scan that is not symbol-level cannot be checked and
+  fails too. The first entry: GO-2026-6974 (AttributeValueLengthLimit
+  bypass via U+FFFD runes, published 2026-11-23) in otel/sdk and otel/trace
+  v1.45.0 of `temporal/`, fixed in v1.47.0, accepted until 2026-12-07 under
+  the product owner's delegation of 2026-11-23 (for review on 2026-11-27).
+  otel/sdk v1.47.0 needs otel/log v1.47.0, and no Temporal server release
+  (v1.32.1, v1.33.0-168.0, v1.33.0-169.0-rc.20261121112244) builds with
+  that log API, so `temporal/` cannot take the fix. The root module is on
+  v1.47.0 and needs no entry. erp-temporal is built, signed and attested
+  as an image and runs in every cell (ADR-0035), so this is not a "nothing
+  ships it" exception: the bug lets a span attribute exceed the configured
+  length limit in Temporal's tracing, which the erp-cell chart exports
+  nowhere (it sets no trace exporter for erp-temporal), and discloses no
+  data; nothing is deployed yet. The tracker item pins a Temporal server
+  that takes otel ≥ 1.47.0 and removes the entry by that date. **Checked
+  by** `cmd/vulngate`'s tests (accepted, refused, expired at the end of
+  its day in UTC, unused, another module's entry, every refusal of the
+  file and the stream), `scripts/test-vulncheck.sh` (the wiring, with a
+  fake govulncheck and files of its own; no workflow sets
+  `GOVULNCHECK_EXCEPTIONS`) and `scripts/test-each-module.sh` (all three
+  call sites go through the gate).

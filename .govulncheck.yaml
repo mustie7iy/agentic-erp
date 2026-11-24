@@ -1,0 +1,23 @@
+# Go advisories the govulncheck gate accepts (cmd/vulngate,
+# scripts/vulncheck.sh, ADR-0032 As built "govulncheck exceptions"). Each
+# entry names the advisory (its GO- id) and the module directory it is
+# accepted in, says why, and expires: from the day after `expires` the gate
+# fails again, and an entry no called vulnerability of its module matches
+# fails it too, so an entry is removed, not extended without a new reason.
+exceptions:
+  - id: GO-2026-6974
+    module: temporal
+    expires: "2026-12-07"
+    reason: >-
+      AttributeValueLengthLimit bypass via U+FFFD runes in
+      go.opentelemetry.io/otel/sdk and otel/trace v1.45.0, fixed in v1.47.0.
+      otel/sdk v1.47.0 needs otel/log v1.47.0, and no Temporal server release
+      (v1.32.1, v1.33.0-168.0, v1.33.0-169.0-rc.20261121112244) builds with
+      that log API, so temporal/ cannot take the fix. The exposure is span
+      attribute truncation in erp-temporal's tracing: the limit on an
+      attribute's length can be exceeded, which reaches no tenant data and
+      no authorization decision. erp-temporal is built, signed and shipped
+      in the erp-cell chart (ADR-0035), which sets no trace exporter for it;
+      nothing is deployed yet (AWS deferred). Decided under the product
+      owner's delegation of 2026-11-23, for review on 2026-11-27; the
+      tracker item pins a fixed Temporal server and removes this entry.

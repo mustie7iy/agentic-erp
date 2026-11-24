@@ -11,15 +11,22 @@
 # tests and coverage of temporal/ are scripts/temporal-checks.sh's.
 #
 # Every module is checked even after one fails, so one run shows every
-# failure; the exit status is the first failure's.
+# failure; the exit status is the first failure's. A command given as a
+# relative path (./scripts/vulncheck.sh, the govulncheck gate) names a file
+# from the repository's root and runs as that file in every module.
 #
-#   scripts/each-module.sh govulncheck ./...
+#   scripts/each-module.sh ./scripts/vulncheck.sh govulncheck
+#   scripts/each-module.sh staticcheck ./...
 set -euo pipefail
 [ "$#" -gt 0 ] || {
   echo "usage: each-module.sh COMMAND [ARG...]" >&2
   exit 2
 }
 cd "$(dirname "$0")/.."
+case "$1" in
+/*) ;;
+*/*) set -- "$PWD/${1#./}" "${@:2}" ;;
+esac
 # Go ignores testdata directories, so a go.mod there is a fixture.
 # git's own failure (no repository, an ownership refusal) stops the run
 # with its message; only an empty result from the filter is let through.
