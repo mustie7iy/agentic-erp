@@ -741,12 +741,12 @@ neither plant's unrestricted stock and adds up across the two movements.
   from memory). `:postGoodsReceipt` posts one `101` taking it out of
   transit into the receiving location, within the receiving plant's
   valuation, so nothing is posted. The order moves whole: `open`,
-  `in_transit`, `received`. Stock in transit is no location's stock
+  `in_transit`, `received`; an open order may be cancelled instead
+  (`cancelled`, review:batch92, ADR-0082 As built S2h). Stock in transit is no location's stock
   (`GET /v1/stock`) but the receiving plant's valuation; the material
   documents' lines say which line is in transit (`in_transit`).
   **Later:** partial issues and receipts, reversals of either (352, 102;
-  409 `inventory.reverse_stock_transport` until then), cancelling an open
-  order, a delivery between the plants (SAP's replenishment delivery,
+  409 `inventory.reverse_stock_transport` until then), a delivery between the plants (SAP's replenishment delivery,
   shipping), one-step transfers (SAP's 301 is S1c's), the stock in
   transit as a list of its own, stock in transit valued at the supplying
   plant until receipt.
@@ -1147,6 +1147,45 @@ parties and materials (sanctioned parties, export classification) and
 blocks a delivery it refuses. **Later for the connectors:** an embedded
 warehouse (SAP EWM), freight settlement, customs declarations.
 
+- **Adds:** the connector kind `gts` (a `wms` connector's settings; one
+  active connector a plant, 409 `integration.plant_has_gts`); the message
+  kinds `screening_request` (outbound) and `screening_result` (inbound,
+  status `recorded`) of `integration.wms_message` (000467, validated by
+  000468), on S2q's queue, exchange, port and stand-in; the delivery's
+  `trade_compliance` (`shipping.outbound_delivery`'s status `pending`,
+  `released` or `blocked`, the service's reason code and answer time, and
+  who released it by hand and when), `pending` from its creation at a
+  screened plant (`shipping.Screening`, `integration.TradeScreening`), set
+  by the service's answer through shipping's published `RecordScreening`
+  (`integration.GTSDeliveries`, `app.gtsDeliveries`) or by a person's
+  `releaseOutboundDeliveryTradeComplianceBlock` (permission
+  `shipping.trade_compliance.release`); the goods issue refused while
+  `pending` or `blocked` (409 `shipping.trade_compliance_block`);
+  `GET /v1/gts-messages`; `listOutboundDeliveries?trade_compliance_status=`;
+  OutboundDeliveryChanged's `trade_compliance`.
+- **Walkthrough:** step 162, `step_gts` (after `step_tms`, before close).
+- **Acceptance:** a delivery at a screened plant is created pending and
+  sent once to screen, whatever reads its event twice; its goods issue,
+  by a person or a WMS, is refused until it is released; the service's
+  answer is recorded once by its message id (listed again, acknowledged,
+  not recorded twice): one delivery released and goods-issued, one
+  blocked and refused at goods issue; the service's answers counted in
+  the order it screened, an older one read later refused; an answer of a
+  delivery the
+  connector was not sent, one shipping cannot hold, or one after the goods
+  issue is recorded refused; a block is released by hand only with its
+  own permission, audited.
+- **As built** (2026-11-23): ADR-0082 As built S2s.
+
+**Later for the trade compliance connector:** a vendor's adapter (SAP
+GTS's or another's); the parties' names and addresses and the materials'
+classifications in the request, for a service that holds no master data;
+screening of sales orders and purchase orders, and of the business
+partners themselves; a delivery created before its plant was screened,
+or whose request could not be sent, sent again by hand; customs
+declarations, preference calculation and licences (the tracker's "later:
+trade variants").
+
 ## Slices, counted
 
 Twenty-five slices: six in S1 (S1a–S1f, built in sequence) and nineteen
@@ -1176,3 +1215,9 @@ S2a–S2d, S2o and S2p (twelve).
   PRD, GBB with its account modifiers, UMB) is from memory; ADR-0082 §8
   maps it onto this ERP's account determination keys and is confirmed by
   the SAP specialist before S1d.
+- For S2s: SAP GTS's sanctioned party list screening and its legal
+  control blocking a feeder system's delivery for goods issue until GTS
+  releases it, the release of a blocked document done in GTS, and GTS
+  holding the business partners and classified products replicated from
+  the feeder system — all from memory, for the trade compliance
+  specialist.

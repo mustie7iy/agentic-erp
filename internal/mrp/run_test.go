@@ -175,7 +175,8 @@ func (e env) extend(t *testing.T, plant, location uuid.UUID) {
 // P2's run counts those two as its demand only while open (15) and the
 // orders from P1 as its receipts while open or in transit (60 and 25),
 // never the received one; P9 counts the intercompany order as its
-// purchase order's receipt.
+// purchase order's receipt. The orders cancelled before their goods issue
+// (review:batch92), one each way, count on neither side.
 func TestPlanningRunTransports(t *testing.T) {
 	e := setup(t)
 	p2 := e.orgUnit(t, e.DE, "plant", "P2", nil)
@@ -189,7 +190,7 @@ func TestPlanningRunTransports(t *testing.T) {
 		from, to       uuid.UUID
 		qty            int
 	}{{"ST1", "open", e.p1, p2, 60}, {"ST2", "in_transit", e.p1, p2, 25}, {"ST3", "received", e.p1, p2, 5}, {"ST4", "open", p2, e.p1, 15},
-		{"ST5", "in_transit", p2, e.p1, 7}} {
+		{"ST5", "in_transit", p2, e.p1, 7}, {"ST6", "cancelled", e.p1, p2, 90}, {"ST7", "cancelled", p2, e.p1, 80}} {
 		e.transport(t, o.number, o.status, o.from, o.to, o.qty)
 	}
 	if got := line(t, e.run(t), e.bracket); got != "130 200 22 0 -" {

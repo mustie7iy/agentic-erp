@@ -704,7 +704,7 @@ latest_pack() {
 # The permissions of everyone's day-to-day work: all but administering
 # access and the organisation, activating configuration, the AI policy,
 # releasing payments and deciding approvals, which the approver roles hold.
-STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release sales.customer_sales_data.write '
+STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release sales.customer_sales_data.write shipping.trade_compliance.release '
 
 # grant ROLE_ID PERMISSION... grants a role the permissions.
 grant() {
@@ -15798,11 +15798,12 @@ wait_transmission() {
 # washers leave the main store and are in transit to Montreal, in neither
 # store's stock but in Montreal's valuation, at its standard price, the
 # value posted between the plants' stock accounts with the difference on
-# price differences. A second issue is refused, and so is a reversal of
-# the issue. The goods receipt (101) takes them out of transit into the
-# Montreal store and posts nothing; the order is received.
+# price differences. A second issue is refused, and so are a reversal of
+# the issue and a cancellation of the order issued. The goods receipt
+# (101) takes them out of transit into the Montreal store and posts
+# nothing; the order is received.
 step_stock_transport() {
-  heading "Step 147 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue and a reversal refused"
+  heading "Step 147 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue, a reversal and a cancellation refused"
   local montreal store washer order tag doc
   [ -n "$PLANT" ] || fail "step 122's plant is not there"
   accounts
@@ -15860,8 +15861,9 @@ step_stock_transport() {
   expect "the washers' stock" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | join(", ")')" "P100/SL01 300"
   QUIET=1 api 200 '' listMaterialValuations -p "material_id=$washer" -p "plant_id=$montreal"
   expect "Montreal's valuation" "$(field '.items[0] | "\(.quantity.value) \(.value.amount)"')" "200 50.00"
-  say "The order is issued once, and its goods issue is not reversed:"
+  say "The order is issued once, its goods issue is not reversed, and an order issued is not cancelled:"
   refused 409 procurement.stock_transport_issued postStockTransportGoodsIssue -p "id=$order" -if-match "$tag"
+  refused 409 procurement.stock_transport_issued cancelStockTransportOrder -p "id=$order" -if-match "$tag"
   QUIET=1 api 200 '' getMaterialDocument -p "id=$doc"
   refused 409 inventory.reverse_stock_transport reverseMaterialDocument -p "id=$doc" -if-match "$ETAG"
   say "The washers arrive in Montreal; Wade posts the goods receipt (101), which takes them out of transit into the store,"
@@ -16242,11 +16244,13 @@ step_serial_numbers() {
 # counts on both sides (ADR-0084 As built, stock transport orders): Mira
 # creates the G20 gasket, kept at Toronto and Montreal, Wade enters 100 at
 # Toronto, Mira plans it at both plants and Pablo orders 80 from Toronto
-# to Montreal; Toronto's run counts the open order as its demand, and
-# Montreal's as its receipt, so neither proposes.
+# to Montreal; he cancels an order of 30 more he entered by mistake
+# (review:batch92), which is not cancelled again. Toronto's run counts the
+# open order as its demand, and Montreal's as its receipt, and neither the
+# cancelled one, so neither proposes.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt"
-  local hinge sales own own_version run first second montreal store gasket plant
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither"
+  local hinge sales own own_version run first second montreal store gasket plant mistake
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -16361,9 +16365,19 @@ step_mrp() {
   api 201 '"stock transport order \(.number): \(.supplying_plant_code) to \(.receiving_plant_code), \(.status)"' createStockTransportOrder \
     -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$montreal\", \"items\": [{\"material_id\": \"$gasket\",
       \"quantity\": {\"value\": \"80\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\", \"receiving_storage_location_id\": \"$store\"}]}"
+  say "He enters an order of 30 more by mistake and cancels it at the version he reads, before its goods issue; a"
+  say "cancelled order is not cancelled again, and no run counts it:"
+  api 201 '"stock transport order \(.number): \(.supplying_plant_code) to \(.receiving_plant_code), \(.status)"' createStockTransportOrder \
+    -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$montreal\", \"items\": [{\"material_id\": \"$gasket\",
+      \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\", \"receiving_storage_location_id\": \"$store\"}]}"
+  mistake=$(field .id)
+  api 200 '"stock transport order \(.number): \(.status), version \(.version)"' cancelStockTransportOrder -p "id=$mistake" -if-match "$ETAG"
+  expect "the cancelled order" "$(field '"\(.status) \(.version)"')" "cancelled 2"
+  refused 409 procurement.stock_transport_cancelled cancelStockTransportOrder -p "id=$mistake" -if-match "$ETAG"
   as ben
   say "Toronto's run counts the order as its demand: 100 in stock less the 80 it must issue keeps it above its reorder"
-  say "point of 10, so nothing is proposed (counting none, it would see 100):"
+  say "point of 10, so nothing is proposed (counting none, it would see 100; counting the cancelled one too, a demand of"
+  say "110 would propose 20):"
   mrp_run "$PLANT" "$gasket"
   expect "Toronto's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value)"')" "80 100 0 0"
   say "Montreal's run counts the order as its receipt: the 80 coming keep it above its reorder point of 50, so it proposes"
@@ -17439,6 +17453,134 @@ step_tms() {
   say "Ada disables the connector, so the later deliveries at P100 are planned by people:"
   QUIET=1 api 200 '' getConnector -p "id=$connector"
   api 200 '"connector \(.name): \(.status)"' disableConnector -p "id=$connector" -if-match "$ETAG" -body '{"reason": "The walkthrough goes on without the transport system"}'
+  passed
+}
+
+# step_gts is S2s (ADR-0082 As built S2s, plan-supply-chain.md §S2s): Ada
+# connects Toronto's trade compliance service for the Toronto plant, a gts
+# connector to the stand-in on this machine (step_wms's, free since the
+# tms connector was disabled; refused in production), its credentials in
+# Maple's vault namespace; a second for the plant is refused. Wade creates
+# two outbound deliveries of one bracket each: each is created with its trade
+# compliance pending, and its creation's event, read from the bus, queues
+# the screening request the exchange sends once. While pending, the goods
+# issue is refused. The service releases the first and blocks the second
+# (a sanctioned party list hit); the exchange records each answer on its
+# delivery once by its message id. Wade posts the first's goods issue; the
+# second's is refused, blocked. Releasing a block by hand is a trade
+# compliance officer's (shipping.trade_compliance.release, which
+# finance_staff does not hold): Wade is refused; Ada gives Carla the
+# officer's role, Carla releases it and Wade posts its goods issue. Ada
+# disables the connector.
+step_gts() {
+  heading "Step 162 — Trade compliance connector: the Toronto plant's deliveries are screened by a trade compliance service, each sent once and pending until it answers; its goods issue waits; the service releases one, which is goods-issued, and blocks the other, whose goods issue is refused; a block is released by hand only with its own permission, by a trade compliance officer"
+  local connector order released blocked rnumber bnumber message role carla
+  [ -n "$MATERIAL" ] && [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
+  accounts
+  as ada
+  say "Maple screens its exports with a trade compliance service (SAP GTS's role, ADR-0082 As built S2s): sanctioned"
+  say "party lists and export classification. Ada connects it for the Toronto plant: a gts connector naming the plants"
+  say "whose deliveries it screens, P100, its credentials by secret_ref in Maple's vault namespace; the stand-in on this"
+  say "machine, refused in production. A plant has one trade compliance service:"
+  vault_put gts "$WORK/wms/token"
+  api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), plants \(.settings.plants | to_entries | map("\(.key) \(.value | join(" "))") | join(", "))"' \
+    createConnector -body "{\"kind\": \"gts\", \"name\": \"Toronto trade compliance\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
+  connector=$(field .id)
+  refused 409 integration.plant_has_gts createConnector -body "{\"kind\": \"gts\", \"name\": \"Second compliance service\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
+  as sally
+  say "Sally sells Northwind two single brackets from the Toronto plant, priced by hand (its price is by the box), and confirms the order:"
+  api 201 '"sales order \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"9.50\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    as ruth
+    say "Northwind is over its credit limit; Ruth releases the block:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$ETAG"
+  fi
+  as wade
+  say "Wade creates two outbound deliveries of one bracket each. Since a trade compliance service screens P100, each is"
+  say "created pending: its goods issue waits for the screening. Its creation's event, read from the bus, queues a"
+  say "screening request, which the exchange sends once:"
+  api 201 '"outbound delivery \(.number) from \(.plant_code): \(.status), trade compliance \(.trade_compliance.status)"' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  released=$(field .id) rnumber=$(field .number)
+  expect "the first delivery's trade compliance" "$(field .trade_compliance.status)" pending
+  api 201 '"outbound delivery \(.number) from \(.plant_code): \(.status), trade compliance \(.trade_compliance.status)"' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  blocked=$(field .id) bnumber=$(field .number)
+  as ada
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listGTSMessages -p "connector_id=$connector" -p direction=outbound -p status=sent
+    if [ "$(field '.items | length')" = 2 ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id[0:8])… to \(.connector_name) for \(.company_code)/\(.plant_code): \(.outbound_delivery_number), \(.status) after \(.attempts) attempt"' \
+    listGTSMessages -p "connector_id=$connector" -p direction=outbound
+  expect "the screening requests (after $i checks)" "$(field '[.items[] | "\(.kind) \(.status) \(.attempts)"] | join(", ")')" "screening_request sent 1, screening_request sent 1"
+  QUIET=1 api 200 '' listGTSMessages -p "outbound_delivery_id=$released" -p direction=outbound
+  message=$(field '.items[0].message_id')
+  [ -s "$WORK/wms/received/$message.json" ] || fail "the trade compliance service's stand-in holds no message $message"
+  jq -r '"  \(.type) v\(.schema_version): \(.outbound_delivery_number) of \(.sales_order_number) for \(.customer_number) from \(.company_code)/\(.plant_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.quantity) \(.unit)")' \
+    "$WORK/wms/received/$message.json"
+  as wade
+  say "Wade picks the first bracket; its goods issue is refused while the service has not answered:"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$released"
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$released" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
+  refused 409 shipping.trade_compliance_block postOutboundDeliveryGoodsIssue -p "id=$released" -if-match "$ETAG"
+  say "The service screens both: the first is released; the second's customer hits a sanctioned party list and it is"
+  say "blocked with the service's reason code. Each answer names when the service screened, which orders its answers"
+  say "however they are read. The exchange polls the answers and records each on its delivery through shipping, once by"
+  say "the message's id, posting nothing, and acknowledges it:"
+  printf '{"message_id": "GTS-SC-1", "type": "screening", "outbound_delivery_id": "%s", "result": "released", "screened_at": "%s"}\n' "$released" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    >"$WORK/wms/confirmations/GTS-SC-1.json"
+  printf '{"message_id": "GTS-SC-2", "type": "screening", "outbound_delivery_id": "%s", "result": "blocked", "reason_code": "SPL-HIT", "screened_at": "%s"}\n' "$blocked" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$WORK/wms/confirmations/GTS-SC-2.json"
+  wms_acknowledged GTS-SC-1
+  wms_acknowledged GTS-SC-2
+  as ada
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id): \(.status), \(.outbound_delivery_number), acknowledged \(.acknowledged_at != null)"' \
+    listGTSMessages -p "connector_id=$connector" -p direction=inbound
+  expect "the answers recorded" "$(field '[.items[] | "\(.message_id) \(.status)"] | sort | join(", ")')" "GTS-SC-1 recorded, GTS-SC-2 recorded"
+  as wade
+  say "The first delivery is released: Wade posts its goods issue."
+  api 200 '"outbound delivery \(.number): trade compliance \(.trade_compliance.status)"' getOutboundDelivery -p "id=$released"
+  api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number)"' postOutboundDeliveryGoodsIssue -p "id=$released" -if-match "$ETAG"
+  expect "the released delivery" "$(field '"\(.number) \(.status) \(.trade_compliance.status)"')" "$rnumber goods_issued released"
+  say "The second is blocked: its goods issue is refused, naming the service's reason. Releasing it by hand is a trade"
+  say "compliance officer's decision (shipping.trade_compliance.release), which Wade does not hold:"
+  api 200 '"outbound delivery \(.number): trade compliance \(.trade_compliance.status), reason \(.trade_compliance.reason_code)"' getOutboundDelivery -p "id=$blocked"
+  expect "the blocked delivery" "$(field '"\(.number) \(.trade_compliance.status) \(.trade_compliance.reason_code)"')" "$bnumber blocked SPL-HIT"
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$blocked" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
+  refused 409 shipping.trade_compliance_block postOutboundDeliveryGoodsIssue -p "id=$blocked" -if-match "$ETAG"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$blocked"
+  refused 403 identity.permission_missing releaseOutboundDeliveryTradeComplianceBlock -p "id=$blocked" -if-match "$ETAG"
+  QUIET=1 api 200 '' listOutboundDeliveries -p "trade_compliance_status=blocked" -p "sales_order_id=$order"
+  expect "the order's blocked deliveries" "$(field '[.items[].number] | join(", ")')" "$bnumber"
+  as ada
+  say "Maple's compliance review clears the customer: the list hit was a namesake. Ada creates the trade compliance"
+  say "officer's role and gives it to Carla, who releases the block, audited, naming her; Wade then posts the goods issue:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "trade_compliance_officer", "name": "Trade compliance officer"}'
+  role=$(field .id)
+  grant "$role" shipping.trade_compliance.release
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  [ -n "$carla" ] || fail "Carla is not there"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$carla\", \"role_id\": \"$role\"}"
+  as carla
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$blocked"
+  api 200 '"outbound delivery \(.number): trade compliance \(.trade_compliance.status) by \(.trade_compliance.released_by_name), reason \(.trade_compliance.reason_code) kept"' \
+    releaseOutboundDeliveryTradeComplianceBlock -p "id=$blocked" -if-match "$ETAG"
+  expect "the released delivery" "$(field '"\(.trade_compliance.status) \(.trade_compliance.released_by_name)"')" "released Carla Controller"
+  as wade
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$blocked"
+  api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number)"' postOutboundDeliveryGoodsIssue -p "id=$blocked" -if-match "$ETAG"
+  expect "the delivery released by hand" "$(field .status)" goods_issued
+  as ada
+  say "Ada disables the connector, so the later deliveries at P100 are not screened:"
+  QUIET=1 api 200 '' getConnector -p "id=$connector"
+  api 200 '"connector \(.name): \(.status)"' disableConnector -p "id=$connector" -if-match "$ETAG" -body '{"reason": "The walkthrough goes on without the trade compliance service"}'
   passed
 }
 
@@ -19483,7 +19625,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_close'
 
 main() {
   stop_unseen

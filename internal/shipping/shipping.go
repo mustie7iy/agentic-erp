@@ -3,7 +3,11 @@
 // LIKP and LIPS), each of one confirmed order's items of materials kept in
 // stock from one plant's storage location, numbered from its company's
 // outbound_delivery range (create.go, S2a); their picking, up to what the
-// location holds (pick.go, S2a); and their goods issue (S2b1).
+// location holds (pick.go, S2a); and their goods issue (S2b1). A
+// delivery's shipment is recorded as a transport system reports it
+// (shipment.go, S2r), and its trade compliance as a trade compliance
+// service screens it, which its goods issue waits for (trade.go, S2s;
+// ADR-0082 As built S2s).
 //
 // The context is a leaf (ADR-0083 §1). It reads the sales order through
 // sales' published read (sales.Orders) and has sales hold the quantities
@@ -99,6 +103,20 @@ type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 }
 
+// Screening reports whether a trade compliance service screens the
+// deliveries of a company's plant (S2s; integration's TradeScreening,
+// which the composition root wires, so shipping imports no context of
+// the connectors), in the caller's transaction.
+type Screening interface {
+	Screens(ctx context.Context, company, plant string) (bool, error)
+}
+
+// People names principals (identity's people): a release names its
+// person as they were named then, as sales' credit release does.
+type People interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Settings reads the active configuration: a company's time zone.
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
@@ -116,6 +134,8 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Screening     Screening
+	People        People
 	// Now is the clock a delivery is dated by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time
@@ -161,10 +181,13 @@ type Delivery struct {
 	Items    []Item
 	// Shipment is the shipment a transport system planned it in (S2r);
 	// nil until one is recorded.
-	Shipment  *Shipment
-	Version   int32
-	CreatedAt time.Time
-	CreatedBy uuid.UUID
-	UpdatedAt time.Time
-	UpdatedBy uuid.UUID
+	Shipment *Shipment
+	// TradeCompliance is its screening by a trade compliance service
+	// (S2s); nil when none screened its plant when it was created.
+	TradeCompliance *TradeCompliance
+	Version         int32
+	CreatedAt       time.Time
+	CreatedBy       uuid.UUID
+	UpdatedAt       time.Time
+	UpdatedBy       uuid.UUID
 }

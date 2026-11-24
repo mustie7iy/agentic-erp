@@ -135,7 +135,12 @@ type Handler interface {
 	// account becomes an asset reconciliation account. An existing account whose cost element becomes
 	// `secondary`, or a secondary cost element given another cost element, is refused (409
 	// `ledger.secondary_account_not_new`, ADR-0064 §4): an account is a secondary cost element from its
-	// creation and stays one.
+	// creation and stays one. An account determination key the proposal no longer names is removed (a key
+	// with a fallback, such as `cash_discount_granted`, posts to the fallback's account again), but for
+	// the keys of a valuation class whose stock account, or the key's own account, has postings: a
+	// reversal of the class's material documents determines its accounts again, so their removal is
+	// refused, as is a change of a stock account with postings (409 `ledger.determination_key_posted`,
+	// ADR-0048 As built batch 93); the class's other accounts may change.
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -609,6 +614,24 @@ type Handler interface {
 	//
 	// POST /v1/sales-orders/{id}:cancel
 	CancelSalesOrder(ctx context.Context, req *ReasonInput, params CancelSalesOrderParams) (CancelSalesOrderRes, error)
+	// CancelStockTransportOrder implements cancelStockTransportOrder operation.
+	//
+	// Cancels an open stock transport order (ADR-0082 As built S2h, cancellation; SAP's deletion of a
+	// stock transport order's items before their goods issue, from memory), one entered by mistake or no
+	// longer needed, at the version read (`If-Match`; 412 `request.version_mismatch`). Only an order whose
+	// goods issue is not posted is cancelled: one `in_transit` or `received` is refused (409
+	// `procurement.stock_transport_issued`), its stock having moved, and one already `cancelled` too (409
+	// `procurement.stock_transport_cancelled`). The order is `cancelled` and changes no more: it is
+	// neither issued (409 `procurement.stock_transport_cancelled`) nor received (409
+	// `procurement.stock_transport_not_in_transit`), and from then on a planning run counts it neither as
+	// the supplying plant's demand nor as the receiving plant's receipt (`startMrpRun`; ADR-0084 As
+	// built), and a sales and operations planning review never counts it (`createSopPlan`). It moves no
+	// stock and posts nothing. The order is read under its row lock. Audited, and published as
+	// StockTransportOrderCancelled. A retry with the same `Idempotency-Key` answers the order as it left
+	// it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders/{id}:cancel
+	CancelStockTransportOrder(ctx context.Context, params CancelStockTransportOrderParams) (CancelStockTransportOrderRes, error)
 	// CancelSupplierInvoice implements cancelSupplierInvoice operation.
 	//
 	// Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -2418,7 +2441,9 @@ type Handler interface {
 	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
 	// Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
 	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
-	// material too, as it carries no serial numbers yet (S2g).
+	// material too, as it carries no serial numbers yet (S2g). A delivery at a plant an active `gts`
+	// connector names is created with its `trade_compliance` `pending` (S2s): a trade compliance service
+	// screens it (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, req *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
@@ -6412,6 +6437,39 @@ type Handler interface {
 	//
 	// GET /v1/liquidity-forecast-variance/documents
 	ListForecastVarianceDocuments(ctx context.Context, params ListForecastVarianceDocumentsParams) (ListForecastVarianceDocumentsRes, error)
+	// ListGTSMessages implements listGTSMessages operation.
+	//
+	// The messages exchanged with the tenant's trade compliance services through `gts` connectors
+	// (ADR-0082 As built S2s), newest first: those of the companies the caller may act in, and, to a
+	// caller who may act in every company, inbound ones refused before their delivery was known. Outbound
+	// (`screening_request`): each outbound delivery created at a plant an active `gts` connector names in
+	// its `plants` is created with its `trade_compliance` `pending` and queued once as a message giving
+	// the service the delivery to screen (its `body`, the message as sent: message type
+	// `screening_request`, schema version 1, its company, plant and storage location by code, the delivery
+	// by id and number with its sales order's and customer's numbers, and each item's number, material
+	// number, quantity and unit; the service holds the parties' and materials' master data by those
+	// numbers), sent, tried again and failed exactly as a warehouse system's message is
+	// (`listWMSMessages`; `integration.not_a_gts` when its connector is not a `gts` one). Inbound
+	// (`screening_result`): the service's answer, polled from each active `gts` connector (every 10 s) and
+	// recorded once per connector and its message id: `recorded`, the answer (its own `message_id`, type
+	// `screening`, the `outbound_delivery_id` it was sent, `result` `released` or `blocked`, optionally
+	// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339, at
+	// most 5 minutes past the ERP's clock) recorded on the delivery (`getOutboundDelivery`'s
+	// `trade_compliance`, as the exchange's system principal acting for the delivery's company; the
+	// service's latest answer counts by `screened_at`, whatever the order the answers are read in),
+	// nothing posted; or `refused` with the problem that stopped it: one that is not a JSON `screening`
+	// message naming its own message id, an `outbound_delivery_id` and `screened_at`, or that holds
+	// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as
+	// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+	// not sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for
+	// a delivery whose goods issue is posted, `shipping.invalid_screening` for another result, a reason
+	// code out of bounds or a `screened_at` too far ahead, `shipping.screening_superseded` for an answer
+	// screened no later than the one the delivery holds). The service is told after that commit
+	// (`acknowledged_at`); one listed again is acknowledged again, not recorded twice. Filters: connector,
+	// direction, status and the outbound delivery.
+	//
+	// GET /v1/gts-messages
+	ListGTSMessages(ctx context.Context, params ListGTSMessagesParams) (ListGTSMessagesRes, error)
 	// ListGoodsReceipts implements listGoodsReceipts operation.
 	//
 	// Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`.
@@ -6780,8 +6838,8 @@ type Handler interface {
 	// ListOutboundDeliveries implements listOutboundDeliveries operation.
 	//
 	// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
-	// status. Sortable by: `created_at`.
+	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order, status
+	// and trade compliance status. Sortable by: `created_at`.
 	//
 	// GET /v1/outbound-deliveries
 	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)
@@ -7986,26 +8044,28 @@ type Handler interface {
 	// Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 	// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
 	// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-	// `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as
-	// one material document of movement type `601` (`material_document_id`), posted on the company's date
-	// today in its time zone and numbered from its `material_document` range, its `reference` the
-	// delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued
-	// (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`:
-	// picking reserves none), and no open physical inventory count document counting the material there
-	// (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an
-	// issue does (at a standard price the stock left at the price, at a moving price the value in
-	// proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the
-	// valuation class's stock account to its cost of goods sold account (422
-	// `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422
-	// `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and
-	// what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound
-	// delivery and the material document, each item with its cost, the order item's `delivered_quantity`
-	// rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open
-	// again on the order. An order blocked for credit since the delivery was made is refused until its
-	// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
-	// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
-	// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-	// Human-only (`x-agent: false`). A batch-managed material is refused (422
+	// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
+	// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
+	// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
+	// quantity leaves the delivery's storage location as one material document of movement type `601`
+	// (`material_document_id`), posted on the company's date today in its time zone and numbered from its
+	// `material_document` range, its `reference` the delivery's number: the material active and kept there
+	// (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
+	// now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical
+	// inventory count document counting the material there (409 `inventory.posting_blocked`, naming the
+	// document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock
+	// left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods
+	// sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods
+	// sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals,
+	// such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the
+	// order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the
+	// outbound delivery and the material document, each item with its cost, the order item's
+	// `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was
+	// not picked is open again on the order. An order blocked for credit since the delivery was made is
+	// refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
+	// `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
+	// MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+	// delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422
 	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
 	// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
 	//
@@ -8074,20 +8134,20 @@ type Handler interface {
 	//
 	// Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory),
 	// once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`,
-	// 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage
-	// location and is in transit to its receiving storage location, as one material document of movement
-	// type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered
-	// from its `material_document` range, its `reference` the order's number; its lines in transit
-	// (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each
-	// item is checked as at the order's creation, the material active and valued in both plants (422
-	// `inventory.no_valuation`), the supplying location's stock enough (409
-	// `inventory.insufficient_stock`) and counted by no open physical inventory document (409
-	// `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the
-	// stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at
-	// the price, the rest a price difference), posted in one WA journal entry between the valuation
-	// classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422
-	// `ledger.period_not_open`). The order is `in_transit`. Audited, and published as
-	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+	// 409 `procurement.stock_transport_issued`, or `procurement.stock_transport_cancelled` for one
+	// cancelled). Every item's quantity leaves its supplying storage location and is in transit to its
+	// receiving storage location, as one material document of movement type `351` (`issue_document_id`),
+	// posted on the company's date today in its time zone and numbered from its `material_document` range,
+	// its `reference` the order's number; its lines in transit (`in_transit`) are neither plant's stock
+	// (`listStock`) but the receiving plant's valuation. Each item is checked as at the order's creation,
+	// the material active and valued in both plants (422 `inventory.no_valuation`), the supplying
+	// location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical
+	// inventory document (409 `inventory.posting_blocked`). The issue takes the supplying stock's value as
+	// an issue does, and the stock in transit is worth what it took (at a standard price in the receiving
+	// plant, its quantity at the price, the rest a price difference), posted in one WA journal entry
+	// between the valuation classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's
+	// refusals, such as 422 `ledger.period_not_open`). The order is `in_transit`. Audited, and published
+	// as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
 	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/stock-transport-orders/{id}:postGoodsIssue
@@ -8555,6 +8615,23 @@ type Handler interface {
 	//
 	// POST /v1/internal-orders/{id}:release
 	ReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (ReleaseInternalOrderRes, error)
+	// ReleaseOutboundDeliveryTradeComplianceBlock implements releaseOutboundDeliveryTradeComplianceBlock operation.
+	//
+	// Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
+	// at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
+	// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
+	// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
+	// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
+	// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
+	// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
+	// later answer of the service still counts: a block it reports after the release blocks the delivery
+	// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
+	// apart from posting the goods issue. Nothing is posted. Audited, and published as
+	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
+	ReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params ReleaseOutboundDeliveryTradeComplianceBlockParams) (ReleaseOutboundDeliveryTradeComplianceBlockRes, error)
 	// ReleasePaymentRun implements releasePaymentRun operation.
 	//
 	// The F110 release step, a direct human transition (not an approval request), as an operation

@@ -1305,10 +1305,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: an account determination key a company's configuration stops naming is not removed by ledger.Setup (it only upserts rows), so the company keeps posting to the old account although its document names none; with batch 92's fallbacks a company that drops cash_discount_granted or supplier_rebate keeps posting discounts or rebates there instead of falling back to payment_difference_expense or cash_discount",
-      "r": "internal/ledger/setup.go applyCompany (account determination upsert) · ledger.Accounts.Determination, determinationFallbacks · ADR-0063 and ADR-0061 As built batch 92",
+      "r": "internal/ledger/setup.go applyCompany (account determination upsert) · ledger.Accounts.Determination, determinationFallbacks · ADR-0063 and ADR-0061 As built batch 92 · built in batch 93: activating a document removes the keys it no longer names (ledger applyDetermination), each removal recorded in ledger.account_determination_removal (insert-only; migration 000464), whose trigger deletes the row as the owner; gr_ir, down_payment and retained_earnings are kept (account_determination_removal_kept), and every key of a valuation class whose stock account or own account has postings, which a material document's reversal determines again, and such a stock account does not change (Check finding; 409 ledger.determination_key_posted) · TestDeterminationKeysRemoved · TestDeterminationKeyPostedKept · TestAccountDeterminationRemovalRules · TestAccountDeterminationRemovalDown · ADR-0048 As built batch 93",
       "src": "review:batch92",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: a goods movement reads its account determination key with no lock (ledger.Accounts.Determination, internal/ledger/ports.go), so a movement posting while a configuration activation changes a valuation class's stock account can post to the old account after the change commits; read the key FOR SHARE so the activation's update waits for the posting, or the posting for the activation",
+      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted",
+      "src": "review:batch93",
       "c": []
      },
      {
@@ -5796,16 +5803,16 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "fix: no operation cancels a stock transport order within the company, so one entered by mistake counts for ever as the supplying plant's MRP demand and the receiving plant's receipt (ADR-0084 As built, stock transport orders)",
-      "r": "procurement stock transport orders (S2h) · procurement.Orders.TransportsDue, .TransportsOnOrder · internal/mrp/net.go · ADR-0084 As built (stock transport orders, batch 92)",
+      "s": "D",
+      "t": "fix: GET /v1/stock-transport-orders?number= says legal_entity_id narrows it to one order, but a stock transport order's number is unique per company and fiscal year (stock_transport_order_number_once): the description says one per fiscal year, as the outbound deliveries' number filter does",
+      "r": "api/openapi.yaml listStockTransportOrders number · db/migrations/000418 stock_transport_order_number_once · contract description only",
       "src": "review:batch92",
       "c": []
      },
      {
       "s": "D",
-      "t": "fix: GET /v1/stock-transport-orders?number= says legal_entity_id narrows it to one order, but a stock transport order's number is unique per company and fiscal year (stock_transport_order_number_once): the description says one per fiscal year, as the outbound deliveries' number filter does",
-      "r": "api/openapi.yaml listStockTransportOrders number · db/migrations/000418 stock_transport_order_number_once · contract description only",
+      "t": "fix: no operation cancels a stock transport order within the company, so one entered by mistake counts for ever as the supplying plant's MRP demand and the receiving plant's receipt (ADR-0084 As built, stock transport orders)",
+      "r": "procurement stock transport orders (S2h) · POST /v1/stock-transport-orders/{id}:cancel (cancelStockTransportOrder) · procurement.Endpoints.CancelTransport · status cancelled · db/migrations/000465, 000466 · StockTransportOrderCancelled · problem procurement.stock_transport_cancelled · procurement.Orders.TransportsDue, .TransportsOnOrder · internal/mrp/net.go · demandagent, replenishmentagent Never · ADR-0082 As built S2h (cancellation) · ADR-0084 As built (stock transport orders, batch 92) · TestStockTransportCancel, TestPlanningRunTransports, TestSopSupply · walkthrough step_stock_transport (step 147), step_mrp (step 152)",
       "src": "review:batch92",
       "c": []
      },
@@ -6091,9 +6098,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "An external trade compliance service screens deliveries' parties and materials and blocks a delivery it refuses, through a connector",
-      "r": "S2s · docs/design/plan-supply-chain.md §S2s",
+      "r": "S2s · docs/design/plan-supply-chain.md §S2s · ADR-0082 As built S2s",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -9197,16 +9204,16 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing",
-      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4",
+      "s": "D",
+      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing. Verified, no migration needed: it cannot have done nothing. Migrations run as a login that bypasses row-level security (06 §6.4), which fills every item; and under a role held to it the same transaction's SET NOT NULL of the five columns, which PostgreSQL checks over every row whatever the policies, fails 000356 whole (23502, column unit_price contains null values), so no database is past 000356 with an item unfilled. Run on billing documents of two tenants with the columns emptied as 000355 left them: as a migrating role neither superuser nor BYPASSRLS (a member of erp_owner) the UPDATE changed 0 rows and the migration's statements failed with 23502; as the superuser they filled both items",
+      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4 · db/migrator_test.go asMigrator (the role the check ran as)",
       "src": "review:batch86",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: migration 000428_batches.down.sql's guard (batches or batch-managed materials exist) reads inventory.batch and materials.material without SET LOCAL row_security = off, so a migrating role held to their forced row-level security sees no tenant's rows and drops the batch columns whatever exists (pre-existing, as 000356's backfill); read every tenant's rows as 000435's down does, so such a role fails rather than sees zero rows",
-      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
+      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · TestBatchDownRefused (as a migrating role held to row-level security: neither superuser nor BYPASSRLS, a member of erp_owner) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
       "src": "review:batch87",
       "c": []
      },
@@ -9215,6 +9222,13 @@
       "t": "fix: the down migrations 000432, 000433, 000437 and 000443 run their guards without SET LOCAL row_security = off, so run as a role held to forced row-level security they see no rows and drop data: of the four only 000443_intercompany_transport.down.sql has a guard (intercompany orders or 643 documents exist), now reading with row_security off; 000432 and 000433 drop indexes and 000437 a check, which lose no data",
       "r": "db/migrations/000443_intercompany_transport.down.sql · TestIntercompanyTransportDownRefused · ADR-0003 · 06 §6.4 (a down migration loses no data)",
       "src": "review:batch90",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: 50 down migrations run their RAISE guards without SET LOCAL row_security = off (from 000013 to 000418; migguards' list of batch 93 less 000443, which batch 91 fixed), so run as a migrating role held to forced row-level security they see no rows and drop data instead of refusing; each needs the line 000428's and 000435's downs have, and a down-guard test as such a role (db/migrator_test.go asMigrator)",
+      "r": "db/migrations/*.down.sql (the guards' DO blocks) · 000428_batches.down.sql and TestBatchDownRefused (the pattern) · db/migrator_test.go asMigrator · ADR-0003 · 06 §6.4 (a down migration loses no data) · migguards' list of the downs (batch 93)",
+      "src": "review:batch93",
       "c": []
      }
     ]
@@ -12391,10 +12405,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A contract test that every status a handler can answer is declared on its operation (for example an {id} operation's 404 for a document not found or not visible): TestProblemCodes checks the problem codes only, so ics3's undeclared 404 (batch 91) was caught by review alone",
-        "r": "api/problemcodes_test.go TestProblemCodes (codes, not statuses) · api/openapi.yaml responses · batch 91 review round 1 (pre-existing) · enterIntercompanySupplierInvoice's 404",
+        "r": "api/problemcodes_test.go TestProblemCodes (codes, not statuses) · api/openapi.yaml responses · batch 91 review round 1 (pre-existing) · enterIntercompanySupplierInvoice's 404 · built: api/statuses_test.go, TestProblemCodes/statuses (each problem.New's status for the codes the operation's own code makes, problem.From's database translation left to the pipeline; 404 for a path's parameter; relayedStatuses for a status given at run time; 500 left out) and TestProblemCodes/statuses_refused · 51 responses added to 48 operations (409 ×32, most of them config.not_bootstrapped on reads; 422 ×14; 503 ×3, object storage; 412 ×1; 400 ×1; listed in ADR-0052 As built batch 93) · ADR-0052 G7 As built batch 93 (a 404 of a body reference is not derived: a gap) · no walkthrough step: a contract test",
         "src": "review:batch91",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "fix: a 503 that problem.From answers for a lost database connection is declared on no operation: TestProblemCodes/statuses leaves problem.From's translation to the request pipeline, so the contract tells a consumer of no operation that it can answer 503; it needs a document-level note (as 500 is treated) or a decision to declare it per operation",
+        "r": "api/statuses_test.go (problem.From left to the pipeline, 500 left out) · internal/platform/problem From · api/openapi.yaml responses · ADR-0052 G7 As built batch 93",
+        "src": "review:batch93",
         "c": []
        },
        {

@@ -187,8 +187,8 @@ func uncertifiedEInvoice(adapter, environment any) error {
 // refuseUncertified refuses, in production, a connector becoming active
 // that is not certified there: a bank_ebics channel (ADR-0038), an
 // einvoice_provider of the stand-in's adapter or of Evatra's sandbox
-// (ADR-0061 §3), or a wms or tms connector of the stand-in's (ADR-0082
-// As built S2q, S2r).
+// (ADR-0061 §3), or a wms, tms or gts connector of the stand-in's (ADR-0082
+// As built S2q, S2r, S2s).
 func (e *Endpoints) refuseUncertified(kind string, settings map[string]any) error {
 	if !e.RefuseEBICS {
 		return nil
@@ -198,7 +198,7 @@ func (e *Endpoints) refuseUncertified(kind string, settings map[string]any) erro
 		return ebicsRefused()
 	case EInvoiceProvider:
 		return uncertifiedEInvoice(settings["adapter"], settings["environment"])
-	case WMS, TMS:
+	case WMS, TMS, GTS:
 		if settings["adapter"] == StandInAdapter {
 			return logisticsStandInRefused(kind)
 		}

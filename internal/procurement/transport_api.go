@@ -130,7 +130,7 @@ func (e *Endpoints) PostStockTransportGoodsIssue(ctx context.Context, params gen
 	if err != nil {
 		return nil, err
 	}
-	return &gen.PostStockTransportGoodsIssueOKHeaders{ETag: tag, Response: out}, nil
+	return &gen.CancelStockTransportOrderOKHeaders{ETag: tag, Response: out}, nil
 }
 
 // PostStockTransportGoodsReceipt implements POST
@@ -142,7 +142,18 @@ func (e *Endpoints) PostStockTransportGoodsReceipt(ctx context.Context, params g
 	if err != nil {
 		return nil, err
 	}
-	return &gen.PostStockTransportGoodsIssueOKHeaders{ETag: tag, Response: out}, nil
+	return &gen.CancelStockTransportOrderOKHeaders{ETag: tag, Response: out}, nil
+}
+
+// CancelStockTransportOrder implements POST
+// /v1/stock-transport-orders/{id}:cancel.
+func (e *Endpoints) CancelStockTransportOrder(ctx context.Context, params gen.CancelStockTransportOrderParams) (gen.CancelStockTransportOrderRes, error) {
+	o, err := e.CancelTransport(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	out, tag, err := e.oneTransport(ctx, o, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CancelStockTransportOrderOKHeaders{ETag: tag, Response: out}, nil
 }
 
 var transportSort = pagination.Sort{Default: "created_at", DefaultDesc: true,

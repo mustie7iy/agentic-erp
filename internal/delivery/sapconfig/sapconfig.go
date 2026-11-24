@@ -308,9 +308,13 @@ func (g *gen) company(t sap.T001) config.Company {
 
 // accountDetermination takes the company's T030 rows: of VST and BNK the
 // last row's account (an earlier row naming another is left out), of WRX,
-// PRD and SKE the first's (oneAccount). A row of any other transaction key
-// is read and left out: the configuration's account determination holds
-// none of its kind.
+// PRD, SKE, SKT and BO1 the first's (oneAccount). SKT, the cash discount
+// granted to customers (an expense), is cash_discount_granted, and BO1,
+// the revenue of a supplier's subsequent settlement (its rebates), is
+// supplier_rebate: both key meanings are from memory, for the specialist
+// (ADR-0048 As built batch 93). A row of any other transaction key is read
+// and left out: the configuration's account determination holds none of
+// its kind.
 func (g *gen) accountDetermination(p string, co *config.Company) {
 	ad := &co.AccountDetermination
 	type row struct {
@@ -335,9 +339,13 @@ func (g *gen) accountDetermination(p string, co *config.Company) {
 			ad.PriceDifference = g.oneAccount(o, p+".account_determination.price_difference", r, ad.PriceDifference)
 		case "SKE":
 			ad.CashDiscount = g.oneAccount(o, p+".account_determination.cash_discount", r, ad.CashDiscount)
+		case "SKT":
+			ad.CashDiscountGranted = g.oneAccount(o, p+".account_determination.cash_discount_granted", r, ad.CashDiscountGranted)
+		case "BO1":
+			ad.SupplierRebate = g.oneAccount(o, p+".account_determination.supplier_rebate", r, ad.SupplierRebate)
 		default:
 			g.gap(o, p+".account_determination", "T030 transaction key "+r.KTOSL+" is none the configuration's account determination holds "+
-				"(it takes VST, BNK, WRX, PRD and SKE); left out")
+				"(it takes VST, BNK, WRX, PRD, SKE, SKT and BO1); left out")
 		}
 	}
 	for _, key := range sortedKeys(taken) {

@@ -45,6 +45,11 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 		out.Shipment.SetTo(gen.OutboundDeliveryShipment{ShipmentNumber: s.Number, CarrierCode: s.Carrier,
 			FreightCost: apitypes.Money(s.Freight, s.Currency, s.Exponent), RecordedAt: s.RecordedAt})
 	}
+	if tc := d.TradeCompliance; tc != nil {
+		out.TradeCompliance.SetTo(gen.OutboundDeliveryTradeCompliance{Status: tc.Status, ReasonCode: apitypes.OptString(tc.ReasonCode),
+			ScreenedAt: apitypes.OptDateTime(tc.ScreenedAt), ReleasedBy: apitypes.OptUUID(tc.ReleasedBy), ReleasedByName: apitypes.OptString(tc.ReleasedByName),
+			ReleasedAt: apitypes.OptDateTime(tc.ReleasedAt)})
+	}
 	return out
 }
 
@@ -120,21 +125,34 @@ func (e *Endpoints) PostOutboundDeliveryGoodsIssue(ctx context.Context, params g
 	return &gen.PickOutboundDeliveryOKHeaders{ETag: tag, Response: out}, nil
 }
 
+// ReleaseOutboundDeliveryTradeComplianceBlock implements POST
+// /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock (S2s).
+func (e *Endpoints) ReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params gen.ReleaseOutboundDeliveryTradeComplianceBlockParams) (
+	gen.ReleaseOutboundDeliveryTradeComplianceBlockRes, error) {
+	d, err := e.ReleaseTradeComplianceBlock(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	out, tag, err := e.one(ctx, d, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PickOutboundDeliveryOKHeaders{ETag: tag, Response: out}, nil
+}
+
 var deliverySort = pagination.Sort{Default: "created_at", DefaultDesc: true,
 	Fields: []pagination.Field{{Name: "created_at", Column: "created_at", Type: "timestamptz"}}}
 
 // ListOutboundDeliveries implements GET /v1/outbound-deliveries: the
 // deliveries of the companies the caller may act in, the latest first,
-// filtered by company, number, sales order and status: a number finds the
-// delivery a document's reference names, as a stock transport order's
-// does (each company numbers its own per fiscal year).
+// filtered by company, number, sales order, status and trade compliance
+// status: a number finds the delivery a document's reference names, as a
+// stock transport order's does (each company numbers its own per fiscal
+// year).
 func (e *Endpoints) ListOutboundDeliveries(ctx context.Context, params gen.ListOutboundDeliveriesParams) (gen.ListOutboundDeliveriesRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	le, order := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SalesOrderID)
-	scope := fmt.Sprintf("listOutboundDeliveries|%s|%s|%s|%s", le, order, params.Status.Value, params.Number.Value)
+	scope := fmt.Sprintf("listOutboundDeliveries|%s|%s|%s|%s|%s", le, order, params.Status.Value, params.Number.Value, params.TradeComplianceStatus.Value)
 	ks, err := e.Pages.Keyset(deliverySort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("shipping: page of outbound deliveries: %w", err)
@@ -146,8 +164,9 @@ func (e *Endpoints) ListOutboundDeliveries(ctx context.Context, params gen.ListO
 	// The deliveries' columns have names of their own, so the page's
 	// condition and order name them.
 	query, args := ks.SQL(`SELECT * FROM (`+deliverySelect+` WHERE ($1 OR d.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR d.legal_entity_id = $3)
-			AND ($4::uuid IS NULL OR d.sales_order_id = $4) AND ($5 = '' OR d.status = $5) AND ($6 = '' OR d.number = $6)) x WHERE true`,
-		[]any{a.All, a.IDs, le, order, params.Status.Value, params.Number.Value})
+			AND ($4::uuid IS NULL OR d.sales_order_id = $4) AND ($5 = '' OR d.status = $5) AND ($6 = '' OR d.number = $6)
+			AND ($7 = '' OR d.trade_compliance_status = $7)) x WHERE true`,
+		[]any{a.All, a.IDs, le, order, params.Status.Value, params.Number.Value, params.TradeComplianceStatus.Value})
 	rows, _ := tx.Query(ctx, query, args...)
 	ds, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Delivery, error) { return scanDelivery(r) })
 	if err != nil {

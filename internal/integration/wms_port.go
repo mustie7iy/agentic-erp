@@ -52,7 +52,7 @@ func NewWMSClient(opts ...egress.Option) (*egress.Client, error) {
 // name, kind, settings and resolved credentials.
 type WMSConnection struct {
 	Name   string
-	Kind   string // wms, or tms (S2r)
+	Kind   string // wms, tms (S2r) or gts (S2s)
 	Secret string
 	WMSSettings
 }

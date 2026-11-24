@@ -239,6 +239,40 @@ func TestGRIRFromT030(t *testing.T) {
 	}
 }
 
+// TestDiscountKeysFromT030 (ADR-0048 As built batch 93): SAP's cash
+// discount granted account (T030 SKT, an expense) becomes the company's
+// cash_discount_granted and its subsequent settlement revenue account
+// (BO1, the supplier rebates) its supplier_rebate, the first row of each
+// taken and a later one naming another account noted; neither is a gap
+// any more. The key meanings are from memory, for the specialist.
+func TestDiscountKeysFromT030(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "1000", SAKNR: "0000680000", TXT50: "Cash discounts granted"},
+		sap.SKB1{BUKRS: "1000", SAKNR: "0000483000", TXT50: "Supplier rebates received"})
+	e.T030 = append(e.T030, sap.T030{BUKRS: "1000", KTOSL: "SKT", KONTS: "0000680000"}, sap.T030{BUKRS: "1000", KTOSL: "BO1", KONTS: "0000483000"},
+		sap.T030{BUKRS: "1000", KTOSL: "SKT", KONTS: "0000681000"})
+	c, notes := Generate(e, zoned())
+	ad := c.Company("1000").AccountDetermination
+	if ad.CashDiscountGranted != "680000" {
+		t.Errorf("cash_discount_granted from T030 SKT: got %q, want 680000", ad.CashDiscountGranted)
+	}
+	if ad.SupplierRebate != "483000" {
+		t.Errorf("supplier_rebate from T030 BO1: got %q, want 483000", ad.SupplierRebate)
+	}
+	all := notesText(notes)
+	if want := "T030 SKT names accounts 680000 and 681000; 680000 taken"; !strings.Contains(all, want) {
+		t.Errorf("notes: got\n%s\nwant %q", all, want)
+	}
+	for _, key := range []string{"SKT", "BO1"} {
+		if gap := "transaction key " + key + " is none"; strings.Contains(all, gap) {
+			t.Errorf("notes: got %q, want %s taken", gap, key)
+		}
+	}
+	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
+		t.Fatalf("draft with the discount keys does not validate: %v", fs)
+	}
+}
+
 // TestFurtherHouseBanks: a company's first T012K row is its main house
 // bank; each further one is a house bank on its own G/L account.
 func TestFurtherHouseBanks(t *testing.T) {

@@ -21,8 +21,8 @@ import (
 )
 
 // WMSExchange is the exchange with warehouse systems (S2q1; ADR-0082 As
-// built S2q) and transport systems (S2r, the same messages of their own
-// kinds). "WMS" in its name, its port's (Warehouse), settings'
+// built S2q), transport systems (S2r) and trade compliance services (S2s),
+// the same messages of their own kinds. "WMS" in its name, its port's (Warehouse), settings'
 // (WMSSettings), queue's and table's (integration.wms_message) names the
 // machinery S2q built, which both kinds share, not the kind; renaming the
 // exported names and the table is churn without a consumer. It works as
@@ -37,7 +37,7 @@ import (
 // worklist (listWMSMessages?status=failed). A claim whose outcome never
 // came (the replica stopped) lapses and is claimed again: the WMS takes a
 // message id it holds as delivered, so the message is sent again safely.
-// Its other half polls each active wms connector for the movements its
+// Its other half polls each active wms, tms and gts connector for what its
 // WMS reports back and posts them (wms_receive.go).
 type WMSExchange struct {
 	Pool       *database.Pool
@@ -55,6 +55,9 @@ type WMSExchange struct {
 	// Shipments records a shipment a TMS reports (shipping, wired by the
 	// composition root; S2r).
 	Shipments TMSDeliveries
+	// Screenings records a trade compliance service's answer (shipping,
+	// wired by the composition root; S2s).
+	Screenings GTSDeliveries
 	// RefuseStandIn refuses the stand-in's adapter at use (production): a
 	// connector stored before, or changed since, that the API would refuse.
 	RefuseStandIn bool
@@ -201,7 +204,7 @@ func (w *WMSExchange) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	return c, true, nil
 }
 
-// wmsTarget is a wms or tms connector read for use, without its
+// wmsTarget is a wms, tms or gts connector read for use, without its
 // credentials.
 type wmsTarget struct {
 	WMSConnection
@@ -210,11 +213,14 @@ type wmsTarget struct {
 }
 
 // connectorKind is the kind of connector a message of the kind is
-// exchanged with: a transport request a tms one's (S2r), the others a wms
-// one's.
+// exchanged with: a transport request a tms one's (S2r), a screening
+// request a gts one's (S2s), the others a wms one's.
 func connectorKind(messageKind string) string {
-	if messageKind == TMSTransportRequest {
+	switch messageKind {
+	case TMSTransportRequest:
 		return TMS
+	case GTSScreeningRequest:
+		return GTS
 	}
 	return WMS
 }
@@ -223,8 +229,11 @@ func connectorKind(messageKind string) string {
 // messages are exchanged with (changed by hand).
 func notOfKind(c Connector, kind string) error {
 	detail := "Connector " + c.Name + " is a " + c.Kind + " connector, not a " + kind + " one."
-	if kind == TMS {
+	switch kind {
+	case TMS:
 		return problem.Unprocessable("integration.not_a_tms", detail)
+	case GTS:
+		return problem.Unprocessable("integration.not_a_gts", detail)
 	}
 	return problem.Unprocessable("integration.not_a_wms", detail)
 }

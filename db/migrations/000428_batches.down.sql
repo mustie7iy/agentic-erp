@@ -1,3 +1,7 @@
+-- The guard below and the deletes before it read every tenant's rows: a
+-- role held to row-level security fails here, rather than finds no row
+-- and drops what exists (06 §6.4).
+SET LOCAL row_security = off;
 DELETE FROM identity.sod_rule WHERE permission_a = 'inventory.batch.write' OR permission_b = 'inventory.batch.write';
 DELETE FROM identity.role_permission WHERE permission_code = 'inventory.batch.write';
 DELETE FROM ref.permission WHERE code = 'inventory.batch.write';

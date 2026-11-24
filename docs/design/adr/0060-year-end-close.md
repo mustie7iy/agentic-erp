@@ -804,7 +804,10 @@ for the product owner to overrule:
    (000227 adds the key, NOT VALID, validated by 000228). Tier 3 by an
    explicit rule. The application has no DELETE grant, so `ledger.Setup.Check`
    lets the account be changed but not removed once activated; each run
-   records the account it used.
+   records the account it used. Since batch 93 a key a configuration no
+   longer names is removed (ADR-0048 As built batch 93), but this one
+   stays: the check refuses its removal as before, and the removal record
+   refuses it too (`account_determination_removal_kept`).
 2. *The opened count.* A trigger (`period_status_opened_count`) adds one on
    every change of the status to `open`, so the previous release's
    `OpenPeriod` and the tests that set `open` directly count too; an insert

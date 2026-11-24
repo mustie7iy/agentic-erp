@@ -52,6 +52,9 @@ package api
 // by reflection (a decoder) or converted from a twin struct type is not
 // seen, and none is made today. Branches it does not name stay a
 // superset (ADR-0052, G7 as built).
+//
+// The statuses the same graph gives each operation are checked against
+// its responses in statuses_test.go.
 
 import (
 	"flag"
@@ -154,26 +157,31 @@ type emission struct {
 // codeAnalysis is the erp-server program's call graph and the codes it can
 // make.
 type codeAnalysis struct {
-	prog        *ssa.Program
-	all         map[*ssa.Function]bool
-	fns         map[string]*ssa.Function // by name
-	cg          *callgraph.Graph
-	from        *ssa.Function // problem.From
-	gated       map[*ssa.Function][]string
-	globals     map[*ssa.Global][]string
-	unresolved  map[string][]token.Position // by the function holding the site
-	constraints map[string][]string         // codes of the constraints on each table
-	writes      map[*ssa.Function][]string  // the tables each function's statements write
-	unplaced    []string                    // registered constraints no migration names
-	narrowed    map[int][]string            // the operations each of untakenBranches takes its code from
-	made        map[ssa.Value]bool          // callersMake's answers
-	served      map[string]bool             // gen.Handler's methods, once sealHandler holds
-	sealed      []string                    // what sealHandler found not to hold
-	program     map[string]bool             // the paths of the packages analysed, with their bodies
-	outside     []string                    // packages outside the program importing it, templates it executes
-	flow        *flowIndex                  // escapes' index, built on first use
-	escaped     map[*ssa.Function]string    // escapes' answers
-	pending     map[*ssa.Function]bool      // the functions escapes is answering
+	prog         *ssa.Program
+	all          map[*ssa.Function]bool
+	fns          map[string]*ssa.Function // by name
+	cg           *callgraph.Graph
+	from         *ssa.Function // problem.From
+	gated        map[*ssa.Function][]string
+	globals      map[*ssa.Global][]string
+	unresolved   map[string][]token.Position               // by the function holding the site
+	constraints  map[string][]string                       // codes of the constraints on each table
+	writes       map[*ssa.Function][]string                // the tables each function's statements write
+	unplaced     []string                                  // registered constraints no migration names
+	narrowed     map[int][]string                          // the operations each of untakenBranches takes its code from
+	made         map[ssa.Value]bool                        // callersMake's answers
+	served       map[string]bool                           // gen.Handler's methods, once sealHandler holds
+	sealed       []string                                  // what sealHandler found not to hold
+	program      map[string]bool                           // the paths of the packages analysed, with their bodies
+	outside      []string                                  // packages outside the program importing it, templates it executes
+	flow         *flowIndex                                // escapes' index, built on first use
+	escaped      map[*ssa.Function]string                  // escapes' answers
+	pending      map[*ssa.Function]bool                    // the functions escapes is answering
+	statuses     map[string]map[int]bool                   // the statuses each code is made with
+	runTime      map[string]map[int]bool                   // the statuses of the codes each function builds at run time
+	gateStatuses map[*ssa.Function]map[string]map[int]bool // the statuses each gate makes its codes with
+	relays       map[string]bool                           // the functions making a problem with a status given at run time
+	operations   map[string]*ssa.Function                  // the API's handler's methods by lower-cased operation id, on first use
 }
 
 func TestProblemCodes(t *testing.T) {
@@ -192,6 +200,8 @@ func TestProblemCodes(t *testing.T) {
 	t.Run("premises", func(t *testing.T) { checkPremisesRefuse(t, a) })
 	t.Run("handler", func(t *testing.T) { checkSealRefuses(t, a) })
 	t.Run("template data", func(t *testing.T) { checkTemplateHandler(t, a) })
+	t.Run("statuses", func(t *testing.T) { checkStatuses(t, a, spec) })
+	t.Run("statuses refused", func(t *testing.T) { checkStatusesRefuse(t, a) })
 	derived := a.operationCodes(t, spec, common)
 	if *update {
 		writeCodes(t, common, derived)
@@ -512,6 +522,7 @@ func analyse(t *testing.T) *codeAnalysis {
 			}
 		}
 	}
+	a.dynamicStatuses()
 	for f := range a.all {
 		a.writes[f] = tablesWritten(f)
 		a.codeAssigned(f, problem)
@@ -540,7 +551,9 @@ func build(t *testing.T, paths ...string) (*codeAnalysis, []emission) {
 	a := &codeAnalysis{prog: prog, all: fns, fns: map[string]*ssa.Function{}, cg: vta.CallGraph(fns, cha.CallGraph(prog)), from: problem.Func("From"),
 		gated: map[*ssa.Function][]string{}, globals: map[*ssa.Global][]string{}, unresolved: map[string][]token.Position{},
 		constraints: map[string][]string{}, writes: map[*ssa.Function][]string{}, narrowed: map[int][]string{},
-		made: map[ssa.Value]bool{}, program: map[string]bool{}, escaped: map[*ssa.Function]string{}, pending: map[*ssa.Function]bool{}}
+		made: map[ssa.Value]bool{}, program: map[string]bool{}, escaped: map[*ssa.Function]string{}, pending: map[*ssa.Function]bool{},
+		statuses: map[string]map[int]bool{}, runTime: map[string]map[int]bool{},
+		gateStatuses: map[*ssa.Function]map[string]map[int]bool{}, relays: map[string]bool{}}
 	for _, p := range pkgs {
 		a.program[p.PkgPath] = true
 	}
@@ -549,7 +562,10 @@ func build(t *testing.T, paths ...string) (*codeAnalysis, []emission) {
 	}
 	var emitted []emission
 	for _, e := range a.cg.Nodes[problem.Func("New")].In {
-		emitted = append(emitted, a.resolve(e.Caller.Func, e.Site, e.Site.Common().Args[1], map[ssa.Value]bool{})...)
+		before := a.unresolvedCounts()
+		made := a.resolve(e.Caller.Func, e.Site, e.Site.Common().Args[1], map[ssa.Value]bool{})
+		a.statusOf(e, made, before)
+		emitted = append(emitted, made...)
 	}
 	for _, e := range emitted {
 		a.gated[e.gate] = append(a.gated[e.gate], e.code)
@@ -868,13 +884,17 @@ type reached struct {
 }
 
 // reach walks the call graph from roots, as the file's comment says.
-func (a *codeAnalysis) reach(roots []*ssa.Function) reached {
+func (a *codeAnalysis) reach(roots []*ssa.Function) reached { return a.walk(roots, nil) }
+
+// walk is reach, but for stop: the walk neither enters it nor takes its
+// codes.
+func (a *codeAnalysis) walk(roots []*ssa.Function, stop *ssa.Function) reached {
 	r := reached{fns: map[*ssa.Function]bool{}, codes: map[string]bool{}, kept: map[string]bool{}}
 	stack := slices.Clone(roots)
 	for len(stack) > 0 {
 		f := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		if f == nil || r.fns[f] {
+		if f == nil || f == stop || r.fns[f] {
 			continue
 		}
 		r.fns[f] = true
@@ -1089,27 +1109,10 @@ func (a *codeAnalysis) pipeline() []*ssa.Function {
 // from its method on the API's handler.
 func (a *codeAnalysis) operationCodes(t *testing.T, spec node, common []string) map[string][]string {
 	t.Helper()
-	handler := a.prog.ImportedPackage(module + "/internal/app").Type("handler").Type()
-	methods := a.prog.MethodSets.MethodSet(handler)
-	byName := map[string]*ssa.Function{}
-	for i := range methods.Len() {
-		sel := methods.At(i)
-		// Operations are the exported methods: an unexported one promoted
-		// from a context's endpoints (ledger's postJournalEntry, the
-		// Postings path) lower-cases to an operation's id and, met after it,
-		// took its place.
-		if sel.Obj().Exported() {
-			byName[strings.ToLower(sel.Obj().Name())] = a.prog.MethodValue(sel)
-		}
-	}
 	out := map[string][]string{}
 	for _, o := range operations(t, spec) {
 		id, _ := o.op["operationId"].(string)
-		m, ok := byName[strings.ToLower(id)]
-		if !ok {
-			t.Fatalf("%s: no method on the API's handler", id)
-		}
-		r := a.reach([]*ssa.Function{m})
+		r := a.reach([]*ssa.Function{a.operation(t, id)})
 		skip := a.untakenIn(r)
 		codes := a.codesOf(r, skip)
 		for i, u := range untakenBranches {
@@ -1123,6 +1126,31 @@ func (a *codeAnalysis) operationCodes(t *testing.T, spec node, common []string) 
 		out[id] = keys(codes)
 	}
 	return out
+}
+
+// operation is the method on the API's handler serving the operation id.
+func (a *codeAnalysis) operation(t *testing.T, id string) *ssa.Function {
+	t.Helper()
+	if a.operations == nil {
+		handler := a.prog.ImportedPackage(module + "/internal/app").Type("handler").Type()
+		methods := a.prog.MethodSets.MethodSet(handler)
+		a.operations = map[string]*ssa.Function{}
+		for i := range methods.Len() {
+			sel := methods.At(i)
+			// Operations are the exported methods: an unexported one promoted
+			// from a context's endpoints (ledger's postJournalEntry, the
+			// Postings path) lower-cases to an operation's id and, met after
+			// it, took its place.
+			if sel.Obj().Exported() {
+				a.operations[strings.ToLower(sel.Obj().Name())] = a.prog.MethodValue(sel)
+			}
+		}
+	}
+	m, ok := a.operations[strings.ToLower(id)]
+	if !ok {
+		t.Fatalf("%s: no method on the API's handler", id)
+	}
+	return m
 }
 
 // codesOf is a traversal's codes, but those skip says a gate makes on a

@@ -1290,7 +1290,17 @@ a cash discount granted to a customer is debited to (SAP SKT), and
 order is credited to, each falling back to the key it shared before,
 `payment_difference_expense` and `cash_discount`, in a company that does
 not set it: `ledger.Accounts.Determination`, ADR-0063 and ADR-0061 As
-built batch 92),
+built batch 92; a key the configuration no longer names is removed,
+migration 000464: `account_determination_removal`, insert-only, records
+each removal (the key, the account it named, `removed_at`,
+`removed_by`), and its trigger `account_determination_removal_deletes`
+deletes the row naming that very account as the owner, the application
+holding no DELETE grant; `gr_ir`, `down_payment` and `retained_earnings`
+are never removed (`account_determination_removal_kept`), nor a key of
+a valuation class whose stock account, or the key's own, has postings,
+and such a stock account does not change (409
+`ledger.determination_key_posted`, `ledger.Setup`; ADR-0048 As built
+batch 93)),
 the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`
 (direction, never changed; kind; UN/CEFACT category), `tax_component` (one
 per tax a code levies: jurisdiction, account key, never changed;
@@ -2214,13 +2224,15 @@ receiving plant (`stock_transport_order_plants`) of its company, numbered
 from the company's `stock_transport_order` range of its order date's
 fiscal year, 1 to 40 characters, once per company and year
 (`stock_transport_order_number_once`); `status` (`open`, `in_transit`,
-`received`; `stock_transport_order_status_check`); once issued its goods
-issue's material document, number and day, all three together and
-exactly when it is no longer open (`stock_transport_order_issued`), once
-received its goods receipt's the same way (`stock_transport_order_received`);
-what it is and its issue never change and its status moves from open to
-in transit to received alone (`stock_transport_order_fixed`, a trigger
-also for the owner); the application updates its status, steps,
+`received`, `cancelled` since migrations 000465 and 000466;
+`stock_transport_order_status_check`); once issued its goods issue's
+material document, number and day, all three together and exactly when
+it is in transit or received (`stock_transport_order_issued`; an open or
+cancelled order names none), once received its goods receipt's the same
+way (`stock_transport_order_received`); what it is and its issue never
+change and its status moves from open to in transit to received, or from
+open to cancelled, alone (`stock_transport_order_fixed`, a trigger also
+for the owner; review:batch92); the application updates its status, steps,
 `version` and `updated_by` alone, and never deletes it.
 `procurement.stock_transport_order_item`: items 1 to 100
 (`stock_transport_order_item_no_check`) of an order
@@ -3410,9 +3422,9 @@ activate, and orders under them are refused.
 | Table | Purpose |
 |---|---|
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
-| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449, a transport management system, `tms` since 000462); secrets by reference to the vault |
+| `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449, a transport management system, `tms` since 000462, a trade compliance service, `gts` since 000467); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
-| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449; S2q2's receipt kinds, 000453), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). A `tms` connector's messages (S2r, 000462) are its own kinds: `transport_request` (outbound, the delivery to plan, once per delivery beside its warehouse system's) and `shipment` (inbound, `recorded` on the delivery, never posted, or `refused`); only a shipment is recorded (`wms_message_direction`). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
+| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449; S2q2's receipt kinds, 000453), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). A `tms` connector's messages (S2r, 000462) are its own kinds: `transport_request` (outbound, the delivery to plan, once per delivery beside its warehouse system's) and `shipment` (inbound, `recorded` on the delivery, never posted, or `refused`); only a shipment is recorded (`wms_message_direction`). A trade compliance service's through a `gts` connector (S2s, 000467): `screening_request` (outbound, the delivery to screen, once per delivery, sent when it was created pending) and `screening_result` (inbound, `recorded` on the delivery, never posted, or `refused`); a shipment and a screening result alone are recorded (`wms_message_direction`). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
@@ -3513,7 +3525,7 @@ line or reservation. An agent's budget is identity's
 | LFB1-ZWELS | `supplier_company.payment_methods`, the methods allowed (its letter order is not a preference: A4(c)); a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
-| T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
+| T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE; SKT as `cash_discount_granted` and BO1 as `supplier_rebate`, batch 93, their meanings from memory) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
 | Group Reporting FS items, consolidation groups and units (from memory, for an SAP specialist) (planned, ADR-0059) | configuration `consolidation.accounts`, `consolidation.groups`, `companies[].chart_of_accounts[].group_account` (not built) |
@@ -7097,7 +7109,21 @@ erDiagram
   `shipment_recorded_at`, all or none (`outbound_delivery_shipment`); set
   once, while created or after the goods issue, a goods-issued delivery
   changing by nothing else (`outbound_delivery_issued_fixed`), and never
-  changed once set (`outbound_delivery_shipment_kept`, the same trigger).
+  changed once set (`outbound_delivery_shipment_kept`, the same trigger). Its
+  trade compliance (S2s, 000467; ADR-0082 As built S2s):
+  `trade_compliance_status` `pending`, `released` or `blocked`
+  (`outbound_delivery_trade_compliance_status_check`), null when no
+  trade compliance service screened its plant at its creation;
+  `trade_compliance_reason`, the service's reason code of 1 to 40
+  characters (`outbound_delivery_trade_compliance_reason_check`),
+  `trade_compliance_screened_at`, when the service screened for its latest answer (as it reports it; its answers are ordered by it),
+  and `trade_compliance_released_by`, `_released_by_name` (the
+  person's name then) and `_released_at`, a person's release, together (`outbound_delivery_trade_compliance`: pending has
+  no answer, blocked has one, released has one or a person's release,
+  a reason only with an answer, a person's release only when released).
+  It changes only while the delivery is created
+  (`outbound_delivery_issued_fixed`); its goods issue waits while it is
+  pending or blocked.
 - `shipping.outbound_delivery_item`: an item (LIPS) of a delivery
   (`outbound_delivery_item_delivery_fkey`), numbered from 1
   (`outbound_delivery_item_no_check`), of an order item once

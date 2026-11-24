@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
-	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -26,7 +26,9 @@ import (
 // receiving storage location, both through inventory's published API in
 // the request's transaction. The order moves whole: one goods issue of
 // every item, then one goods receipt; partial issues and receipts, their
-// reversals and a delivery between the plants are Later.
+// reversals and a delivery between the plants are Later. An open order is
+// cancelled instead of issued (ADR-0082 As built S2h, cancellation;
+// review:batch92), so a planning run no longer counts it.
 
 // TransportRange is the document type stock transport orders draw their
 // numbers from (configuration number_ranges, ADR-0004).
@@ -37,6 +39,7 @@ const (
 	TransportOpen      = "open"
 	TransportInTransit = "in_transit"
 	TransportReceived  = "received"
+	TransportCancelled = "cancelled"
 )
 
 func init() {
@@ -236,8 +239,12 @@ var transportSteps = map[string]struct{ next, document, number, day, action stri
 		action: "procurement.stock_transport_order.goods_receipt"},
 }
 
-// notOpen refuses the goods issue of an order no longer open.
+// notOpen refuses the goods issue or the cancellation of an order no
+// longer open: one cancelled, or one whose goods issue is posted.
 func notOpen(o TransportOrder) error {
+	if o.Status == TransportCancelled {
+		return problem.Conflict("procurement.stock_transport_cancelled", "Stock transport order "+o.Number+" is cancelled; it is neither issued nor cancelled again.")
+	}
 	return problem.Conflict("procurement.stock_transport_issued", "Stock transport order "+o.Number+" is "+o.Status+"; its goods issue is posted already.")
 }
 
@@ -282,6 +289,59 @@ func (e *Endpoints) moveTransport(ctx context.Context, id uuid.UUID, ifMatch fun
 		return TransportOrder{}, err
 	}
 	return after, e.recordTransport(ctx, step.action, after)
+}
+
+// CancelTransport cancels an open order (SAP's deletion of a stock
+// transport order's items before their goods issue, from memory): read
+// under its row lock at the version the caller read, refused once its
+// goods issue is posted or once cancelled (notOpen), and written guarded
+// by the status and version it read. It moves no stock. Audited, and
+// published as StockTransportOrderCancelled, which names the company,
+// plants and materials beside their ids.
+func (e *Endpoints) CancelTransport(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (TransportOrder, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return TransportOrder{}, err
+	}
+	o, err := loadTransport(ctx, tx, id, true)
+	if err != nil {
+		return TransportOrder{}, err
+	}
+	if err := ifMatch(o.Version); err != nil {
+		return TransportOrder{}, err
+	}
+	if o.Status != TransportOpen {
+		return TransportOrder{}, notOpen(o)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE procurement.stock_transport_order SET status = $3, version = version + 1, updated_by = $4
+		WHERE id = $1 AND status = $2 AND version = $5`, o.ID, TransportOpen, TransportCancelled, p.ID, o.Version); err != nil {
+		return TransportOrder{}, fmt.Errorf("procurement: cancel stock transport order %s: %w", o.Number, err)
+	}
+	after, err := loadTransport(ctx, tx, o.ID, false)
+	if err != nil {
+		return TransportOrder{}, err
+	}
+	r, err := e.transportRefsOf(ctx, []TransportOrder{after})
+	if err != nil {
+		return TransportOrder{}, err
+	}
+	return after, e.recordTransport(ctx, "procurement.stock_transport_order.cancel", after, cancelledEvent(after, o.Status, r))
+}
+
+// cancelledEvent is StockTransportOrderCancelled of an order cancelled
+// from the status it had: the order, its company, plants and items'
+// materials by id and by code or number.
+func cancelledEvent(o TransportOrder, from string, r transportRefs) outbox.Event {
+	items := make([]map[string]any, len(o.Items))
+	for i, it := range o.Items {
+		m := r.materials[it.MaterialID]
+		items[i] = map[string]any{"item_no": it.ItemNo, "material_id": it.MaterialID, "material_number": m.Number,
+			"quantity": map[string]any{"value": it.Quantity, "unit": it.Unit}, "base_quantity": map[string]any{"value": it.BaseQuantity, "unit": m.BaseUnit}}
+	}
+	return event("stock_transport_order_cancelled", "stock_transport_order", o.ID, map[string]any{"stock_transport_order_id": o.ID, "number": o.Number,
+		"legal_entity_id": o.LegalEntityID, "legal_entity_code": r.companies[o.LegalEntityID].Code, "supplying_plant_id": o.SupplyingPlantID,
+		"supplying_plant_code": r.units[o.SupplyingPlantID].Code, "receiving_plant_id": o.ReceivingPlantID, "receiving_plant_code": r.units[o.ReceivingPlantID].Code,
+		"order_date": o.OrderDate.Format(time.DateOnly), "items": items, "previous_status": from, "status": o.Status})
 }
 
 // transportSelect reads stock transport orders with their items in item
@@ -342,16 +402,18 @@ func loadTransport(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool)
 
 // recordTransport writes an order's audit record: its number, plants,
 // status and items' materials and quantities, and the material documents
-// of its steps. No event: its stock moves by the material documents,
-// which publish MaterialDocumentPosted.
-func (e *Endpoints) recordTransport(ctx context.Context, action string, o TransportOrder) error {
+// of its steps, with the events given. Its goods issue and receipt
+// publish no event of the order: its stock moves by the material
+// documents, which publish MaterialDocumentPosted; its cancellation,
+// which moves nothing, publishes StockTransportOrderCancelled.
+func (e *Endpoints) recordTransport(ctx context.Context, action string, o TransportOrder, events ...outbox.Event) error {
 	items := make([]map[string]any, len(o.Items))
 	for i, it := range o.Items {
 		items[i] = map[string]any{"item_no": it.ItemNo, "material_id": it.MaterialID, "quantity": it.Quantity, "unit": it.Unit, "base_quantity": it.BaseQuantity,
 			"supplying_storage_location_id": it.SupplyingStorageLocationID, "receiving_storage_location_id": it.ReceivingStorageLocationID}
 	}
-	return errs.Wrapf(audit.Record(ctx, action, "procurement.stock_transport_order", o.ID, map[string]any{"number": o.Number,
+	return errs.Wrapf(e.record(ctx, action, "procurement.stock_transport_order", o.ID, map[string]any{"number": o.Number,
 		"legal_entity_id": o.LegalEntityID, "supplying_plant_id": o.SupplyingPlantID, "receiving_plant_id": o.ReceivingPlantID, "status": o.Status,
-		"items": items, "issue_document_number": o.IssueDocumentNumber, "receipt_document_number": o.ReceiptDocumentNumber}),
+		"items": items, "issue_document_number": o.IssueDocumentNumber, "receipt_document_number": o.ReceiptDocumentNumber}, events...),
 		"procurement: record %s of stock transport order %s", action, o.Number)
 }

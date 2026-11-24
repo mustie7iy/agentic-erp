@@ -80,7 +80,12 @@ type deliveryCreated struct {
 	StorageLocation string    `json:"storage_location_code"`
 	Status          string    `json:"status"`
 	Version         int32     `json:"version"`
-	Items           []struct {
+	// TradeCompliance is the delivery's screening as shipping created it
+	// (S2s): pending when a gts connector screened its plant then.
+	TradeCompliance *struct {
+		Status string `json:"status"`
+	} `json:"trade_compliance"`
+	Items []struct {
 		ItemNo   int32  `json:"item_no"`
 		Material string `json:"material_number"`
 		Quantity struct {
@@ -192,11 +197,19 @@ func parseWMSEvent(m outbox.Message, context string, data any) (uuid.UUID, error
 }
 
 // queue writes the delivery's message for the WMS managing its plant, to
-// pick, and for the TMS planning for it (S2r), to plan, each once, with
-// its audit record; none for a system no connector names the plant to.
-// Both messages say the same of the delivery, each its own type.
+// pick, for the TMS planning for it (S2r), to plan, and for the trade
+// compliance service screening it (S2s), to screen, each once, with its
+// audit record; none for a system no connector names the plant to. A
+// delivery is screened when shipping created it pending, its plant
+// screened then, so the service it is sent to is the one its goods issue
+// waits for; should that connector have been disabled since, nothing is
+// sent and the delivery waits for a person's release. The messages say the
+// same of the delivery, each its own type.
 func (q *WMSQueue) queue(ctx context.Context, tx pgx.Tx, ev deliveryCreated) error {
-	for _, to := range []struct{ connector, kind string }{{WMS, WMSOutboundDelivery}, {TMS, TMSTransportRequest}} {
+	for _, to := range []struct{ connector, kind string }{{WMS, WMSOutboundDelivery}, {TMS, TMSTransportRequest}, {GTS, GTSScreeningRequest}} {
+		if to.connector == GTS && (ev.TradeCompliance == nil || ev.TradeCompliance.Status != "pending") {
+			continue
+		}
 		c, ok, err := managing(ctx, tx, to.connector, ev.Company, ev.Plant)
 		if err != nil {
 			return err
