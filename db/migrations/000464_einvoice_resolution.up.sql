@@ -54,7 +54,7 @@ CREATE UNIQUE INDEX einvoice_invoice_once ON einvoicing.einvoice (tenant_id, sup
 
 -- As 000423's, and: a held document moves, by a person's resolution (a
 -- new resolved_at), to entered, to held again (a retry, with the problem
--- of that attempt) or to dismissed; what the fetch decided (when and by
+-- of that attempt) or to dismissed; never erased or moved back; what the fetch decided (when and by
 -- which fetch) stays; refused, entered and dismissed are final, and a
 -- held document changes only by a resolution.
 CREATE OR REPLACE FUNCTION einvoicing.check_einvoice() RETURNS trigger
@@ -71,7 +71,7 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
-  resolving := OLD.status = 'held' AND NEW.resolved_at IS DISTINCT FROM OLD.resolved_at;
+  resolving := OLD.status = 'held' AND coalesce(NEW.resolved_at > coalesce(OLD.resolved_at, '-infinity'), false);
   IF NEW.status <> OLD.status AND NOT (OLD.status = 'received' AND ((NEW.status = 'refused' AND OLD.processed_at IS NULL)
       OR (NEW.status IN ('entered', 'held') AND OLD.processed_at IS NOT NULL)))
       AND NOT (resolving AND NEW.status IN ('entered', 'dismissed')) THEN

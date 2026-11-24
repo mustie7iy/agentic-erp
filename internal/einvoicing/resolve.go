@@ -28,6 +28,15 @@ import (
 // call to the store. People only: agents never retry, link or dismiss
 // (x-agent: false, §13).
 
+func init() {
+	// At most one document names an invoice (einvoice_invoice_once): the
+	// database's guard behind linkable's check.
+	problem.RegisterConstraint("einvoice_invoice_once", func() *problem.Problem {
+		return problem.Conflict("einvoicing.invoice_already_linked", "The supplier invoice is another e-invoice's already; an invoice is at most one "+
+			"e-invoice's.")
+	})
+}
+
 // StatusDismissed is a held document a person closed (T65f): final,
 // keeping the problem it was held with and the reason given.
 const StatusDismissed = "dismissed"

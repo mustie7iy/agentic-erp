@@ -29838,6 +29838,9 @@ paths:
         - config.number_range_exhausted
         - einvoicing.document_changed
         - einvoicing.einvoice_not_held
+        # The database's answer to an invoice another e-invoice names (einvoice_invoice_once), which TestProblemCodes lists for
+        # every operation that writes e-invoices; this one cannot reach it, as it names no invoice another document names.
+        - einvoicing.invoice_already_linked
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.internal_order_invalid
@@ -30004,6 +30007,9 @@ paths:
       x-agent: false
       x-problem-codes:
         - einvoicing.einvoice_not_held
+        # The database's answer to an invoice another e-invoice names (einvoice_invoice_once), which TestProblemCodes lists for
+        # every operation that writes e-invoices; this one cannot reach it, as it names no invoice another document names.
+        - einvoicing.invoice_already_linked
         - request.validation_failed
         - request.version_mismatch
       parameters:

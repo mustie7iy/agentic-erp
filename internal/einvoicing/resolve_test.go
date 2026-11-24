@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
@@ -150,6 +151,9 @@ func TestRetryEInvoice(t *testing.T) {
 	pgtest.Scan(t, `SELECT count(*) FROM einvoicing.outbox WHERE tenant_id = $1 AND payload->>'resolution' = 'retried' AND payload->>'status_before' = 'held'`,
 		[]any{s.f.Tenant.ID}, &events)
 	check(t, "retries audited and published", words(audits, events), "4 4")
+	if got := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: "einvoice_invoice_once"}).Code; got != "einvoicing.invoice_already_linked" {
+		t.Errorf("einvoice_invoice_once: got %s, want einvoicing.invoice_already_linked", got)
+	}
 	s.f.Tenant.AllCompanies(t, s.f.Tenant.Agent)
 	agent := apitest.Client{T: t, API: s.f.API, Tenant: s.f.Tenant, As: s.f.Tenant.Agent}
 	_, tag = s.doc(t, "GOI-2")

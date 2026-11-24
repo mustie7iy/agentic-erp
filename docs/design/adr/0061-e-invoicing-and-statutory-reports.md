@@ -2075,7 +2075,7 @@ the partial unique index `einvoice_invoice_once` and the trigger) and
 (`retryEInvoice`), `:link` (`linkEInvoice`) and `:dismiss`
 (`dismissEInvoice`) in `internal/einvoicing/resolve.go`, each answering
 the document with its ETag; payables' `Invoices.Attachable` and
-`Invoices.Attach` (`einvoice_attach.go`, the §2 port's
+`Invoices.Attach` (`einvoice_attach.go`; §2 calls it
 `EInvoices.Attach`), adapted in `internal/app/einvoicing.go` with the
 supplier's tax identifiers read by fingerprint through payables' partner
 port. Decided by default:
@@ -2105,7 +2105,8 @@ port. Decided by default:
   `request.reference_not_found`); one another document names is 409
   `einvoicing.invoice_already_linked`, read under the invoice's lock, so
   two links of one invoice wait for each other and the second is refused
-  so (the partial unique index stays the database's guard); then any of:
+  so (the partial unique index stays the database's guard, mapped to the
+  same 409); then any of:
   not entered by hand (source `manual`: a captured, EDI, migrated or
   e-invoice's invoice is not "entered by hand"), another company, a
   supplier not holding the seller's TRN (IBT-031, by fingerprint; named
@@ -2133,6 +2134,10 @@ port. Decided by default:
   a retry's entering inserts a new invoice. No writer locks an invoice
   and then an e-invoice (payables never reads einvoicing), so no
   opposite order exists.
+- **Not compared: amounts.** A link does not compare the invoice's
+  currency and gross with the document's, nor refuse a cancelled or
+  reversed invoice (§7: whatever its status); both are listed for the
+  product owner (a money rule).
 - **Agents** are refused all three (`x-agent: false`, 403
   `identity.agent_not_allowed`); no agent's scope covers them, so no never
   list changes.

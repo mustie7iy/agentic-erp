@@ -42,6 +42,10 @@ func TestEInvoiceResolution(t *testing.T) {
 		{"linked", append(held, linkedSet), ""},
 		{"dismissed", append(held, dismissedSet), ""},
 		{"retried twice", append(held, retriedHeldSet, "resolved_at = now() + interval '1 minute'"), ""},
+		{"a resolution erased", append(held, retriedHeldSet, "resolution = NULL, resolved_at = NULL, problem_detail = 'Other.'"),
+			"keeps what its processing read and decided"},
+		{"a resolution moved back", append(held, retriedHeldSet, "resolved_at = now() - interval '1 minute', problem_detail = 'Other.'"),
+			"keeps what its processing read and decided"},
 		{"entered without a resolution", append(held, "status = 'entered', problem_code = NULL, problem_detail = NULL, "+
 			"supplier_invoice_id = gen_random_uuid(), supplier_id = gen_random_uuid()"), "cannot change from held to entered"},
 		{"its problem changed without a resolution", append(held, "problem_detail = 'Other.'"), "keeps what its processing read and decided"},
