@@ -9197,16 +9197,16 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing",
-      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4",
+      "s": "D",
+      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing. Verified, no migration needed: it cannot have done nothing. Migrations run as a login that bypasses row-level security (06 §6.4), which fills every item; and under a role held to it the same transaction's SET NOT NULL of the five columns, which PostgreSQL checks over every row whatever the policies, fails 000356 whole (23502, column unit_price contains null values), so no database is past 000356 with an item unfilled. Run on billing documents of two tenants with the columns emptied as 000355 left them: as a migrating role neither superuser nor BYPASSRLS (a member of erp_owner) the UPDATE changed 0 rows and the migration's statements failed with 23502; as the superuser they filled both items",
+      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4 · db/migrator_test.go asMigrator (the role the check ran as)",
       "src": "review:batch86",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: migration 000428_batches.down.sql's guard (batches or batch-managed materials exist) reads inventory.batch and materials.material without SET LOCAL row_security = off, so a migrating role held to their forced row-level security sees no tenant's rows and drops the batch columns whatever exists (pre-existing, as 000356's backfill); read every tenant's rows as 000435's down does, so such a role fails rather than sees zero rows",
-      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
+      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · TestBatchDownRefused (as a migrating role held to row-level security: neither superuser nor BYPASSRLS, a member of erp_owner) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
       "src": "review:batch87",
       "c": []
      },
@@ -12388,6 +12388,13 @@
         "t": "getMemoRecord lists the 422 response it gives since the one company-date helper refuses a memo record whose legal entity the directory does not know (request.reference_not_found); every other operation whose call graph reaches config.EntityDay lists 422 already",
         "r": "found in batch 28's integration review: api/openapi.yaml getMemoRecord listed no 422 · checked by the operations whose handler reaches config.EntityDay in TestProblemCodes' call graph: acceptMemoRecordProposal, approveApprovalRequest, assignProfitCenter, cancelMemoRecord, createCostCenter, createMemoRecord, getMemoRecord, listMemoRecords, lockCostCenter, lockProfitCenter, moveCostCenter, moveProfitCenter, postSupplierInvoice, proposeMemoRecord, realiseMemoRecord, redateCostCenter, redateProfitCenter, rejectMemoRecordProposal, releasePaymentRun, reverseGoodsReceipt, reverseSupplierInvoice, submitRequisition, updateMemoRecord; listMemoRecords reaches it only through readDaysOf's filter, which answers an empty page rather than refusing, so it gives no 422 · built: getMemoRecord's 422 response (additive, oasdiff) and its description · ADR-0051 as built (one company-date helper) · no walkthrough step: a contract fix",
         "src": "review:batch28",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A contract test that every status a handler can answer is declared on its operation (for example an {id} operation's 404 for a document not found or not visible): TestProblemCodes checks the problem codes only, so ics3's undeclared 404 (batch 91) was caught by review alone",
+        "r": "api/problemcodes_test.go TestProblemCodes (codes, not statuses) · api/openapi.yaml responses · batch 91 review round 1 (pre-existing) · enterIntercompanySupplierInvoice's 404 · built: api/statuses_test.go, TestProblemCodes/statuses (each problem.New's status for the codes the operation's own code makes, problem.From's database translation left to the pipeline; 404 for a path's parameter; relayedStatuses for a status given at run time; 500 left out) and TestProblemCodes/statuses_refused · 51 responses added to 48 operations (409 ×32, most of them config.not_bootstrapped on reads; 422 ×14; 503 ×3, object storage; 412 ×1; 400 ×1; listed in ADR-0052 As built batch 93) · ADR-0052 G7 As built batch 93 (a 404 of a body reference is not derived: a gap) · no walkthrough step: a contract test",
+        "src": "review:batch91",
         "c": []
        },
        {

@@ -191,6 +191,14 @@ func (s *AcceptForecastVarianceCommentProposalPreconditionRequired) Validate() e
 	return nil
 }
 
+func (s *AcceptForecastVarianceCommentProposalUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *AcceptIntercompanyDifferenceBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -22746,6 +22754,14 @@ func (s *ConfirmSalesOrderPreconditionRequired) Validate() error {
 	return nil
 }
 
+func (s *ConfirmSalesOrderUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *ConflictHeaders) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -34261,6 +34277,14 @@ func (s *DiscardConsolidationRunPreconditionRequired) Validate() error {
 	return nil
 }
 
+func (s *DiscardConsolidationRunUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *DisputeCase) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -40705,6 +40729,14 @@ func (s *GetBankFileContentNotFound) Validate() error {
 	return nil
 }
 
+func (s *GetBankFileContentUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *GetBankFileForbidden) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -41387,6 +41419,14 @@ func (s *GetConsolidatedStatementNotFound) Validate() error {
 	return nil
 }
 
+func (s *GetConsolidatedStatementUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *GetConsolidationGroupBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -41428,6 +41468,14 @@ func (s *GetConsolidationRunForbidden) Validate() error {
 }
 
 func (s *GetConsolidationRunNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetConsolidationRunUnprocessableEntity) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
@@ -43846,6 +43894,22 @@ func (s *GetPeriodCloseOKHeaders) Validate() error {
 	return nil
 }
 
+func (s *GetPersonalDataDeletionPreviewBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetPersonalDataDeletionPreviewForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *GetPersonalDataDeletionRunBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -44860,6 +44924,14 @@ func (s *GetRevaluationRunOKHeaders) Validate() error {
 	return nil
 }
 
+func (s *GetRevaluationRunUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *GetRevenueContractBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -44988,6 +45060,14 @@ func (s *GetRfqComparisonForbidden) Validate() error {
 }
 
 func (s *GetRfqComparisonNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetRfqComparisonUnprocessableEntity) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
@@ -56860,6 +56940,14 @@ func (s *ListConsolidationBalancesNotFound) Validate() error {
 	return nil
 }
 
+func (s *ListConsolidationBalancesUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *ListConsolidationEntriesBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -56877,6 +56965,14 @@ func (s *ListConsolidationEntriesForbidden) Validate() error {
 }
 
 func (s *ListConsolidationEntriesNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListConsolidationEntriesUnprocessableEntity) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
@@ -56909,6 +57005,14 @@ func (s *ListConsolidationRunsBadRequest) Validate() error {
 }
 
 func (s *ListConsolidationRunsForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListConsolidationRunsUnprocessableEntity) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
@@ -57580,6 +57684,14 @@ func (s *ListIntercompanyDifferencesNotFound) Validate() error {
 	return nil
 }
 
+func (s *ListIntercompanyDifferencesUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *ListInternalOrderBalancesBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -57941,6 +58053,14 @@ func (s *ListMemoRecordsBadRequest) Validate() error {
 }
 
 func (s *ListMemoRecordsForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListMemoRecordsUnprocessableEntity) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
@@ -59125,6 +59245,14 @@ func (s *ListTaxPeriodsForbidden) Validate() error {
 }
 
 func (s *ListTaxPeriodsNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListTaxPeriodsUnprocessableEntity) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
@@ -92292,6 +92420,14 @@ func (s *SendOutgoingEInvoiceForbidden) Validate() error {
 }
 
 func (s *SendOutgoingEInvoiceNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *SendOutgoingEInvoicePreconditionFailed) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err

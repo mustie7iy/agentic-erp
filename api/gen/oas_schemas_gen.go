@@ -160,6 +160,11 @@ type AcceptForecastVarianceCommentProposalPreconditionRequired Problem
 func (*AcceptForecastVarianceCommentProposalPreconditionRequired) acceptForecastVarianceCommentProposalRes() {
 }
 
+type AcceptForecastVarianceCommentProposalUnprocessableEntity Problem
+
+func (*AcceptForecastVarianceCommentProposalUnprocessableEntity) acceptForecastVarianceCommentProposalRes() {
+}
+
 type AcceptIntercompanyDifferenceBadRequest Problem
 
 func (*AcceptIntercompanyDifferenceBadRequest) acceptIntercompanyDifferenceRes() {}
@@ -28679,6 +28684,10 @@ type ConfirmSalesOrderPreconditionRequired Problem
 
 func (*ConfirmSalesOrderPreconditionRequired) confirmSalesOrderRes() {}
 
+type ConfirmSalesOrderUnprocessableEntity Problem
+
+func (*ConfirmSalesOrderUnprocessableEntity) confirmSalesOrderRes() {}
+
 // ConflictHeaders wraps Problem with response headers.
 type ConflictHeaders struct {
 	RetryAfter OptInt32
@@ -28835,6 +28844,7 @@ func (*ConflictHeaders) createPurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createQuotationRes()                       {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
+func (*ConflictHeaders) createRegressionSuiteRes()                 {}
 func (*ConflictHeaders) createReportRes()                          {}
 func (*ConflictHeaders) createReportShareRes()                     {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
@@ -28885,25 +28895,42 @@ func (*ConflictHeaders) fixSopPlanRes()                            {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getArchivingRunFileRes()                   {}
+func (*ConflictHeaders) getAssetHistorySheetRes()                  {}
+func (*ConflictHeaders) getAssetOrderExpensesRes()                 {}
+func (*ConflictHeaders) getAssetRes()                              {}
 func (*ConflictHeaders) getAuditEvidenceExportFileRes()            {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
+func (*ConflictHeaders) getBankStatementRulesRes()                 {}
+func (*ConflictHeaders) getCashActualsRes()                        {}
+func (*ConflictHeaders) getCashPositionRes()                       {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
 func (*ConflictHeaders) getConsolidationGroupRes()                 {}
 func (*ConflictHeaders) getConsolidationRunRes()                   {}
 func (*ConflictHeaders) getControlMatrixRes()                      {}
+func (*ConflictHeaders) getCreditExposureRes()                     {}
+func (*ConflictHeaders) getCustomerSalesDataRes()                  {}
 func (*ConflictHeaders) getEInvoiceContentRes()                    {}
+func (*ConflictHeaders) getExpenseReportRes()                      {}
+func (*ConflictHeaders) getGroupLiquidityForecastRes()             {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
+func (*ConflictHeaders) getLiquidityForecastRes()                  {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getMarginReportRes()                       {}
+func (*ConflictHeaders) getMemoRecordRes()                         {}
 func (*ConflictHeaders) getOutgoingEInvoiceContentRes()            {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPersonalDataDeletionPreviewRes()        {}
 func (*ConflictHeaders) getProfitabilityReportRes()                {}
+func (*ConflictHeaders) getPromiseToPayRes()                       {}
 func (*ConflictHeaders) getPurchaseOrderDocumentRes()              {}
 func (*ConflictHeaders) getReportRunRes()                          {}
 func (*ConflictHeaders) getRetentionStatusRes()                    {}
 func (*ConflictHeaders) getRevenueScheduleRes()                    {}
+func (*ConflictHeaders) getRfqComparisonRes()                      {}
+func (*ConflictHeaders) getSalesPriceRes()                         {}
+func (*ConflictHeaders) getSupplierInvoiceDocumentRes()            {}
+func (*ConflictHeaders) getSupplierInvoiceRes()                    {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                     {}
 func (*ConflictHeaders) getVarianceCommentRes()                    {}
 func (*ConflictHeaders) getYearCloseRes()                          {}
@@ -28911,16 +28938,28 @@ func (*ConflictHeaders) grantRolePermissionRes()                   {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()                   {}
 func (*ConflictHeaders) importBankStatementsRes()                  {}
 func (*ConflictHeaders) listAccrualProposalsRes()                  {}
+func (*ConflictHeaders) listAssetClassesRes()                      {}
+func (*ConflictHeaders) listAssetClearingItemsRes()                {}
+func (*ConflictHeaders) listAssetsRes()                            {}
+func (*ConflictHeaders) listCashActualLinesRes()                   {}
 func (*ConflictHeaders) listCloseTasksRes()                        {}
 func (*ConflictHeaders) listConsolidationBalancesRes()             {}
 func (*ConflictHeaders) listConsolidationGroupsRes()               {}
 func (*ConflictHeaders) listConsolidationRunsRes()                 {}
+func (*ConflictHeaders) listCustomerSalesDataRes()                 {}
+func (*ConflictHeaders) listEInvoiceTransmissionDeadlinesRes()     {}
+func (*ConflictHeaders) listExpenseReportsRes()                    {}
 func (*ConflictHeaders) listForecastVarianceDocumentsRes()         {}
 func (*ConflictHeaders) listGroupAccountsRes()                     {}
+func (*ConflictHeaders) listLiquidityForecastFlowsRes()            {}
+func (*ConflictHeaders) listMemoRecordsRes()                       {}
 func (*ConflictHeaders) listPeriodCloseVariancesRes()              {}
 func (*ConflictHeaders) listPeriodClosesRes()                      {}
+func (*ConflictHeaders) listPromisesToPayRes()                     {}
+func (*ConflictHeaders) listSalesPricesRes()                       {}
 func (*ConflictHeaders) listTaxPeriodsRes()                        {}
 func (*ConflictHeaders) listTaxReturnDraftItemsRes()               {}
+func (*ConflictHeaders) listUnappliedReceiptsRes()                 {}
 func (*ConflictHeaders) listVarianceCommentsRes()                  {}
 func (*ConflictHeaders) listYearClosesRes()                        {}
 func (*ConflictHeaders) lockCostCenterRes()                        {}
@@ -29059,7 +29098,9 @@ func (*ConflictHeaders) updateCreditLimitRes()                     {}
 func (*ConflictHeaders) updateCustomerSalesDataRes()               {}
 func (*ConflictHeaders) updateDisputeCaseRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
+func (*ConflictHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*ConflictHeaders) updateLegalEntityRes()                     {}
+func (*ConflictHeaders) updateMaterialPlanRes()                    {}
 func (*ConflictHeaders) updateMaterialRes()                        {}
 func (*ConflictHeaders) updateMaterialValuationRes()               {}
 func (*ConflictHeaders) updateMemoRecordRes()                      {}
@@ -42819,6 +42860,10 @@ type DiscardConsolidationRunPreconditionRequired Problem
 
 func (*DiscardConsolidationRunPreconditionRequired) discardConsolidationRunRes() {}
 
+type DiscardConsolidationRunUnprocessableEntity Problem
+
+func (*DiscardConsolidationRunUnprocessableEntity) discardConsolidationRunRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/DisputeCase
 type DisputeCase struct {
@@ -51697,6 +51742,10 @@ func (s GetBankFileContentOK) Read(p []byte) (n int, err error) {
 
 func (*GetBankFileContentOK) getBankFileContentRes() {}
 
+type GetBankFileContentUnprocessableEntity Problem
+
+func (*GetBankFileContentUnprocessableEntity) getBankFileContentRes() {}
+
 type GetBankFileForbidden Problem
 
 func (*GetBankFileForbidden) getBankFileRes() {}
@@ -52210,6 +52259,10 @@ type GetConsolidatedStatementNotFound Problem
 
 func (*GetConsolidatedStatementNotFound) getConsolidatedStatementRes() {}
 
+type GetConsolidatedStatementUnprocessableEntity Problem
+
+func (*GetConsolidatedStatementUnprocessableEntity) getConsolidatedStatementRes() {}
+
 type GetConsolidationGroupBadRequest Problem
 
 func (*GetConsolidationGroupBadRequest) getConsolidationGroupRes() {}
@@ -52233,6 +52286,10 @@ func (*GetConsolidationRunForbidden) getConsolidationRunRes() {}
 type GetConsolidationRunNotFound Problem
 
 func (*GetConsolidationRunNotFound) getConsolidationRunRes() {}
+
+type GetConsolidationRunUnprocessableEntity Problem
+
+func (*GetConsolidationRunUnprocessableEntity) getConsolidationRunRes() {}
 
 type GetContractBadRequest Problem
 
@@ -54086,6 +54143,14 @@ func (s *GetPeriodCloseOKHeaders) SetResponse(val PeriodClose) {
 
 func (*GetPeriodCloseOKHeaders) getPeriodCloseRes() {}
 
+type GetPersonalDataDeletionPreviewBadRequest Problem
+
+func (*GetPersonalDataDeletionPreviewBadRequest) getPersonalDataDeletionPreviewRes() {}
+
+type GetPersonalDataDeletionPreviewForbidden Problem
+
+func (*GetPersonalDataDeletionPreviewForbidden) getPersonalDataDeletionPreviewRes() {}
+
 type GetPersonalDataDeletionRunBadRequest Problem
 
 func (*GetPersonalDataDeletionRunBadRequest) getPersonalDataDeletionRunRes() {}
@@ -54976,6 +55041,10 @@ func (s *GetRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
 
 func (*GetRevaluationRunOKHeaders) getRevaluationRunRes() {}
 
+type GetRevaluationRunUnprocessableEntity Problem
+
+func (*GetRevaluationRunUnprocessableEntity) getRevaluationRunRes() {}
+
 type GetRevenueContractBadRequest Problem
 
 func (*GetRevenueContractBadRequest) getRevenueContractRes() {}
@@ -55059,6 +55128,10 @@ func (*GetRfqComparisonForbidden) getRfqComparisonRes() {}
 type GetRfqComparisonNotFound Problem
 
 func (*GetRfqComparisonNotFound) getRfqComparisonRes() {}
+
+type GetRfqComparisonUnprocessableEntity Problem
+
+func (*GetRfqComparisonUnprocessableEntity) getRfqComparisonRes() {}
 
 type GetRfqForbidden Problem
 
@@ -69372,6 +69445,10 @@ type ListConsolidationBalancesNotFound Problem
 
 func (*ListConsolidationBalancesNotFound) listConsolidationBalancesRes() {}
 
+type ListConsolidationBalancesUnprocessableEntity Problem
+
+func (*ListConsolidationBalancesUnprocessableEntity) listConsolidationBalancesRes() {}
+
 type ListConsolidationEntriesBadRequest Problem
 
 func (*ListConsolidationEntriesBadRequest) listConsolidationEntriesRes() {}
@@ -69383,6 +69460,10 @@ func (*ListConsolidationEntriesForbidden) listConsolidationEntriesRes() {}
 type ListConsolidationEntriesNotFound Problem
 
 func (*ListConsolidationEntriesNotFound) listConsolidationEntriesRes() {}
+
+type ListConsolidationEntriesUnprocessableEntity Problem
+
+func (*ListConsolidationEntriesUnprocessableEntity) listConsolidationEntriesRes() {}
 
 type ListConsolidationGroupsBadRequest Problem
 
@@ -69399,6 +69480,10 @@ func (*ListConsolidationRunsBadRequest) listConsolidationRunsRes() {}
 type ListConsolidationRunsForbidden Problem
 
 func (*ListConsolidationRunsForbidden) listConsolidationRunsRes() {}
+
+type ListConsolidationRunsUnprocessableEntity Problem
+
+func (*ListConsolidationRunsUnprocessableEntity) listConsolidationRunsRes() {}
 
 type ListContractsBadRequest Problem
 
@@ -69732,6 +69817,10 @@ type ListIntercompanyDifferencesNotFound Problem
 
 func (*ListIntercompanyDifferencesNotFound) listIntercompanyDifferencesRes() {}
 
+type ListIntercompanyDifferencesUnprocessableEntity Problem
+
+func (*ListIntercompanyDifferencesUnprocessableEntity) listIntercompanyDifferencesRes() {}
+
 type ListInternalOrderBalancesBadRequest Problem
 
 func (*ListInternalOrderBalancesBadRequest) listInternalOrderBalancesRes() {}
@@ -69915,6 +70004,10 @@ func (*ListMemoRecordsBadRequest) listMemoRecordsRes() {}
 type ListMemoRecordsForbidden Problem
 
 func (*ListMemoRecordsForbidden) listMemoRecordsRes() {}
+
+type ListMemoRecordsUnprocessableEntity Problem
+
+func (*ListMemoRecordsUnprocessableEntity) listMemoRecordsRes() {}
 
 type ListMetricAlertsBadRequest Problem
 
@@ -70507,6 +70600,10 @@ func (*ListTaxPeriodsForbidden) listTaxPeriodsRes() {}
 type ListTaxPeriodsNotFound Problem
 
 func (*ListTaxPeriodsNotFound) listTaxPeriodsRes() {}
+
+type ListTaxPeriodsUnprocessableEntity Problem
+
+func (*ListTaxPeriodsUnprocessableEntity) listTaxPeriodsRes() {}
 
 type ListTaxRegistrationsBadRequest Problem
 
@@ -96117,8 +96214,7 @@ func (s *Problem) SetCreditLimit(val OptCreditLimit) {
 	s.CreditLimit = val
 }
 
-func (*Problem) getPersonalDataDeletionPreviewRes() {}
-func (*Problem) getPersonalDataInventoryRes()       {}
+func (*Problem) getPersonalDataInventoryRes() {}
 
 // A case of an event log: the document that is it, with its events.
 // Ref: #/components/schemas/ProcessCase
@@ -116703,6 +116799,10 @@ type SendOutgoingEInvoiceNotFound Problem
 
 func (*SendOutgoingEInvoiceNotFound) sendOutgoingEInvoiceRes() {}
 
+type SendOutgoingEInvoicePreconditionFailed Problem
+
+func (*SendOutgoingEInvoicePreconditionFailed) sendOutgoingEInvoiceRes() {}
+
 type SendOutgoingEInvoicePreconditionRequired Problem
 
 func (*SendOutgoingEInvoicePreconditionRequired) sendOutgoingEInvoiceRes() {}
@@ -117278,11 +117378,14 @@ func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getArchivingRunFileRes()                   {}
 func (*ServiceUnavailableHeaders) getAuditEvidenceExportFileRes()            {}
+func (*ServiceUnavailableHeaders) getBankFileContentRes()                    {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
 func (*ServiceUnavailableHeaders) getOutgoingEInvoiceContentRes()            {}
 func (*ServiceUnavailableHeaders) getReportRunRes()                          {}
+func (*ServiceUnavailableHeaders) getSalesOrderUploadRes()                   {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
+func (*ServiceUnavailableHeaders) getUploadRes()                             {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()                   {}
 func (*ServiceUnavailableHeaders) importBankStatementsRes()                  {}

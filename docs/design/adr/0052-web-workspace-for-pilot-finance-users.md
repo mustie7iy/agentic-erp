@@ -1406,6 +1406,50 @@ What the API gaps settled, and where they depart from §3:
   escape is never called, so its parameters could count as made, which
   would cut through a value method's pointer wrapper; such a function
   still proves nothing, but for the two wrapper kinds above.
+- **G7: statuses in the contract (batch 93, review:batch91).** The codes
+  were checked, not the statuses they come with, so an operation could
+  answer a status its responses did not declare (ics3's 404, found by
+  review alone). `TestProblemCodes/statuses` (`api/statuses_test.go`)
+  derives them from the same graph: each `problem.New` call's constant
+  status, for the codes traced from it at that gate (a code made with two
+  statuses, `payables.document_too_large` 413 when the bytes arrive and
+  422 when an upload is consumed, is each operation's at the gate it
+  reaches); a code built at run time (`dynamicCodes`) takes its site's
+  status, and a registered constraint's or a kept code every status it is
+  made with. An operation must declare every status of the codes its own
+  code makes. The walk does not enter `problem.From`: its translation of
+  the database's errors (409 duplicate or rule, 422 value or reference,
+  503 retry) is the pipeline's, for any operation, as its codes are the
+  document's. 500 is left out (any operation, none declares it). A status
+  given at run time is a relay that must be declared with what it passes
+  on (`relayedStatuses`: analytics' `apiError`, the 4xx of the list reads,
+  400, 403, 409 and 422), and a relay declared but no longer made fails.
+  404 is required of an operation whose path names a resource by a
+  parameter (04 §4.6), and is not derived from `request.not_found`: the
+  lookups making it are shared by creates reading back the row they have
+  just written and by references a context answers as 422 through
+  `problem.Reference`, which a graph without branch conditions cannot
+  tell from a 404 the operation answers (75 such functions, reached by 81
+  operations without a path parameter). An accepted gap: a 404 of a
+  document named in the body, as `enterIntercompanySupplierInvoice`'s, is
+  checked by review, not by the test. `TestProblemCodes/statuses_refused`
+  proves the check fails a response taken away, a path's 404 taken away,
+  a relay undeclared and one no longer made. Every path operation already
+  declared 404; the test found 51 statuses answered and not declared on
+  48 operations, now declared (additive, oasdiff): 409 on 32
+  (`config.not_bootstrapped` on 28 reads, `createRegressionSuite` and
+  `updateInternalOrderSettlementRule`, with
+  `controlling.internal_order_exists`; `payables.document_changed` on
+  `getSupplierInvoiceDocument`; `mrp.material_plan_exists` on
+  `updateMaterialPlan`); 422 on 14 (`config.unknown_version` on six
+  consolidation reads and `discardConsolidationRun`,
+  `request.reference_not_found` on `getRfqComparison`, `listMemoRecords`
+  and `listTaxPeriods`, `confirmSalesOrder`'s item checks,
+  `acceptForecastVarianceCommentProposal`, `getBankFileContent`,
+  `getRevaluationRun`); 503 of object storage on `getBankFileContent`,
+  `getSalesOrderUpload` and `getUpload`; 412 on `sendOutgoingEInvoice`,
+  whose description already said so; 400 of paging on
+  `getPersonalDataDeletionPreview`.
 - **Client addresses in the API's audit trail (D2, PO 2026-10-21).**
   - erp-web forwards the signed-in person's address, as its own load
     balancer's PROXY header names it, in `Erp-Client-Address` on every
