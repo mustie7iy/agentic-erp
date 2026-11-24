@@ -50,8 +50,9 @@ type relay struct {
 var relayedStatuses = map[string]relay{
 	module + "/internal/analytics/endpoint.apiError": {[]int{400, 403, 409, 422},
 		"the 4xx of the reads the semantic model's metrics are answered through, as the caller: a parameter, a permission, a tenant not set up, " +
-			"a value; 401 and 429 are the pipeline's, declared by every operation; the reads name no resource in their paths and take no If-Match, " +
-			"so they answer no 404 of a path's parameter and no 412"},
+			"a value; 401 and 429 are the pipeline's, declared by every operation; the list reads name no resource, and a drill's reads by id " +
+			"name the confirmed or posted documents the caller's own list has just answered, which are never deleted, so no 404 is relayed; " +
+			"no read takes If-Match, so no 412"},
 }
 
 // unresolvedCounts is how many sites building a code at run time each
