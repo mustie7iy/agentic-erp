@@ -9162,9 +9162,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing",
-      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4",
+      "s": "D",
+      "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing. Verified, no migration needed: it cannot have done nothing. Migrations run as a login that bypasses row-level security (06 §6.4), which fills every item; and under a role held to it the same transaction's SET NOT NULL of the five columns, which PostgreSQL checks over every row whatever the policies, fails 000356 whole (23502, column unit_price contains null values), so no database is past 000356 with an item unfilled. Run on billing documents of two tenants with the columns emptied as 000355 left them: as a migrating role neither superuser nor BYPASSRLS (a member of erp_owner) the UPDATE changed 0 rows and the migration's statements failed with 23502; as the superuser they filled both items",
+      "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4 · db/migrator_test.go asMigrator (the role the check ran as)",
       "src": "review:batch86",
       "c": []
      },
