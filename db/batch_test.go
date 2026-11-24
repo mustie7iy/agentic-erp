@@ -234,6 +234,8 @@ func TestBatchDownRefused(t *testing.T) {
 			if err := asMigrator(tx); err != nil {
 				t.Fatal(err)
 			}
+			// The down fails at its first read of tenant rows (its delete
+			// of identity.sod_rule), before its guard: nothing runs blind.
 			down := migrationNamed(t, "000428_batches").Down
 			failsWith(t, exec(tx, down), "row-level security")
 			if err := exec(tx, `ROLLBACK TO SAVEPOINT migrator`); err != nil {
