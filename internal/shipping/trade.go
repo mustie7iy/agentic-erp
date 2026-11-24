@@ -46,9 +46,11 @@ type TradeCompliance struct {
 }
 
 // ScreeningInput is a trade compliance service's answer for a delivery:
-// released or blocked, with the service's reason code, if any.
+// released or blocked, with the service's reason code, if any, and when
+// the service screened it.
 type ScreeningInput struct {
 	Result, ReasonCode string
+	ScreenedAt         time.Time
 }
 
 // maxReasonCode is the longest reason code a delivery holds
@@ -80,8 +82,12 @@ func tradeHeld(d Delivery) error {
 // company the caller may act in, while its goods issue is not posted (409
 // shipping.goods_issued: what is issued is no longer held); the answer
 // released or blocked, its reason code at most 40 characters (422
-// shipping.invalid_screening). The latest answer counts: it replaces the
-// status, reason code and time, and a person's release before it. A
+// shipping.invalid_screening), naming when the service screened it (422
+// shipping.invalid_screening without). The service's latest answer
+// counts, by that time, not by when it is read: one screened before the
+// answer recorded already is refused (409 shipping.screening_superseded),
+// so an answer read late cannot undo a later block. A newer one replaces
+// the status, reason code and time, and a person's release before it. A
 // delivery created before its plant was screened takes it all the same:
 // a block is honoured whenever it comes. The version moves; the audit
 // record and OutboundDeliveryChanged are written in the caller's
@@ -104,16 +110,35 @@ func (e *Endpoints) RecordScreening(ctx context.Context, id uuid.UUID, in Screen
 		}
 		reason = &in.ReasonCode
 	}
+	if in.ScreenedAt.IsZero() {
+		return Delivery{}, problem.Invalid("shipping.invalid_screening", "screened_at", "When the service screened the delivery.")
+	}
 	d, err := open(ctx, tx, id, func(int32) error { return nil })
 	if err != nil {
 		return Delivery{}, err
 	}
+	at := in.ScreenedAt.Truncate(time.Microsecond) // as the column holds it, so a time compares with its own
+	if err := superseded(d, at); err != nil {
+		return Delivery{}, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE shipping.outbound_delivery SET trade_compliance_status = $2, trade_compliance_reason = $3,
 			trade_compliance_screened_at = $4, trade_compliance_released_by = NULL, trade_compliance_released_by_name = NULL, trade_compliance_released_at = NULL, version = version + 1,
-			updated_by = $5 WHERE id = $1`, d.ID, in.Result, reason, clock.Now(e.Now), p.ID); err != nil {
+			updated_by = $5 WHERE id = $1`, d.ID, in.Result, reason, at, p.ID); err != nil {
 		return Delivery{}, fmt.Errorf("shipping: record the screening of outbound delivery %s: %w", d.Number, err)
 	}
 	return e.traded(ctx, tx, "shipping.outbound_delivery.record_screening", d)
+}
+
+// superseded refuses an answer the service screened no later than the one
+// the delivery holds (409 shipping.screening_superseded): the service's
+// answers are ordered by when it screened, read in whatever order.
+func superseded(d Delivery, at time.Time) error {
+	tc := d.TradeCompliance
+	if tc == nil || tc.ScreenedAt == nil || at.After(*tc.ScreenedAt) {
+		return nil
+	}
+	return problem.Conflict("shipping.screening_superseded", "Outbound delivery "+d.Number+" holds the service's answer of "+
+		tc.ScreenedAt.UTC().Format(time.RFC3339Nano)+"; one screened at "+at.UTC().Format(time.RFC3339Nano)+" is older and changes nothing.")
 }
 
 // ReleaseTradeComplianceBlock releases a delivery's trade compliance by

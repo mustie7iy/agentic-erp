@@ -16856,11 +16856,12 @@ step_tms() {
 # delivery once by its message id. Wade posts the first's goods issue; the
 # second's is refused, blocked. Releasing a block by hand is a trade
 # compliance officer's (shipping.trade_compliance.release, which
-# finance_staff does not hold): Wade is refused, and the blocked delivery
-# stays blocked. Ada disables the connector.
+# finance_staff does not hold): Wade is refused; Ada gives Carla the
+# officer's role, Carla releases it and Wade posts its goods issue. Ada
+# disables the connector.
 step_gts() {
-  heading "Step 158 — Trade compliance connector: the Toronto plant's deliveries are screened by a trade compliance service, each sent once and pending until it answers; its goods issue waits; the service releases one, which is goods-issued, and blocks the other, whose goods issue is refused; a block is released by hand only with its own permission"
-  local connector order released blocked rnumber bnumber message
+  heading "Step 158 — Trade compliance connector: the Toronto plant's deliveries are screened by a trade compliance service, each sent once and pending until it answers; its goods issue waits; the service releases one, which is goods-issued, and blocks the other, whose goods issue is refused; a block is released by hand only with its own permission, by a trade compliance officer"
+  local connector order released blocked rnumber bnumber message role carla
   [ -n "$MATERIAL" ] && [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
   accounts
   as ada
@@ -16917,10 +16918,13 @@ step_gts() {
   QUIET=1 api 200 '' pickOutboundDelivery -p "id=$released" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
   refused 409 shipping.trade_compliance_block postOutboundDeliveryGoodsIssue -p "id=$released" -if-match "$ETAG"
   say "The service screens both: the first is released; the second's customer hits a sanctioned party list and it is"
-  say "blocked with the service's reason code. The exchange polls the answers and records each on its delivery through"
-  say "shipping, once by the message's id, posting nothing, and acknowledges it:"
-  printf '{"message_id": "GTS-SC-1", "type": "screening", "outbound_delivery_id": "%s", "result": "released"}\n' "$released" >"$WORK/wms/confirmations/GTS-SC-1.json"
-  printf '{"message_id": "GTS-SC-2", "type": "screening", "outbound_delivery_id": "%s", "result": "blocked", "reason_code": "SPL-HIT"}\n' "$blocked" >"$WORK/wms/confirmations/GTS-SC-2.json"
+  say "blocked with the service's reason code. Each answer names when the service screened, which orders its answers"
+  say "however they are read. The exchange polls the answers and records each on its delivery through shipping, once by"
+  say "the message's id, posting nothing, and acknowledges it:"
+  printf '{"message_id": "GTS-SC-1", "type": "screening", "outbound_delivery_id": "%s", "result": "released", "screened_at": "%s"}\n' "$released" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    >"$WORK/wms/confirmations/GTS-SC-1.json"
+  printf '{"message_id": "GTS-SC-2", "type": "screening", "outbound_delivery_id": "%s", "result": "blocked", "reason_code": "SPL-HIT", "screened_at": "%s"}\n' "$blocked" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$WORK/wms/confirmations/GTS-SC-2.json"
   wms_acknowledged GTS-SC-1
   wms_acknowledged GTS-SC-2
   as ada
@@ -16933,7 +16937,7 @@ step_gts() {
   api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number)"' postOutboundDeliveryGoodsIssue -p "id=$released" -if-match "$ETAG"
   expect "the released delivery" "$(field '"\(.number) \(.status) \(.trade_compliance.status)"')" "$rnumber goods_issued released"
   say "The second is blocked: its goods issue is refused, naming the service's reason. Releasing it by hand is a trade"
-  say "compliance officer's decision, which Wade does not hold; it stays blocked for the officer:"
+  say "compliance officer's decision (shipping.trade_compliance.release), which Wade does not hold:"
   api 200 '"outbound delivery \(.number): trade compliance \(.trade_compliance.status), reason \(.trade_compliance.reason_code)"' getOutboundDelivery -p "id=$blocked"
   expect "the blocked delivery" "$(field '"\(.number) \(.trade_compliance.status) \(.trade_compliance.reason_code)"')" "$bnumber blocked SPL-HIT"
   QUIET=1 api 200 '' pickOutboundDelivery -p "id=$blocked" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
@@ -16942,6 +16946,24 @@ step_gts() {
   refused 403 identity.permission_missing releaseOutboundDeliveryTradeComplianceBlock -p "id=$blocked" -if-match "$ETAG"
   QUIET=1 api 200 '' listOutboundDeliveries -p "trade_compliance_status=blocked" -p "sales_order_id=$order"
   expect "the order's blocked deliveries" "$(field '[.items[].number] | join(", ")')" "$bnumber"
+  as ada
+  say "Maple's compliance review clears the customer: the list hit was a namesake. Ada creates the trade compliance"
+  say "officer's role and gives it to Carla, who releases the block, audited, naming her; Wade then posts the goods issue:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "trade_compliance_officer", "name": "Trade compliance officer"}'
+  role=$(field .id)
+  grant "$role" shipping.trade_compliance.release
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  [ -n "$carla" ] || fail "Carla is not there"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$carla\", \"role_id\": \"$role\"}"
+  as carla
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$blocked"
+  api 200 '"outbound delivery \(.number): trade compliance \(.trade_compliance.status) by \(.trade_compliance.released_by_name), reason \(.trade_compliance.reason_code) kept"' \
+    releaseOutboundDeliveryTradeComplianceBlock -p "id=$blocked" -if-match "$ETAG"
+  expect "the released delivery" "$(field '"\(.trade_compliance.status) \(.trade_compliance.released_by_name)"')" "released Carla Controller"
+  as wade
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$blocked"
+  api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number)"' postOutboundDeliveryGoodsIssue -p "id=$blocked" -if-match "$ETAG"
+  expect "the delivery released by hand" "$(field .status)" goods_issued
   as ada
   say "Ada disables the connector, so the later deliveries at P100 are not screened:"
   QUIET=1 api 200 '' getConnector -p "id=$connector"

@@ -1109,7 +1109,9 @@ warehouse (SAP EWM), freight settlement, customs declarations.
   by a person or a WMS, is refused until it is released; the service's
   answer is recorded once by its message id (listed again, acknowledged,
   not recorded twice): one delivery released and goods-issued, one
-  blocked and refused at goods issue; an answer of a delivery the
+  blocked and refused at goods issue; the service's answers counted in
+  the order it screened, an older one read later refused; an answer of a
+  delivery the
   connector was not sent, one shipping cannot hold, or one after the goods
   issue is recorded refused; a block is released by hand only with its
   own permission, audited.

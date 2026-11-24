@@ -60,10 +60,16 @@ func (e wmsEnv) gtsInbound(t *testing.T, id string) map[string]any {
 	return nil
 }
 
-// screening is a screening confirmation of the delivery.
+// screening is a screening confirmation of the delivery, screened now.
 func screening(id, delivery, result, reason string) []byte {
-	return fmt.Appendf(nil, `{"message_id": %q, "type": "screening", "outbound_delivery_id": %q, "result": %q, "reason_code": %q}`,
-		id, delivery, result, reason)
+	return screeningAt(id, delivery, result, reason, time.Now().UTC().Format(time.RFC3339Nano))
+}
+
+// screeningAt is a screening confirmation of the delivery screened at the
+// time given.
+func screeningAt(id, delivery, result, reason, at string) []byte {
+	return fmt.Appendf(nil, `{"message_id": %q, "type": "screening", "outbound_delivery_id": %q, "result": %q, "reason_code": %q, "screened_at": %q}`,
+		id, delivery, result, reason, at)
 }
 
 // tradeOf is the delivery's trade compliance as the API gives it.
@@ -146,6 +152,14 @@ func TestGTSDeliveryRoundTrip(t *testing.T) {
 	if tc := e.tradeOf(t, blocked); tc["status"] != "blocked" || e.wms.Acknowledged("SC-2") != 1 {
 		t.Errorf("the blocked delivery after SC-2 listed again: got %v, acknowledged %d; want blocked, acknowledged once", tc, e.wms.Acknowledged("SC-2"))
 	}
+	e.wms.Report("SC-0", screeningAt("SC-0", blocked, "released", "", "2026-01-01T00:00:00Z"))
+	if _, err := x.PollOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if in := e.gtsInbound(t, "SC-0"); in["status"] != "refused" || in["problem_code"] != "shipping.screening_superseded" || e.tradeOf(t, blocked)["status"] != "blocked" {
+		t.Errorf("a release screened before the block, read after it: got %v (%v), delivery %v; want refused, superseded, blocked still", in["status"],
+			in["problem_code"], e.tradeOf(t, blocked))
+	}
 	if tms := e.tmsMessages(t, "outbound_delivery_id="+released); len(tms) != 0 {
 		t.Errorf("the transport system's messages of the delivery: got %v, want none", tms)
 	}
@@ -186,6 +200,9 @@ func TestGTSScreeningRefusals(t *testing.T) {
 			return fmt.Appendf(nil, `{"message_id": %q, "type": "screening", "result": "blocked"}`, msg)
 		}, "integration.wms_message_unreadable"},
 		"not a JSON object": {func(string) []byte { return []byte(`[1]`) }, "integration.wms_message_unreadable"},
+		"no screened_at": {func(msg string) []byte {
+			return fmt.Appendf(nil, `{"message_id": %q, "type": "screening", "outbound_delivery_id": %q, "result": "blocked"}`, msg, id)
+		}, "integration.wms_message_unreadable"},
 		"a message id not a string": {func(string) []byte { return []byte(`{"message_id": 7, "type": "screening"}`) },
 			"integration.wms_message_unreadable"},
 	} {

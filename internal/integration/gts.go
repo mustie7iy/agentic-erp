@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -47,21 +48,26 @@ type GTSDeliveries interface {
 }
 
 // GTSScreening is a trade compliance service's answer for a delivery:
-// released or blocked, with the service's reason code, if any.
+// released or blocked, with the service's reason code, if any, and when
+// the service screened it, which orders its answers.
 type GTSScreening struct {
 	Result, ReasonCode string
+	ScreenedAt         time.Time
 }
 
 // GTSScreeningReport is the message a trade compliance service answers a
 // delivery's screening with (message type screening, version 1): its own
 // message id, the delivery it was sent by id, its result (released or
-// blocked) and, optionally, its reason code.
+// blocked), optionally its reason code, and when it screened the delivery
+// (RFC 3339), which orders its answers: a service re-screening a delivery
+// answers again, and the answers may be read in any order.
 type GTSScreeningReport struct {
 	MessageID  string    `json:"message_id"`
 	Type       string    `json:"type"`
 	DeliveryID uuid.UUID `json:"outbound_delivery_id"`
 	Result     string    `json:"result"`
 	ReasonCode string    `json:"reason_code"`
+	ScreenedAt time.Time `json:"screened_at"`
 }
 
 // TradeScreening tells shipping whether a trade compliance service
@@ -86,11 +92,17 @@ func (sc *GTSScreeningReport) head() (string, string, uuid.UUID) {
 
 // readScreening reads a gts connector's confirmation, which is a
 // screening naming the message id it was listed under and a delivery
-// (readDeliveryReport); its result is shipping's to judge.
+// (readDeliveryReport) and when it was screened; its result is shipping's
+// to judge.
 func readScreening(id string, raw []byte, readErr error) (GTSScreeningReport, error) {
 	var sc GTSScreeningReport
-	err := readDeliveryReport(id, raw, readErr, gtsScreening, "GTS", "a trade compliance service", &sc)
-	return sc, err
+	if err := readDeliveryReport(id, raw, readErr, gtsScreening, "GTS", "a trade compliance service", &sc); err != nil {
+		return sc, err
+	}
+	if sc.ScreenedAt.IsZero() {
+		return sc, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" names no screened_at, which orders a service's answers.")
+	}
+	return sc, nil
 }
 
 // postScreening records the service's answer for a delivery it was sent,
@@ -105,6 +117,6 @@ func (w *WMSExchange) postScreening(ctx context.Context, tx pgx.Tx, in *inbound,
 	}
 	return w.inSavepoint(ctx, tx, in, func(ctx context.Context) (*WMSPosted, error) {
 		return nil, w.Screenings.ScreeningReported(authz.ActingFor(ctx, *in.legalEntity), sc.DeliveryID, GTSScreening{Result: sc.Result,
-			ReasonCode: sc.ReasonCode})
+			ReasonCode: sc.ReasonCode, ScreenedAt: sc.ScreenedAt})
 	})
 }

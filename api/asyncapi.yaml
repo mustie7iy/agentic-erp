@@ -6984,7 +6984,7 @@ components:
               properties:
                 status: {type: string, description: 'Open enum: pending, released, blocked.'}
                 reason_code: {type: [string, 'null'], description: "The service's reason code with its latest answer; null when it gave none."}
-                screened_at: {type: [string, 'null'], format: date-time, description: "When the service's latest answer was recorded; null before."}
+                screened_at: {type: [string, 'null'], format: date-time, description: "When the service screened for its latest answer, as it reports it; null before."}
                 released_by: {type: [string, 'null'], format: uuid, description: "Released by hand: who released it; null otherwise."}
                 released_by_name: {type: [string, 'null'], description: "Released by hand: that person's name then; null otherwise."}
                 released_at: {type: [string, 'null'], format: date-time, description: "Released by hand: when; null otherwise."}

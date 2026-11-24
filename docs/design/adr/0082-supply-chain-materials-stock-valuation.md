@@ -1923,14 +1923,22 @@ feeder system until GTS releases it), from memory, for the specialist:
   that holds no master data is Later. Sent, retried and failed as a WMS
   message is.
 - **The answer**, message type `screening`: its own `message_id`, the
-  `outbound_delivery_id` it was sent, `result` `released` or `blocked`
-  and, optionally, `reason_code` (1 to 40 characters, the service's own
-  code, such as its list hit). Recorded on the delivery (`status`,
-  `reason_code`, `screened_at`) once per connector and message id under
+  `outbound_delivery_id` it was sent, `result` `released` or `blocked`,
+  optionally `reason_code` (1 to 40 characters, the service's own code,
+  such as its list hit), and `screened_at` (RFC 3339, required: when the
+  service screened). Recorded on the delivery (`status`, `reason_code`,
+  `screened_at` as the service reports it) once per connector and message
+  id under
   S2q1's advisory lock, through shipping as the exchange's system
   principal acting for the delivery's company, in a savepoint; the
-  inbound row is `recorded`, never `posted`. The latest answer counts
-  while the delivery is not goods-issued: a later `released` releases a
+  inbound row is `recorded`, never `posted`. The service's latest answer
+  counts, by `screened_at`, not by when it is read: answers are polled
+  one by one, a failed read is taken again at the next poll and two
+  replicas may record two answers at once, so an answer screened no later
+  than the one the delivery holds is refused under the delivery's row
+  lock (409 `shipping.screening_superseded`, recorded refused), and a
+  release read late cannot undo a later block. While the delivery is not
+  goods-issued: a later `released` releases a
   block (SAP GTS's release of a blocked document, in the service), a
   later `blocked` blocks it again, a person's release included. Refused,
   nothing recorded: a delivery the connector was not sent

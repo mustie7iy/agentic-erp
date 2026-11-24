@@ -86121,7 +86121,8 @@ type OutboundDeliveryTradeCompliance struct {
 	// The reason code the service gave with its latest answer, as the service names it; absent when it
 	// gave none.
 	ReasonCode OptString `json:"reason_code"`
-	// When the service's latest answer was recorded; absent while it has not answered.
+	// When the service screened the delivery for its latest answer, as the service reports it (its answers
+	// are ordered by it); absent while it has not answered.
 	ScreenedAt OptDateTime `json:"screened_at"`
 	// Released by hand: who released it; absent otherwise.
 	ReleasedBy OptUUID `json:"released_by"`

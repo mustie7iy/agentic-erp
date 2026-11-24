@@ -48,7 +48,7 @@ func WMS(cfg Config, client *egress.Client) *integration.WMSExchange {
 type gtsDeliveries struct{ e *shipping.Endpoints }
 
 func (a gtsDeliveries) ScreeningReported(ctx context.Context, delivery uuid.UUID, s integration.GTSScreening) error {
-	_, err := a.e.RecordScreening(ctx, delivery, shipping.ScreeningInput{Result: s.Result, ReasonCode: s.ReasonCode})
+	_, err := a.e.RecordScreening(ctx, delivery, shipping.ScreeningInput{Result: s.Result, ReasonCode: s.ReasonCode, ScreenedAt: s.ScreenedAt})
 	return err
 }
 

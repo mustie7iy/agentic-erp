@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -29,7 +30,7 @@ func (e env) screenedAtP1(t *testing.T) {
 func (e env) screened(t *testing.T, h *shipping.Endpoints, id, result, reason string) error {
 	t.Helper()
 	return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := h.RecordScreening(ctx, uuid.MustParse(id), shipping.ScreeningInput{Result: result, ReasonCode: reason})
+		_, err := h.RecordScreening(ctx, uuid.MustParse(id), shipping.ScreeningInput{Result: result, ReasonCode: reason, ScreenedAt: time.Now()})
 		return err
 	})
 }
@@ -175,8 +176,12 @@ func TestRecordScreeningRefusals(t *testing.T) {
 		"no delivery":          {uuid.NewString(), shipping.ScreeningInput{Result: "blocked"}, "", ""},
 		"a reason code of 40":  {id, shipping.ScreeningInput{Result: "blocked", ReasonCode: strings.Repeat("R", 40)}, "ok", ""},
 		"released with reason": {id, shipping.ScreeningInput{Result: "released", ReasonCode: "OK-AFTER-REVIEW"}, "ok", ""},
+		"no screened_at":       {id, shipping.ScreeningInput{Result: "blocked"}, "shipping.invalid_screening", "screened_at"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			if c.path != "screened_at" {
+				c.in.ScreenedAt = time.Now() // each case later than the one before it
+			}
 			err := e.inRequest(t, func(ctx context.Context) error {
 				_, err := h.RecordScreening(ctx, uuid.MustParse(c.id), c.in)
 				return err
@@ -199,7 +204,7 @@ func TestRecordScreeningRefusals(t *testing.T) {
 		})
 	}
 	t.Run("outside a unit of work", func(t *testing.T) {
-		if _, err := h.RecordScreening(context.Background(), uuid.MustParse(id), shipping.ScreeningInput{Result: "blocked"}); err == nil {
+		if _, err := h.RecordScreening(context.Background(), uuid.MustParse(id), shipping.ScreeningInput{Result: "blocked", ScreenedAt: time.Now()}); err == nil {
 			t.Error("got nil error, want an error")
 		}
 		if _, err := h.ReleaseTradeComplianceBlock(context.Background(), uuid.MustParse(id), func(int32) error { return nil }); err == nil {
@@ -208,7 +213,7 @@ func TestRecordScreeningRefusals(t *testing.T) {
 	})
 	t.Run("database failures", func(t *testing.T) {
 		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "record a screening", func(ctx context.Context) error {
-			_, err := h.RecordScreening(ctx, uuid.MustParse(id), shipping.ScreeningInput{Result: "blocked", ReasonCode: "SPL"})
+			_, err := h.RecordScreening(ctx, uuid.MustParse(id), shipping.ScreeningInput{Result: "blocked", ReasonCode: "SPL", ScreenedAt: time.Now()})
 			return err
 		})
 		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "release a block", func(ctx context.Context) error {
@@ -250,27 +255,77 @@ func TestScreeningAndPickInEitherOrder(t *testing.T) {
 	h := endpoints(t)
 	order := e.order(t, false, e.ofMaterial(e.bracket, "5 BOX"))
 	e.screenedAtP1(t)
+	for name, screeningFirst := range map[string]bool{"screening first": true, "pick first": false} {
+		t.Run(name, func(t *testing.T) {
+			raceScreeningAndPick(t, e, h, order, screeningFirst)
+		})
+	}
+}
+
+// raceScreeningAndPick races a screening and a pick of a new delivery of
+// the order, the screening first or second.
+func raceScreeningAndPick(t *testing.T, e env, h *shipping.Endpoints, order string, screeningFirst bool) {
+	t.Helper()
 	anyVersion := func(int32) error { return nil }
-	for _, screeningFirst := range []bool{true, false} {
-		d, _ := e.Must(201, "POST", deliveries, e.create(order, "1 1 BOX"), "")
-		id := uuid.MustParse(d["id"].(string))
-		screen := func(ctx context.Context) error {
-			_, err := h.RecordScreening(ctx, id, shipping.ScreeningInput{Result: "released"})
+	d, _ := e.Must(201, "POST", deliveries, e.create(order, "1 1 BOX"), "")
+	id := uuid.MustParse(d["id"].(string))
+	screen := func(ctx context.Context) error {
+		_, err := h.RecordScreening(ctx, id, shipping.ScreeningInput{Result: "released", ScreenedAt: time.Now()})
+		return err
+	}
+	pickIt := func(ctx context.Context) error {
+		_, err := h.Pick(ctx, id, anyVersion, []shipping.PickInput{{ItemNo: 1, Quantity: "1", Unit: "BOX"}})
+		return err
+	}
+	first, second := pickIt, screen
+	if screeningFirst {
+		first, second = screen, pickIt
+	}
+	if a, b := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, first, second); a != nil || b != nil {
+		t.Errorf("screening first %v: got %v and %v, want both done", screeningFirst, a, b)
+	}
+	if tc, _ := e.trade(t, id.String()); tc["status"] != "released" {
+		t.Errorf("screening first %v: got %v, want released", screeningFirst, tc)
+	}
+}
+
+// TestScreeningAnswersInTheServicesOrder (S2s; ADR-0008): the service's
+// answers count in the order it screened, not the order they are read: a
+// block read before an earlier release stays, the earlier answer refused
+// (409 shipping.screening_superseded), as is one of the same time; a later
+// release applies, its time the service's.
+func TestScreeningAnswersInTheServicesOrder(t *testing.T) {
+	e := setup(t)
+	h := endpoints(t)
+	order := e.order(t, false, e.ofMaterial(e.bracket, "5 BOX"))
+	e.screenedAtP1(t)
+	d, _ := e.Must(201, "POST", deliveries, e.create(order, "1 1 BOX"), "")
+	id := uuid.MustParse(d["id"].(string))
+	at := time.Date(2026, 11, 23, 10, 0, 0, 123456789, time.UTC)
+	record := func(result string, when time.Time) error {
+		return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.RecordScreening(ctx, id, shipping.ScreeningInput{Result: result, ScreenedAt: when})
 			return err
-		}
-		pickIt := func(ctx context.Context) error {
-			_, err := h.Pick(ctx, id, anyVersion, []shipping.PickInput{{ItemNo: 1, Quantity: "1", Unit: "BOX"}})
-			return err
-		}
-		first, second := pickIt, screen
-		if screeningFirst {
-			first, second = screen, pickIt
-		}
-		if a, b := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, first, second); a != nil || b != nil {
-			t.Errorf("screening first %v: got %v and %v, want both done", screeningFirst, a, b)
-		}
-		if tc, _ := e.trade(t, id.String()); tc["status"] != "released" {
-			t.Errorf("screening first %v: got %v, want released", screeningFirst, tc)
-		}
+		})
+	}
+	if err := record("blocked", at); err != nil {
+		t.Fatalf("the block: got %v, want it recorded", err)
+	}
+	for name, when := range map[string]time.Time{"an earlier release": at.Add(-time.Hour), "a release of the same time": at} {
+		t.Run(name, func(t *testing.T) {
+			if p := problem.From(record("released", when)); p.Code != "shipping.screening_superseded" || p.Status != 409 {
+				t.Errorf("got %v, want 409 shipping.screening_superseded", p)
+			}
+			if tc, _ := e.trade(t, id.String()); tc["status"] != "blocked" {
+				t.Errorf("the delivery: got %v, want blocked still", tc)
+			}
+		})
+	}
+	if err := record("released", at.Add(time.Minute)); err != nil {
+		t.Fatalf("a later release: got %v, want it recorded", err)
+	}
+	tc, _ := e.trade(t, id.String())
+	if want := at.Add(time.Minute).Truncate(time.Microsecond).Format(time.RFC3339Nano); tc["status"] != "released" || tc["screened_at"] != want {
+		t.Errorf("the delivery: got %v, want released, screened at %s", tc, want)
 	}
 }

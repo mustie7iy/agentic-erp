@@ -7012,7 +7012,7 @@ erDiagram
   trade compliance service screened its plant at its creation;
   `trade_compliance_reason`, the service's reason code of 1 to 40
   characters (`outbound_delivery_trade_compliance_reason_check`),
-  `trade_compliance_screened_at`, when its latest answer was recorded,
+  `trade_compliance_screened_at`, when the service screened for its latest answer (as it reports it; its answers are ordered by it),
   and `trade_compliance_released_by`, `_released_by_name` (the
   person's name then) and `_released_at`, a person's release, together (`outbound_delivery_trade_compliance`: pending has
   no answer, blocked has one, released has one or a person's release,
