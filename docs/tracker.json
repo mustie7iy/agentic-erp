@@ -5796,13 +5796,6 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "fix: no operation cancels a stock transport order within the company, so one entered by mistake counts for ever as the supplying plant's MRP demand and the receiving plant's receipt (ADR-0084 As built, stock transport orders)",
-      "r": "procurement stock transport orders (S2h) · procurement.Orders.TransportsDue, .TransportsOnOrder · internal/mrp/net.go · ADR-0084 As built (stock transport orders, batch 92)",
-      "src": "review:batch92",
-      "c": []
-     },
-     {
       "s": "D",
       "t": "fix: GET /v1/stock-transport-orders?number= says legal_entity_id narrows it to one order, but a stock transport order's number is unique per company and fiscal year (stock_transport_order_number_once): the description says one per fiscal year, as the outbound deliveries' number filter does",
       "r": "api/openapi.yaml listStockTransportOrders number · db/migrations/000418 stock_transport_order_number_once · contract description only",
