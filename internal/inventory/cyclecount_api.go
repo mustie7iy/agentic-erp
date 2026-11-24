@@ -14,11 +14,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// ifMatch checks a row against the version a request read.
-func ifMatch(header string) func(int32) error {
-	return func(v int32) error { return etag.Check(header, v) }
-}
-
 // indicatorAPI is an indicator as the API gives it.
 func indicatorAPI(i Indicator, r refs) gen.CycleCountIndicator {
 	plant := r.units[i.PlantID]
@@ -77,7 +72,7 @@ func (e *Endpoints) GetCycleCountIndicator(ctx context.Context, params gen.GetCy
 func (e *Endpoints) UpdateCycleCountIndicator(ctx context.Context, req *gen.CycleCountIndicatorUpdate,
 	params gen.UpdateCycleCountIndicatorParams) (gen.UpdateCycleCountIndicatorRes, error) {
 	// The contract's minProperties sets the one property it has.
-	i, err := e.ChangeIndicator(ctx, params.ID, ifMatch(params.IfMatch), req.IntervalDays.Value)
+	i, err := e.ChangeIndicator(ctx, params.ID, etag.IfMatch(params.IfMatch), req.IntervalDays.Value)
 	out, tag, err := e.oneIndicator(ctx, i, err)
 	if err != nil {
 		return nil, err
@@ -180,7 +175,7 @@ func (e *Endpoints) GetCycleCountMaterial(ctx context.Context, params gen.GetCyc
 func (e *Endpoints) UpdateCycleCountMaterial(ctx context.Context, req *gen.CycleCountMaterialUpdate,
 	params gen.UpdateCycleCountMaterialParams) (gen.UpdateCycleCountMaterialRes, error) {
 	// The contract's minProperties sets the one property it has.
-	c, err := e.ChangeCycleMaterial(ctx, params.ID, ifMatch(params.IfMatch), req.IndicatorID.Value)
+	c, err := e.ChangeCycleMaterial(ctx, params.ID, etag.IfMatch(params.IfMatch), req.IndicatorID.Value)
 	out, tag, err := e.oneCycleMaterial(ctx, c, err)
 	if err != nil {
 		return nil, err

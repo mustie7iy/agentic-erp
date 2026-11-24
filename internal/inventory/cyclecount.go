@@ -236,7 +236,7 @@ func (e *Endpoints) CreateCycleMaterial(ctx context.Context, in CycleMaterialInp
 	}
 	return out, audit.Record(ctx, "inventory.cycle_count_material.create", "inventory.cycle_count_material", id, map[string]any{
 		"legal_entity_id": out.LegalEntityID, "plant_id": plant.ID, "plant_code": plant.Code, "material_id": m.ID, "material_number": m.Number,
-		"indicator_id": ind.ID, "indicator_code": ind.Code, "interval_days": ind.IntervalDays})
+		"indicator_id": out.IndicatorID, "indicator_code": out.IndicatorCode, "interval_days": out.IntervalDays})
 }
 
 // ChangeCycleMaterial gives a material another indicator of its plant at

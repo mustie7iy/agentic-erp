@@ -220,9 +220,9 @@ func TestCycleCountsDue(t *testing.T) {
 	a := e.indicator(t, e.p1, "A", 30)
 	e.assign(t, e.bracket, a)
 	n := e.number(t, e.bracket)
-	if got, want := e.dueOn(t, 0, gen.ListCycleCountsDueParams{}), fmt.Sprintf("S1 %[1]s A never now; S2 %[1]s A never now", n); got != want &&
-		got != fmt.Sprintf("S2 %[1]s A never now; S1 %[1]s A never now", n) {
-		t.Errorf("never counted: got %q, want both locations of the bracket", got)
+	// Never counted, both sort first, by their stock rows: S1's moved first.
+	if got, want := e.dueOn(t, 0, gen.ListCycleCountsDueParams{}), fmt.Sprintf("S1 %[1]s A never now; S2 %[1]s A never now", n); got != want {
+		t.Errorf("never counted: got %q, want %q", got, want)
 	}
 	doc := e.counted(t, []string{e.bracket}, "10")
 	if got, want := e.dueOn(t, 0, gen.ListCycleCountsDueParams{}), "S2 "+n+" A never now"; got != want {
@@ -283,6 +283,53 @@ func TestCycleCountsDue(t *testing.T) {
 		}
 	})
 	e.refused(t, "GET", countsDue+"?plant_id="+e.s1.String(), "", "", 422, "inventory.plant_invalid", "plant_id")
+}
+
+// TestCycleCountsDueLastCount: the last count is the latest posted one
+// by its date, and a count whose differences were rejected is none.
+func TestCycleCountsDueLastCount(t *testing.T) {
+	e := cycleSetup(t)
+	h := endpoints(t)
+	bolt := mustMaterial(t, e)
+	e.post(t, "561", e.item("10", "EA", nil), e.item("50", "EA", map[string]any{"material_id": bolt}))
+	a := e.indicator(t, e.p1, "A", 30)
+	e.assign(t, e.bracket, a)
+	e.assign(t, bolt, a)
+	today := time.Now()
+	dated := func(id string, days int) {
+		t.Helper()
+		c := pgtest.Admin(t)
+		defer c.Close(context.Background())
+		if _, err := c.Exec(context.Background(), `UPDATE inventory.count_document SET document_date = $2, version = version + 1 WHERE id = $1`, id,
+			today.AddDate(0, 0, -days).Format(time.DateOnly)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	older := e.counted(t, []string{e.bracket}, "10")
+	e.postDiffs(t, older, 200)
+	dated(older, 40)
+	later := e.counted(t, []string{e.bracket}, "10")
+	posted := e.postDiffs(t, later, 200)
+	dated(later, 5)
+	// The bolt's 50 missing at 1.00 are above the tolerance of 10.00; rejected, nothing is posted.
+	rejected := e.counted(t, []string{bolt}, "0")
+	if got := e.postDiffs(t, rejected, 200); got["status"] != "pending_approval" {
+		t.Fatalf("the bolt's count: got %v, want pending_approval", got["status"])
+	}
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		return inventory.Approvals{Endpoints: h}.Rejected(ctx, uuid.MustParse(rejected), uuid.Nil, "")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b := e.number(t, bolt)
+	if got, want := e.dueOn(t, 0, gen.ListCycleCountsDueParams{}), "S1 "+b+" A never now"; got != want {
+		t.Errorf("today: got %q, want %q: the bracket was counted 5 days ago, the bolt's count rejected", got, want)
+	}
+	due := today.AddDate(0, 0, 25).Format(time.DateOnly)
+	if got, want := e.dueOn(t, 25, gen.ListCycleCountsDueParams{}), fmt.Sprintf("S1 %s A never now; S1 %s A %v %s", b, e.number(t, e.bracket),
+		posted["number"], due); got != want {
+		t.Errorf("25 days on: got %q, want %q", got, want)
+	}
 }
 
 // TestCycleCountsDuePages: the counts due page by the day they fell due,
