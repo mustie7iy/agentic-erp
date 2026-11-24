@@ -204,7 +204,7 @@ func (w *WMSExchange) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	return c, true, nil
 }
 
-// wmsTarget is a wms or tms connector read for use, without its
+// wmsTarget is a wms, tms or gts connector read for use, without its
 // credentials.
 type wmsTarget struct {
 	WMSConnection
