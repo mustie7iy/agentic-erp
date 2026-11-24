@@ -209,17 +209,22 @@ func (e *Endpoints) notPreparer(ctx context.Context, tx pgx.Tx, k *closeKind, c 
 	if cc := doc.Company(co.Code); cc != nil && !cc.Close.SeparatesSignOff() {
 		return false, nil
 	}
-	bySignOff, err := byASignOff(ctx, tx, k, c, p)
-	if err != nil {
-		return false, err
-	}
+	bySignOff := byASignOff(ctx, tx, k, c, p)
 	var prepared []string
 	for _, t := range tasks {
-		mine := t.CompletedBy != nil && *t.CompletedBy == p.ID
-		signed := t.Kind == config.CloseCheck && t.CompletedAt != nil && bySignOff(*t.CompletedAt)
-		if mine && !signed {
-			prepared = append(prepared, t.Code)
+		if t.CompletedBy == nil || *t.CompletedBy != p.ID {
+			continue
 		}
+		if t.Kind == config.CloseCheck && t.CompletedAt != nil {
+			signed, err := bySignOff(*t.CompletedAt)
+			if err != nil {
+				return false, err
+			}
+			if signed {
+				continue
+			}
+		}
+		prepared = append(prepared, t.Code)
 	}
 	if len(prepared) == 0 {
 		return true, nil
@@ -229,18 +234,25 @@ func (e *Endpoints) notPreparer(ctx context.Context, tx pgx.Tx, k *closeKind, c 
 		strings.Join(prepared, ", "), co.Code))
 }
 
-// byASignOff tells whether a check task the principal completed at the
+// byASignOff tells whether a check task the principal completed at an
 // instant was completed by the principal's own sign-off of the close: a
 // sign-off's row and the completions its check run records share the
-// transaction's now() (signed_at, completed_at).
-func byASignOff(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow, p reqctx.Principal) (func(time.Time) bool, error) {
-	offs, err := signOffsOf(ctx, tx, k, c.ID)
-	if err != nil {
-		return nil, err
+// transaction's now() (signed_at, completed_at). The close's sign-offs are
+// read once, on the first question: only a caller who completed a check
+// task asks.
+func byASignOff(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow, p reqctx.Principal) func(time.Time) (bool, error) {
+	var offs []signOff
+	read := false
+	return func(at time.Time) (bool, error) {
+		if !read {
+			var err error
+			if offs, err = signOffsOf(ctx, tx, k, c.ID); err != nil {
+				return false, err
+			}
+			read = true
+		}
+		return slices.ContainsFunc(offs, func(s signOff) bool { return s.SignedBy == p.ID && s.SignedAt.Equal(at) }), nil
 	}
-	return func(at time.Time) bool {
-		return slices.ContainsFunc(offs, func(s signOff) bool { return s.SignedBy == p.ID && s.SignedAt.Equal(at) })
-	}, nil
 }
 
 // checksPass runs every check task's check of a close of a kind again:

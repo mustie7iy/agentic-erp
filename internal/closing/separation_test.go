@@ -62,9 +62,9 @@ func TestSignOffSeparated(t *testing.T) {
 		t.Errorf("NO_PARKED, first passed by the sign-off's checks: got completed by %v, want the signer %s", task["completed_by"], fiona.ID)
 	}
 	s.tag = tag
-	// An unlock returns the periods to closed (T32); the signer signs off
-	// again: the check her sign-off completed is not a preparation of hers
-	// (review round 1).
+	// Stands in for an approved unlock (T32), which returns the periods to
+	// closed; the signer signs off again: the check her sign-off completed
+	// is not a preparation of hers (review round 1).
 	pgtest.Unguarded(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
 		AND fiscal_year = 2026 AND period = 1`, e.Tenant.ID, e.DE)
 	s.read(t)
@@ -75,16 +75,23 @@ func TestSignOffSeparated(t *testing.T) {
 }
 
 // TestSignOffSeparatedDatabaseFailures: every statement of a separated
-// sign-off by a person who prepared none of the close failing, the
-// sign-off fails with it.
+// sign-off failing, the sign-off fails with it: a signer's again after an
+// unlock, which reads the close's sign-offs for the check her first
+// completed.
 func TestSignOffSeparatedDatabaseFailures(t *testing.T) {
 	e := fixture.NewWith(t, nil, func(doc *config.Config) { withSignOff(doc); separated(doc) }, signPermissions...)
 	s := signable(t, e, 1)
 	s.periods(t, "close")
 	s.read(t)
+	fiona := e.Person(t, "Fiona Finance Director")
+	_, s.tag = e.As(fiona).Must(200, "POST", s.path+":signOff", "", s.tag)
+	// Stands in for an approved unlock (T32).
+	pgtest.Unguarded(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+		AND fiscal_year = 2026 AND period = 1`, e.Tenant.ID, e.DE)
+	s.read(t)
 	id := uuid.MustParse(strings.TrimPrefix(s.path, "/v1/period-closes/"))
 	h := endpoints(t)
-	apitest.EveryFailure(t, e.Tenant, e.Person(t, "Fiona Finance Director"), "sign off", func(ctx context.Context) error {
+	apitest.EveryFailure(t, e.Tenant, fiona, "sign off again", func(ctx context.Context) error {
 		_, err := h.SignOffPeriodClose(ctx, gen.NewOptPeriodCloseSignOffInput(gen.PeriodCloseSignOffInput{}), gen.SignOffPeriodCloseParams{ID: id, IfMatch: s.tag})
 		return err
 	})
@@ -123,9 +130,29 @@ func TestYearSignOffSeparated(t *testing.T) {
 		})
 	}
 	gus := e.Person(t, "Gus Group Controller")
-	off, tag := e.As(gus).Must(200, "POST", s.path+":signOff", `{"note": "2026 signed off"}`, s.tag)
+	off, _ := e.As(gus).Must(200, "POST", s.path+":signOff", `{"note": "2026 signed off"}`, s.tag)
 	wantFields(t, "the sign-off", off, map[string]any{"signed_by": gus.ID.String(), "signed_by_name": "Gus Group Controller"})
-	s.tag = tag
+	if got := separation(t, e, "closing.year_close.sign_off"); got != "true" {
+		t.Errorf("the audit record's sign_off_separation: got %q, want true", got)
+	}
+}
+
+// TestYearSignOffAgainSeparated: a year close's check first passed by its
+// signer's own sign-off is that sign-off's, not a preparation: after an
+// unlock the signer signs the year close off again (review round 2).
+func TestYearSignOffAgainSeparated(t *testing.T) {
+	e := fixture.NewWith(t, nil, func(doc *config.Config) { withYearSignOff(doc); separated(doc) }, signPermissions...)
+	s := yearSignable(t, e)
+	lockRegular(t, e, "0L", 12)
+	lockRegular(t, e, "2L", 12)
+	s.read(t)
+	gus := e.Person(t, "Gus Group Controller")
+	_, s.tag = e.As(gus).Must(200, "POST", s.path+":signOff", `{"note": "2026 signed off"}`, s.tag)
+	if task := taskOf(t, s.read(t), "NO_PARKED"); task["completed_by"] != gus.ID.String() {
+		t.Errorf("NO_PARKED, first passed by the sign-off's checks: got completed by %v, want the signer %s", task["completed_by"], gus.ID)
+	}
+	// Stands in for an approved unlock (T32), which returns the period to
+	// closed.
 	pgtest.Unguarded(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
 		AND fiscal_year = 2026 AND period = 13`, e.Tenant.ID, e.DE)
 	s.read(t)

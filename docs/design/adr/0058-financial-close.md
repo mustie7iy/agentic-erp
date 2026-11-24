@@ -1881,7 +1881,8 @@ is configuration.
   sign-off's, not a preparation, so it never refuses that signer, also
   when the close is signed off again after an unlock (`byASignOff`: a
   check task completed by the caller at the instant of one of the caller's
-  sign-offs of the close; review round 1). A preparer is refused with 409
+  sign-offs of the close, whose sign-offs are read only when the caller
+  completed a check task; review rounds 1 and 2). A preparer is refused with 409
   `closing.signer_is_preparer`, its detail naming the tasks the caller
   completed and the setting; another person with the permissions signs
   off. The audit records of both sign-offs gain `sign_off_separation`
@@ -1904,11 +1905,14 @@ is configuration.
   AP_CUTOFF and REVIEW, nothing kept, the check not run; another person
   signs off, audited with the separation; the period unlocked, the same
   signer, recorded as NO_PARKED's completer by her sign-off, signs off
-  again), `TestSignOffSeparatedDatabaseFailures`, `TestYearSignOffSeparated` (a
+  again; the unlock stood in for by setting the periods closed),
+  `TestSignOffSeparatedDatabaseFailures` (the re-sign-off, which reads the
+  close's sign-offs), `TestYearSignOffSeparated` (a
   reopened task completed by another no longer counts for the first
   preparer, a check counts for whoever passed it first, each preparer
-  refused naming their own tasks, a third person signs off and, period 13
-  unlocked, again);
+  refused naming their own tasks, a third person signs off),
+  `TestYearSignOffAgainSeparated` (NO_PARKED first passed by the signer's
+  own sign-off; period 13 unlocked, the signer signs off again);
   `config.TestSignOffSeparation` (left out on, true on, false off) and
   `TestSignOffSeparationTier`. The other closing tests run as the pilot
   does (`withTemplate` sets it false).

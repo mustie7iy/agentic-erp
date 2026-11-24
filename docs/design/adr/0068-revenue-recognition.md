@@ -908,7 +908,10 @@ costs its order's read and its schedule. As built (`activeContracts`):
 - **An ended contract is read until a run took its position off**: while
   its last posting (the latest run's, by posting date and id) left an
   obligation's recognized and billed apart (what the next run moves, per
-  obligation). Its obligations are in no period, so it
+  obligation). Today this is the contract's own recognized and billed
+  apart: an ended contract is never billed and no amount is negative, so
+  no test tells the two readings apart; the per-obligation one does not
+  rest on sales' rule. Its obligations are in no period, so it
   recognizes nothing, and it changes no more (`contract_ended`); the run
   after its end takes its contract asset or liability off, and from then
   on it is not read. A contract that ended with nothing posted is never
