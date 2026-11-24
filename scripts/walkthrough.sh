@@ -15367,9 +15367,11 @@ goods_issue_reversal() {
   refused 409 sales.delivery_billed reverseOutboundDeliveryGoodsIssue -p "id=$DELIVERY" -if-match "$ETAG"
   as sally
   sales=$(account 4000)
-  say "Sally sells Northwind one more bracket from the Toronto plant; Wade delivers, picks and issues it:"
+  say "Sally sells Northwind one more bracket from the Toronto plant, priced by hand (the price record is by the box);"
+  say "Wade delivers, picks and issues it:"
   QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\",
-    \"items\": [{\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+    \"items\": [{\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"},
+    \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
   order=$(field .id)
   QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
   if [ "$(field .credit_block)" = blocked ]; then
