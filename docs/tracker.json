@@ -12349,6 +12349,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A contract test that every status a handler can answer is declared on its operation (for example an {id} operation's 404 for a document not found or not visible): TestProblemCodes checks the problem codes only, so ics3's undeclared 404 (batch 91) was caught by review alone",
+        "r": "api/problemcodes_test.go TestProblemCodes (codes, not statuses) · api/openapi.yaml responses · batch 91 review round 1 (pre-existing) · enterIntercompanySupplierInvoice's 404 · built: api/statuses_test.go, TestProblemCodes/statuses (each problem.New's status for the codes the operation's own code makes, problem.From's database translation left to the pipeline; 404 for a path's parameter; relayedStatuses for a status given at run time; 500 left out) and TestProblemCodes/statuses_refused · 51 responses added to 48 operations (409 ×32, most of them config.not_bootstrapped on reads; 422 ×14; 503 ×3, object storage; 412 ×1; 400 ×1; listed in ADR-0052 As built batch 93) · ADR-0052 G7 As built batch 93 (a 404 of a body reference is not derived: a gap) · no walkthrough step: a contract test",
+        "src": "review:batch91",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "The savings opportunity agent's default period (no period given) ends on today's date in UTC, not the company's day (coordinator decision 4 of 17 November, ADR-0052): a Canadian company's evening, or a UAE company's early morning, reads the wrong year to date.",
         "r": "internal/savingsagent savingsagent.go period (clock.Now(a.Now).UTC()) · config.EntityDay · ADR-0052 · ADR-0072 As built",
