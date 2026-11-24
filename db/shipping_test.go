@@ -219,7 +219,7 @@ func TestShippingTriggersAsOwner(t *testing.T) {
 // ordered; an order holding some is not cancelled, and once all is given
 // back it is. Assignments are insert-only, and the application does not
 // set what is in delivery itself. An assignment names the plant its
-// delivery ships from (migrations 000451, 000452: plant_id NOT NULL).
+// delivery ships from (migrations 000458, 000459: plant_id NOT NULL).
 func TestDeliveryAssignmentRules(t *testing.T) {
 	need(t)
 	const header = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date,

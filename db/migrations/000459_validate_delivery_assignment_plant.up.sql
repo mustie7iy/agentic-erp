@@ -1,4 +1,4 @@
--- Validates the check 000451 added NOT VALID on
+-- Validates the check 000458 added NOT VALID on
 -- sales.delivery_assignment (06 §6.4), scanning the table without
 -- blocking writes, then makes plant_id NOT NULL: the validated check
 -- proves no row is null, so SET NOT NULL reads no row again, and the

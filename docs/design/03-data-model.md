@@ -5792,7 +5792,7 @@ erDiagram
   is delivered, by material. The same migration adds
   `sales.delivery_assignment.plant_id`, the plant the delivery ships
   from (the existing ones take their delivery's; NOT NULL since the
-  contract step 000451/000452, which gave any assignment still without it
+  contract step 000458/000459, which gave any assignment still without it
   its delivery's), indexed by `delivery_assignment_by_plant`: what
   deliveries of orders without a plant hold there counts in its
   availability, read from the items something is in delivery of

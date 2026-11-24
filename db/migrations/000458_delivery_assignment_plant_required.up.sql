@@ -6,7 +6,7 @@
 -- upgrade can lack it: such a one takes its outbound delivery's plant, as
 -- 000430 backfilled the assignments before it (the insert-only trigger
 -- set aside for the backfill). The check is added NOT VALID, so this file
--- holds the table's lock only briefly; 000452 validates it and sets the
+-- holds the table's lock only briefly; 000459 validates it and sets the
 -- column NOT NULL.
 ALTER TABLE sales.delivery_assignment DISABLE TRIGGER delivery_assignment_immutable;
 -- Tenant rows: under a role that does not bypass row-level security this

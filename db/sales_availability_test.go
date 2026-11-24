@@ -155,7 +155,7 @@ func TestDeliveryAssignmentPlantBackfilled(t *testing.T) {
 	}
 }
 
-// TestDeliveryAssignmentPlantRequired (migrations 000451, 000452; ADR-0082
+// TestDeliveryAssignmentPlantRequired (migrations 000458, 000459; ADR-0082
 // As built S2j): the contract step makes an assignment's plant required.
 // An assignment a server of the release before S2j wrote without one,
 // after 000430's backfill, takes its outbound delivery's plant; the column
@@ -164,8 +164,8 @@ func TestDeliveryAssignmentPlantBackfilled(t *testing.T) {
 func TestDeliveryAssignmentPlantRequired(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := t.Context()
-	required := migrateBefore(t, conn, "000451_delivery_assignment_plant_required")
-	validated := migrationNamed(t, "000452_validate_delivery_assignment_plant")
+	required := migrateBefore(t, conn, "000458_delivery_assignment_plant_required")
+	validated := migrationNamed(t, "000459_validate_delivery_assignment_plant")
 	tenant, order, delivery, plant := id(), id(), id(), id()
 	assignment := `INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id, outbound_delivery_number,
 		quantity, created_by) VALUES ($1, gen_random_uuid(), $2, 1, $3, 'OD1', $4::numeric, $1)`
