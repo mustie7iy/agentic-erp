@@ -1941,7 +1941,13 @@ feeder system until GTS releases it), from memory, for the specialist:
   microsecond the column keeps (the API shows the time to the second); a
   `screened_at` more than 5 minutes past the ERP's clock is refused
   (`shipping.invalid_screening`), so a service's bad clock cannot date a
-  release in the future and supersede every later block. While the delivery is not
+  release in the future and supersede every later block. The other side of
+  that default: a block from a service whose clock runs more than 5
+  minutes fast is refused too, for good (its message id is recorded
+  once), and the delivery keeps its earlier answer; the refusal is listed
+  (`listGTSMessages?status=refused`, `shipping.invalid_screening`) for an
+  operator to act on (the alternative, a block always taken with its time
+  capped at the ERP's clock, is the product owner's to choose). While the delivery is not
   goods-issued: a later `released` releases a
   block (SAP GTS's release of a blocked document, in the service), a
   later `blocked` blocks it again, a person's release included. Refused,
