@@ -17013,15 +17013,19 @@ step_demand_forecast_agent() {
 # the write-off is refused, and the relief lists by its invoice. The
 # receiver's two dividends of CAD 210.00 each, the first leaving a
 # residual item that the second pays, charge the GST again, 10.00 each
-# (ADR-0049 As built batch 91). A UAE
+# (ADR-0049 As built batch 91). Between them, the second cheque booked
+# by Tom straight to Bayview's account cannot be cleared against the
+# residual item (422 receivables.relieved_invoice_clearing, ADR-0049 As
+# built batch 94): that would settle the debt and charge no GST again;
+# Tom reverses the entry. A UAE
 # invoice written off today is refused: under Federal Decree-Law No. 8 of
 # 2017 Art. 64 six months must have passed, counted by default from its
 # due date (ADR-0049 As built batch 90; the return of a quarter not
 # yet ended is not computed: TestUAEBadDebtRelief proves the VAT 201's
 # adjustment columns and TestCanadianBadDebtRelief line 107).
 step_bad_debt_relief() {
-  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once, and charged again as the receiver pays; a UAE invoice written off before six months have passed refused"
-  local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae item residual
+  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once, and charged again as the receiver pays, never cleared against a credit booked straight to the customer; a UAE invoice written off before six months have passed refused"
+  local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae item residual receivable manual
   [ -n "$customer" ] || fail "step 139's customer is not there"
   as ruth
   say "Bayview Plumbing goes into receivership with an invoice unpaid. Ruth posts it, a pressure washer, CAD 400.00 at"
@@ -17073,6 +17077,21 @@ step_bad_debt_relief() {
   residual=$(field '.items[0].residual | "{\"fiscal_year\": \(.fiscal_year), \"journal_entry_id\": \"\(.journal_entry_id)\", \"line_no\": \(.line_no)}"')
   QUIET=1 api 200 '' getJournalEntry -p "id=$(field '.bad_debt_recharges[0].journal_entry_id')"
   expect "the charge's lines" "$(field "[.lines[] | \"\(.account_id == \"$(account 1300)\") \(.amount.amount) \(.tax_code // \"-\")\"] | join(\", \")")" "true -10.00 GA, false 10.00 -"
+  say "The receiver's final cheque, CAD 210.00, is first booked by Tom straight to Bayview's account, a manual entry"
+  say "crediting its receivable. Clearing the invoice's residual item against that credit would settle the relieved debt"
+  say "without charging its GST again, so the clearing is refused (ADR-0049 As built batch 94); Tom reverses his entry:"
+  as tom
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=100
+  receivable=$(field '.items[] | select(.journal_entry_id == "'"$(jq -r .journal_entry_id <<<"$residual")"'") | .account_id')
+  api 201 '"journal entry \(.document_number): \(.header_text)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Receiver's final dividend booked to Bayview\", \"lines\": [{\"account_id\": \"$(account 1000)\", \"amount\": {\"amount\": \"210.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$receivable\", \"amount\": {\"amount\": \"-210.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$customer\"}]}"
+  manual=$(field .id) tag=$ETAG
+  refused 422 receivables.relieved_invoice_clearing createClearing \
+    -body "{\"legal_entity_id\": \"$LE\", \"clearing_date\": \"$TODAY\", \"items\": [$residual, {\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$manual\", \"line_no\": 2}]}"
+  expect "the item refused" "$(field '.errors[0].field')" "items[1]"
+  api 200 '"journal entry \(.document_number) of \(.posting_date): the manual credit reversed"' reverseJournalEntry -p "id=$manual" -if-match "$tag" \
+    -body '{"header_text": "Booked to the customer by mistake; applied as a payment"}'
+  as ruth
   say "The final dividend pays the residual: the other CAD 10.00 is charged again, so the relief is wholly undone:"
   northwind_receipt 210.00
   as ruth

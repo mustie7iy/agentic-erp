@@ -136,8 +136,8 @@ type reliefState struct {
 }
 
 // reliefStateOf reads the invoice's reliefs and charges again, and the
-// write-offs' credits to the customer through WriteOffs.
-func (e *Endpoints) reliefStateOf(ctx context.Context, tx pgx.Tx, v Invoice) (reliefState, error) {
+// write-offs' credits to the customer through w.
+func reliefStateOf(ctx context.Context, tx pgx.Tx, w WriteOffs, v Invoice) (reliefState, error) {
 	var s reliefState
 	var years []int16
 	var writeOffs []uuid.UUID
@@ -151,11 +151,11 @@ func (e *Endpoints) reliefStateOf(ctx context.Context, tx pgx.Tx, v Invoice) (re
 		return reliefState{}, fmt.Errorf("receivables: the bad debt reliefs of customer invoice %s: %w", v.DocumentNumber, err)
 	}
 	for i, entry := range writeOffs {
-		w, _, err := e.WriteOffs.WrittenOff(ctx, entry, *v.EntryYear, *v.EntryID) // a relief names a write-off of its invoice
+		off, _, err := w.WrittenOff(ctx, entry, *v.EntryYear, *v.EntryID) // a relief names a write-off of its invoice
 		if err != nil {
 			return reliefState{}, fmt.Errorf("receivables: write-off %s of customer invoice %s: %w", entry, v.DocumentNumber, err)
 		}
-		for _, line := range w.CreditLines {
+		for _, line := range off.CreditLines {
 			s.credits = append(s.credits, ledger.ItemRef{FiscalYear: years[i], EntryID: entry, LineNo: line})
 		}
 	}
@@ -176,29 +176,9 @@ func (e *Endpoints) reliefStateOf(ctx context.Context, tx pgx.Tx, v Invoice) (re
 // were paid.
 func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef) (money.Minor, bool, error) {
 	years, entries, lines := ledger.ItemColumns(credits)
-	// applied: the payment items of the invoice's items and credits, and of
-	// the residual items they left, each with its application's clearing
-	// entry and difference. per: those in force, by application, with all
-	// the debits the application applied.
-	rows, _ := tx.Query(ctx, `WITH RECURSIVE applied AS (
-			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, `+itemPaid+` AS paid,
-				coalesce(a.clearing_entry_year, p.clearing_entry_year) AS cy, coalesce(a.clearing_entry_id, p.clearing_entry_id) AS ce,
-				coalesce(a.difference, p.difference) AS difference
-			FROM receivables.incoming_payment_item t
-			JOIN receivables.incoming_payment p ON p.tenant_id = t.tenant_id AND p.id = t.incoming_payment_id
-			LEFT JOIN receivables.incoming_payment_application a ON a.tenant_id = t.tenant_id AND a.incoming_payment_id = t.incoming_payment_id
-				AND a.application_no = t.application_no
-			WHERE (t.journal_entry_id = $1 AND t.fiscal_year = $2)
-				OR (t.journal_entry_id, t.line_no, t.fiscal_year) IN (SELECT * FROM unnest($4::uuid[], $5::int[], $3::smallint[]))
-			UNION ALL
-			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, `+itemPaid+`,
-				coalesce(a.clearing_entry_year, p.clearing_entry_year), coalesce(a.clearing_entry_id, p.clearing_entry_id),
-				coalesce(a.difference, p.difference)
-			FROM applied l
-			JOIN receivables.incoming_payment_item t ON t.journal_entry_id = l.ce AND t.line_no = l.residual_line_no AND t.fiscal_year = l.cy
-			JOIN receivables.incoming_payment p ON p.tenant_id = t.tenant_id AND p.id = t.incoming_payment_id
-			LEFT JOIN receivables.incoming_payment_application a ON a.tenant_id = t.tenant_id AND a.incoming_payment_id = t.incoming_payment_id
-				AND a.application_no = t.application_no),
+	// per: the applications in force of the payment items appliedItems
+	// reads, with all the debits each applied.
+	rows, _ := tx.Query(ctx, appliedItems+`,
 		per AS (
 			SELECT l.incoming_payment_id, l.application_no, sum(l.paid) AS paid, coalesce(sum(l.paid) FILTER (WHERE l.paid > 0), 0) AS debits,
 				max(l.difference) AS difference, bool_or(l.item_currency IS NOT NULL) AS translated,
@@ -225,6 +205,36 @@ func paidOf(ctx context.Context, tx pgx.Tx, v Invoice, credits []ledger.ItemRef)
 	}
 	return total, foreign, nil
 }
+
+// appliedItems is the recursive CTE "applied" of the incoming payment
+// items that applied the invoice's entry's items ($1 the entry, $2 its
+// year) and the credits ($3, $4, $5: their years, entries and lines),
+// and of the residual items they left, followed from application to
+// application (a residual item is a line of the clearing entry of the
+// application that left it): each with its payment and application, the
+// currency it was applied in when not its own, the residual's line, what
+// it paid (itemPaid), and its application's clearing entry and
+// difference. Applications undone (incoming_payment_reset) are among
+// them: paidOf leaves them out.
+const appliedItems = `WITH RECURSIVE applied AS (
+			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, ` + itemPaid + ` AS paid,
+				coalesce(a.clearing_entry_year, p.clearing_entry_year) AS cy, coalesce(a.clearing_entry_id, p.clearing_entry_id) AS ce,
+				coalesce(a.difference, p.difference) AS difference
+			FROM receivables.incoming_payment_item t
+			JOIN receivables.incoming_payment p ON p.tenant_id = t.tenant_id AND p.id = t.incoming_payment_id
+			LEFT JOIN receivables.incoming_payment_application a ON a.tenant_id = t.tenant_id AND a.incoming_payment_id = t.incoming_payment_id
+				AND a.application_no = t.application_no
+			WHERE (t.journal_entry_id = $1 AND t.fiscal_year = $2)
+				OR (t.journal_entry_id, t.line_no, t.fiscal_year) IN (SELECT * FROM unnest($4::uuid[], $5::int[], $3::smallint[]))
+			UNION ALL
+			SELECT t.incoming_payment_id, t.application_no, t.item_currency, t.residual_line_no, ` + itemPaid + `,
+				coalesce(a.clearing_entry_year, p.clearing_entry_year), coalesce(a.clearing_entry_id, p.clearing_entry_id),
+				coalesce(a.difference, p.difference)
+			FROM applied l
+			JOIN receivables.incoming_payment_item t ON t.journal_entry_id = l.ce AND t.line_no = l.residual_line_no AND t.fiscal_year = l.cy
+			JOIN receivables.incoming_payment p ON p.tenant_id = t.tenant_id AND p.id = t.incoming_payment_id
+			LEFT JOIN receivables.incoming_payment_application a ON a.tenant_id = t.tenant_id AND a.incoming_payment_id = t.incoming_payment_id
+				AND a.application_no = t.application_no)`
 
 // itemPaid is what an incoming payment item t paid of its item: its
 // amount less the residual it left, what its reason wrote off and its
@@ -261,7 +271,7 @@ func (e *Endpoints) rechargeInvoice(ctx context.Context, tx pgx.Tx, p reqctx.Pri
 	if err != nil {
 		return fmt.Errorf("receivables: relieved customer invoice %s: %w", id, err)
 	}
-	s, err := e.reliefStateOf(ctx, tx, v)
+	s, err := reliefStateOf(ctx, tx, e.WriteOffs, v)
 	if err != nil {
 		return err
 	}

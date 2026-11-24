@@ -2792,9 +2792,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A ledger clearing of a relieved invoice charges its bad debt relief again or is refused: createClearing (POST /v1/clearings) can clear a relieved invoice's item or its write-off's credit against a credit posted straight to the customer's account, which charges none of the relieved tax again and which receivables' paid does not count (money and tax correctness)",
-      "r": "ADR-0049 As built batch 91, Later · internal/receivables/recharge.go paidOf",
+      "r": "ADR-0049 As built batch 91, Later · ADR-0049 As built batch 94 (refused, not charged again) · internal/receivables/relievedclearing.go Clearings.GuardClearing, notClearedApart · ledger.ClearingGuard, ledger.OpenItems.ClearedApart · receivables.relieved_invoice_clearing (createClearing, createBadDebtRelief) · TestRelievedInvoiceClearing, TestReliefOfAnInvoiceClearedApart, TestReliefRacesAClearing · walkthrough step_bad_debt_relief (step 157)",
       "src": "review:batch91",
       "c": []
      }
