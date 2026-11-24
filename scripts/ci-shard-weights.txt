@@ -29,9 +29,9 @@
 367 internal/assets
 364 internal/web/e2e
 360 internal/payments
-344 internal/payables
-400 internal/procurement
-270 internal/sales
+353 internal/payables
+428 internal/procurement
+336 internal/sales
 178 internal/closing
 167 internal/workflows
 130 internal/analytics/store
@@ -45,7 +45,7 @@
 85 internal/controlling
 85 internal/drverify
 82 internal/taxfiling
-161 internal/receivables
+291 internal/receivables
 61 cmd/erp-server
 71 internal/partner
 46 internal/platform/redact
@@ -101,7 +101,7 @@
 # 433 s and 211 s, against 647 s for internal/web (weighted 514), so about
 # 152 s, 420 s, 344 s and 168 s a run. internal/config (9 s) and the new
 # internal/demandagent (5 s) are below 20 s and counted as 10 s.
-230 internal/inventory
+250 internal/inventory
 168 internal/einvoicing
 47 internal/mrp
 # internal/receivables, internal/collections, internal/mrp,
@@ -115,3 +115,12 @@
 # internal/procurement (383 s) and internal/sales (343 s) stayed within
 # their weights.
 52 internal/shipping
+# internal/receivables, internal/payables, internal/procurement,
+# internal/sales and internal/inventory (batch 91, bad debt relief charged
+# again, the intercompany supplier invoice, the WMS receipts): one local
+# race run of the batch, two packages at a time, took 357 s, 433 s, 525 s,
+# 412 s and 307 s, against 631 s for internal/web (weighted 514), so about
+# 291 s, 353 s, 428 s, 336 s and 250 s a run. internal/integration
+# (1334 s, about 1087 s a run with its split test), internal/collections
+# (137 s), internal/mrp (57 s), internal/app (39 s) and db (100 s) stayed
+# within their weights.

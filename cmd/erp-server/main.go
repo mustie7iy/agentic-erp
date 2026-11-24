@@ -1056,15 +1056,16 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	}
 	// Events offered to webhooks become deliveries (ADR-0041), a
 	// confirmed sales order's event its revenue contract (ADR-0068 §4),
-	// and an outbound delivery's creation its message to the warehouse
-	// system managing its plant (ADR-0082 As built S2q), each in its
+	// and an outbound delivery's creation or a purchase order's release its
+	// message to the warehouse system managing its plant (ADR-0082 As
+	// built S2q, S2q2), each in its
 	// tenant's transaction, so neither consumer needs a role
 	// beyond the app's. The durable consumers are created before the relay
 	// starts: a new one is given only the events published after it, so
 	// what the outbox still holds must not reach the bus before them.
 	fanout := &integration.Fanout{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
 	contracts := &revenue.Consumer{Endpoints: app.Revenue(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
-	wmsQueue := &integration.WMSQueue{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+	wmsQueue := &integration.WMSQueue{Pool: s.pool, AppRole: s.cfg.AppRole, Orders: app.WMSOrders(s.apiCfg), Log: s.log}
 	for _, c := range []struct {
 		name, durable string
 		contexts      []string

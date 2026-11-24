@@ -88,7 +88,9 @@ type ResetInput struct {
 // IncomingPaymentReset in the request's transaction. What may be undone
 // is read here without a lock (undoable); the ledger checks it again
 // under the entries' locks, which is what holds (ADR-0063 §6 As built,
-// T75i).
+// T75i). The payment's customers are held before them (RechargeLock), and
+// what the undoing no longer pays of their invoices a bad debt relief
+// relieved charges back less of the relieved tax (recharge.go).
 func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -105,6 +107,10 @@ func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, 
 	if err != nil {
 		return IncomingPayment{}, err
 	}
+	relieved, err := holdRelieved(ctx, tx, v.LegalEntityID, v.customers())
+	if err != nil {
+		return IncomingPayment{}, err
+	}
 	text := "Reset of incoming payment " + v.DocumentNumber
 	if in.ApplicationNo != 0 {
 		text += fmt.Sprintf(", application %d", in.ApplicationNo)
@@ -114,6 +120,9 @@ func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, 
 		return IncomingPayment{}, fmt.Errorf("receivables: reset application %d of incoming payment %s: %w", in.ApplicationNo, v.DocumentNumber, err)
 	}
 	if err := insertReset(ctx, tx, p, v.ID, in, rev); err != nil {
+		return IncomingPayment{}, err
+	}
+	if err := e.recharge(ctx, tx, p, relieved, recharging{payment: v.ID, application: in.ApplicationNo, reset: true, date: rev.PostingDate}); err != nil {
 		return IncomingPayment{}, err
 	}
 	after, err := scanPayment(tx.QueryRow(ctx, paymentSelect+` WHERE p.id = $1`, v.ID))
@@ -236,4 +245,14 @@ func (e *Endpoints) recordReset(ctx context.Context, v IncomingPayment, le tenan
 		return fmt.Errorf("receivables: record %s of incoming payment %s: %w", action, v.ID, err)
 	}
 	return nil
+}
+
+// customers are the payer and every customer whose items the payment
+// applied (holdRelieved holds each once).
+func (v IncomingPayment) customers() []uuid.UUID {
+	out := []uuid.UUID{v.CustomerID}
+	for _, it := range v.Items {
+		out = append(out, it.CustomerID)
+	}
+	return out
 }

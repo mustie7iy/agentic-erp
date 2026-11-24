@@ -188,7 +188,7 @@ step vet go vet ./...
 step lint-all make lint-all GOLANGCI=golangci-lint LINT_FLAGS=--allow-serial-runners
 # These three in every Go module, temporal/ included (scripts/each-module.sh).
 step staticcheck ./scripts/each-module.sh staticcheck ./...
-step govulncheck ./scripts/each-module.sh govulncheck ./...
+step govulncheck ./scripts/each-module.sh ./scripts/vulncheck.sh govulncheck
 step gosec ./scripts/each-module.sh gosec -quiet -exclude=G104,G115,G304,G107 -exclude-dir=api/gen ./...
 step secrets gitleaks git --redact --no-banner --log-opts="--no-merges $base..HEAD" .
 step generate bash -c 'make generate && git diff --exit-code -- api/gen internal/web && test -z "$(git status --porcelain -- api/gen internal/web)"'
@@ -221,7 +221,7 @@ if [ "$form" = full ]; then
   step fuzz make fuzz FUZZTIME=30s
 fi
 step build make build
-step skip-rules bash -c './scripts/test-ci-changes.sh && ./scripts/test-each-module.sh && ./scripts/test-on-exit.sh && ./scripts/test-ci-shards.sh && ./scripts/test-coverage-gate.sh && ./scripts/test-budget-times.sh && ./scripts/test-merge-pr.sh && ./scripts/ci-shards.sh check'
+step skip-rules bash -c './scripts/test-ci-changes.sh && ./scripts/test-each-module.sh && ./scripts/test-vulncheck.sh && ./scripts/test-on-exit.sh && ./scripts/test-ci-shards.sh && ./scripts/test-coverage-gate.sh && ./scripts/test-budget-times.sh && ./scripts/test-merge-pr.sh && ./scripts/ci-shards.sh check'
 # The images (ADR-0032): built twice and compared when their inputs
 # changed, otherwise once, then scanned; linux/amd64, as pull requests
 # built them on GitHub.

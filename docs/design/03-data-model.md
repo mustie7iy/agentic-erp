@@ -2434,6 +2434,15 @@ Each kind is matched and posted by its kind (T34c):
   (`stated_local_tax` with `stated_local_currency`, together or neither,
   never negative; `supplier_invoice_stated_local_tax`, migrations 000441,
   000442), which its posting keeps as the tax's local amount.
+- **Intercompany billings** (S2i3; ADR-0082 As built S2i3; migrations
+  000455-000457): an invoice the receiving company entered from the
+  supplying company's intercompany billing (`sales.intercompany_billing`,
+  §3.29) names it (`intercompany_billing_id`, another context's id: no
+  foreign key), with source `edi` alone
+  (`supplier_invoice_intercompany_billing_edi`); a billing is entered as
+  one invoice that is not rejected, cancelled or reversed
+  (`supplier_invoice_billing_once`, built concurrently), whatever the
+  invoice's supplier reference becomes while parked.
 - **Payment terms** (T36b): a document posts with the payment terms SAP's
   invoice verification would give it, kept in `supplier_invoice_terms`
   (migration 000068, insert-only) and passed to the ledger for its open
@@ -3396,7 +3405,7 @@ activate, and orders under them are refused.
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
 | `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
-| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, its body the JSON as sent; once per delivery, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
+| `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449; S2q2's receipt kinds, 000453), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
 | `output_message` | Business output (purchase orders to suppliers) per channel, written when it is transmitted (post-pilot); not written yet. The printed form, `GET /v1/purchase-orders/{id}/document`, is rendered on read and not stored (ADR-0054) |
 | `migration_run` | Migration scope, mode, status, reconciliation report |
 | `webhook_subscription` | A tenant's webhook endpoint (https), its event types or `<context>.*`, status (`active`, `paused`, `disabled` with a reason, `deleted`), its sealed `whsec_` secret and, during a rotation, the previous one with its expiry (ADR-0041) |
@@ -4942,6 +4951,24 @@ erDiagram
   Insert-only (`bad_debt_relief_immutable`). The entry's lines and tax
   items are the ledger's. The down migration is refused while a relief
   is recorded.
+- `receivables.bad_debt_recharge` (migration 000452; ADR-0049 As built
+  batch 91): a bad debt relief's tax charged again because the customer
+  paid what was written off, or charged back less by the undoing of that
+  payment. It names the invoice (`bad_debt_recharge_invoice_fkey`), the
+  incoming payment (`bad_debt_recharge_payment_fkey`) and its application
+  (0 its own, not negative, `bad_debt_recharge_application_check`) and
+  whether its undoing posted it (`reset`), charging an invoice once per
+  application and undoing (`bad_debt_recharge_once`); the amount then
+  recovered of what the reliefs wrote off, not negative
+  (`bad_debt_recharge_recovered_check`); the tax charged, not nothing
+  (`bad_debt_recharge_tax_check`), and its local amount of its sign or
+  nothing (`bad_debt_recharge_tax_lc_sign`), in the invoice's currency
+  and the company's (`currency`, `local_currency`, both of ref.currency);
+  the posting date and its entry, one charge's
+  (`bad_debt_recharge_entry_once`, its number 1 to 40 characters,
+  `bad_debt_recharge_entry_number_check`). Insert-only
+  (`bad_debt_recharge_immutable`). The down migration is refused while
+  one is recorded.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
   `CustomerInvoiceReversed`,
@@ -5291,6 +5318,9 @@ erDiagram
   (`dispute_case_item_id_key`). An item is in one open case at a time
   (the partial unique index `dispute_case_item_one_open` on `open`); the
   case's close sets `open` false (the trigger `dispute_case_items_closed`).
+  What resolved cases accepted of an item is read by its line through
+  the partial index `dispute_case_item_accepted_by_line` (migration
+  000451; ADR-0065 As built batch 91), which bounds a new case's amount.
   At commit a case has items, its own line its first item's, its amounts
   their totals and each item open while it is (the deferred constraint
   triggers `dispute_case_items` on both tables). The application inserts

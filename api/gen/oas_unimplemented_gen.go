@@ -289,7 +289,9 @@ func (UnimplementedHandler) ApplyCountryPack(ctx context.Context, req *CountryPa
 // IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
 // with the same `Idempotency-Key` answers the payment as the first answered it. A cash discount is not
 // granted here (422 `receivables.cash_discount_not_granted` naming `items[i].cash_discount`): an item
-// takes its discount when a receipt pays it (`createIncomingPayment`). Human-only (`x-agent: false`).
+// takes its discount when a receipt pays it (`createIncomingPayment`). What it pays of a relieved
+// invoice charges the relief's tax again as `createIncomingPayment` says (`bad_debt_recharges`, its
+// `application_no` the application's). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments/{id}/applications
 func (UnimplementedHandler) ApplyIncomingPaymentOnAccount(ctx context.Context, req *IncomingPaymentApplicationCreate, params ApplyIncomingPaymentOnAccountParams) (r ApplyIncomingPaymentOnAccountRes, _ error) {
@@ -1569,11 +1571,15 @@ func (UnimplementedHandler) CreateAuditEvidenceExport(ctx context.Context, req *
 // in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial
 // write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409
 // `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross
-// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a
-// second dispute case writing the same item off again); two claims of one invoice at once are ordered
-// by the invoice's row lock. An audit record is written with it. A retry with the same
-// `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later
-// is not built yet. Human-only (`x-agent: false`).
+// amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`;
+// `createDisputeCase` disputes at most what is still owed of an item); two claims of one invoice at
+// once are ordered by the invoice's row lock. An audit record is written with it. A retry with the
+// same `Idempotency-Key` answers the relief recorded. An invoice the customer has paid beyond what its
+// write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming
+// `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a
+// payment applied in another currency is refused too (422
+// `receivables.relieved_invoice_other_currency`). When the customer pays later, the payment charges
+// the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`).
 //
 // POST /v1/bad-debt-reliefs
 func (UnimplementedHandler) CreateBadDebtRelief(ctx context.Context, req *BadDebtReliefCreate, params CreateBadDebtReliefParams) (r CreateBadDebtReliefRes, _ error) {
@@ -2040,20 +2046,22 @@ func (UnimplementedHandler) CreateCustomerSalesData(ctx context.Context, req *Cu
 // currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the
 // caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed
 // amount is in the item's currency (422 `collections.currency_mismatch` naming its
-// `disputed_amount.currency`), more than zero and at most the item's open amount (422
-// `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each
-// item's share of its amount in the company's currency, as the item was booked (the item's local
-// amount × the disputed amount ÷ its amount, rounded half away from zero). The case's
-// `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422
-// `collections.amount_too_large`), and its own journal line is its first item's. An item is in one
-// open case at a time: an item in another open case is refused, whether the case comes after the other
-// or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the
-// tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`).
-// `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the
-// field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a
-// dunning run leaves the item out while the case is open (T86b). Audited, and published as
-// DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same
-// `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`).
+// `disputed_amount.currency`), more than zero and at most what is still owed of the item: its open
+// amount less what resolved cases accepted of it, by credit memo or write-off, which leave the item
+// open beside their credit (422 `collections.invalid_disputed_amount` naming its
+// `disputed_amount.amount`); the case also keeps each item's share of its amount in the company's
+// currency, as the item was booked (the item's local amount × the disputed amount ÷ its amount,
+// rounded half away from zero). The case's `disputed_amount` and `local_disputed_amount` are its
+// items' totals (more than an amount holds: 422 `collections.amount_too_large`), and its own journal
+// line is its first item's. An item is in one open case at a time: an item in another open case is
+// refused, whether the case comes after the other or races it (409 `collections.dispute_exists`). An
+// assignee, if named, is an active person of the tenant who may act in the company (422
+// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
+// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
+// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
+// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
+// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/dispute-cases
 func (UnimplementedHandler) CreateDisputeCase(ctx context.Context, req *DisputeCaseCreate, params CreateDisputeCaseParams) (r CreateDisputeCaseRes, _ error) {
@@ -2344,7 +2352,17 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 // holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`.
 // Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers
 // the payment applied; another request for the same receipt is refused while the payment is applied.
-// `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`).
+// `resetIncomingPayment` undoes it (T75i). What the payment pays of the customers' invoices a bad debt
+// relief relieved (`createBadDebtRelief`), beyond what their write-offs left owed, is a recovery of
+// the bad debt: the share of the reliefs' tax in what is now paid of what they wrote off, less what
+// was charged before, is charged again in the same transaction (ADR-0049 As built batch 91), under the
+// reliefs' adjustment codes and emirates, against `payment_difference_expense` (422
+// `receivables.no_write_off_account` without it), dated the payment's posting date, and shown in
+// `bad_debt_recharges`; what is paid counts the invoice's items and the residual items they left, net
+// of residuals, write-offs and cash discounts, and the write-off credits the payment applied with
+// them, so paying the invoice's item with its write-off's credit recovers nothing. A relieved
+// invoice's items or write-off credits are applied in the invoice's currency (422
+// `receivables.relieved_invoice_other_currency`). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments
 func (UnimplementedHandler) CreateIncomingPayment(ctx context.Context, req *IncomingPaymentCreate, params CreateIncomingPaymentParams) (r CreateIncomingPaymentRes, _ error) {
@@ -3824,6 +3842,36 @@ func (UnimplementedHandler) EndRolePermission(ctx context.Context, req *EndInput
 //
 // POST /v1/sod-rules/{id}:end
 func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, params EndSodRuleParams) (r EndSodRuleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// EnterIntercompanySupplierInvoice implements enterIntercompanySupplierInvoice operation.
+//
+// The receiving company enters the supplying company's posted intercompany billing
+// (`createIntercompanyBilling`, ADR-0082 As built S2i2, S2i3; SAP's invoice of an intercompany
+// billing, from memory) as its supplier invoice, `parked` or `on_hold` for a person to post (`:post`).
+// The billing (`GET /v1/intercompany-billings/{id}`) is one billed to a company the caller may act in
+// (404 otherwise, so ids cannot be probed). The invoice is the receiving company's, for its order's
+// supplier, the business partner that is the supplying company; its supplier reference is the
+// billing's number, its invoice date the billing date, its currency, gross and tax amounts the
+// billing's, and its items the order's items, each with its quantity at the billing item's net amount,
+// so posting it clears the order's GR/IR (`:match`, three-way against the order's receipts; SAP's MIRO
+// against the receipt). Each item keeps its order item's input tax code where it charges the rate of
+// the billing item's output tax code (the supplying company's, on the billing date); otherwise the one
+// input tax code of the company that charges it is proposed, and with none or several the invoice is
+// `on_hold` naming the item for a person to choose; an item billed without tax, or at a rate of zero,
+// whose order item has no code stays without one (nothing is charged, nothing to recover). A stated
+// tax the codes do not bear out holds it (`payables.tax_mismatch`'s figures), as do the company's
+// rules and missing required custom fields, as for a captured invoice. A billing is entered once (409
+// `payables.intercompany_billing_entered` naming the invoice; a rejected, cancelled or reversed
+// invoice frees it), and the supplier reference once per supplier (409 `payables.duplicate_invoice`).
+// Source `edi`; the invoice names the billing (`intercompany_billing_id`). Audited
+// (`payables.supplier_invoice.create`); publishes SupplierInvoiceCaptured, and SupplierInvoiceHeld for
+// one on hold. A retry with the same `Idempotency-Key` answers the invoice created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/intercompany-billings/{id}/supplier-invoices
+func (UnimplementedHandler) EnterIntercompanySupplierInvoice(ctx context.Context, params EnterIntercompanySupplierInvoiceParams) (r EnterIntercompanySupplierInvoiceRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -8899,7 +8947,23 @@ func (UnimplementedHandler) ListVarianceComments(ctx context.Context, params Lis
 // (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`,
 // `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse
 // system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not
-// posted twice. Filters: connector, direction, status and the outbound delivery.
+// posted twice. Receipts (S2q2): each purchase order released (`releasePurchaseOrder`, or its release
+// approval) is queued once, when an active `wms` connector manages the plant of a stock item of it, as
+// a message giving that warehouse system the receipts expected there to put away (`inbound_receipt`:
+// message type `inbound_receipt`, schema version 1, its company and plant by code, the purchase order
+// by id and number with its supplier's number, and each of the order's stock items at that plant still
+// to be received: its number, material number, storage location code, open quantity, unit and delivery
+// date), sent as a delivery is; an order whose stock items are at several plants is sent for the plant
+// of its first such item alone, the others received by hand. Its goods receipt reported back
+// (`goods_receipt`: its own `message_id`, the `purchase_order_id` it was sent and the quantity
+// received of each item it names, by `item_no`, in the item's unit) is posted as a goods receipt (101)
+// of those items (procurement's `postGoodsReceipt`, dated the company's date, its reference the
+// message id when it is at most 40 characters, else none), naming the material document, or refused:
+// of an order the connector was not sent (`integration.wms_unknown_order`), naming an item it was not
+// sent (`integration.wms_item_not_sent`), naming an item made a non-stock item since it was sent
+// (`integration.wms_not_stock`), or that procurement refuses (`procurement.over_delivery`,
+// `procurement.order_not_released`, `procurement.unit_mismatch` and the others). Filters: connector,
+// direction, status, the outbound delivery and the purchase order.
 //
 // GET /v1/wms-messages
 func (UnimplementedHandler) ListWMSMessages(ctx context.Context, params ListWMSMessagesParams) (r ListWMSMessagesRes, _ error) {
@@ -10492,7 +10556,10 @@ func (UnimplementedHandler) RequestBankAccountEnd(ctx context.Context, req *Bank
 // version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`.
 // Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the
 // caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as
-// the first answered it. Human-only (`x-agent: false`).
+// the first answered it. What the undoing no longer pays of an invoice a bad debt relief relieved
+// charges back less of the tax its application charged again (`bad_debt_recharges`, `reset` true, a
+// negative `tax_amount`, dated the reversal's posting date; 422 `receivables.no_write_off_account`
+// without the account). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments/{id}:reset
 func (UnimplementedHandler) ResetIncomingPayment(ctx context.Context, req *IncomingPaymentReset, params ResetIncomingPaymentParams) (r ResetIncomingPaymentRes, _ error) {
@@ -10514,7 +10581,10 @@ func (UnimplementedHandler) ResetIncomingPayment(ctx context.Context, req *Incom
 // application with its `reset` and `on_account` showing the credit open again. Audited, and published
 // as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's
 // applications, or a payment of a company the caller may not act in, is not found. A retry with the
-// same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`).
+// same `Idempotency-Key` answers the payment as the first answered it. What the undoing no longer pays
+// of an invoice a bad debt relief relieved charges back less of the tax its application charged again
+// (`bad_debt_recharges`, `reset` true, a negative `tax_amount`, dated the reversal's posting date; 422
+// `receivables.no_write_off_account` without the account). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments/{id}/applications/{application_no}:reset
 func (UnimplementedHandler) ResetIncomingPaymentApplication(ctx context.Context, req *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (r ResetIncomingPaymentApplicationRes, _ error) {
@@ -11363,24 +11433,26 @@ func (UnimplementedHandler) StartMigrationRun(ctx context.Context, params StartM
 // workflow, or in process in a cell without a workflow engine, as the person who started it. On the
 // plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`)
 // that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales
-// orders (each standing item's ordered quantity less what is delivered), the plant's stock at its
-// storage locations (not stock in transit), and its open receipts (the open quantities of the stock
-// items of purchase orders not closed or cancelled at the plant, and of the requisitions earlier runs
-// proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock
-// and receipts less the demand fall below the reorder point, the shortage, what brings them back to
-// it, is proposed as a draft purchase requisition of the material in its base unit, raised by the
-// person who started the run in the company's currency at the material's valuation price at the plant
-// (zero when it has none), naming the planning data's account and needed by the run's day. Before it
-// plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a
-// run proposed them. A proposal a person changed or submitted is theirs from then on and is never
-// touched; a requisition a person raised is never touched either. The run's lines say what it counted
-// and proposed per material. The plant is an active plant of a company the caller may act in (422
-// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
-// names it. A business problem while planning (the company's requisition number range exhausted, the
-// account no longer postable, the requester no longer active, an open quantity in a unit the material
-// no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation
-// with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried
-// out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+// orders (each standing item's ordered quantity less what is delivered) and the ordered quantities of
+// the intercompany purchase orders the plant supplies (`supplying_plant_id`) that are not closed,
+// cancelled or issued (their standing items), the plant's stock at its storage locations (not stock in
+// transit), and its open receipts (the open quantities of the stock items of purchase orders not
+// closed or cancelled at the plant, and of the requisitions earlier runs proposed that a person took
+// over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand
+// fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft
+// purchase requisition of the material in its base unit, raised by the person who started the run in
+// the company's currency at the material's valuation price at the plant (zero when it has none),
+// naming the planning data's account and needed by the run's day. Before it plans, the run cancels the
+// plant's earlier proposals still its own: drafts no person changed since a run proposed them. A
+// proposal a person changed or submitted is theirs from then on and is never touched; a requisition a
+// person raised is never touched either. The run's lines say what it counted and proposed per
+// material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`);
+// a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business
+// problem while planning (the company's requisition number range exhausted, the account no longer
+// postable, the requester no longer active, an open quantity in a unit the material no longer has:
+// `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation with the
+// problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails
+// it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/mrp-runs
 func (UnimplementedHandler) StartMrpRun(ctx context.Context, req *MrpRunStart, params StartMrpRunParams) (r StartMrpRunRes, _ error) {

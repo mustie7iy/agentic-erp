@@ -28874,6 +28874,7 @@ func (*ConflictHeaders) endReportShareRes()                        {}
 func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
+func (*ConflictHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*ConflictHeaders) enterPhysicalInventoryCountRes()           {}
 func (*ConflictHeaders) evaluateMetricWatcherRes()                 {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
@@ -47647,6 +47648,26 @@ type EndSodRuleUnprocessableEntity Problem
 
 func (*EndSodRuleUnprocessableEntity) endSodRuleRes() {}
 
+type EnterIntercompanySupplierInvoiceBadRequest Problem
+
+func (*EnterIntercompanySupplierInvoiceBadRequest) enterIntercompanySupplierInvoiceRes() {}
+
+type EnterIntercompanySupplierInvoiceForbidden Problem
+
+func (*EnterIntercompanySupplierInvoiceForbidden) enterIntercompanySupplierInvoiceRes() {}
+
+type EnterIntercompanySupplierInvoiceNotFound Problem
+
+func (*EnterIntercompanySupplierInvoiceNotFound) enterIntercompanySupplierInvoiceRes() {}
+
+type EnterIntercompanySupplierInvoicePreconditionRequired Problem
+
+func (*EnterIntercompanySupplierInvoicePreconditionRequired) enterIntercompanySupplierInvoiceRes() {}
+
+type EnterIntercompanySupplierInvoiceUnprocessableEntity Problem
+
+func (*EnterIntercompanySupplierInvoiceUnprocessableEntity) enterIntercompanySupplierInvoiceRes() {}
+
 type EnterPhysicalInventoryCountBadRequest Problem
 
 func (*EnterPhysicalInventoryCountBadRequest) enterPhysicalInventoryCountRes() {}
@@ -58733,6 +58754,11 @@ type IncomingPayment struct {
 	JournalEntryNumber string `json:"journal_entry_number"`
 	// The items the payment was applied to, by item number.
 	Items []IncomingPaymentItem `json:"items"`
+	// The tax of bad debt reliefs (`createBadDebtRelief`) that the payment's applications charged again,
+	// and their undoings charged back less, in the order they were posted (ADR-0049 As built batch 91):
+	// what the customer pays of a relieved invoice beyond what its write-offs left owed is a recovery of
+	// the bad debt. Empty when there were none.
+	BadDebtRecharges []IncomingPaymentBadDebtRecharge `json:"bad_debt_recharges"`
 }
 
 // GetID returns the value of ID.
@@ -58915,6 +58941,11 @@ func (s *IncomingPayment) GetItems() []IncomingPaymentItem {
 	return s.Items
 }
 
+// GetBadDebtRecharges returns the value of BadDebtRecharges.
+func (s *IncomingPayment) GetBadDebtRecharges() []IncomingPaymentBadDebtRecharge {
+	return s.BadDebtRecharges
+}
+
 // SetID sets the value of ID.
 func (s *IncomingPayment) SetID(val uuid.UUID) {
 	s.ID = val
@@ -59095,6 +59126,11 @@ func (s *IncomingPayment) SetItems(val []IncomingPaymentItem) {
 	s.Items = val
 }
 
+// SetBadDebtRecharges sets the value of BadDebtRecharges.
+func (s *IncomingPayment) SetBadDebtRecharges(val []IncomingPaymentBadDebtRecharge) {
+	s.BadDebtRecharges = val
+}
+
 // An application of a payment's credit on account to the customer's open items (T75g): one clearing
 // entry cleared the credit and the items, leaving what they did not take on account.
 // Ref: #/components/schemas/IncomingPaymentApplication
@@ -59266,6 +59302,189 @@ func (s *IncomingPaymentApplicationCreate) SetPostingDate(val OptDate) {
 // SetItems sets the value of Items.
 func (s *IncomingPaymentApplicationCreate) SetItems(val []IncomingPaymentItemRef) {
 	s.Items = val
+}
+
+// The tax a bad debt relief recovered, charged again because the customer paid what was written off
+// (ADR-0049 As built batch 91): the share of the reliefs' tax in what the customer has now paid of
+// their written-off amount, less what was charged before, posted under the reliefs' adjustment codes
+// and emirates against `payment_difference_expense`, so the return reports it where it reported the
+// relief. An undoing of the application charges back less (a negative `tax_amount`). It is recorded
+// once, when it posts, and never changes.
+// Ref: #/components/schemas/IncomingPaymentBadDebtRecharge
+type IncomingPaymentBadDebtRecharge struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The relieved customer invoice (`GET /v1/customer-invoices/{id}`; its reliefs:
+	// `GET /v1/bad-debt-reliefs?customer_invoice_id=`).
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The invoice's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The application whose applying or undoing moved what was recovered: 0 the payment's own, else an
+	// application of its credit on account (`applications[].application_no`).
+	ApplicationNo int32 `json:"application_no"`
+	// True when the undoing of that application (`resetIncomingPayment`,
+	// `resetIncomingPaymentApplication`) posted it, charging back less; false when applying it did.
+	Reset bool `json:"reset"`
+	// What the customer had then paid of what the invoice's reliefs wrote off, in the invoice's currency,
+	// which is the payment's: from zero to all of it.
+	RecoveredAmount Money `json:"recovered_amount"`
+	// The tax charged again, in the invoice's currency; negative: charged back less.
+	TaxAmount Money `json:"tax_amount"`
+	// The tax charged again in the company's currency, at the reliefs' rates: what the return reports.
+	LocalTaxAmount Money `json:"local_tax_amount"`
+	// Its posting date and tax date: the application's, or the undoing's.
+	PostingDate time.Time `json:"posting_date"`
+	// Its journal entry, its lines the tax by adjustment code and emirate
+	// (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When it was recorded.
+	CreatedAt time.Time `json:"created_at"`
+	// The principal whose application or undoing posted it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *IncomingPaymentBadDebtRecharge) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *IncomingPaymentBadDebtRecharge) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *IncomingPaymentBadDebtRecharge) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetApplicationNo returns the value of ApplicationNo.
+func (s *IncomingPaymentBadDebtRecharge) GetApplicationNo() int32 {
+	return s.ApplicationNo
+}
+
+// GetReset returns the value of Reset.
+func (s *IncomingPaymentBadDebtRecharge) GetReset() bool {
+	return s.Reset
+}
+
+// GetRecoveredAmount returns the value of RecoveredAmount.
+func (s *IncomingPaymentBadDebtRecharge) GetRecoveredAmount() Money {
+	return s.RecoveredAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetLocalTaxAmount returns the value of LocalTaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) GetLocalTaxAmount() Money {
+	return s.LocalTaxAmount
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPaymentBadDebtRecharge) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentBadDebtRecharge) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IncomingPaymentBadDebtRecharge) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentBadDebtRecharge) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IncomingPaymentBadDebtRecharge) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IncomingPaymentBadDebtRecharge) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *IncomingPaymentBadDebtRecharge) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *IncomingPaymentBadDebtRecharge) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *IncomingPaymentBadDebtRecharge) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetApplicationNo sets the value of ApplicationNo.
+func (s *IncomingPaymentBadDebtRecharge) SetApplicationNo(val int32) {
+	s.ApplicationNo = val
+}
+
+// SetReset sets the value of Reset.
+func (s *IncomingPaymentBadDebtRecharge) SetReset(val bool) {
+	s.Reset = val
+}
+
+// SetRecoveredAmount sets the value of RecoveredAmount.
+func (s *IncomingPaymentBadDebtRecharge) SetRecoveredAmount(val Money) {
+	s.RecoveredAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetLocalTaxAmount sets the value of LocalTaxAmount.
+func (s *IncomingPaymentBadDebtRecharge) SetLocalTaxAmount(val Money) {
+	s.LocalTaxAmount = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPaymentBadDebtRecharge) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentBadDebtRecharge) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IncomingPaymentBadDebtRecharge) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentBadDebtRecharge) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IncomingPaymentBadDebtRecharge) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IncomingPaymentBadDebtRecharge) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
 }
 
 // Apply an incoming payment to a customer's open items, leaving what they do not take on the
@@ -78437,7 +78656,8 @@ type MrpRunLine struct {
 	MaterialDescription string `json:"material_description"`
 	// The reorder point the run planned by.
 	ReorderPoint Quantity `json:"reorder_point"`
-	// What the plant's confirmed sales orders ordered and have not delivered.
+	// What the plant's confirmed sales orders ordered and have not delivered, and the ordered quantities
+	// of the intercompany purchase orders it supplies that are not closed, cancelled or issued.
 	Demand Quantity `json:"demand"`
 	// The plant's stock at its storage locations.
 	Stock Quantity `json:"stock"`
@@ -116902,6 +117122,7 @@ func (*ServiceUnavailableHeaders) endCompanyAccessRes()                      {}
 func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                     {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                     {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
+func (*ServiceUnavailableHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*ServiceUnavailableHeaders) evaluateMetricWatcherRes()                 {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
@@ -120610,6 +120831,10 @@ type SupplierInvoice struct {
 	// not negative whatever the kind, which gives the direction. Fixed once entered. Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind OptString `json:"kind"`
+	// The supplying company's intercompany billing the invoice was entered from
+	// (`POST /v1/intercompany-billings/{id}/supplier-invoices`; ADR-0082 As built S2i3), whose number is
+	// its `supplier_reference`; absent on an invoice entered otherwise.
+	IntercompanyBillingID OptUUID `json:"intercompany_billing_id"`
 	// The posted invoice a credit memo or subsequent debit/credit corrects (of the same supplier, legal
 	// entity and currency); never on an invoice. A credit memo entered from an e-invoice credit note
 	// citing several invoices names none (they are its `cited_invoices`).
@@ -120764,6 +120989,11 @@ func (s *SupplierInvoice) GetPurchaseOrderID() OptUUID {
 // GetKind returns the value of Kind.
 func (s *SupplierInvoice) GetKind() OptString {
 	return s.Kind
+}
+
+// GetIntercompanyBillingID returns the value of IntercompanyBillingID.
+func (s *SupplierInvoice) GetIntercompanyBillingID() OptUUID {
+	return s.IntercompanyBillingID
 }
 
 // GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
@@ -120934,6 +121164,11 @@ func (s *SupplierInvoice) SetPurchaseOrderID(val OptUUID) {
 // SetKind sets the value of Kind.
 func (s *SupplierInvoice) SetKind(val OptString) {
 	s.Kind = val
+}
+
+// SetIntercompanyBillingID sets the value of IntercompanyBillingID.
+func (s *SupplierInvoice) SetIntercompanyBillingID(val OptUUID) {
+	s.IntercompanyBillingID = val
 }
 
 // SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
@@ -121371,7 +121606,8 @@ func (s *SupplierInvoiceHeaders) SetResponse(val SupplierInvoice) {
 	s.Response = val
 }
 
-func (*SupplierInvoiceHeaders) createSupplierInvoiceRes() {}
+func (*SupplierInvoiceHeaders) createSupplierInvoiceRes()            {}
+func (*SupplierInvoiceHeaders) enterIntercompanySupplierInvoiceRes() {}
 
 // A supplier invoice item.
 // Ref: #/components/schemas/SupplierInvoiceItem
@@ -124282,6 +124518,7 @@ func (*TooManyRequestsHeaders) endReportShareRes()                        {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*TooManyRequestsHeaders) enterPhysicalInventoryCountRes()           {}
 func (*TooManyRequestsHeaders) evaluateMetricWatcherRes()                 {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
@@ -125273,6 +125510,7 @@ func (*UnauthorizedHeaders) endReportShareRes()                        {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
+func (*UnauthorizedHeaders) enterIntercompanySupplierInvoiceRes()      {}
 func (*UnauthorizedHeaders) enterPhysicalInventoryCountRes()           {}
 func (*UnauthorizedHeaders) evaluateMetricWatcherRes()                 {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
@@ -129100,8 +129338,9 @@ type VerifyAuditChainUnprocessableEntity Problem
 
 func (*VerifyAuditChainUnprocessableEntity) verifyAuditChainRes() {}
 
-// A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, S2q1):
-// an outbound delivery sent to pick, or a goods issue it reported back.
+// A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q): an
+// outbound delivery sent to pick, or a goods issue it reported back (S2q1); a purchase order's
+// receipts sent to put away, or a goods receipt it reported back (S2q2).
 // Ref: #/components/schemas/WMSMessage
 type WMSMessage struct {
 	// Message id.
@@ -129116,18 +129355,27 @@ type WMSMessage struct {
 	// The message's id at the warehouse system: an outbound message's own id, which the warehouse system
 	// deduplicates on; an inbound one's, the warehouse system's.
 	MessageID string `json:"message_id"`
-	// `outbound_delivery` (outbound) or `goods_issue` (inbound). Open enumeration: clients must accept and
+	// `outbound_delivery` or `inbound_receipt` (outbound), `goods_issue` or `goods_receipt` (inbound; one
+	// that cannot be read as either is recorded `goods_issue`). Open enumeration: clients must accept and
 	// preserve values not listed here; values may be added within /v1.
 	Kind string `json:"kind"`
-	// The delivery's company; absent on an inbound message refused before its delivery was known.
+	// The delivery's or purchase order's company; absent on an inbound message refused before its document
+	// was known.
 	LegalEntityID OptUUID `json:"legal_entity_id"`
 	// The company's code.
 	CompanyCode OptString `json:"company_code"`
-	// The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.
+	// `outbound_delivery` and `goods_issue`: the outbound delivery (`getOutboundDelivery`); absent as
+	// `legal_entity_id` is.
 	OutboundDeliveryID OptUUID `json:"outbound_delivery_id"`
 	// The outbound delivery's number.
 	OutboundDeliveryNumber OptString `json:"outbound_delivery_number"`
-	// Outbound: the delivery's plant, which the connector manages.
+	// `inbound_receipt` and `goods_receipt` (S2q2): the purchase order (`getPurchaseOrder`); absent as
+	// `legal_entity_id` is.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// The purchase order's number.
+	PurchaseOrderNumber OptString `json:"purchase_order_number"`
+	// Outbound: the delivery's plant, or the plant of the purchase order's items it sends, which the
+	// connector manages.
 	PlantCode OptString `json:"plant_code"`
 	// A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound;
 	// a body that is not a JSON object is kept as `{"text": ...}`, at most 1000 characters of it).
@@ -129148,7 +129396,7 @@ type WMSMessage struct {
 	ProblemCode OptString `json:"problem_code"`
 	// Refused: the problem's detail.
 	ProblemDetail OptString `json:"problem_detail"`
-	// Posted: the goods issue's material document (`getMaterialDocument`).
+	// Posted: the goods issue's or goods receipt's material document (`getMaterialDocument`).
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// Posted: the material document's number.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
@@ -129206,6 +129454,16 @@ func (s *WMSMessage) GetOutboundDeliveryID() OptUUID {
 // GetOutboundDeliveryNumber returns the value of OutboundDeliveryNumber.
 func (s *WMSMessage) GetOutboundDeliveryNumber() OptString {
 	return s.OutboundDeliveryNumber
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *WMSMessage) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *WMSMessage) GetPurchaseOrderNumber() OptString {
+	return s.PurchaseOrderNumber
 }
 
 // GetPlantCode returns the value of PlantCode.
@@ -129326,6 +129584,16 @@ func (s *WMSMessage) SetOutboundDeliveryID(val OptUUID) {
 // SetOutboundDeliveryNumber sets the value of OutboundDeliveryNumber.
 func (s *WMSMessage) SetOutboundDeliveryNumber(val OptString) {
 	s.OutboundDeliveryNumber = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *WMSMessage) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *WMSMessage) SetPurchaseOrderNumber(val OptString) {
+	s.PurchaseOrderNumber = val
 }
 
 // SetPlantCode sets the value of PlantCode.

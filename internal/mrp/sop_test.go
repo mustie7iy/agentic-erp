@@ -164,30 +164,19 @@ func TestSopSupply(t *testing.T) {
 	e := setup(t)
 	e.plan(t, e.bracket, "250")
 	other := e.material(t, "Unplanned bracket", "raw_material")
-	pgtest.Exec(t, `INSERT INTO procurement.stock_transport_order (tenant_id, id, legal_entity_id, fiscal_year, number, supplying_plant_id, receiving_plant_id,
-		order_date, status, issue_document_id, issue_document_number, issue_date, created_by, updated_by)
-		VALUES ($1, $2, $3, 2026, 'ST1', gen_random_uuid(), $4, '2026-11-01', 'in_transit', gen_random_uuid(), 'MD1', '2026-11-01', $5, $5)`,
-		e.Tenant.ID, uuid.Must(uuid.NewV7()), e.DE, e.p1, e.Tenant.Human.ID)
-	pgtest.Exec(t, `INSERT INTO procurement.stock_transport_order_item (tenant_id, order_id, item_no, material_id, quantity, uom_code, base_quantity,
-		supplying_storage_location_id, receiving_storage_location_id)
-		SELECT $1, id, 1, $2, 12, 'EA', 12, gen_random_uuid(), $3 FROM procurement.stock_transport_order WHERE tenant_id = $1`, e.Tenant.ID, e.bracket, e.s1)
-	ic := uuid.Must(uuid.NewV7()) // P9's intercompany order from P1, not yet issued
-	pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
-		payment_term_code, status, supplying_plant_id, created_by, updated_by)
-		VALUES ($1, $2, 'PO2', $3, gen_random_uuid(), 'USD', '2026-11-01', 'NT30', 'draft', $4, $5, $5)`, e.Tenant.ID, ic, e.US, e.p1, e.Tenant.Human.ID)
-	pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, material_id, description, quantity, uom_code,
-		unit_price, price_unit, account_id, plant_id, storage_location_id) VALUES ($1, $2, 1, $3, 'Bracket', 5, 'EA', 200, 1, $4, $5, gen_random_uuid())`,
-		e.Tenant.ID, ic, e.bracket, e.stock, e.p9)
-	first := rows(t, e.run(t), "lines")[0]["requisition_id"].(string) // 200 in stock: 50 proposed
+	e.transport(t, "ST1", "in_transit", uuid.Must(uuid.NewV7()), e.p1, 12)
+	// P9's intercompany order from P1, not yet issued.
+	e.intercompany(t, icOrder{number: "PO2", status: "draft", qty: "5", unit: "EA"})
+	first := rows(t, e.run(t), "lines")[0]["requisition_id"].(string) // 200 in stock less the order's 5: 55 proposed
 	_, rtag := e.requisition(t, first)
-	e.Must(200, "PATCH", "/v1/requisitions/"+first, fmt.Sprintf(`{"items": [%s, %s]}`, item(e, e.bracket, "50"), item(e, other, "7")), rtag)
-	if second := rows(t, e.run(t), "lines")[0]["requisition_id"]; second != nil { // the first taken over (50) on 200: none
+	e.Must(200, "PATCH", "/v1/requisitions/"+first, fmt.Sprintf(`{"items": [%s, %s]}`, item(e, e.bracket, "55"), item(e, other, "7")), rtag)
+	if second := rows(t, e.run(t), "lines")[0]["requisition_id"]; second != nil { // the first taken over (55) on 200 less 5: none
 		t.Fatalf("the second run proposed %v, want nothing", second)
 	}
 	p, _ := e.review(t, 1)
 	m1, _, _, _ := months(t, p)
-	if got := sopLine(t, p, "BRACKETS/EA/"+m1); got != "5 5 200 0 12 50 5 257" {
-		t.Errorf("the first month: got %s, want 5 5 200 0 12 50 5 257", got)
+	if got := sopLine(t, p, "BRACKETS/EA/"+m1); got != "5 5 200 0 12 55 5 262" {
+		t.Errorf("the first month: got %s, want 5 5 200 0 12 55 5 262", got)
 	}
 	_, rtag = e.requisition(t, first)
 	e.Must(200, "POST", "/v1/requisitions/"+first+":cancel", "", rtag)

@@ -33,6 +33,8 @@ import (
 // delivery's company. A refusal (shipping's, or the confirmation not
 // readable, of another type or of a delivery the connector was not sent)
 // is recorded as refused with its problem, nothing of the posting kept.
+// A goods receipt (S2q2) is posted the same way, for an order sent to
+// that connector, through procurement's published API (wms_receipts.go).
 // After that commit the WMS is told it is recorded, and acknowledged_at
 // is set; a confirmation recorded already is acknowledged again.
 
@@ -42,7 +44,7 @@ import (
 type WMSDeliveries interface {
 	// IssueReported records the picked quantities of the delivery's items
 	// and posts its goods issue, in the caller's transaction.
-	IssueReported(ctx context.Context, delivery uuid.UUID, picked []WMSPicked) (WMSIssued, error)
+	IssueReported(ctx context.Context, delivery uuid.UUID, picked []WMSPicked) (WMSPosted, error)
 }
 
 // WMSPicked is a quantity a WMS picked of a delivery's item, in its unit.
@@ -51,9 +53,9 @@ type WMSPicked struct {
 	Quantity, Unit string
 }
 
-// WMSIssued is the goods issue a reported movement posted: its material
-// document.
-type WMSIssued struct {
+// WMSPosted is what a reported movement posted, a goods issue or a goods
+// receipt: its material document.
+type WMSPosted struct {
 	MaterialDocumentID     uuid.UUID
 	MaterialDocumentNumber string
 }
@@ -237,13 +239,13 @@ func (w *WMSExchange) acknowledge(ctx context.Context, tenant uuid.UUID, wh Ware
 type inbound struct {
 	id, connector         uuid.UUID
 	messageID             string
-	legalEntity, delivery *uuid.UUID
+	legalEntity, document *uuid.UUID // its company and the delivery or purchase order it reports on
 	number                *string
 	body                  []byte
 	status                string
 	code, detail          *string // refused: the problem's, its detail at most maxWMSText characters
-	issued                *WMSIssued
-	sent                  []WMSDeliveryItem // the delivery's items as the WMS was sent them
+	kind                  string  // WMSGoodsIssue, or WMSGoodsReceipt for a message read as one
+	posted                *WMSPosted
 }
 
 // record records the confirmation once, under a lock of its connector and
@@ -262,7 +264,7 @@ func (w *WMSExchange) record(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c
 	if exists {
 		return false, nil
 	}
-	in := inbound{id: uuid.Must(uuid.NewV7()), connector: c.id, messageID: id, body: conf.body}
+	in := inbound{id: uuid.Must(uuid.NewV7()), connector: c.id, messageID: id, kind: WMSGoodsIssue, body: conf.body}
 	err := uow.Act(ctx, tx, wmsActor(tenant), w.Now, func(ctx context.Context) error {
 		if err := w.post(ctx, tx, &in, conf); err != nil {
 			return err
@@ -295,33 +297,21 @@ func unkept(id string) error {
 	return problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON object the ERP can keep as received.")
 }
 
-// post reads the confirmation and posts it, in a savepoint: a refusal
-// rolls the posting back (and the audit records it buffered) and is kept
-// on in; a failure of the machinery (5xx, or one asking to be retried) is
-// returned, so nothing is recorded and the next poll takes it again.
+// post reads the confirmation and posts it (postAs; the posting's
+// savepoint is inSavepoint's, which rolls a refused posting back with
+// the audit records it buffered): a refusal is kept on in; a failure of
+// the machinery (5xx, or one asking to be retried) is returned, so
+// nothing is recorded and the next poll takes it again.
 func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, conf confirmation) error {
 	err := conf.refusal
 	if err == nil {
-		err = w.postIssue(ctx, tx, in, conf.raw)
+		err = w.postAs(ctx, tx, in, conf.raw)
 	}
 	if err == nil {
 		in.status = "posted"
 		return nil
 	}
 	return refused(in, err)
-}
-
-// postIssue reads the confirmation as a goods issue and posts it for the
-// delivery the connector was sent.
-func (w *WMSExchange) postIssue(ctx context.Context, tx pgx.Tx, in *inbound, raw []byte) error {
-	gi, err := readGoodsIssue(in.messageID, raw)
-	if err != nil {
-		return err
-	}
-	if err := w.sentTo(ctx, tx, in, gi.DeliveryID); err != nil {
-		return err
-	}
-	return w.issue(ctx, tx, in, gi)
 }
 
 // refused keeps a refusal on in, its detail at most maxWMSText
@@ -337,41 +327,78 @@ func refused(in *inbound, err error) error {
 	return nil
 }
 
-// readGoodsIssue reads a confirmation as a goods issue of the message id
-// the WMS listed it under.
+// postAs reads the confirmation by its type and posts it: a goods issue
+// or a goods receipt (S2q2).
+func (w *WMSExchange) postAs(ctx context.Context, tx pgx.Tx, in *inbound, raw []byte) error {
+	typ, err := readType(in.messageID, raw)
+	if err != nil {
+		return err
+	}
+	if typ == WMSGoodsReceipt {
+		in.kind = WMSGoodsReceipt
+		gr, err := readGoodsReceipt(in.messageID, raw)
+		if err != nil {
+			return err
+		}
+		return w.postReceipt(ctx, tx, in, gr)
+	}
+	gi, err := readGoodsIssue(in.messageID, raw)
+	if err != nil {
+		return err
+	}
+	return w.postIssue(ctx, tx, in, gi)
+}
+
+// readType reads a confirmation's message type, goods_issue or
+// goods_receipt, checking it names the message id the WMS listed it
+// under.
+func readType(id string, raw []byte) (string, error) {
+	var head struct {
+		MessageID string `json:"message_id"`
+		Type      string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return "", problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON message of the WMS protocol.")
+	}
+	switch {
+	case head.Type != WMSGoodsIssue && head.Type != WMSGoodsReceipt:
+		return "", problem.Unprocessable("integration.wms_message_unreadable",
+			fmt.Sprintf("Confirmation %s is of type %q: only goods_issue and goods_receipt are read.", id, head.Type))
+	case head.MessageID != id:
+		return "", problem.Unprocessable("integration.wms_message_unreadable", fmt.Sprintf("Confirmation %s names another message id, %q.", id, head.MessageID))
+	}
+	return head.Type, nil
+}
+
+// readGoodsIssue reads a confirmation of type goods_issue.
 func readGoodsIssue(id string, raw []byte) (WMSIssueReport, error) {
 	var gi WMSIssueReport
 	if err := json.Unmarshal(raw, &gi); err != nil {
-		return gi, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON message of the WMS protocol.")
+		return gi, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON goods_issue message of the WMS protocol.")
 	}
-	switch {
-	case gi.Type != WMSGoodsIssue:
-		return gi, problem.Unprocessable("integration.wms_message_unreadable", fmt.Sprintf("Confirmation %s is of type %q: only goods_issue is read.", id, gi.Type))
-	case gi.MessageID != id:
-		return gi, problem.Unprocessable("integration.wms_message_unreadable", fmt.Sprintf("Confirmation %s names another message id, %q.", id, gi.MessageID))
-	case gi.DeliveryID == uuid.Nil:
+	if gi.DeliveryID == uuid.Nil {
 		return gi, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" names no outbound_delivery_id.")
 	}
 	return gi, nil
 }
 
-// sentTo refuses a delivery the connector was not sent
-// (integration.wms_unknown_delivery): a WMS reports only what it was given
-// to pick, so it cannot post another plant's delivery.
-func (w *WMSExchange) sentTo(ctx context.Context, tx pgx.Tx, in *inbound, delivery uuid.UUID) error {
+// sentTo refuses a document the connector was not sent of the outbound
+// kind (unknown, integration.wms_unknown_delivery or
+// integration.wms_unknown_order): a WMS reports only what it was given,
+// so it cannot post another plant's. It notes the document on in and
+// reads the message as sent into sent.
+func (w *WMSExchange) sentTo(ctx context.Context, tx pgx.Tx, in *inbound, kind string, doc uuid.UUID, sent any, unknown error) error {
 	var le uuid.UUID
 	var number string
-	var sent WMSDelivery
 	err := tx.QueryRow(ctx, `SELECT legal_entity_id, document_number, body FROM integration.wms_message
-		WHERE connector_id = $1 AND direction = 'outbound' AND kind = $2 AND document_id = $3`, in.connector, WMSOutboundDelivery, delivery).Scan(&le, &number, &sent)
+		WHERE connector_id = $1 AND direction = 'outbound' AND kind = $2 AND document_id = $3`, in.connector, kind, doc).Scan(&le, &number, sent)
 	if noRows(err) {
-		return problem.Unprocessable("integration.wms_unknown_delivery",
-			"Confirmation "+in.messageID+" names an outbound delivery this warehouse system was not sent.")
+		return unknown
 	}
 	if err != nil {
-		return fmt.Errorf("integration: the delivery of wms confirmation %s: %w", in.messageID, err)
+		return fmt.Errorf("integration: the document of wms confirmation %s: %w", in.messageID, err)
 	}
-	in.legalEntity, in.delivery, in.number, in.sent = &le, &delivery, &number, sent.Items
+	in.legalEntity, in.document, in.number = &le, &doc, &number
 	return nil
 }
 
@@ -393,25 +420,39 @@ func pickedOf(gi WMSIssueReport, sent []WMSDeliveryItem) []WMSPicked {
 	return picked
 }
 
-// issue posts the goods issue in a savepoint, acting for the delivery's
-// company alone.
-func (w *WMSExchange) issue(ctx context.Context, tx pgx.Tx, in *inbound, gi WMSIssueReport) error {
-	picked := pickedOf(gi, in.sent)
+// postIssue posts a goods issue the WMS reports, of a delivery it was
+// sent, in a savepoint, acting for the delivery's company alone.
+func (w *WMSExchange) postIssue(ctx context.Context, tx pgx.Tx, in *inbound, gi WMSIssueReport) error {
+	var sent WMSDelivery
+	if err := w.sentTo(ctx, tx, in, WMSOutboundDelivery, gi.DeliveryID, &sent, problem.Unprocessable("integration.wms_unknown_delivery",
+		"Confirmation "+in.messageID+" names an outbound delivery this warehouse system was not sent.")); err != nil {
+		return err
+	}
+	picked := pickedOf(gi, sent.Items)
+	return w.inSavepoint(ctx, tx, in, func(ctx context.Context) (WMSPosted, error) {
+		return w.Deliveries.IssueReported(authz.ActingFor(ctx, *in.legalEntity), gi.DeliveryID, picked)
+	})
+}
+
+// inSavepoint posts in a savepoint and notes what it posted on in; a
+// refusal rolls it back, with the audit records it buffered, and is
+// returned, as is a failure of the machinery.
+func (w *WMSExchange) inSavepoint(ctx context.Context, tx pgx.Tx, in *inbound, post func(context.Context) (WMSPosted, error)) error {
 	mark := audit.Mark(ctx)
-	if _, err := tx.Exec(ctx, `SAVEPOINT wms_goods_issue`); err != nil {
+	if _, err := tx.Exec(ctx, `SAVEPOINT wms_posting`); err != nil {
 		return fmt.Errorf("integration: open the savepoint of wms confirmation %s: %w", in.messageID, err)
 	}
-	issued, err := w.Deliveries.IssueReported(authz.ActingFor(ctx, *in.legalEntity), gi.DeliveryID, picked)
+	posted, err := post(ctx)
 	if err == nil {
-		in.issued = &issued
-		_, err := tx.Exec(ctx, `RELEASE SAVEPOINT wms_goods_issue`)
+		in.posted = &posted
+		_, err := tx.Exec(ctx, `RELEASE SAVEPOINT wms_posting`)
 		return errs.Wrapf(err, "integration: release the savepoint of wms confirmation %s", in.messageID)
 	}
 	if p := problem.From(err); p.Status >= 500 || p.RetryAfter > 0 {
 		return err
 	}
-	if _, rerr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT wms_goods_issue`); rerr != nil {
-		return fmt.Errorf("integration: roll back the refused goods issue of wms confirmation %s: %w", in.messageID, rerr)
+	if _, rerr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT wms_posting`); rerr != nil {
+		return fmt.Errorf("integration: roll back the refused posting of wms confirmation %s: %w", in.messageID, rerr)
 	}
 	audit.DiscardFrom(ctx, mark)
 	return err
@@ -421,20 +462,25 @@ func (w *WMSExchange) issue(ctx context.Context, tx pgx.Tx, in *inbound, gi WMSI
 func (in inbound) insert(ctx context.Context, tx pgx.Tx, connectorName string) error {
 	var docNumber *string
 	var docID *uuid.UUID
-	if in.issued != nil {
-		docID, docNumber = &in.issued.MaterialDocumentID, &in.issued.MaterialDocumentNumber
+	if in.posted != nil {
+		docID, docNumber = &in.posted.MaterialDocumentID, &in.posted.MaterialDocumentNumber
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, legal_entity_id, document_id,
 			document_number, body, status, problem_code, problem_detail, material_document_id, material_document_number)
 		VALUES (platform.require_tenant(), $1, $2, 'inbound', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-		in.id, in.connector, in.messageID, WMSGoodsIssue, in.legalEntity, in.delivery, in.number, in.body, in.status, in.code, in.detail, docID, docNumber); err != nil {
+		in.id, in.connector, in.messageID, in.kind, in.legalEntity, in.document, in.number, in.body, in.status, in.code, in.detail, docID, docNumber); err != nil {
 		return fmt.Errorf("integration: record wms confirmation %s: %w", in.messageID, err)
 	}
 	action := "integration.wms_message.post"
 	if in.status == "refused" {
 		action = "integration.wms_message.refuse"
 	}
-	return audit.Record(ctx, action, "integration.wms_message", in.id, map[string]any{"connector_id": in.connector, "connector_name": connectorName,
-		"message_id": in.messageID, "outbound_delivery_id": in.delivery, "outbound_delivery_number": in.number, "material_document_number": docNumber,
-		"code": in.code})
+	details := map[string]any{"connector_id": in.connector, "connector_name": connectorName, "message_id": in.messageID, "kind": in.kind,
+		"material_document_number": docNumber, "code": in.code}
+	if in.kind == WMSGoodsReceipt {
+		details["purchase_order_id"], details["purchase_order_number"] = in.document, in.number
+	} else {
+		details["outbound_delivery_id"], details["outbound_delivery_number"] = in.document, in.number
+	}
+	return audit.Record(ctx, action, "integration.wms_message", in.id, details)
 }

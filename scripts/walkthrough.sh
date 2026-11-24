@@ -16433,9 +16433,11 @@ step_replenishment_agent() {
 # Trading out of Sharjah against its cost of goods sold, once; the order in
 # transit is not cancelled. Ben receives the lamps into Toronto at the
 # order price against GR/IR. Ruth bills the goods issue to Maple at that
-# price (S2i2, intercompany_billing). Each company's entry balances.
+# price (S2i2, intercompany_billing); Alex enters the billing as Maple's
+# supplier invoice and posts it, clearing GR/IR (S2i3,
+# intercompany_invoice). Each company's entry balances.
 step_intercompany_transport() {
-  heading "Step 155 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; the UAE company bills the goods issue to Maple at that price as its customer invoice, once; each company's entry balances"
+  heading "Step 155 — Intercompany stock transport order: Maple orders desk lamps from Maple Gulf Trading's Sharjah warehouse; the UAE company's goods issue (643) takes them out of its stock against its cost of goods sold, and Maple's goods receipt takes them in at the order price, the transfer price, against GR/IR; the UAE company bills the goods issue to Maple at that price as its customer invoice, once, and Maple enters the billing as its supplier invoice, once, clearing GR/IR; each company's entry balances"
   local ae base cr warehouse store lamp recon term sister po tag doc entry receipt
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
@@ -16601,6 +16603,40 @@ intercompany_billing() {
   api 200 '.items[] | "  intercompany billing \(.document_number) of \(.company_code): \(.gross_amount.amount) \(.currency), purchase order \(.purchase_order_number)"' \
     listIntercompanyBillings -p "receiving_legal_entity_id=$LE" -p "purchase_order_id=$po"
   expect "Maple's billings of the order" "$(field '[.items[].id] | join(" ")')" "$bill"
+  intercompany_invoice "$po" "$sister" "$bill"
+}
+
+# intercompany_invoice is S2i3 (ADR-0082 As built S2i3): Alex enters Maple
+# Gulf Trading's billing as Maple's supplier invoice of its sister, parked
+# at the billing's number, amounts and tax, its item the order's at the
+# transfer price; a billing is entered once. Matched against the receipt
+# and posted, it clears the order's GR/IR: Dr GR/IR, Cr the supplier,
+# CAD 320.00, both companies' entries balanced at the billing's price.
+intercompany_invoice() {
+  local po=$1 sister=$2 bill=$3 number inv entry
+  number=$(field '.items[0].document_number')
+  as alex
+  say "Alex enters the billing as Maple's supplier invoice of Maple Gulf Trading (S2i3): parked, for its order's supplier,"
+  say "at the billing's number, date, amounts and tax, its item the order's at the billing's price:"
+  api 201 '"supplier invoice \(.document_number) \(.supplier_reference) (\(.source)): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), tax \(.tax_amount.amount)", (.items[] | "  item \(.item_no): order item \(.po_item_no), \(.quantity.value) \(.quantity.unit), \(.amount.amount), tax code \(.tax_code // "none")")' \
+    enterIntercompanySupplierInvoice -p "id=$bill"
+  inv=$(field .id)
+  expect "the invoice, at the billing's figures" "$(field '"\(.status) \(.source) \(.supplier_id) \(.supplier_reference) \(.purchase_order_id) \(.intercompany_billing_id) \(.gross_amount.amount) \(.tax_amount.amount) \([.items[] | "\(.po_item_no):\(.amount.amount)"] | join(" "))"')" \
+    "parked edi $sister $number $po $bill 320.00 0.00 1:320.00"
+  say "A billing is entered once:"
+  refused 409 payables.intercompany_billing_entered enterIntercompanySupplierInvoice -p "id=$bill"
+  say "He matches it against Maple's receipt of the lamps and posts it: the invoice clears GR/IR at the transfer price:"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$inv" -if-match "$ETAG"
+  expect "the match" "$(field .is_clean)" true
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  expect "the invoice's entry" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-320.00 320.00"
+  expect "the entry balances" "$(field '[.lines[] | .amount.amount | tonumber] | add')" 0
+  api 200 "$GRIR_POSITION" listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$po" -p open_only=false
+  expect "the order's GR/IR" "$(field '[.items[] | "\(.received_quantity.value) \(.invoiced_quantity.value) \(.balance.amount)"] | join(", ")')" "20 20 0.00"
 }
 
 # step_count_agent is S2e (ADR-0072, ADR-0082 As built S2e,
@@ -16913,15 +16949,18 @@ step_demand_forecast_agent() {
 # refused, as it holds no GST component; under GA, the input adjustment of
 # the GST that the GST34 reports on line 107, CAD 20.00 is debited on 1300
 # and credited to 6850, with the date Bayview was told; a second claim of
-# the write-off is refused, and the relief lists by its invoice. A UAE
+# the write-off is refused, and the relief lists by its invoice. The
+# receiver's two dividends of CAD 210.00 each, the first leaving a
+# residual item that the second pays, charge the GST again, 10.00 each
+# (ADR-0049 As built batch 91). A UAE
 # invoice written off today is refused: under Federal Decree-Law No. 8 of
 # 2017 Art. 64 six months must have passed, counted by default from its
 # due date (ADR-0049 As built batch 90; the return of a quarter not
 # yet ended is not computed: TestUAEBadDebtRelief proves the VAT 201's
 # adjustment columns and TestCanadianBadDebtRelief line 107).
 step_bad_debt_relief() {
-  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once; a UAE invoice written off before six months have passed refused"
-  local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae
+  heading "Step 157 — Bad debt relief: an invoice written off by a dispute case, its GST then recovered by an adjustment the GST34 reports on line 107, once, and charged again as the receiver pays; a UAE invoice written off before six months have passed refused"
+  local customer=$BAYVIEW invoice entry items body id tag writeoff relief ae oasis uae item residual
   [ -n "$customer" ] || fail "step 139's customer is not there"
   as ruth
   say "Bayview Plumbing goes into receivership with an invoice unpaid. Ruth posts it, a pressure washer, CAD 400.00 at"
@@ -16960,6 +16999,25 @@ step_bad_debt_relief() {
   refused 409 receivables.bad_debt_relief_claimed createBadDebtRelief -body "${body/\"GI\"/\"GA\"}"
   QUIET=1 api 200 '' listBadDebtReliefs -p "customer_invoice_id=$invoice"
   expect "the invoice's reliefs" "$(field '[.items[].id] | join(" ")')" "$relief"
+  say "Bayview's receiver later pays a first dividend, CAD 210.00, half of what was written off. Ruth applies it to the"
+  say "invoice and leaves the other CAD 210.00 open as a residual item. What a customer pays of a relieved invoice beyond"
+  say "what its write-offs left owed recovers the bad debt, so the payment charges half of the GST relieved again, CAD"
+  say "10.00, under GA (ADR-0049 As built batch 91): credited on 1300, so line 107 falls by it, and debited to 6850:"
+  northwind_receipt 210.00
+  as ruth
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$entry\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"210.00\", \"currency\": \"CAD\"}, \"reason\": \"short_payment\"}}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency)", (.bad_debt_recharges[] | "  bad debt relief of \(.customer_invoice_number) charged again: \(.tax_amount.amount) \(.tax_amount.currency), \(.recovered_amount.amount) of what was written off recovered, entry \(.journal_entry_number)")' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  expect "the first charge" "$(field '.bad_debt_recharges[0] | "\(.tax_amount.amount) \(.local_tax_amount.amount) \(.recovered_amount.amount) \(.reset)"')" "10.00 10.00 210.00 false"
+  residual=$(field '.items[0].residual | "{\"fiscal_year\": \(.fiscal_year), \"journal_entry_id\": \"\(.journal_entry_id)\", \"line_no\": \(.line_no)}"')
+  QUIET=1 api 200 '' getJournalEntry -p "id=$(field '.bad_debt_recharges[0].journal_entry_id')"
+  expect "the charge's lines" "$(field "[.lines[] | \"\(.account_id == \"$(account 1300)\") \(.amount.amount) \(.tax_code // \"-\")\"] | join(\", \")")" "true -10.00 GA, false 10.00 -"
+  say "The final dividend pays the residual: the other CAD 10.00 is charged again, so the relief is wholly undone:"
+  northwind_receipt 210.00
+  as ruth
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency)", (.bad_debt_recharges[] | "  charged again: \(.tax_amount.amount) \(.tax_amount.currency), \(.recovered_amount.amount) recovered")' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$residual]}"
+  expect "the second charge" "$(field '.bad_debt_recharges[0] | "\(.tax_amount.amount) \(.recovered_amount.amount)"')" "10.00 420.00"
   say "A UAE company recovers its VAT under Federal Decree-Law No. 8 of 2017 Art. 64 only once six months have passed"
   say "since the supply (counted, by default, from its due date), with the customer notified. Ruth writes off an"
   say "invoice of Maple Gulf Trading to Oasis Office Supplies"
@@ -17061,11 +17119,18 @@ step_sop_review() {
 # and the goods issue (601) once by the message's id and acknowledges it;
 # the acknowledgement lost, the confirmation listed again is acknowledged
 # again, not posted twice; a confirmation of a delivery the warehouse
-# system was not sent is recorded refused. Ada disables the connector,
-# so later deliveries at the plant stay Wade's.
+# system was not sent is recorded refused. S2q2 (ADR-0082 As built
+# S2q2): Ben releases a purchase order of brackets into the main store;
+# its release's event, read from the bus, queues the message giving the
+# warehouse system the receipt expected there to put away, sent once.
+# The warehouse system reports the goods receipt; the exchange posts it
+# (101) once by the message's id through procurement and acknowledges it;
+# listed again, it is acknowledged, not posted twice; one naming an item
+# the warehouse system was not sent is refused. Ada disables the
+# connector, so later deliveries and receipts at the plant stay people's.
 step_wms() {
-  heading "Step 160 — WMS connector: the Toronto plant's warehouse system is sent the outbound delivery created there to pick, once; the goods issue it reports back is posted once by its message id and acknowledged; reported again, it is acknowledged, not posted twice; one of a delivery it was not sent is refused; a plant has one warehouse system"
-  local connector order delivery number message i
+  heading "Step 160 — WMS connector: the Toronto plant's warehouse system is sent the outbound delivery created there to pick, once; the goods issue it reports back is posted once by its message id and acknowledged; reported again, it is acknowledged, not posted twice; one of a delivery it was not sent is refused; a plant has one warehouse system; a released purchase order's receipt is sent to put away and the goods receipt it reports posted once"
+  local connector order delivery number message i po ponumber
   [ -n "$MATERIAL" ] && [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
   accounts
   as ada
@@ -17143,10 +17208,77 @@ step_wms() {
   wms_acknowledged WMS-GI-2
   api 200 '.items[] | "  \(.message_id): \(.status), \(.problem_code)"' listWMSMessages -p "connector_id=$connector" -p status=refused
   expect "the refused confirmation" "$(field '[.items[] | "\(.message_id) \(.problem_code)"] | join(", ")')" "WMS-GI-2 integration.wms_unknown_delivery"
-  say "Ada disables the connector, so the later deliveries at P100 stay Wade's:"
+  wms_receipt "$connector"
+  say "Ada disables the connector, so the later deliveries and receipts at P100 stay people's:"
   QUIET=1 api 200 '' getConnector -p "id=$connector"
   api 200 '"connector \(.name): \(.status)"' disableConnector -p "id=$connector" -if-match "$ETAG" -body '{"reason": "The walkthrough goes on without the warehouse system"}'
   passed
+}
+
+# wms_receipt is step_wms's S2q2 part: a released purchase order's receipt
+# sent to the warehouse system of connector $1 and its goods receipt
+# reported back.
+wms_receipt() {
+  local connector=$1 po ponumber message i
+  as ben
+  say "Ben orders 12 brackets from Tyrell into the Toronto plant's main store and 3 sheets of paper, which are"
+  say "not kept in stock, and releases the order. Procurement knows nothing of warehouse systems: the release"
+  say "publishes PurchaseOrderReleased, which the integration context reads from the bus and, since a wms"
+  say "connector manages P100, queues the message giving its warehouse system the receipt expected there:"
+  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) into \(.plant_code // "no plant")")' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"2.50\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"},
+      {\"description\": \"Copy paper\", \"quantity\": {\"value\": \"3\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"5.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\"}]}"
+  po=$(field .id) ponumber=$(field .document_number)
+  api 200 '"\(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Stock replenishment"
+  fi
+  as ada
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listWMSMessages -p "purchase_order_id=$po" -p direction=outbound
+    if [ "$(field '.items[0].status // ""')" = sent ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id[0:8])… to \(.connector_name) for \(.company_code)/\(.plant_code): \(.purchase_order_number), \(.status)"' \
+    listWMSMessages -p "purchase_order_id=$po" -p direction=outbound
+  expect "the order's message (after $i checks)" "$(field '[.items[] | "\(.kind) \(.status) \(.purchase_order_number)"] | join(", ")')" "inbound_receipt sent $ponumber"
+  message=$(field '.items[0].message_id')
+  [ -s "$WORK/wms/received/$message.json" ] || fail "the warehouse system's stand-in holds no message $message"
+  say "What the warehouse system received: the order and its supplier's number, the plant, and the stock item"
+  say "still to receive with its material number and storage location (the paper is not sent):"
+  jq -r '"  \(.type) v\(.schema_version): \(.purchase_order_number) from \(.supplier_number) into \(.company_code)/\(.plant_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.quantity) \(.unit) into \(.storage_location_code)")' \
+    "$WORK/wms/received/$message.json"
+  expect "the items sent" "$(jq -r '[.items[] | "\(.item_no) \(.quantity)"] | join(", ")' "$WORK/wms/received/$message.json")" "1 12"
+  say "The brackets arrive; the warehouse puts them away and reports the goods receipt, a goods_receipt message of"
+  say "its own id naming the order; the exchange polls it, records it once by its id, posts the goods receipt"
+  say "(101) through procurement as its system principal, and acknowledges it after the commit:"
+  printf '{"message_id": "WMS-GR-1", "type": "goods_receipt", "purchase_order_id": "%s", "items": [{"item_no": 1, "quantity": "12", "unit": "EA"}]}\n' \
+    "$po" >"$WORK/wms/confirmations/WMS-GR-1.json"
+  wms_acknowledged WMS-GR-1
+  api 200 '.items[] | "  \(.direction) \(.kind) \(.message_id): \(.status), \(.purchase_order_number), material document \(.material_document_number)"' \
+    listWMSMessages -p "purchase_order_id=$po" -p direction=inbound
+  expect "the goods receipt reported" "$(field '[.items[] | "\(.message_id) \(.kind) \(.status)"] | join(", ")')" "WMS-GR-1 goods_receipt posted"
+  as ben
+  api 200 '.items[] | "  item \(.item_no): \(.received_quantity.value) \(.received_quantity.unit) received"' getPurchaseOrder -p "id=$po"
+  expect "the bracket received" "$(field '.items[0].received_quantity.value')" 12
+  QUIET=1 api 200 '' listGoodsReceipts -p "purchase_order_id=$po"
+  expect "the order's goods receipts" "$(field '[.items[] | "\(.movement_type) \(.reference) \(.items[0].quantity.value)"] | join(", ")')" "101 WMS-GR-1 12"
+  say "Listed again, its acknowledgement lost, WMS-GR-1 is acknowledged again and posts nothing twice; a goods receipt"
+  say "naming the paper, which the warehouse system was not sent, is refused:"
+  rm "$WORK/wms/confirmations/WMS-GR-1.acknowledged"
+  wms_acknowledged WMS-GR-1
+  printf '{"message_id": "WMS-GR-2", "type": "goods_receipt", "purchase_order_id": "%s", "items": [{"item_no": 2, "quantity": "3", "unit": "EA"}]}\n' \
+    "$po" >"$WORK/wms/confirmations/WMS-GR-2.json"
+  wms_acknowledged WMS-GR-2
+  as ada
+  api 200 '.items[] | "  \(.message_id): \(.status)\(if .problem_code then ", \(.problem_code)" else "" end)"' listWMSMessages -p "purchase_order_id=$po" -p direction=inbound
+  expect "the inbound messages of the order" "$(field '[.items[] | "\(.message_id) \(.status) \(.problem_code // "")"] | join(", ")')" "WMS-GR-2 refused integration.wms_item_not_sent, WMS-GR-1 posted "
+  as ben
+  QUIET=1 api 200 '' listGoodsReceipts -p "purchase_order_id=$po"
+  expect "the order's goods receipts after both" "$(field '.items | length')" 1
 }
 
 # wms_acknowledged ID waits for the exchange to acknowledge the warehouse

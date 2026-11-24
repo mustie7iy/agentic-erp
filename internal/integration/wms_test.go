@@ -24,7 +24,7 @@ import (
 
 var wmsPerms = []string{"materials.material.read", "materials.material.write", "tenancy.org.manage", "inventory.movement.post", "inventory.stock.read",
 	"inventory.valuation.read", "inventory.valuation.write", "sales.order.read", "sales.order.write", "shipping.delivery.read", "shipping.delivery.write",
-	"integration.connector.read", "integration.connector.manage"}
+	"integration.connector.read", "integration.connector.manage", "procurement.receipt.post"}
 
 const deliveryChanged = "com.example.erp.shipping.outbound_delivery_changed.v1"
 
@@ -76,15 +76,18 @@ func setupWMS(t *testing.T) wmsEnv {
 	return e
 }
 
-// wmsValued gives company 2000 a customer reconciliation account and the
-// inventory accounts of valuation class 3000.
+// wmsValued gives company 2000 a customer reconciliation account, the
+// inventory accounts of valuation class 3000, and the GR/IR and price
+// difference accounts its purchase orders' goods receipts post to (S2q2).
 func wmsValued(c *config.Config) {
 	de := c.Company("2000")
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true},
 		config.Account{Number: "150000", Name: "Inventory", Type: config.Asset}, config.Account{Number: "391000", Name: "Initial entries", Type: config.Equity},
-		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense}, config.Account{Number: "519000", Name: "Cost of goods sold", Type: config.Expense})
+		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense}, config.Account{Number: "519000", Name: "Cost of goods sold", Type: config.Expense},
+		config.Account{Number: "191000", Name: "GR/IR clearing", Type: config.Liability}, config.Account{Number: "590000", Name: "Price differences", Type: config.Expense})
 	de.AccountDetermination.Inventory = []config.InventoryAccounts{{ValuationClass: "3000", Stock: "150000", InitialEntry: "391000", Consumption: "515000",
-		CostOfGoodsSold: "519000"}}
+		CostOfGoodsSold: "519000", PriceDifference: "590000"}}
+	de.AccountDetermination.GRIR, de.AccountDetermination.PriceDifference = "191000", "590000"
 }
 
 func (e wmsEnv) unit(t *testing.T, kind, code string, parent *uuid.UUID) uuid.UUID {
@@ -152,7 +155,7 @@ func (e wmsEnv) busEvent(t *testing.T, delivery string) outbox.Message {
 
 func (e wmsEnv) queue(t *testing.T, log *pgtest.SyncBuffer) *integration.WMSQueue {
 	t.Helper()
-	return &integration.WMSQueue{Pool: pgtest.Pool(t), AppRole: "erp_app", Log: slog.New(slog.NewTextHandler(log, nil))}
+	return &integration.WMSQueue{Pool: pgtest.Pool(t), AppRole: "erp_app", Orders: app.WMSOrders(app.Config{}), Log: slog.New(slog.NewTextHandler(log, nil))}
 }
 
 // exchange is the exchange as the server wires it, calling the stand-in

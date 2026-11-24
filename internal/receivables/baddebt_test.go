@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/receivables"
 )
 
 // Bad debt relief (ADR-0049 As built, bad debt relief): the output tax of
@@ -194,16 +195,7 @@ func TestUAEBadDebtReliefRefusals(t *testing.T) {
 // by it. The notice is recorded when given; an output adjustment code
 // would report it on line 104 and is refused.
 func TestCanadianBadDebtRelief(t *testing.T) {
-	e := newDiscountEnv(t, fixture.MapleCompany, func(c *config.Company, doc *config.Config) {
-		c.TaxCodes = append(slices.Clone(c.TaxCodes), config.TaxCode{Code: "GO5", Description: "GST 5% on sales", Direction: config.TaxOutput,
-			Components: []config.TaxComponent{{Key: "gst", Jurisdiction: "CA", AccountKey: config.KeyOutput, Account: "230000",
-				Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
-			adjustment("GA", config.TaxInput, "gst", "CA", config.KeyInput, "140000", false),
-			adjustment("GI", config.TaxOutput, "gst", "CA", config.KeyOutput, "230000", false))
-		c.TaxRegistrations = []config.TaxRegistration{{Code: "GSTHST", Authority: "CRA", Number: "123456782 RT 0001", ReturnType: "GST34",
-			Frequency: config.TaxQuarterly, FirstPeriodStart: "2026-01-01"}}
-		doc.Packs = append(doc.Packs, config.PackAdoption{Company: fixture.MapleCompany.Code, Country: "CA", Version: "2026.12", AppliedOn: "2026-01-01"})
-	})
+	e := canadianReliefEnv(t)
 	invoice := e.invoiced(t, "2026-03-10", e.item("100.00", "GO5", ""))
 	writeOff := e.writtenOff(t, invoice, "60.00", "2026-04-15")
 	e.In(t).Problem(422, "receivables.invalid_relief_tax_code", "POST", "/v1/bad-debt-reliefs", relief(invoice, writeOff, "GI", "", "2026-04-15"), "")
@@ -228,6 +220,23 @@ func TestCanadianBadDebtRelief(t *testing.T) {
 	if n := got["customer_notified_on"]; n != "2026-04-10" {
 		t.Errorf("the notice given: got %v, want 2026-04-10", n)
 	}
+}
+
+// canadianReliefEnv is a Canadian company (Maple, CAD) with GO5, GST at 5%
+// on sales, its adjustment codes GA (input GST, the GST34's line 107) and
+// GI (output GST), and its GST/HST registration filing the GST34.
+func canadianReliefEnv(t *testing.T) discountEnv {
+	t.Helper()
+	return newDiscountEnv(t, fixture.MapleCompany, func(c *config.Company, doc *config.Config) {
+		c.TaxCodes = append(slices.Clone(c.TaxCodes), config.TaxCode{Code: "GO5", Description: "GST 5% on sales", Direction: config.TaxOutput,
+			Components: []config.TaxComponent{{Key: "gst", Jurisdiction: "CA", AccountKey: config.KeyOutput, Account: "230000",
+				Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
+			adjustment("GA", config.TaxInput, "gst", "CA", config.KeyInput, "140000", false),
+			adjustment("GI", config.TaxOutput, "gst", "CA", config.KeyOutput, "230000", false))
+		c.TaxRegistrations = []config.TaxRegistration{{Code: "GSTHST", Authority: "CRA", Number: "123456782 RT 0001", ReturnType: "GST34",
+			Frequency: config.TaxQuarterly, FirstPeriodStart: "2026-01-01"}}
+		doc.Packs = append(doc.Packs, config.PackAdoption{Company: fixture.MapleCompany.Code, Country: "CA", Version: "2026.12", AppliedOn: "2026-01-01"})
+	})
 }
 
 // TestBadDebtReliefElsewhere: a company of a country without a confirmed
@@ -347,8 +356,8 @@ func TestUAEBadDebtReliefOfPart(t *testing.T) {
 // 105.00 gross, written off by three cases of 35.00 recovers 1.67, 1.66
 // and 1.67, the invoice's 5.00 in all (each relief its cumulative share,
 // 1.67, 3.33 and 5.00, less the earlier ones'), never 5.01; a fourth case
-// writing the same item off again is refused, as the reliefs relieved the
-// whole gross.
+// disputing the same item again is refused, as nothing is owed of it, and
+// a relief of more than the gross is refused by receivables too.
 func TestUAEBadDebtReliefCumulative(t *testing.T) {
 	e := reliefEnv(t)
 	invoice := e.invoiced(t, "2026-01-10", e.item("100.00", "S5", "AE-DU"))
@@ -361,13 +370,32 @@ func TestUAEBadDebtReliefCumulative(t *testing.T) {
 	if s, want := fmt.Sprint(got), "[1.67 AED/1.67 AED 1.66 AED/1.66 AED 1.67 AED/1.67 AED]"; s != want {
 		t.Errorf("the reliefs' tax: got %s, want %s", s, want)
 	}
-	p := e.In(t).Problem(422, "receivables.bad_debt_relief_exceeds_invoice", "POST", "/v1/bad-debt-reliefs",
-		relief(invoice, e.writtenOff(t, invoice, "35.00", "2026-03-20"), "AS", "2026-08-01", "2026-08-13"), "")
-	if field(p) != "write_off_journal_entry_id" {
-		t.Errorf("the field: got %v, want write_off_journal_entry_id", field(p))
+	e.In(t).Problem(422, "collections.invalid_disputed_amount", "POST", "/v1/dispute-cases", fmt.Sprintf(`{"legal_entity_id": %q, "items": [{
+		"fiscal_year": 2026, "journal_entry_id": "%v", "line_no": 1, "disputed_amount": {"amount": "0.01", "currency": "AED"}}], "reason": "Again"}`,
+		e.le, invoice["journal_entry_id"]), "")
+	// Collections refuses a fourth write-off of the whole gross; the relief
+	// holds to the gross by itself too, should a write-off read say otherwise.
+	h := endpoints(t)
+	h.WriteOffs = oneMore{}
+	err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := h.CreateBadDebtRelief(ctx, &gen.BadDebtReliefCreate{CustomerInvoiceID: uuid.MustParse(invoice["id"].(string)),
+			WriteOffJournalEntryID: uuid.New(), TaxCode: "AS", CustomerNotifiedOn: gen.NewOptDate(date(t, "2026-08-01")),
+			PostingDate: gen.NewOptDate(date(t, "2026-08-13"))}, gen.CreateBadDebtReliefParams{})
+		return err
+	})
+	if p := problem.From(err); p.Code != "receivables.bad_debt_relief_exceeds_invoice" {
+		t.Errorf("a write-off past the gross: got %v, want 422 receivables.bad_debt_relief_exceeds_invoice", err)
 	}
 	page, _ := e.Must(200, "GET", "/v1/bad-debt-reliefs?posting_date_from=2026-08-11&posting_date_to=2026-08-11", "", "")
 	if its := items(t, page); len(its) != 1 || amount(t, its[0], "tax_amount") != "1.66 AED" {
 		t.Errorf("the reliefs of 11 August: got %v, want the second alone", page["items"])
 	}
+}
+
+// oneMore is a write-off read that finds a cent written off by any entry.
+type oneMore struct{}
+
+func (oneMore) WrittenOff(context.Context, uuid.UUID, int16, uuid.UUID) (receivables.WrittenOff, bool, error) {
+	return receivables.WrittenOff{DisputeCaseID: uuid.New(), EntryYear: 2026, EntryNumber: "X1", PostingDate: time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		Amount: 1, AmountLC: 1}, true, nil
 }

@@ -808,11 +808,15 @@ customs (S2s).
     customer invoice (receivable and revenue); once per goods issue.
     `POST /v1/intercompany-billings`; walkthrough step 155.
   - **S2i3 The receiving company's supplier invoice from the billing**
-    (leaf): the posted intercompany billing is entered as a supplier
-    invoice of the receiving company for the supplier that is the
-    supplying company, at the billing's amounts and tax, against the
-    order's receipts (clearing GR/IR, the matching of S1e), for a person
-    to post.
+    (built, lane ics3, 2026-11-22; ADR-0082 As built S2i3): the posted
+    intercompany billing is entered as a supplier invoice of the receiving
+    company for the supplier that is the supplying company, at the
+    billing's amounts and tax, its items the order's at the billing's
+    nets, its codes proposed from the billed rates, parked or held for a
+    person to match against the order's receipts and post (clearing
+    GR/IR, the matching of S1e); once per billing.
+    `POST /v1/intercompany-billings/{id}/supplier-invoices`; walkthrough
+    step 155.
   - **Later:** partial and repeated goods issues, a delivery between the
     companies (SAP's NLCC delivery), the 643's reversal (644; 409
     `inventory.reverse_stock_transport` until then), changing a released
@@ -860,6 +864,13 @@ replaces its own open proposals and never a person's requisition.
   valuation price; a rerun cancels the earlier runs' proposals still
   unchanged drafts and never touches one a person changed or raised.
   Migration 000436, walkthrough step 152 (`step_mrp`).
+- **Intercompany demand** (lane mrpic, batch 91, review:batch90; ADR-0084
+  As built): the run's demand also counts the intercompany orders (S2i)
+  the plant supplies and has not issued, through procurement's
+  `IntercompanyDue`; a stock transport order within the company is still
+  counted on neither side. No migration; test-only acceptance
+  (`TestPlanningRunIntercompany`): step_mrp runs before any intercompany
+  order exists in the walkthrough.
 
 ### S2l Replenishment agent
 
@@ -1053,11 +1064,31 @@ once, as a warehouse clerk's would be.
 #### S2q2 Inbound receipts to the WMS and their goods receipt reported back
 
 **Capability.** The warehouse system is sent each released purchase
-order's (and stock transport order's) items for a plant it manages, as
-receipts expected to put away, and the goods receipt it reports back is
-posted once by its message id through procurement's published API.
-Built on S2q1's connector, table, port and exchange (a message kind each
-way).
+order's stock items for a plant it manages, as receipts expected to put
+away, and the goods receipt it reports back is posted once by its
+message id through procurement's published API. Built on S2q1's
+connector, table, port and exchange (a message kind each way).
+
+- **Adds:** the kinds `inbound_receipt` (outbound) and `goods_receipt`
+  (inbound) of `integration.wms_message` (000453, validated by 000454);
+  the bus consumer `wms-outbound` reading procurement's
+  PurchaseOrderReleased too and queueing the order's message once (its
+  stock items at the plant of the first one a WMS manages); the port
+  `integration.WMSOrders` (procurement's order read and goods receipt,
+  `app.WMSOrders`); the goods receipt posted (101) by the poll;
+  `GET /v1/wms-messages?purchase_order_id=` and the message's
+  `purchase_order_id` and `purchase_order_number`; the connector's
+  change lock lowered to `FOR NO KEY UPDATE` (the wms backlog).
+- **Walkthrough:** `step_wms`, extended.
+- **Acceptance:** a released order with a stock item at a WMS plant is
+  sent once, whatever reads its event twice, naming only its stock items
+  at that plant still to receive; the goods receipt the WMS reports is
+  posted once by its message id as a 101 (listed again, acknowledged,
+  not posted); one of an order the connector was not sent, naming an item
+  it was not sent, or that procurement refuses, is recorded refused and
+  posts nothing.
+- **As built** (2026-11-22): ADR-0082 As built S2q2. Stock transport
+  orders within a company and a message per plant are Later (below).
 
 **Later for the WMS connector:** a vendor's adapter (when the pilot or
 a customer names one; until then the stand-in alone, refused in
@@ -1066,7 +1097,10 @@ again, by hand; a person's pick or goods issue refused on a delivery a
 WMS holds (SAP's decentralised WMS locks the delivery, from memory);
 changes and cancellations of a sent delivery; handling units, bins and
 serial or batch numbers in the messages; a push endpoint for a WMS that
-cannot be polled (security posture, the product owner's).
+cannot be polled (security posture, the product owner's); for receipts
+(S2q2), a message per plant of an order whose stock items are at
+several, stock transport orders within a company, changes and
+cancellations of a sent order, and returns reported by the WMS.
 
 ### S2r TMS connector
 

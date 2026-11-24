@@ -115,7 +115,10 @@ type IncomingPayment struct {
 	Applications     []PaymentApplication
 	// Resets are the applications undone (T75i), the payment's own
 	// included, in the order they were.
-	Resets    []PaymentReset
+	Resets []PaymentReset
+	// Recharges are the bad debt reliefs its applications and undoings
+	// charged again (recharge.go), in the order they were posted.
+	Recharges []PaymentRecharge
 	EntryYear int16
 	EntryID   uuid.UUID
 	Items     []PaymentItem
@@ -164,14 +167,14 @@ const paymentSelect = `SELECT p.id, p.document_number, p.legal_entity_id, p.cust
 		coalesce((SELECT json_agg(json_build_object('application_no', coalesce(r.application_no, 0), 'reason', r.reason, 'reversal_entry_year', r.reversal_entry_year,
 			'reversal_entry_id', r.reversal_entry_id, 'created_at', r.created_at, 'created_by', r.created_by) ORDER BY r.created_at, coalesce(r.application_no, 0))
 		 FROM receivables.incoming_payment_reset r WHERE r.tenant_id = p.tenant_id AND r.incoming_payment_id = p.id), '[]'),
-		p.created_at, p.created_by
+		` + rechargeSelect + `, p.created_at, p.created_by
 	FROM receivables.incoming_payment p JOIN ref.currency c ON c.code = p.currency`
 
 func scanPayment(row pgx.Row) (IncomingPayment, error) {
 	var v IncomingPayment
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.ReceiptYear, &v.ReceiptEntryID, &v.ReceiptAccountID, &v.PostingDate,
 		&v.Currency, &v.Exponent, &v.Amount, &v.Difference, &v.EntryYear, &v.EntryID, &v.Items, &v.OnAccount, &v.OnAccountLine, &v.OnAccountAccount,
-		&v.Applications, &v.Resets, &v.CreatedAt, &v.CreatedBy)
+		&v.Applications, &v.Resets, &v.Recharges, &v.CreatedAt, &v.CreatedBy)
 	return v, errs.Wrapf(err, "scan incoming payment")
 }
 
@@ -211,7 +214,10 @@ func GetPayment(ctx context.Context, id uuid.UUID) (IncomingPayment, error) {
 // and under them reads the receipt and the items as still open, so a
 // receipt or an item applied, cleared, reversed or reserved meanwhile is
 // refused there (ADR-0008). The receipt read here first only names the
-// account it waits on and answers a receipt that is no longer open.
+// account it waits on and answers a receipt that is no longer open. The
+// customers are held (RechargeLock) before the ledger's entries, and what
+// the payment pays of their invoices a bad debt relief relieved charges
+// the relieved tax again (recharge.go).
 func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (IncomingPayment, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -236,6 +242,10 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 		return IncomingPayment{}, err
 	}
 	app.ledger.PostingDate = date
+	relieved, err := holdRelieved(ctx, tx, le.ID, append([]uuid.UUID{in.CustomerID}, in.OtherCustomers...))
+	if err != nil {
+		return IncomingPayment{}, err
+	}
 	applied, err := e.Postings.ApplyReceipt(ctx, app.ledger)
 	if err != nil {
 		return IncomingPayment{}, fmt.Errorf("receivables: apply receipt %s to customer %s: %w", receipt.Number, payer.Number, err)
@@ -248,6 +258,9 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 		return IncomingPayment{}, fmt.Errorf("receivables: number an incoming payment: %w", err)
 	}
 	if err := insertPayment(ctx, tx, p, id, number, in, app, receipt, date, applied); err != nil {
+		return IncomingPayment{}, err
+	}
+	if err := e.recharge(ctx, tx, p, relieved, recharging{payment: id, date: date}); err != nil {
 		return IncomingPayment{}, err
 	}
 	v, err := scanPayment(tx.QueryRow(ctx, paymentSelect+` WHERE p.id = $1`, id))

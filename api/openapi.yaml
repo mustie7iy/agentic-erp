@@ -14333,6 +14333,7 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
@@ -14487,6 +14488,7 @@ paths:
         - payables.currency_mismatch
         - payables.document_too_large
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
@@ -14547,6 +14549,102 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/intercompany-billings/{id}/supplier-invoices":
+    post:
+      operationId: enterIntercompanySupplierInvoice
+      tags:
+        - payables
+      summary: Enter the receiving company's supplier invoice from an intercompany billing
+      description: "The receiving company enters the supplying company's posted intercompany billing (`createIntercompanyBilling`, ADR-0082 As built S2i2, S2i3; SAP's invoice of an intercompany billing, from memory) as its supplier invoice, `parked` or `on_hold` for a person to post (`:post`). The billing (`GET /v1/intercompany-billings/{id}`) is one billed to a company the caller may act in (404 otherwise, so ids cannot be probed). The invoice is the receiving company's, for its order's supplier, the business partner that is the supplying company; its supplier reference is the billing's number, its invoice date the billing date, its currency, gross and tax amounts the billing's, and its items the order's items, each with its quantity at the billing item's net amount, so posting it clears the order's GR/IR (`:match`, three-way against the order's receipts; SAP's MIRO against the receipt). Each item keeps its order item's input tax code where it charges the rate of the billing item's output tax code (the supplying company's, on the billing date); otherwise the one input tax code of the company that charges it is proposed, and with none or several the invoice is `on_hold` naming the item for a person to choose; an item billed without tax, or at a rate of zero, whose order item has no code stays without one (nothing is charged, nothing to recover). A stated tax the codes do not bear out holds it (`payables.tax_mismatch`'s figures), as do the company's rules and missing required custom fields, as for a captured invoice. A billing is entered once (409 `payables.intercompany_billing_entered` naming the invoice; a rejected, cancelled or reversed invoice frees it), and the supplier reference once per supplier (409 `payables.duplicate_invoice`). Source `edi`; the invoice names the billing (`intercompany_billing_id`). Audited (`payables.supplier_invoice.create`); publishes SupplierInvoiceCaptured, and SupplierInvoiceHeld for one on hold. A retry with the same `Idempotency-Key` answers the invoice created. Human-only (`x-agent: false`)."
+      x-permission: payables.invoice.capture
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.internal_order_invalid
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - payables.account_not_postable
+        - payables.account_required
+        - payables.already_captured
+        - payables.amount_too_large
+        - payables.assignment_from_order
+        # payables.capture_needs_order, .unreadable_document and .local_tax_mismatch are a captured or received document's
+        # refusals, which TestProblemCodes lists as the billing is read by capture's code; a billing names its order, its lines
+        # the order's items and no tax in another currency, so this one is not expected to reach them.
+        - payables.capture_needs_order
+        - payables.currency_mismatch
+        - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
+        - payables.invalid_purchase_order
+        - payables.invalid_quantity
+        - payables.invalid_reference_invoice
+        - payables.invalid_tax_code
+        - payables.local_tax_mismatch
+        - payables.mixed_purchase_orders
+        - payables.negative_amount
+        - payables.no_tax_rate
+        - payables.po_item_required
+        - payables.purchase_order_required
+        - payables.quantity_not_zero
+        - payables.reference_not_allowed
+        - payables.supplier_not_usable
+        - payables.tax_date_human_only
+        - payables.tax_mismatch
+        - payables.unit_mismatch
+        - payables.unknown_currency
+        - payables.unknown_kind
+        - payables.unknown_payment_method
+        - payables.unknown_po_item
+        - payables.unknown_tax_code
+        - payables.unknown_unit
+        - payables.unreadable_document
+        - request.invalid_amount
+        - request.invalid_extension
+        - request.rule_refused
+        - request.rule_unevaluable
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: "Created; the new supplier invoice, parked or on hold."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -14726,6 +14824,7 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_purchase_order
         - payables.invalid_quantity
         - payables.invalid_reference_invoice
@@ -14807,6 +14906,7 @@ paths:
         - ledger.no_exchange_rate
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.legal_entity_not_found
         - payables.negative_amount
@@ -14923,6 +15023,7 @@ paths:
         - payables.amounts_mismatch
         - payables.credit_exceeds_invoice
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.invalid_tax_code
         - payables.legal_entity_not_found
@@ -15044,6 +15145,7 @@ paths:
       x-problem-codes:
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - request.version_mismatch
@@ -15101,6 +15203,7 @@ paths:
       x-problem-codes:
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - request.version_mismatch
@@ -15256,6 +15359,7 @@ paths:
       x-problem-codes:
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - request.version_mismatch
@@ -15350,6 +15454,7 @@ paths:
         - payables.already_captured
         - payables.down_payments_cleared
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.invoice_cleared
         - payables.invoice_has_corrections
@@ -18622,7 +18727,7 @@ paths:
       tags:
         - receivables
       summary: Recover the output tax of a customer invoice written off as a bad debt
-      description: "Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049 As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country, whose rule its tax specialist has not confirmed), written off by a dispute case's write-off (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax items, the total rounded once half away from zero and shared out by their tax, in the invoice's currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months have passed since the supply, counted by default from the later of the invoice's date and its net due date (a relief dated on or before the day they pass is refused, 422 `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`); a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code` is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax (ADR-0049 §11). A code of another kind or direction, or without a component of each of the invoice's tax components with an account, levying the line's emirate exactly where the invoice's item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on `posting_date` (else today, the company's date in its time zone), which is its tax date and must be in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422 `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the tax recovered with the code and the emirate, and their total credited to the company's `payment_difference_expense` account, which the write-off debited (422 `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409 `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`, a second dispute case writing the same item off again); two claims of one invoice at once are ordered by the invoice's row lock. An audit record is written with it. A retry with the same `Idempotency-Key` answers the relief recorded. The recovery of the tax when the customer pays later is not built yet. Human-only (`x-agent: false`)."
+      description: "Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049 As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country, whose rule its tax specialist has not confirmed), written off by a dispute case's write-off (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax items, the total rounded once half away from zero and shared out by their tax, in the invoice's currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months have passed since the supply, counted by default from the later of the invoice's date and its net due date (a relief dated on or before the day they pass is refused, 422 `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`); a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code` is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax (ADR-0049 §11). A code of another kind or direction, or without a component of each of the invoice's tax components with an account, levying the line's emirate exactly where the invoice's item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on `posting_date` (else today, the company's date in its time zone), which is its tax date and must be in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422 `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the tax recovered with the code and the emirate, and their total credited to the company's `payment_difference_expense` account, which the write-off debited (422 `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409 `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`; `createDisputeCase` disputes at most what is still owed of an item); two claims of one invoice at once are ordered by the invoice's row lock. An audit record is written with it. A retry with the same `Idempotency-Key` answers the relief recorded. An invoice the customer has paid beyond what its write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a payment applied in another currency is refused too (422 `receivables.relieved_invoice_other_currency`). When the customer pays later, the payment charges the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.post
       x-agent: false
       x-problem-codes:
@@ -18680,6 +18785,7 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - receivables.bad_debt_not_invoice
+        - receivables.bad_debt_paid
         - receivables.bad_debt_relief_claimed
         - receivables.bad_debt_relief_exceeds_invoice
         - receivables.bad_debt_relief_not_provided
@@ -18692,6 +18798,7 @@ paths:
         - receivables.no_write_off_account
         - receivables.not_written_off
         - receivables.relief_before_write_off
+        - receivables.relieved_invoice_other_currency
         - request.invalid_amount
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -18877,7 +18984,7 @@ paths:
       tags:
         - collections
       summary: Open a dispute case on a customer's open items
-      description: "Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more of its open items, invoices, for a reason. Each item is named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it), with the amount disputed of it: one item by the request's own fields, or 1 to 50 in `items`, not both (422 `collections.items_or_item`, naming `items`); in a list each line once (422 `request.validation_failed` naming `items[n].journal_entry_id`). Each must be an open item on a customer reconciliation account of the company in the leading ledger, one the customer owes (422 `collections.item_not_open` naming its `journal_entry_id`); the first item's customer is the case's, and every other item is that customer's (422 `collections.item_not_open`) and in the first item's currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed amount is in the item's currency (422 `collections.currency_mismatch` naming its `disputed_amount.currency`), more than zero and at most the item's open amount (422 `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each item's share of its amount in the company's currency, as the item was booked (the item's local amount × the disputed amount ÷ its amount, rounded half away from zero). The case's `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422 `collections.amount_too_large`), and its own journal line is its first item's. An item is in one open case at a time: an item in another open case is refused, whether the case comes after the other or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`)."
+      description: "Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more of its open items, invoices, for a reason. Each item is named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it), with the amount disputed of it: one item by the request's own fields, or 1 to 50 in `items`, not both (422 `collections.items_or_item`, naming `items`); in a list each line once (422 `request.validation_failed` naming `items[n].journal_entry_id`). Each must be an open item on a customer reconciliation account of the company in the leading ledger, one the customer owes (422 `collections.item_not_open` naming its `journal_entry_id`); the first item's customer is the case's, and every other item is that customer's (422 `collections.item_not_open`) and in the first item's currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed amount is in the item's currency (422 `collections.currency_mismatch` naming its `disputed_amount.currency`), more than zero and at most what is still owed of the item: its open amount less what resolved cases accepted of it, by credit memo or write-off, which leave the item open beside their credit (422 `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each item's share of its amount in the company's currency, as the item was booked (the item's local amount × the disputed amount ÷ its amount, rounded half away from zero). The case's `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422 `collections.amount_too_large`), and its own journal line is its first item's. An item is in one open case at a time: an item in another open case is refused, whether the case comes after the other or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`)."
       x-permission: collections.dispute.write
       x-agent: false
       x-problem-codes:
@@ -21879,7 +21986,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment to a customer's open items
-      description: "Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers, each customer's items cleared by the one entry and its part shown in `customers`, a part out of range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's, what is left on account the payer's). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency or another (T75n): an item in another currency is translated into the receipt's at the average exchange rate valid on the posting date between the two (`GET /v1/exchange-rates`, either direction, the reciprocal when only the reverse pair is recorded; no rate through a third currency), rounded once half away from zero, and is cleared at its own rate: the clearing entry, in the receipt's currency, offsets it at that amount and at the local and group amounts it was booked at, so what the translation leaves is part of the realized exchange difference below. An item without such a rate that day is refused (422 `ledger.no_exchange_rate`), as is one that translates to nothing in the receipt's currency (422 `ledger.item_rounds_to_zero`), each naming `items[i]`; residuals, the tolerance and what is left on account are in the receipt's currency for every item. An item paid in part names its `residual`: what stays open of it, more than zero and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`), with a reason, one of the company's payment-difference reasons (`companies[].receivables.payment_difference_reasons`, SAP OBBE; a company that configures none has `short_payment`, `disputed`, `deduction` and `other`; another is refused, 422 `receivables.unknown_residual_reason`), and, if wanted, a free text that is not white space alone (422 `request.validation_failed`). The reason decides what becomes of the residual (T75o): a reason whose treatment is `residual` leaves it open as a residual item, as below; one whose treatment is `write_off` writes it off instead, a debit line of the clearing entry on the reason's account at the receipt's rate, shown as the item's `write_off` (422 `receivables.no_write_off_account` when the company's chart no longer has that account), and what reasons write off counts with the payment difference against the payment tolerance. Together the items, net of their residuals, of what their reasons wrote off and of their cash discounts (below), equal the receipt, but for a payment difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's currency and a percent of the items applied, the lower binding; none configured, none allowed), what reasons write off included; anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. An invoice paid within the discount period of its payment terms, counted on the receipt's posting date, may take its cash discount (`items[i].cash_discount`, ADR-0063: cash discount granted) in a company of the United Arab Emirates (the product owner, 2026-11-21): it is then paid net of the discount, the tier's percent of its amount, and the discount is a debit of the clearing entry split by the invoice's tax items in proportion to its gross, as a supplier's cash discount is (T36d): its net on the company's `payment_difference_expense` account with each tax code and emirate of the base it reduces, its tax share on each output tax line's account with its code and the emirate the invoice's item named, all at the receipt's rate, writing tax items that reduce the output tax the VAT 201 reports in that emirate (422 `ledger.no_payment_difference_account` without the account). A company of another country grants none: what a customer takes off is a payment difference without tax (a Canadian cash discount makes no GST/HST adjustment, ETA s.161), and an item asking for one is refused, 422 `receivables.cash_discount_not_granted`. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; each residual is a new open item of the customer, a debit line of that entry on the item's account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item did; a difference is a line on the company's `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is posted to the customer's reconciliation account (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is then left on account rather than kept within the tolerance, and something must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`) and one a payment run holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`)."
+      description: "Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers, each customer's items cleared by the one entry and its part shown in `customers`, a part out of range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's, what is left on account the payer's). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency or another (T75n): an item in another currency is translated into the receipt's at the average exchange rate valid on the posting date between the two (`GET /v1/exchange-rates`, either direction, the reciprocal when only the reverse pair is recorded; no rate through a third currency), rounded once half away from zero, and is cleared at its own rate: the clearing entry, in the receipt's currency, offsets it at that amount and at the local and group amounts it was booked at, so what the translation leaves is part of the realized exchange difference below. An item without such a rate that day is refused (422 `ledger.no_exchange_rate`), as is one that translates to nothing in the receipt's currency (422 `ledger.item_rounds_to_zero`), each naming `items[i]`; residuals, the tolerance and what is left on account are in the receipt's currency for every item. An item paid in part names its `residual`: what stays open of it, more than zero and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`), with a reason, one of the company's payment-difference reasons (`companies[].receivables.payment_difference_reasons`, SAP OBBE; a company that configures none has `short_payment`, `disputed`, `deduction` and `other`; another is refused, 422 `receivables.unknown_residual_reason`), and, if wanted, a free text that is not white space alone (422 `request.validation_failed`). The reason decides what becomes of the residual (T75o): a reason whose treatment is `residual` leaves it open as a residual item, as below; one whose treatment is `write_off` writes it off instead, a debit line of the clearing entry on the reason's account at the receipt's rate, shown as the item's `write_off` (422 `receivables.no_write_off_account` when the company's chart no longer has that account), and what reasons write off counts with the payment difference against the payment tolerance. Together the items, net of their residuals, of what their reasons wrote off and of their cash discounts (below), equal the receipt, but for a payment difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's currency and a percent of the items applied, the lower binding; none configured, none allowed), what reasons write off included; anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. An invoice paid within the discount period of its payment terms, counted on the receipt's posting date, may take its cash discount (`items[i].cash_discount`, ADR-0063: cash discount granted) in a company of the United Arab Emirates (the product owner, 2026-11-21): it is then paid net of the discount, the tier's percent of its amount, and the discount is a debit of the clearing entry split by the invoice's tax items in proportion to its gross, as a supplier's cash discount is (T36d): its net on the company's `payment_difference_expense` account with each tax code and emirate of the base it reduces, its tax share on each output tax line's account with its code and the emirate the invoice's item named, all at the receipt's rate, writing tax items that reduce the output tax the VAT 201 reports in that emirate (422 `ledger.no_payment_difference_account` without the account). A company of another country grants none: what a customer takes off is a payment difference without tax (a Canadian cash discount makes no GST/HST adjustment, ETA s.161), and an item asking for one is refused, 422 `receivables.cash_discount_not_granted`. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; each residual is a new open item of the customer, a debit line of that entry on the item's account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item did; a difference is a line on the company's `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is posted to the customer's reconciliation account (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is then left on account rather than kept within the tolerance, and something must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`) and one a payment run holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). What the payment pays of the customers' invoices a bad debt relief relieved (`createBadDebtRelief`), beyond what their write-offs left owed, is a recovery of the bad debt: the share of the reliefs' tax in what is now paid of what they wrote off, less what was charged before, is charged again in the same transaction (ADR-0049 As built batch 91), under the reliefs' adjustment codes and emirates, against `payment_difference_expense` (422 `receivables.no_write_off_account` without it), dated the payment's posting date, and shown in `bad_debt_recharges`; what is paid counts the invoice's items and the residual items they left, net of residuals, write-offs and cash discounts, and the write-off credits the payment applied with them, so paying the invoice's item with its write-off's credit recovers nothing. A relieved invoice's items or write-off credits are applied in the invoice's currency (422 `receivables.relieved_invoice_other_currency`). Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -21894,41 +22001,66 @@ paths:
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.currency_mismatch
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.gr_ir_currency_mismatch
         - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_discount
         - ledger.invalid_residual
+        - ledger.invalid_tax_code
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.item_rounds_to_zero
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
         - ledger.mixed_items
         - ledger.no_cash_discount
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - ledger.no_fx_account
+        - ledger.no_gr_ir_account
         - ledger.no_items
         - ledger.no_payment_difference_account
+        - ledger.no_tax_rate
         - ledger.not_a_receipt
         - ledger.not_an_open_item
         - ledger.not_open_item_managed
         - ledger.not_the_customers_item
+        - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
         - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
         - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
         - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
         - receivables.amount_not_positive
         - receivables.amount_too_large
         - receivables.cash_discount_not_granted
@@ -21940,6 +22072,7 @@ paths:
         - receivables.nothing_left_on_account
         - receivables.receipt_already_applied
         - receivables.receipt_not_open
+        - receivables.relieved_invoice_other_currency
         - receivables.unknown_residual_reason
         - request.invalid_amount
         - request.validation_failed
@@ -22063,7 +22196,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment's credit on account to open items
-      description: "Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The credit applied is the one still open: the payment's own before any application, else what the last application left; one that is no longer open, all applied or cleared otherwise, is refused (409 `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request cleared it meanwhile, as two applications racing for it end). The items are the customer's open items in the company, invoices and credits, in the payment's currency or another, translated into the payment's on the posting date and refused as `createIncomingPayment` translates and refuses them (T75n), each naming its place in the request as the field `items[i]`, and each may name a `residual` as there. Together, net of their residuals and of what their reasons wrote off, they may be less than the credit: what is left stays on account as a new credit of the customer's, a line of the application's clearing entry, at the credit's rate. More than the credit is refused (422 `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance, written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`, `source_context` `receivables`, its source document the payment, offsets the credit and the items at the amounts they were booked at and clears them all; an exchange difference is realized as `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's date in its time zone, in an open period and on or after the latest posting date of the credit and the items. The application is numbered in the payment from 1; its items join the payment's items with its number. The payment's `version` moves with each application (`ETag`), and the answer is the payment with the application, which its `applications` list last. Audited, and published as IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. A cash discount is not granted here (422 `receivables.cash_discount_not_granted` naming `items[i].cash_discount`): an item takes its discount when a receipt pays it (`createIncomingPayment`). Human-only (`x-agent: false`)."
+      description: "Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The credit applied is the one still open: the payment's own before any application, else what the last application left; one that is no longer open, all applied or cleared otherwise, is refused (409 `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request cleared it meanwhile, as two applications racing for it end). The items are the customer's open items in the company, invoices and credits, in the payment's currency or another, translated into the payment's on the posting date and refused as `createIncomingPayment` translates and refuses them (T75n), each naming its place in the request as the field `items[i]`, and each may name a `residual` as there. Together, net of their residuals and of what their reasons wrote off, they may be less than the credit: what is left stays on account as a new credit of the customer's, a line of the application's clearing entry, at the credit's rate. More than the credit is refused (422 `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance, written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`, `source_context` `receivables`, its source document the payment, offsets the credit and the items at the amounts they were booked at and clears them all; an exchange difference is realized as `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's date in its time zone, in an open period and on or after the latest posting date of the credit and the items. The application is numbered in the payment from 1; its items join the payment's items with its number. The payment's `version` moves with each application (`ETag`), and the answer is the payment with the application, which its `applications` list last. Audited, and published as IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. A cash discount is not granted here (422 `receivables.cash_discount_not_granted` naming `items[i].cash_discount`): an item takes its discount when a receipt pays it (`createIncomingPayment`). What it pays of a relieved invoice charges the relief's tax again as `createIncomingPayment` says (`bad_debt_recharges`, its `application_no` the application's). Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -22078,46 +22211,72 @@ paths:
         - ledger.clearing_not_balanced
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.currency_mismatch
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.gr_ir_currency_mismatch
         - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_discount
         - ledger.invalid_residual
+        - ledger.invalid_tax_code
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.item_rounds_to_zero
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
         - ledger.mixed_items
         - ledger.no_cash_discount
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - ledger.no_fx_account
+        - ledger.no_gr_ir_account
         - ledger.no_items
         - ledger.no_payment_difference_account
+        - ledger.no_tax_rate
         - ledger.not_a_receipt
         - ledger.not_an_open_item
         - ledger.not_open_item_managed
         - ledger.not_the_customers_item
+        - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
         - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
         - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
         - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
         - receivables.amount_not_positive
         - receivables.cash_discount_not_granted
         - receivables.currency_mismatch
         - receivables.no_credit_on_account
         - receivables.no_write_off_account
+        - receivables.relieved_invoice_other_currency
         - receivables.unknown_residual_reason
         - request.invalid_amount
         - request.validation_failed
@@ -22175,11 +22334,12 @@ paths:
       tags:
         - receivables
       summary: Undo an incoming payment applied to the wrong items
-      description: "Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual items and the credit on account it left, and the payment difference it wrote off, are taken back with it. Every application of its credit on account must be undone first (409 `receivables.applications_in_force`), and nothing it left may have been cleared since, by another payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409 `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`. Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`)."
+      description: "Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual items and the credit on account it left, and the payment difference it wrote off, are taken back with it. Every application of its credit on account must be undone first (409 `receivables.applications_in_force`), and nothing it left may have been cleared since, by another payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409 `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`. Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. What the undoing no longer pays of an invoice a bad debt relief relieved charges back less of the tax its application charged again (`bad_debt_recharges`, `reset` true, a negative `tax_amount`, dated the reversal's posting date; 422 `receivables.no_write_off_account` without the account). Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.already_reversed
@@ -22191,34 +22351,63 @@ paths:
         - ledger.clearing_lines_cleared
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.currency_mismatch
         - ledger.entry_cleared
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
         - ledger.internal_order_closed
         - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
         - ledger.item_already_cleared
         - ledger.item_reserved
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
         - ledger.no_price_difference_account
+        - ledger.no_tax_rate
         - ledger.not_a_clearing_entry
+        - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
         - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
         - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
         - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
         - receivables.already_reset
         - receivables.application_not_latest
         - receivables.applications_in_force
+        - receivables.no_write_off_account
+        - receivables.relieved_invoice_other_currency
+        - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
       parameters:
@@ -22273,11 +22462,12 @@ paths:
       tags:
         - receivables
       summary: Undo an application of an incoming payment's credit on account
-      description: "Undoes an application of an incoming payment's credit on account (T75i; T75g's `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the customer's account again as it stood and every item it was applied to is an open item again, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items it left are taken back with it. Only the payment's latest application still in force is undone (409 `receivables.application_not_latest`: undo the later ones first), once (409 `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`). `If-Match` is the payment's version, which the reset moves; the answer is the payment, the application with its `reset` and `on_account` showing the credit open again. Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's applications, or a payment of a company the caller may not act in, is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`)."
+      description: "Undoes an application of an incoming payment's credit on account (T75i; T75g's `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the customer's account again as it stood and every item it was applied to is an open item again, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items it left are taken back with it. Only the payment's latest application still in force is undone (409 `receivables.application_not_latest`: undo the later ones first), once (409 `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`). `If-Match` is the payment's version, which the reset moves; the answer is the payment, the application with its `reset` and `on_account` showing the credit open again. Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's applications, or a payment of a company the caller may not act in, is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. What the undoing no longer pays of an invoice a bad debt relief relieved charges back less of the tax its application charged again (`bad_debt_recharges`, `reset` true, a negative `tax_amount`, dated the reversal's posting date; 422 `receivables.no_write_off_account` without the account). Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.already_reversed
@@ -22289,34 +22479,63 @@ paths:
         - ledger.clearing_lines_cleared
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.currency_mismatch
         - ledger.entry_cleared
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
         - ledger.internal_order_closed
         - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
         - ledger.item_already_cleared
         - ledger.item_reserved
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
         - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
         - ledger.no_price_difference_account
+        - ledger.no_tax_rate
         - ledger.not_a_clearing_entry
+        - ledger.output_tax_mismatch
         - ledger.partner_not_allowed
         - ledger.partner_not_postable
         - ledger.partner_required
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
         - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
         - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
         - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
         - receivables.already_reset
         - receivables.application_not_latest
         - receivables.applications_in_force
+        - receivables.no_write_off_account
+        - receivables.relieved_invoice_other_currency
+        - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
       parameters:
@@ -26865,7 +27084,7 @@ paths:
       tags:
         - mrp
       summary: Start a planning run
-      description: "Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a workflow, or in process in a cell without a workflow engine, as the person who started it. On the plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`) that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales orders (each standing item's ordered quantity less what is delivered), the plant's stock at its storage locations (not stock in transit), and its open receipts (the open quantities of the stock items of purchase orders not closed or cancelled at the plant, and of the requisitions earlier runs proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft purchase requisition of the material in its base unit, raised by the person who started the run in the company's currency at the material's valuation price at the plant (zero when it has none), naming the planning data's account and needed by the run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a run proposed them. A proposal a person changed or submitted is theirs from then on and is never touched; a requisition a person raised is never touched either. The run's lines say what it counted and proposed per material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's requisition number range exhausted, the account no longer postable, the requester no longer active, an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`)."
+      description: "Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a workflow, or in process in a cell without a workflow engine, as the person who started it. On the plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`) that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales orders (each standing item's ordered quantity less what is delivered) and the ordered quantities of the intercompany purchase orders the plant supplies (`supplying_plant_id`) that are not closed, cancelled or issued (their standing items), the plant's stock at its storage locations (not stock in transit), and its open receipts (the open quantities of the stock items of purchase orders not closed or cancelled at the plant, and of the requisitions earlier runs proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft purchase requisition of the material in its base unit, raised by the person who started the run in the company's currency at the material's valuation price at the plant (zero when it has none), naming the planning data's account and needed by the run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a run proposed them. A proposal a person changed or submitted is theirs from then on and is never touched; a requisition a person raised is never touched either. The run's lines say what it counted and proposed per material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's requisition number range exhausted, the account no longer postable, the requester no longer active, an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`)."
       x-permission: mrp.run.start
       x-agent: false
       x-problem-codes:
@@ -36354,6 +36573,7 @@ paths:
         - partner.invalid_status
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - payments.statement_amount_differs
@@ -36572,6 +36792,7 @@ paths:
         - partner.invalid_status
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - payments.invalid_status
@@ -36738,6 +36959,7 @@ paths:
         - partner.invalid_status
         - payables.already_captured
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_status
         - payables.negative_amount
         - procurement.change_open
@@ -38512,7 +38734,7 @@ paths:
       tags:
         - integration
       summary: List the messages exchanged with warehouse systems
-      description: "The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who may act in every company, inbound ones refused before their delivery was known. Outbound (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in its `plants` is queued once as a message giving the warehouse system the delivery to pick (its `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant and storage location by code, the delivery by id and number with its sales order's and customer's numbers, and each item's number, material number, quantity and unit), `pending` until the exchange sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours, its code in `last_error_code`: the warehouse system unreachable, or the connector not usable since (`integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_wms`, or the stand-in in production, `integration.adapter_not_certified`), which its administrator may put right meanwhile; the warehouse system's refusal (`integration.wms_refused`) or the sixth attempt's failure is final, and a last attempt whose outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the warehouse system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked quantities recorded (an item it was sent and does not name picked at nothing) and its goods issue posted (shipping's `pickOutboundDelivery` and `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's company), naming the material document; or `refused` with the problem that stopped it, nothing of it posted: one that is not a JSON `goods_issue` message naming its own message id and an `outbound_delivery_id`, or that holds `\\u0000`, which cannot be kept as received (`integration.wms_message_unreadable`; its body kept as its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`, `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not posted twice. Filters: connector, direction, status and the outbound delivery."
+      description: "The messages exchanged with the tenant's warehouse systems through `wms` connectors (ADR-0082 As built S2q, S2q1), newest first: those of the companies the caller may act in, and, to a caller who may act in every company, inbound ones refused before their delivery was known. Outbound (`outbound_delivery`): each outbound delivery created at a plant an active `wms` connector names in its `plants` is queued once as a message giving the warehouse system the delivery to pick (its `body`, the message as sent: message type `outbound_delivery`, schema version 1, its company, plant and storage location by code, the delivery by id and number with its sales order's and customer's numbers, and each item's number, material number, quantity and unit), `pending` until the exchange sent it (`sent`) or `failed` with the problem code of its last attempt; a failed attempt is tried again after 1, 5 and 15 minutes, 1 and 4 hours, its code in `last_error_code`: the warehouse system unreachable, or the connector not usable since (`integration.connector_disabled`, `integration.secret_required`, `integration.secret_unavailable`, `integration.invalid_settings`, `integration.not_a_wms`, or the stand-in in production, `integration.adapter_not_certified`), which its administrator may put right meanwhile; the warehouse system's refusal (`integration.wms_refused`) or the sixth attempt's failure is final, and a last attempt whose outcome was lost fails it with `integration.wms_outcome_unknown`. The message id is the warehouse system's key: sending it again is not a second delivery. The failed ones are the worklist. Inbound (`goods_issue`): what the warehouse system reports back, polled from each active `wms` connector (every 10 s) and recorded once per connector and its message id: `posted`, the delivery's picked quantities recorded (an item it was sent and does not name picked at nothing) and its goods issue posted (shipping's `pickOutboundDelivery` and `postOutboundDeliveryGoodsIssue`, as the exchange's system principal acting for the delivery's company), naming the material document; or `refused` with the problem that stopped it, nothing of it posted: one that is not a JSON `goods_issue` message naming its own message id and an `outbound_delivery_id`, or that holds `\\u0000`, which cannot be kept as received (`integration.wms_message_unreadable`; its body kept as its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was not sent (`integration.wms_unknown_delivery`), or that shipping refuses (`shipping.goods_issued`, `shipping.exceeds_delivery_quantity`, `shipping.insufficient_stock` and the others). The warehouse system is told after that commit (`acknowledged_at`); one listed again is acknowledged again, not posted twice. Receipts (S2q2): each purchase order released (`releasePurchaseOrder`, or its release approval) is queued once, when an active `wms` connector manages the plant of a stock item of it, as a message giving that warehouse system the receipts expected there to put away (`inbound_receipt`: message type `inbound_receipt`, schema version 1, its company and plant by code, the purchase order by id and number with its supplier's number, and each of the order's stock items at that plant still to be received: its number, material number, storage location code, open quantity, unit and delivery date), sent as a delivery is; an order whose stock items are at several plants is sent for the plant of its first such item alone, the others received by hand. Its goods receipt reported back (`goods_receipt`: its own `message_id`, the `purchase_order_id` it was sent and the quantity received of each item it names, by `item_no`, in the item's unit) is posted as a goods receipt (101) of those items (procurement's `postGoodsReceipt`, dated the company's date, its reference the message id when it is at most 40 characters, else none), naming the material document, or refused: of an order the connector was not sent (`integration.wms_unknown_order`), naming an item it was not sent (`integration.wms_item_not_sent`), naming an item made a non-stock item since it was sent (`integration.wms_not_stock`), or that procurement refuses (`procurement.over_delivery`, `procurement.order_not_released`, `procurement.unit_mismatch` and the others). Filters: connector, direction, status, the outbound delivery and the purchase order."
       x-permission: integration.connector.read
       x-problem-codes:
         - request.invalid_order_by
@@ -38546,6 +38768,13 @@ paths:
           in: query
           required: false
           description: Only the messages of this outbound delivery.
+          schema:
+            type: string
+            format: uuid
+        - name: purchase_order_id
+          in: query
+          required: false
+          description: Only the messages of this purchase order (S2q2).
           schema:
             type: string
             format: uuid
@@ -39693,6 +39922,7 @@ paths:
         - payables.assignment_from_order
         - payables.currency_mismatch
         - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
         - payables.invalid_amount
         - payables.invalid_item_no
         - payables.invalid_purchase_order
@@ -57127,6 +57357,11 @@ components:
                 - subsequent_debit
                 - subsequent_credit
               readOnly: true
+            intercompany_billing_id:
+              type: string
+              format: uuid
+              description: "The supplying company's intercompany billing the invoice was entered from (`POST /v1/intercompany-billings/{id}/supplier-invoices`; ADR-0082 As built S2i3), whose number is its `supplier_reference`; absent on an invoice entered otherwise."
+              readOnly: true
             reference_invoice_id:
               type: string
               format: uuid
@@ -64239,7 +64474,7 @@ components:
         - type: object
           required: [document_number, status, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, customers, posting_date, currency, amount,
             difference, cash_discount, applications, receipt_journal_entry_id, receipt_journal_entry_year, receipt_journal_entry_number, receipt_account_id, receipt_account_number,
-            receipt_account_name, journal_entry_id, journal_entry_year, journal_entry_number, items]
+            receipt_account_name, journal_entry_id, journal_entry_year, journal_entry_number, items, bad_debt_recharges]
           properties:
             document_number: {type: string, description: "The document number, from the company's `incoming_payment` number range.", readOnly: true}
             status:
@@ -64287,6 +64522,11 @@ components:
               items: {$ref: "#/components/schemas/IncomingPaymentItem"}
               description: "The items the payment was applied to, by item number."
               readOnly: true
+            bad_debt_recharges:
+              type: array
+              items: {$ref: "#/components/schemas/IncomingPaymentBadDebtRecharge"}
+              description: "The tax of bad debt reliefs (`createBadDebtRelief`) that the payment's applications charged again, and their undoings charged back less, in the order they were posted (ADR-0049 As built batch 91): what the customer pays of a relieved invoice beyond what its write-offs left owed is a recovery of the bad debt. Empty when there were none."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
           version: 1
@@ -64333,6 +64573,27 @@ components:
               journal_entry_number: "1800000001"
               reference: CI100001
               amount: {amount: "1050.00", currency: CAD}
+          bad_debt_recharges: []
+    IncomingPaymentBadDebtRecharge:
+      type: object
+      description: "The tax a bad debt relief recovered, charged again because the customer paid what was written off (ADR-0049 As built batch 91): the share of the reliefs' tax in what the customer has now paid of their written-off amount, less what was charged before, posted under the reliefs' adjustment codes and emirates against `payment_difference_expense`, so the return reports it where it reported the relief. An undoing of the application charges back less (a negative `tax_amount`). It is recorded once, when it posts, and never changes."
+      required: [id, customer_invoice_id, customer_invoice_number, application_no, reset, recovered_amount, tax_amount, local_tax_amount, posting_date,
+        journal_entry_id, journal_entry_year, journal_entry_number, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        customer_invoice_id: {type: string, format: uuid, description: "The relieved customer invoice (`GET /v1/customer-invoices/{id}`; its reliefs: `GET /v1/bad-debt-reliefs?customer_invoice_id=`).", readOnly: true}
+        customer_invoice_number: {type: string, description: "The invoice's document number.", readOnly: true}
+        application_no: {type: integer, format: int32, minimum: 0, description: "The application whose applying or undoing moved what was recovered: 0 the payment's own, else an application of its credit on account (`applications[].application_no`).", readOnly: true}
+        reset: {type: boolean, description: "True when the undoing of that application (`resetIncomingPayment`, `resetIncomingPaymentApplication`) posted it, charging back less; false when applying it did.", readOnly: true}
+        recovered_amount: {$ref: "#/components/schemas/Money", description: "What the customer had then paid of what the invoice's reliefs wrote off, in the invoice's currency, which is the payment's: from zero to all of it."}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The tax charged again, in the invoice's currency; negative: charged back less."}
+        local_tax_amount: {$ref: "#/components/schemas/Money", description: "The tax charged again in the company's currency, at the reliefs' rates: what the return reports."}
+        posting_date: {type: string, format: date, description: "Its posting date and tax date: the application's, or the undoing's.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "Its journal entry, its lines the tax by adjustment code and emirate (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The entry's document number.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When it was recorded.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The principal whose application or undoing posted it.", readOnly: true}
     IncomingPaymentCustomer:
       type: object
       description: "A customer whose open items an incoming payment applied with its receipt, and its part (T75h)."
@@ -67459,7 +67720,7 @@ components:
         material_number: {type: string, description: "The material's number."}
         material_description: {type: string, description: "The material's description, as it is now."}
         reorder_point: {$ref: "#/components/schemas/Quantity", description: "The reorder point the run planned by."}
-        demand: {$ref: "#/components/schemas/Quantity", description: "What the plant's confirmed sales orders ordered and have not delivered."}
+        demand: {$ref: "#/components/schemas/Quantity", description: "What the plant's confirmed sales orders ordered and have not delivered, and the ordered quantities of the intercompany purchase orders it supplies that are not closed, cancelled or issued."}
         stock: {$ref: "#/components/schemas/Quantity", description: "The plant's stock at its storage locations."}
         receipts: {$ref: "#/components/schemas/Quantity", description: "The plant's open receipts: purchase orders' open quantities and the proposals a person took over."}
         shortage: {$ref: "#/components/schemas/Quantity", description: "What brings the stock and receipts less the demand back to the reorder point; zero when they are not below it."}
@@ -70100,7 +70361,7 @@ components:
           updated_at: "2026-04-17T13:05:09Z"
     WMSMessage:
       type: object
-      description: "A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, S2q1): an outbound delivery sent to pick, or a goods issue it reported back."
+      description: "A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q): an outbound delivery sent to pick, or a goods issue it reported back (S2q1); a purchase order's receipts sent to put away, or a goods receipt it reported back (S2q2)."
       required: [id, connector_id, connector_name, direction, message_id, kind, body, status, attempts, created_at, updated_at]
       properties:
         id: {type: string, format: uuid, description: Message id., readOnly: true}
@@ -70114,14 +70375,16 @@ components:
         message_id: {type: string, description: "The message's id at the warehouse system: an outbound message's own id, which the warehouse system deduplicates on; an inbound one's, the warehouse system's.", readOnly: true}
         kind:
           type: string
-          description: "`outbound_delivery` (outbound) or `goods_issue` (inbound). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [outbound_delivery, goods_issue]
+          description: "`outbound_delivery` or `inbound_receipt` (outbound), `goods_issue` or `goods_receipt` (inbound; one that cannot be read as either is recorded `goods_issue`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [outbound_delivery, goods_issue, inbound_receipt, goods_receipt]
           readOnly: true
-        legal_entity_id: {type: string, format: uuid, description: "The delivery's company; absent on an inbound message refused before its delivery was known.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The delivery's or purchase order's company; absent on an inbound message refused before its document was known.", readOnly: true}
         company_code: {type: string, description: "The company's code.", readOnly: true}
-        outbound_delivery_id: {type: string, format: uuid, description: "The outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.", readOnly: true}
+        outbound_delivery_id: {type: string, format: uuid, description: "`outbound_delivery` and `goods_issue`: the outbound delivery (`getOutboundDelivery`); absent as `legal_entity_id` is.", readOnly: true}
         outbound_delivery_number: {type: string, description: "The outbound delivery's number.", readOnly: true}
-        plant_code: {type: string, description: "Outbound: the delivery's plant, which the connector manages.", readOnly: true}
+        purchase_order_id: {type: string, format: uuid, description: "`inbound_receipt` and `goods_receipt` (S2q2): the purchase order (`getPurchaseOrder`); absent as `legal_entity_id` is.", readOnly: true}
+        purchase_order_number: {type: string, description: "The purchase order's number.", readOnly: true}
+        plant_code: {type: string, description: "Outbound: the delivery's plant, or the plant of the purchase order's items it sends, which the connector manages.", readOnly: true}
         body:
           description: "A JSON object, its keys in the order stored: the message as sent (outbound) or as received (inbound; a body that is not a JSON object is kept as `{\"text\": ...}`, at most 1000 characters of it)."
           readOnly: true
@@ -70136,7 +70399,7 @@ components:
         sent_at: {type: string, format: date-time, description: "Outbound: when the warehouse system took it.", readOnly: true}
         problem_code: {type: string, description: "Refused: the problem that stopped its posting.", readOnly: true}
         problem_detail: {type: string, description: "Refused: the problem's detail.", readOnly: true}
-        material_document_id: {type: string, format: uuid, description: "Posted: the goods issue's material document (`getMaterialDocument`).", readOnly: true}
+        material_document_id: {type: string, format: uuid, description: "Posted: the goods issue's or goods receipt's material document (`getMaterialDocument`).", readOnly: true}
         material_document_number: {type: string, description: "Posted: the material document's number.", readOnly: true}
         acknowledged_at: {type: string, format: date-time, description: "Inbound: when the warehouse system was told it is recorded.", readOnly: true}
         created_at: {type: string, format: date-time, readOnly: true}

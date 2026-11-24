@@ -148,49 +148,12 @@ func TestPlantRequirementsDue(t *testing.T) {
 func TestProcurementReadsForReview(t *testing.T) {
 	e := setup(t)
 	for i, status := range []string{"open", "in_transit", "received"} {
-		id := uuid.Must(uuid.NewV7())
-		issued, received := any(nil), any(nil)
-		if status != "open" {
-			issued = uuid.Must(uuid.NewV7())
-		}
-		if status == "received" {
-			received = uuid.Must(uuid.NewV7())
-		}
-		pgtest.Exec(t, `INSERT INTO procurement.stock_transport_order (tenant_id, id, legal_entity_id, fiscal_year, number, supplying_plant_id, receiving_plant_id,
-			order_date, status, issue_document_id, issue_document_number, issue_date, receipt_document_id, receipt_document_number, receipt_date, created_by, updated_by)
-			VALUES ($1, $2, $3, 2026, $4, gen_random_uuid(), $5, '2026-11-01', $6, $7, CASE WHEN $7::uuid IS NULL THEN NULL ELSE 'MD' END,
-				CASE WHEN $7::uuid IS NULL THEN NULL ELSE date '2026-11-01' END, $8, CASE WHEN $8::uuid IS NULL THEN NULL ELSE 'MR' END,
-				CASE WHEN $8::uuid IS NULL THEN NULL ELSE date '2026-11-02' END, $9, $9)`,
-			e.Tenant.ID, id, e.DE, fmt.Sprintf("ST%d", i), e.p1, status, issued, received, e.Tenant.Human.ID)
-		pgtest.Exec(t, `INSERT INTO procurement.stock_transport_order_item (tenant_id, order_id, item_no, material_id, quantity, uom_code, base_quantity,
-			supplying_storage_location_id, receiving_storage_location_id) VALUES ($1, $2, 1, $3, $4, 'EA', $4, gen_random_uuid(), $5)`,
-			e.Tenant.ID, id, e.bracket, 10+i, e.s1)
+		e.transport(t, fmt.Sprintf("ST%d", i), status, uuid.Must(uuid.NewV7()), e.p1, 10+i)
 	}
-	type po struct {
-		number, status, delivery string
-		issued, removed          bool
-	}
-	for _, o := range []po{{"IC1", "released", "2026-12-15", false, false}, {"IC2", "draft", "", false, false}, {"IC3", "released", "", true, false},
-		{"IC4", "closed", "", false, false}, {"IC5", "cancelled", "", false, false}, {"IC6", "released", "", false, true}} {
-		id := uuid.Must(uuid.NewV7())
-		var issue, delivery any
-		if o.issued {
-			issue = uuid.Must(uuid.NewV7())
-		}
-		if o.delivery != "" {
-			delivery = o.delivery
-		}
-		pgtest.Exec(t, `INSERT INTO procurement.purchase_order (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, order_date,
-			payment_term_code, status, supplying_plant_id, issue_document_id, issue_document_number, issue_date, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, gen_random_uuid(), 'USD', '2026-11-01', 'NT30', 'draft', $5, $6, CASE WHEN $6::uuid IS NULL THEN NULL ELSE 'MI' END,
-				CASE WHEN $6::uuid IS NULL THEN NULL ELSE date '2026-11-02' END, $7, $7)`,
-			e.Tenant.ID, id, o.number, e.US, e.p1, issue, e.Tenant.Human.ID)
-		pgtest.Exec(t, `INSERT INTO procurement.purchase_order_item (tenant_id, purchase_order_id, item_no, material_id, description, quantity, uom_code,
-			unit_price, price_unit, account_id, plant_id, storage_location_id, delivery_date, is_removed)
-			VALUES ($1, $2, 1, $3, 'Bracket', 2, 'EA', 200, 1, $4, $5, gen_random_uuid(), $6::date, $7)`, e.Tenant.ID, id, e.bracket, e.stock, e.p9, delivery, o.removed)
-		for _, s := range map[string][]string{"released": {"released"}, "closed": {"released", "closed"}, "cancelled": {"cancelled"}}[o.status] {
-			pgtest.Exec(t, `UPDATE procurement.purchase_order SET status = $2, version = version + 1 WHERE id = $1`, id, s)
-		}
+	for _, o := range []icOrder{{"IC1", "released", "2026-12-15", "2", "EA", false, false}, {"IC2", "draft", "", "2", "EA", false, false},
+		{"IC3", "released", "", "2", "EA", true, false}, {"IC4", "closed", "", "2", "EA", false, false}, {"IC5", "cancelled", "", "2", "EA", false, false},
+		{"IC6", "released", "", "2", "EA", false, true}} {
+		e.intercompany(t, o)
 	}
 	ms := []uuid.UUID{uuid.MustParse(e.bracket)}
 	var transit []procurement.OnOrder

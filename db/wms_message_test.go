@@ -51,9 +51,10 @@ func refusedIn() map[string]any {
 }
 
 // TestWMSMessageRules: every rule the database enforces on the messages
-// exchanged with warehouse systems (S2q1, 000449): the directions, kinds
-// and statuses of each (one of none is refused by wms_message_direction,
-// which PostgreSQL checks before the columns' own checks), what an
+// exchanged with warehouse systems (S2q1, 000449; S2q2's receipt kinds,
+// 000453): the directions, kinds and statuses of each (one of none is
+// refused by wms_message_direction, which PostgreSQL checks before the
+// columns' own checks), what an
 // outbound message names and an inbound one records, a time to wait for
 // exactly while pending and a time sent exactly when sent, up to six
 // attempts, the columns' lengths, a delivery sent once and a message id
@@ -71,7 +72,13 @@ func TestWMSMessageRules(t *testing.T) {
 		"a posted inbound one":           {posted(), ""},
 		"a refused one of no delivery":   {refusedIn(), ""},
 		"another direction":              {map[string]any{"direction": "sideways"}, "wms_message_direction"},
-		"another kind":                   {map[string]any{"kind": "goods_receipt"}, "wms_message_direction"},
+		"an outbound goods receipt":      {map[string]any{"kind": "goods_receipt"}, "wms_message_direction"},
+		"a pending inbound receipt":      {map[string]any{"kind": "inbound_receipt"}, ""},
+		"a posted goods receipt":         {with(posted(), map[string]any{"kind": "goods_receipt"}), ""},
+		"a refused goods receipt":        {with(refusedIn(), map[string]any{"kind": "goods_receipt"}), ""},
+		"an inbound inbound receipt":     {with(posted(), map[string]any{"kind": "inbound_receipt"}), "wms_message_direction"},
+		"another kind outbound":          {map[string]any{"kind": "putaway"}, "wms_message_direction"},
+		"another kind inbound":           {with(posted(), map[string]any{"kind": "putaway"}), "wms_message_kind_check"},
 		"another status":                 {map[string]any{"status": "lost"}, "wms_message_direction"},
 		"an outbound goods issue":        {map[string]any{"kind": "goods_issue"}, "wms_message_direction"},
 		"an outbound message posted":     {map[string]any{"status": "posted", "next_attempt_at": nil}, "wms_message_direction"},
@@ -124,6 +131,11 @@ func TestWMSMessageRules(t *testing.T) {
 		"a delivery sent twice": {func(f fixture, cid uuid.UUID) []stmt {
 			doc := id()
 			return []stmt{wmsRow(f, cid, map[string]any{"document_id": doc}), wmsRow(f, cid, map[string]any{"document_id": doc})}
+		}, "wms_message_once"},
+		"an order sent twice": {func(f fixture, cid uuid.UUID) []stmt {
+			doc := id()
+			return []stmt{wmsRow(f, cid, map[string]any{"kind": "inbound_receipt", "document_id": doc}),
+				wmsRow(f, cid, map[string]any{"kind": "inbound_receipt", "document_id": doc, "plant_code": "P2"})}
 		}, "wms_message_once"},
 		"a delivery reported twice": {func(f fixture, cid uuid.UUID) []stmt {
 			doc := id()
@@ -249,6 +261,36 @@ func TestWMSConnectorDown(t *testing.T) {
 				t.Fatal(err)
 			}
 			failsWith(t, exec(tx, down), "wms connectors exist")
+		})
+	}
+}
+
+// TestWMSReceiptsDown: 000453's down refuses, rather than drops, the
+// receipt messages the previous version cannot hold (06 §6.4).
+func TestWMSReceiptsDown(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000453_wms_receipts").Down
+	for kind, seed := range map[string]string{
+		"inbound_receipt": `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, legal_entity_id, document_id,
+			document_number, plant_code, body, status, next_attempt_at)
+			VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'outbound', 'M', 'inbound_receipt', $1, $1, 'PO1', 'P1', '{}', 'pending', now())`,
+		"goods_receipt": `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, body, status, problem_code, problem_detail)
+			VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'inbound', 'M', 'goods_receipt', '{}', 'refused', 'c', 'd')`,
+	} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := context.Background()
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			tenant := id()
+			if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(`SET LOCAL session_replication_role = replica`),
+				step(seed, tenant),
+				step(`SET LOCAL session_replication_role = origin`), step(`SELECT set_config('app.tenant_id', '', true)`)); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "wms receipt messages exist")
 		})
 	}
 }

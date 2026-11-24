@@ -2778,10 +2778,17 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Bad debt relief reversed when the customer pays later: what the customer pays of an invoice whose output tax a bad debt relief recovered charges that share of the tax again, by an adjustment the return reports (UAE Art. 64, Canada ETA s.231, as the coordinator's research of 21 Nov states it; the conditions to read in the law's text first)",
-      "r": "ADR-0049 As built batch 90",
+      "s": "D",
+      "t": "Bad debt relief reversed when the customer pays later: what the customer pays of an invoice whose output tax a bad debt relief recovered, beyond what its write-offs left owed, charges that share of the tax again, by an adjustment the return reports, in the transaction that applies the payment (and an undoing of it charges back less), under the reliefs' codes and emirates against payment_difference_expense (the research of 21 Nov names Art. 64 and ETA s.231 for the relief only; that a payment charges it again is this leaf's, and when, how much and where the return reports it are this step's defaults, for the specialist); a relief of an invoice paid beyond what its write-offs leave refused (422 receivables.bad_debt_paid)",
+      "r": "ADR-0049 As built batch 91 · ADR-0063 As built batch 91 · db/migrations/000452 (receivables.bad_debt_recharge) · IncomingPayment.bad_debt_recharges · receivables.relieved_invoice_other_currency · TestUAEBadDebtRecharge · TestCanadianBadDebtRecharge · TestBadDebtRechargeOfWhatWasOwed · walkthrough step_bad_debt_relief (step 157)",
       "src": "po:2026-11-21",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A ledger clearing of a relieved invoice charges its bad debt relief again or is refused: createClearing (POST /v1/clearings) can clear a relieved invoice's item or its write-off's credit against a credit posted straight to the customer's account, which charges none of the relieved tax again and which receivables' paid does not count (money and tax correctness)",
+      "r": "ADR-0049 As built batch 91, Later · internal/receivables/recharge.go paidOf",
+      "src": "review:batch91",
       "c": []
      }
     ]
@@ -3303,9 +3310,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A dispute case disputes at most what is still owed of an item: today a case's amount is bounded by the item's line amount, and a write-off or credit memo leaves the item open beside its credit, so a second case can write the same invoice off again, past its gross (money correctness; bad debt relief refuses relieving more than the gross, 422 receivables.bad_debt_relief_exceeds_invoice, but the second write-off still posts)",
-        "r": "internal/collections/dispute_items.go disputed · ADR-0065 As built T86d · ADR-0049 As built batch 90",
+        "s": "D",
+        "t": "A dispute case disputes at most what is still owed of an item: its amount less what resolved cases accepted of it (credit memos and write-offs alike, which leave the item open beside their credit), so a second case can no longer write the same invoice off again, past its gross (422 collections.invalid_disputed_amount naming the item's amount; money correctness; bad debt relief still refuses relieving more than the gross, 422 receivables.bad_debt_relief_exceeds_invoice)",
+        "r": "internal/collections/dispute_items.go stillOwed · db/migrations/000451 (dispute_case_item_accepted_by_line) · TestDisputedAtMostWhatIsOwed · ADR-0065 As built batch 91 · ADR-0049 As built batch 90",
         "src": "review:batch90",
         "c": []
        },
@@ -5796,9 +5803,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2i3 The receiving company's supplier invoice from the intercompany billing: the posted billing entered as a supplier invoice of the receiving company for the supplier that is the supplying company, at the billing's amounts and tax, matched to the order's receipts (clearing GR/IR), for a person to post",
-      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i3) · ADR-0082 As built S2i",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i (S2i3) · ADR-0082 As built S2i, S2i3 · db/migrations/000455, 000456, 000457 · payables.supplier_invoice.intercompany_billing_id · POST /v1/intercompany-billings/{id}/supplier-invoices · payables.IntercompanyBillings · walkthrough step_intercompany_transport (step 155, intercompany_invoice)",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
@@ -5929,10 +5936,17 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "fix: a planning run's demand leaves out the intercompany stock transport orders its plant supplies and has not issued (S2i): an MRP run nets only sales orders and the reorder point, so a supplying plant proposes nothing for what another company of the group ordered from it, which the S&OP review counts as demand (procurement.Orders.IntercompanyDue)",
-      "r": "internal/app/mrp.go Demand · internal/mrp runwork.go · procurement.Orders.IntercompanyDue · ADR-0084 As built S2n · S2k",
+      "s": "D",
+      "t": "fix: an MRP run's demand ignores unissued intercompany orders its plant must supply (internal/app/mrp.go Demand, S2k; ADR-0084), so a supplying plant proposes too little",
+      "r": "internal/mrp/net.go count · procurement.Orders.IntercompanyDue · ADR-0084 §2, As built (intercompany demand, batch 91) · api/openapi.yaml startMrpRun, MrpRunLine.demand · TestPlanningRunIntercompany, TestSopSupply",
       "src": "review:batch90",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: an MRP run does not count the supplying plant's requirement from an unissued stock transport order within the company (ADR-0084 §6, not followed: stock transport orders count only as receipts), so a plant that supplies another plant of its company proposes too little for what it must issue",
+      "r": "internal/mrp/net.go count · inventory stock transport orders (S2h) · ADR-0084 §6, As built (intercompany demand, batch 91) · S2k",
+      "src": "review:batch91",
       "c": []
      },
      {
@@ -5999,7 +6013,7 @@
     "ph": 4,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "An external warehouse system receives deliveries and receipts to pick and put away and reports the movements back through a connector",
       "r": "S2q · docs/design/plan-supply-chain.md §S2q",
       "src": "po:2026-11-17",
@@ -6012,9 +6026,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An external warehouse system is sent the receipts expected at a plant it manages to put away, and the goods receipt it reports back is posted once by its message id",
-        "r": "S2q2 · docs/design/plan-supply-chain.md §S2q2",
+        "r": "S2q2 · docs/design/plan-supply-chain.md §S2q2 · ADR-0082 As built S2q2",
         "src": "po:2026-11-17",
         "c": []
        }
@@ -9173,6 +9187,13 @@
       "t": "fix: migration 000428_batches.down.sql's guard (batches or batch-managed materials exist) reads inventory.batch and materials.material without SET LOCAL row_security = off, so a migrating role held to their forced row-level security sees no tenant's rows and drops the batch columns whatever exists (pre-existing, as 000356's backfill); read every tenant's rows as 000435's down does, so such a role fails rather than sees zero rows",
       "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
       "src": "review:batch87",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "fix: the down migrations 000432, 000433, 000437 and 000443 run their guards without SET LOCAL row_security = off, so run as a role held to forced row-level security they see no rows and drop data: of the four only 000443_intercompany_transport.down.sql has a guard (intercompany orders or 643 documents exist), now reading with row_security off; 000432 and 000433 drop indexes and 000437 a check, which lose no data",
+      "r": "db/migrations/000443_intercompany_transport.down.sql · TestIntercompanyTransportDownRefused · ADR-0003 · 06 §6.4 (a down migration loses no data)",
+      "src": "review:batch90",
       "c": []
      }
     ]
@@ -12964,6 +12985,13 @@
       "t": "Pin images carrying glibc 2.41-12+deb13u5 (erp-analytics's distroless cc-debian13:nonroot base and PgBouncer) and remove the .grype.yaml libc6/libc-bin entries; by 2026-11-29 (CVE-2026-19499 and CVE-2026-5435, High, in glibc 2.41-12+deb13u4; accepted by the product owner on 2026-11-22 until then because neither image has a build carrying Debian's fix). erp-analytics's half done on 2026-11-23: its base pinned to cc-debian13:nonroot sha256:532c7a94... (libc6 2.41-12+deb13u5); the libc6/libc-bin entries stay for PgBouncer, which carries both at 2.41-12+deb13u4",
       "r": "deploy/images/erp-analytics.Dockerfile · deploy/images/upstream.txt · .grype.yaml · ADR-0032 As built",
       "src": "po:2026-11-22",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Pin a Temporal server whose go.mod takes go.opentelemetry.io/otel/sdk ≥ 1.47.0 and remove the GO-2026-6974 exception by 2026-12-07 (AttributeValueLengthLimit bypass via U+FFFD runes in otel/sdk and otel/trace v1.45.0 of temporal/, called per govulncheck, fixed in v1.47.0; batch 91's ci-local failed on it. otel/sdk v1.47.0 needs otel/log v1.47.0 and no Temporal server release, v1.32.1, v1.33.0-168.0 or v1.33.0-169.0-rc.20261121112244, builds with that log API, so .govulncheck.yaml accepts it in temporal/ until then under the product owner's delegation of 2026-11-23; after that date the gate fails again)",
+      "r": "temporal/go.mod · temporal/go.sum · .govulncheck.yaml · ADR-0032 As built",
+      "src": "po:2026-11-23",
       "c": []
      },
      {

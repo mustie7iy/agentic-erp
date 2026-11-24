@@ -157,7 +157,7 @@ Every change passes, before it is merged:
 | Step | Tool |
 |---|---|
 | Format, vet, static analysis | `gofmt`, `go vet`, `staticcheck` (in every Go module, `temporal/` included: `scripts/each-module.sh`) |
-| Security | `govulncheck` (in every Go module, as `staticcheck` and `gosec`), secret scanning (`gitleaks`), static analysis (`gosec`, with G104, G115, G304 and G107 excluded by decision: errors ignored on purpose carry a comment, integer conversions are of bounded domain values, paths and URLs come from settings and flags; the generated server excluded; the rest annotated where a finding is a false positive, each with its reason) |
+| Security | `govulncheck` (in every Go module, as `staticcheck` and `gosec`; a called vulnerability passes only under a dated, unexpired entry of `.govulncheck.yaml`, ADR-0032 As built), secret scanning (`gitleaks`), static analysis (`gosec`, with G104, G115, G304 and G107 excluded by decision: errors ignored on purpose carry a comment, integer conversions are of bounded domain values, paths and URLs come from settings and flags; the generated server excluded; the rest annotated where a finding is a false positive, each with its reason) |
 | Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go), and `cmd/enumcompat`: no value leaves an open enumeration (`x-extensible-enum`, which oasdiff does not read) unless `api/breaking-accepted.txt` carries the removal under its reason |
 | Schema tests on PostgreSQL 17 | `go test ./db` against a CI service container |
 | Unit, functional and non-functional tests with the race detector | `go test -race -shuffle=on -count=3 ./...`: three times in random order, on GitHub in parallel shards (`scripts/ci-shards.sh`), or in one run of `make ci-local` |

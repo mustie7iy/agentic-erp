@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,16 +31,18 @@ import (
 // created before its plant had a WMS is not sent (Later: send one by
 // hand).
 
-// WMSConsumer is the durable JetStream consumer deliveries are queued
-// for warehouse systems with; replicas share it.
+// WMSConsumer is the durable JetStream consumer deliveries and purchase
+// orders' receipts are queued for warehouse systems with; replicas share
+// it.
 const WMSConsumer = "wms-outbound"
 
-// deliveryChanged is the event type the consumer acts on.
+// deliveryChanged is the event type of a delivery's change, its creation
+// among them.
 const deliveryChanged = "com.example.erp.shipping.outbound_delivery_changed.v1"
 
 // WMSContexts are the public names of the contexts whose streams the
-// consumer reads.
-func WMSContexts() []string { return []string{"shipping"} }
+// consumer reads: shipping's deliveries and procurement's orders (S2q2).
+func WMSContexts() []string { return []string{"shipping", "procurement"} }
 
 // WMSActor is the principal of the WMS exchange's changes, in every
 // tenant: the system's, acting for the company of each delivery.
@@ -50,14 +53,17 @@ func wmsActor(tenant uuid.UUID) reqctx.Principal {
 	return reqctx.Principal{ID: WMSActor, Kind: reqctx.KindSystem, TenantID: tenant}
 }
 
-// WMSQueue turns shipping's bus events into messages to warehouse
-// systems.
+// WMSQueue turns shipping's and procurement's bus events into messages
+// to warehouse systems.
 type WMSQueue struct {
 	Pool    *database.Pool
 	AppRole string // the tenant-scoped role: a message is queued under the event's tenant
 	Log     *slog.Logger
-	Begin   database.BeginFunc // nil means Pool.Begin; tests inject failures
-	Now     func() time.Time   // the time a message is first due; nil: the wall clock
+	// Orders reads the released purchase orders whose receipts are sent
+	// (procurement, wired by the composition root).
+	Orders WMSOrders
+	Begin  database.BeginFunc // nil means Pool.Begin; tests inject failures
+	Now    func() time.Time   // the time a message is first due; nil: the wall clock
 }
 
 // deliveryCreated is an OutboundDeliveryChanged event as the consumer
@@ -119,17 +125,28 @@ const (
 )
 
 // Handle queues the message of the delivery an OutboundDeliveryChanged
-// event says was created (its first version) at a plant an active wms
-// connector manages. Another event, or a delivery of a plant no WMS
-// manages, is skipped. A malformed event, or one whose subject names
-// another tenant than its tenantid, is refused and logged: reading it
-// again cannot change the answer, so it is acknowledged (nil). An error
-// is a database failure: the event is read again.
+// event says was created (its first version), or of the receipts of the
+// purchase order a PurchaseOrderReleased event names (wms_receipts.go),
+// for the active wms connector managing its plant. Another event, or a
+// document of a plant no WMS manages, is skipped. A malformed event, or
+// one whose subject names another tenant than its tenantid, is refused
+// and logged: reading it again cannot change the answer, so it is
+// acknowledged (nil). An error is a database failure: the event is read
+// again.
 func (q *WMSQueue) Handle(ctx context.Context, m outbox.Message) error {
-	if m.Header["ce-type"] != deliveryChanged {
-		return nil
+	switch m.Header["ce-type"] {
+	case deliveryChanged:
+		return q.handleDelivery(ctx, m)
+	case orderReleased:
+		return q.handleOrder(ctx, m)
 	}
-	tenant, ev, err := parseDeliveryCreated(m)
+	return nil
+}
+
+// handleDelivery queues the message of a created delivery.
+func (q *WMSQueue) handleDelivery(ctx context.Context, m outbox.Message) error {
+	var ev deliveryCreated
+	tenant, err := parseWMSEvent(m, "shipping", &ev)
 	if err != nil {
 		q.Log.WarnContext(ctx, "the wms queue refused an event", "subject", m.Subject, "ce_id", m.Header["ce-id"], "error", err)
 		return nil
@@ -137,15 +154,20 @@ func (q *WMSQueue) Handle(ctx context.Context, m outbox.Message) error {
 	if ev.Version != 1 || ev.Status != "created" {
 		return nil
 	}
-	job := uow.Job{Begin: q.begin, Scope: database.Scope{Role: q.AppRole, TenantID: tenant}, Now: q.Now,
-		Name: "integration: wms message of outbound delivery " + ev.Delivery.String()}
+	return q.inTenant(ctx, tenant, "outbound delivery "+ev.Delivery.String(), func(ctx context.Context, tx pgx.Tx) error { return q.queue(ctx, tx, ev) })
+}
+
+// inTenant runs queue in a transaction of the tenant as the exchange's
+// principal.
+func (q *WMSQueue) inTenant(ctx context.Context, tenant uuid.UUID, of string, queue func(context.Context, pgx.Tx) error) error {
+	job := uow.Job{Begin: q.begin, Scope: database.Scope{Role: q.AppRole, TenantID: tenant}, Now: q.Now, Name: "integration: wms message of " + of}
 	var tx pgx.Tx // the job's transaction, which the unit of work's context also holds
-	err = job.As(ctx, func(ctx context.Context, begun pgx.Tx) (reqctx.Principal, bool, error) {
+	err := job.As(ctx, func(ctx context.Context, begun pgx.Tx) (reqctx.Principal, bool, error) {
 		tx = begun
 		return wmsActor(tenant), true, nil
-	}, func(ctx context.Context) error { return q.queue(ctx, tx, ev) })
+	}, func(ctx context.Context) error { return queue(ctx, tx) })
 	if err != nil {
-		return fmt.Errorf("integration: wms message of outbound delivery %s: %w", ev.Delivery, err)
+		return fmt.Errorf("integration: wms message of %s: %w", of, err)
 	}
 	return nil
 }
@@ -154,18 +176,17 @@ func (q *WMSQueue) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) 
 	return database.BeginOr(ctx, q.Pool, q.Begin, s)
 }
 
-// parseDeliveryCreated reads an OutboundDeliveryChanged bus event: its
-// tenant (the subject's, which must be its tenantid) and its data.
-func parseDeliveryCreated(m outbox.Message) (uuid.UUID, deliveryCreated, error) {
-	var ev deliveryCreated
-	tenant, err := m.Tenant("shipping")
+// parseWMSEvent reads a bus event of the context into data: its tenant (the
+// subject's, which must be its tenantid) and its data.
+func parseWMSEvent(m outbox.Message, context string, data any) (uuid.UUID, error) {
+	tenant, err := m.Tenant(context)
 	if err != nil {
-		return uuid.Nil, ev, err
+		return uuid.Nil, err
 	}
-	if err := json.Unmarshal(m.Data, &ev); err != nil {
-		return uuid.Nil, ev, fmt.Errorf("data: %w", err)
+	if err := json.Unmarshal(m.Data, data); err != nil {
+		return uuid.Nil, fmt.Errorf("data: %w", err)
 	}
-	return tenant, ev, nil
+	return tenant, nil
 }
 
 // queue writes the delivery's message for the WMS managing its plant,
@@ -183,18 +204,39 @@ func (q *WMSQueue) queue(ctx context.Context, tx pgx.Tx, ev deliveryCreated) err
 		msg.Items[i] = WMSDeliveryItem{ItemNo: it.ItemNo, MaterialNumber: it.Material, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
 	}
 	body, _ := json.Marshal(msg) // strings, numbers and a UUID always marshal
+	return q.insertOutbound(ctx, tx, outboundRow{id: id, connector: c, kind: WMSOutboundDelivery, legalEntity: ev.LegalEntity, document: ev.Delivery,
+		number: ev.Number, plant: ev.Plant, body: body, audit: map[string]any{"outbound_delivery_id": ev.Delivery, "outbound_delivery_number": ev.Number,
+			"company_code": ev.Company, "plant_code": ev.Plant}})
+}
+
+// outboundRow is a message to a WMS as queued, with what its audit record
+// says of its document.
+type outboundRow struct {
+	id                    uuid.UUID
+	connector             wmsConnector
+	kind                  string
+	legalEntity, document uuid.UUID
+	number, plant         string
+	body                  []byte
+	audit                 map[string]any
+}
+
+// insertOutbound writes the message, pending and due now, once per kind
+// and document (wms_message_once), with its audit record when it was
+// written.
+func (q *WMSQueue) insertOutbound(ctx context.Context, tx pgx.Tx, r outboundRow) error {
 	tag, err := tx.Exec(ctx, `INSERT INTO integration.wms_message (tenant_id, id, connector_id, direction, message_id, kind, legal_entity_id, document_id,
 			document_number, plant_code, body, status, next_attempt_at)
 		VALUES (platform.require_tenant(), $1, $2, 'outbound', $3, $4, $5, $6, $7, $8, $9, 'pending', $10)
 		ON CONFLICT (tenant_id, kind, document_id) WHERE direction = 'outbound' DO NOTHING`,
-		id, c.ID, id.String(), WMSOutboundDelivery, ev.LegalEntity, ev.Delivery, ev.Number, ev.Plant, body, clock.Now(q.Now))
+		r.id, r.connector.ID, r.id.String(), r.kind, r.legalEntity, r.document, r.number, r.plant, r.body, clock.Now(q.Now))
 	if err != nil {
-		return fmt.Errorf("integration: queue the wms message of outbound delivery %s: %w", ev.Number, err)
+		return fmt.Errorf("integration: queue the wms message (%s) of %s: %w", r.kind, r.number, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil
 	}
-	return audit.Record(ctx, "integration.wms_message.queue", "integration.wms_message", id, map[string]any{"connector_id": c.ID,
-		"connector_name": c.Name, "kind": WMSOutboundDelivery, "outbound_delivery_id": ev.Delivery, "outbound_delivery_number": ev.Number,
-		"company_code": ev.Company, "plant_code": ev.Plant})
+	details := map[string]any{"connector_id": r.connector.ID, "connector_name": r.connector.Name, "kind": r.kind}
+	maps.Copy(details, r.audit)
+	return audit.Record(ctx, "integration.wms_message.queue", "integration.wms_message", r.id, details)
 }

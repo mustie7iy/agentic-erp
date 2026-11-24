@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"time"
 
@@ -74,14 +75,18 @@ const ReliefDocumentType = "SA"
 
 // WrittenOff is what a dispute case's write-off (ADR-0065 T86d) wrote off
 // of a customer invoice's open item: the case, the write-off's entry by
-// fiscal year and document number, the date it posted on, and the amount,
-// in the invoice's currency and, at the item's booked rate, the company's.
+// fiscal year and document number, the date it posted on, the amount,
+// in the invoice's currency and, at the item's booked rate, the
+// company's, and the lines of the write-off's entry that credit the
+// invoice's items to the customer, by number: open items beside the
+// invoice's (T86d), which a payment may apply with it (recharge.go).
 type WrittenOff struct {
 	DisputeCaseID    uuid.UUID
 	EntryYear        int16
 	EntryNumber      string
 	PostingDate      time.Time
 	Amount, AmountLC money.Minor
+	CreditLines      []int32
 }
 
 // WriteOffs reads what a write-off wrote off of a customer invoice's
@@ -154,9 +159,9 @@ func (e *Endpoints) ClaimBadDebtRelief(ctx context.Context, in ReliefInput) (Rel
 	if err != nil {
 		return Relief{}, err
 	}
-	v, err := get(ctx, tx, in.InvoiceID, true)
+	v, err := e.heldInvoice(ctx, tx, in.InvoiceID)
 	if err != nil {
-		return Relief{}, problem.Reference(err, "customer_invoice_id", "customer invoice", "a posted customer invoice of a company the caller may act in")
+		return Relief{}, err
 	}
 	c, err := e.reliefClaim(ctx, tx, v, in)
 	if err != nil {
@@ -181,8 +186,9 @@ func (e *Endpoints) ClaimBadDebtRelief(ctx context.Context, in ReliefInput) (Rel
 // company whose country recovers a bad debt's tax (reliefable), a posting
 // date not before the write-off, the write-off of this invoice
 // (writtenOff), the country's conditions (rule.check), not yet relieved
-// (relieved), the tax it bore (reliefShares) and the adjustment code and
-// account it is posted to (reliefLines).
+// (relieved), not paid beyond what its write-offs leave (unpaid), the tax
+// it bore (reliefShares) and the adjustment code and account it is posted
+// to (reliefLines).
 func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in ReliefInput) (claim, error) {
 	le, _, err := e.LegalEntities.Entity(ctx, v.LegalEntityID) // a stored invoice's legal entity exists
 	if err != nil {
@@ -204,10 +210,32 @@ func (e *Endpoints) reliefClaim(ctx context.Context, tx pgx.Tx, v Invoice, in Re
 	if c.before, err = relieved(ctx, tx, v, in.WriteOffEntryID, c.written); err != nil {
 		return claim{}, err
 	}
+	if err := e.unpaid(ctx, tx, c); err != nil {
+		return claim{}, err
+	}
 	if err := e.reliefShares(ctx, &c); err != nil {
 		return claim{}, err
 	}
 	return c, e.reliefAccounts(ctx, &c)
+}
+
+// heldInvoice is the invoice a relief claims, read under its customer's
+// hold (RechargeLock), then its row lock (ADR-0008): the order a payment
+// takes them, the hold before the invoice's row, so the two never wait on
+// each other in a cycle. A posted invoice's company and customer never
+// change, so the first read needs no lock.
+func (e *Endpoints) heldInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Invoice, error) {
+	v, err := get(ctx, tx, id, false)
+	if err == nil {
+		_, err = holdRelieved(ctx, tx, v.LegalEntityID, []uuid.UUID{v.CustomerID})
+	}
+	if err == nil {
+		v, err = get(ctx, tx, id, true)
+	}
+	if err != nil {
+		return Invoice{}, problem.Reference(err, "customer_invoice_id", "customer invoice", "a posted customer invoice of a company the caller may act in")
+	}
+	return v, nil
 }
 
 // reliefable is the rule of the invoice's company's country: only a posted
@@ -328,6 +356,36 @@ func relieved(ctx context.Context, tx pgx.Tx, v Invoice, entry uuid.UUID, w Writ
 	return t, nil
 }
 
+// unpaid refuses relieving a write-off of an invoice the customer has
+// paid beyond what its write-offs, this one with the earlier ones', leave
+// owed (paidOf, recharge.go): what was paid is no bad debt, and a later
+// payment would charge the relief's tax straight back (422
+// receivables.bad_debt_paid naming write_off_journal_entry_id). The
+// customer's hold orders it with its payments (RechargeLock).
+func (e *Endpoints) unpaid(ctx context.Context, tx pgx.Tx, c claim) error {
+	s, err := e.reliefStateOf(ctx, tx, c.invoice)
+	if err != nil {
+		return err
+	}
+	for _, line := range c.written.CreditLines {
+		s.credits = append(s.credits, ledger.ItemRef{FiscalYear: c.written.EntryYear, EntryID: c.in.WriteOffEntryID, LineNo: line})
+	}
+	paid, foreign, err := paidOf(ctx, tx, c.invoice, s.credits)
+	switch {
+	case err != nil:
+		return err
+	case foreign:
+		return relievedOtherCurrency(c.invoice)
+	}
+	// What was written off is at most the gross (relieved): in range.
+	if owed := c.invoice.Gross - c.before.written - c.written.Amount; paid > owed {
+		return problem.Invalid("receivables.bad_debt_paid", "write_off_journal_entry_id", fmt.Sprintf("The customer has paid %s of customer "+
+			"invoice %s, more than the %s its write-offs leave owed: what was paid is no bad debt.", paid.Plain(c.invoice.Exponent),
+			c.invoice.DocumentNumber, owed.Plain(c.invoice.Exponent)))
+	}
+	return nil
+}
+
 func init() {
 	problem.RegisterConstraint("bad_debt_relief_once", func() *problem.Problem {
 		return problem.Conflict("receivables.bad_debt_relief_claimed", "The write-off of the invoice was relieved by another request in the meantime.")
@@ -376,18 +434,31 @@ func (e *Endpoints) reliefShares(ctx context.Context, c *claim) error {
 		return problem.Invalid("receivables.no_output_tax", "customer_invoice_id", "Customer invoice "+c.invoice.DocumentNumber+" bore no output tax "+
 			"that what write-off "+c.written.EntryNumber+" wrote off would recover.")
 	}
-	tc := money.ShareOut(c.tax, taxes)
-	for i := range c.shares {
-		if c.shares[i].tc = tc[i]; tc[i] == 0 {
-			taxesLC[i] = 0 // no line takes it (reliefLines)
-		}
-	}
-	// nil when no item with a share carries local tax: none is shared, and
 	// reliefLines records the local tax the lines post.
-	for i, lc := range money.ShareOut(c.lc, taxesLC) {
-		c.shares[i].lc = lc
+	tc, lc := shareWithLocal(c.tax, c.lc, taxes, taxesLC)
+	for i := range c.shares {
+		c.shares[i].tc, c.shares[i].lc = tc[i], lc[i]
 	}
 	return nil
+}
+
+// shareWithLocal shares tax out by the weights taxes (money.ShareOut) and
+// lc by the weights locals, over those whose tax share is not nothing:
+// a share that rounds to nothing makes no line, so it takes no local
+// tax either. The local shares are all nothing when no such weight
+// carries local tax. taxes weighs something.
+func shareWithLocal(tax, lc money.Minor, taxes, locals []money.Minor) (tcs, lcs []money.Minor) {
+	tcs, weights := money.ShareOut(tax, taxes), slices.Clone(locals)
+	for i := range weights {
+		if tcs[i] == 0 {
+			weights[i] = 0
+		}
+	}
+	lcs = money.ShareOut(lc, weights)
+	if lcs == nil {
+		lcs = make([]money.Minor, len(taxes))
+	}
+	return tcs, lcs
 }
 
 // reliefAccounts finds the account each share posts to, its component's

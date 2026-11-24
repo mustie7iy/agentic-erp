@@ -225,6 +225,7 @@ var operationRolesOidc = map[string][]string{
 	EndRoleAssignmentOperation:                     []string{},
 	EndRolePermissionOperation:                     []string{},
 	EndSodRuleOperation:                            []string{},
+	EnterIntercompanySupplierInvoiceOperation:      []string{},
 	EnterPhysicalInventoryCountOperation:           []string{},
 	EvaluateMetricWatcherOperation:                 []string{},
 	ExcludeBankStatementLineOperation:              []string{},
