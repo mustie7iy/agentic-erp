@@ -108422,7 +108422,8 @@ type RevenueRecognitionRun struct {
 	PostingDate time.Time `json:"posting_date"`
 	// The company's local currency (ISO 4217), which every amount of the run is in.
 	Currency string `json:"currency"`
-	// The active contracts of the company the run read.
+	// The active contracts of the company the run read: those whose revenue can still move, an ended one
+	// until a run took its position off.
 	ContractCount int32 `json:"contract_count"`
 	// The contracts whose figures moved since their last posting: the journal entries the run posted, one
 	// each.

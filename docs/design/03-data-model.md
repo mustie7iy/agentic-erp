@@ -419,8 +419,11 @@ Saturday and Sunday. A business day is neither a weekend day nor a holiday
 calendar count days by. The `close` section is the close template
 (`close.tasks`, T64a; §3.22) and its year tasks (`close.year_tasks`, T64m4;
 §3.22); a company's `close.variance` its variance
-report's settings (T64h; §3.22) and its `close.accrual_account` the
-liability its accruals are credited to (T64e, tier 3; §3.22).
+report's settings (T64h; §3.22), its `close.accrual_account` the
+liability its accruals are credited to (T64e, tier 3; §3.22) and its
+`close.sign_off_separation` whether its closes are signed off only by
+someone who completed none of their tasks (T64o, tier 3; on when left
+out, `false` while a pilot runs without separation of duties).
 `POST /v1/country-pack-applications` (T62d) stores the draft as a change
 request in status `draft` on the active version, with the merge's notes in
 `change_request.notes` (an array of path and message, `[]` for requests
