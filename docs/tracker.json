@@ -6056,9 +6056,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "An external transport system receives outbound deliveries to plan and returns the shipment and freight cost through a connector",
-      "r": "S2r · docs/design/plan-supply-chain.md §S2r",
+      "r": "S2r · docs/design/plan-supply-chain.md §S2r · ADR-0082 As built S2r · migrations 000462, 000463 · GET /v1/tms-messages · shipping.RecordShipment · walkthrough step_tms (step 161)",
       "src": "po:2026-11-17",
       "c": []
      },

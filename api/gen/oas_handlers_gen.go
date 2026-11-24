@@ -107735,6 +107735,235 @@ func (s *Server) handleListSupplierQuotationsRequest(args [1]string, argsEscaped
 	}
 }
 
+// handleListTMSMessagesRequest handles listTMSMessages operation.
+//
+// The messages exchanged with the tenant's transport management systems through `tms` connectors
+// (ADR-0082 As built S2r), newest first: those of the companies the caller may act in, and, to a
+// caller who may act in every company, inbound ones refused before their delivery was known. Outbound
+// (`transport_request`): each outbound delivery created at a plant an active `tms` connector names in
+// its `plants` is queued once as a message giving the transport system the delivery to plan (its
+// `body`, the message as sent: message type `transport_request`, schema version 1, its company, plant
+// and storage location by code, the delivery by id and number with its sales order's and customer's
+// numbers, and each item's number, material number, quantity and unit), sent, tried again and failed
+// exactly as a warehouse system's message is (`listWMSMessages`; `integration.not_a_tms` when its
+// connector is not a `tms` one). Inbound (`shipment`): the shipment the transport system reports back,
+// polled from each active `tms` connector (every 10 s) and recorded once per connector and its message
+// id: `recorded`, the shipment (its own `message_id`, the `outbound_delivery_id` it was sent,
+// `shipment_number`, `carrier_code` and `freight_cost` with `amount` and `currency`) recorded on the
+// delivery (`getOutboundDelivery`'s `shipment`, as the exchange's system principal acting for the
+// delivery's company), nothing posted; or `refused` with the problem that stopped it: one that is not
+// a JSON `shipment` message naming its own message id and an `outbound_delivery_id`, or that holds
+// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for both kinds; its body kept as
+// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+// not sent (`integration.tms_unknown_delivery`), or that shipping refuses
+// (`shipping.shipment_recorded` for a delivery with a shipment already, `shipping.invalid_shipment`,
+// `request.invalid_amount`). The transport system is told after that commit (`acknowledged_at`); one
+// listed again is acknowledged again, not recorded twice. Filters: connector, direction, status and
+// the outbound delivery.
+//
+// GET /v1/tms-messages
+func (s *Server) handleListTMSMessagesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listTMSMessages"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/tms-messages"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListTMSMessagesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListTMSMessagesOperation,
+			ID:   "listTMSMessages",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListTMSMessagesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListTMSMessagesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListTMSMessagesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListTMSMessagesOperation,
+			OperationSummary: "List the messages exchanged with transport systems",
+			OperationID:      "listTMSMessages",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "connector_id",
+					In:   "query",
+				}: params.ConnectorID,
+				{
+					Name: "direction",
+					In:   "query",
+				}: params.Direction,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "outbound_delivery_id",
+					In:   "query",
+				}: params.OutboundDeliveryID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListTMSMessagesParams
+			Response = ListTMSMessagesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListTMSMessagesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListTMSMessages(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListTMSMessages(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListTMSMessagesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListTaxPeriodsRequest handles listTaxPeriods operation.
 //
 // The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its

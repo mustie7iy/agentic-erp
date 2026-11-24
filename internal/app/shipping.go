@@ -26,16 +26,28 @@ func Shipping(cfg Config) *shipping.Endpoints {
 		Partners: partner.Payees{}, LegalEntities: tenancy.Directory{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
 }
 
-// WMS is the exchange with warehouse systems (ADR-0082 As built S2q) as
-// the server runs it: its messages sent and its warehouse systems polled
-// through client (integration.NewWMSClient), their credentials resolved
-// by cfg.Secrets, the goods issues they report posted through
-// shipping's published API (wmsDeliveries) and the goods receipts through
-// procurement's (WMSOrders, S2q2), so integration imports neither. The
-// server sets the pool and roles.
+// WMS is the exchange with warehouse and transport systems (ADR-0082 As
+// built S2q, S2r) as the server runs it: its messages sent and its
+// systems polled through client (integration.NewWMSClient), their
+// credentials resolved by cfg.Secrets, the goods issues they report
+// posted through shipping's published API (wmsDeliveries), the goods
+// receipts through procurement's (WMSOrders, S2q2) and the shipments
+// recorded through shipping's (tmsDeliveries, S2r), so integration imports
+// neither. The server sets the pool and roles.
 func WMS(cfg Config, client *egress.Client) *integration.WMSExchange {
-	return &integration.WMSExchange{Secrets: resolver(cfg.Secrets), Adapter: integration.WMSAdapters(client), Deliveries: wmsDeliveries{Shipping(cfg)},
-		Orders: WMSOrders(cfg), RefuseStandIn: cfg.RefuseEBICS, Now: cfg.Now}
+	ship := Shipping(cfg)
+	return &integration.WMSExchange{Secrets: resolver(cfg.Secrets), Adapter: integration.WMSAdapters(client), Deliveries: wmsDeliveries{ship},
+		Orders: WMSOrders(cfg), Shipments: tmsDeliveries{ship}, RefuseStandIn: cfg.RefuseEBICS, Now: cfg.Now}
+}
+
+// tmsDeliveries records the shipment a transport system reports of a
+// delivery (shipping's RecordShipment, S2r).
+type tmsDeliveries struct{ e *shipping.Endpoints }
+
+func (a tmsDeliveries) ShipmentReported(ctx context.Context, delivery uuid.UUID, s integration.TMSShipmentReported) error {
+	_, err := a.e.RecordShipment(ctx, delivery, shipping.ShipmentInput{Number: s.Number, Carrier: s.Carrier, FreightAmount: s.FreightAmount,
+		Currency: s.Currency})
+	return err
 }
 
 // wmsDeliveries posts what a warehouse system reports of a delivery: its

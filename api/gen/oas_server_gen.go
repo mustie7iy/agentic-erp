@@ -7288,6 +7288,34 @@ type Handler interface {
 	//
 	// GET /v1/rfqs/{id}/quotations
 	ListSupplierQuotations(ctx context.Context, params ListSupplierQuotationsParams) (ListSupplierQuotationsRes, error)
+	// ListTMSMessages implements listTMSMessages operation.
+	//
+	// The messages exchanged with the tenant's transport management systems through `tms` connectors
+	// (ADR-0082 As built S2r), newest first: those of the companies the caller may act in, and, to a
+	// caller who may act in every company, inbound ones refused before their delivery was known. Outbound
+	// (`transport_request`): each outbound delivery created at a plant an active `tms` connector names in
+	// its `plants` is queued once as a message giving the transport system the delivery to plan (its
+	// `body`, the message as sent: message type `transport_request`, schema version 1, its company, plant
+	// and storage location by code, the delivery by id and number with its sales order's and customer's
+	// numbers, and each item's number, material number, quantity and unit), sent, tried again and failed
+	// exactly as a warehouse system's message is (`listWMSMessages`; `integration.not_a_tms` when its
+	// connector is not a `tms` one). Inbound (`shipment`): the shipment the transport system reports back,
+	// polled from each active `tms` connector (every 10 s) and recorded once per connector and its message
+	// id: `recorded`, the shipment (its own `message_id`, the `outbound_delivery_id` it was sent,
+	// `shipment_number`, `carrier_code` and `freight_cost` with `amount` and `currency`) recorded on the
+	// delivery (`getOutboundDelivery`'s `shipment`, as the exchange's system principal acting for the
+	// delivery's company), nothing posted; or `refused` with the problem that stopped it: one that is not
+	// a JSON `shipment` message naming its own message id and an `outbound_delivery_id`, or that holds
+	// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for both kinds; its body kept as
+	// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+	// not sent (`integration.tms_unknown_delivery`), or that shipping refuses
+	// (`shipping.shipment_recorded` for a delivery with a shipment already, `shipping.invalid_shipment`,
+	// `request.invalid_amount`). The transport system is told after that commit (`acknowledged_at`); one
+	// listed again is acknowledged again, not recorded twice. Filters: connector, direction, status and
+	// the outbound delivery.
+	//
+	// GET /v1/tms-messages
+	ListTMSMessages(ctx context.Context, params ListTMSMessagesParams) (ListTMSMessagesRes, error)
 	// ListTaxPeriods implements listTaxPeriods operation.
 	//
 	// The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its

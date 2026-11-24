@@ -41,6 +41,10 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 		out.MaterialDocumentID, out.MaterialDocumentNumber = apitypes.OptUUID(d.MaterialDocumentID), apitypes.OptString(d.MaterialDocumentNumber)
 		out.CostOfGoodsSold = gen.NewOptMoney(apitypes.Money(total, d.Currency, d.Exponent))
 	}
+	if s := d.Shipment; s != nil {
+		out.Shipment.SetTo(gen.OutboundDeliveryShipment{ShipmentNumber: s.Number, CarrierCode: s.Carrier,
+			FreightCost: apitypes.Money(s.Freight, s.Currency, s.Exponent), RecordedAt: s.RecordedAt})
+	}
 	return out
 }
 

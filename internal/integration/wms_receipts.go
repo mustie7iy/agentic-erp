@@ -148,8 +148,8 @@ func (q *WMSQueue) handleOrder(ctx context.Context, m outbox.Message) error {
 // plants are not sent (Later: a message per plant), and the audit record
 // names their plants.
 func (q *WMSQueue) queueOrder(ctx context.Context, tx pgx.Tx, ev orderReleasedEvent) error {
-	cs, err := activeWMS(ctx, tx)
-	if err != nil || !slices.ContainsFunc(cs, func(c wmsConnector) bool { return len(c.Plants[ev.Company]) > 0 }) {
+	cs, err := activeLogistics(ctx, tx, WMS)
+	if err != nil || !slices.ContainsFunc(cs, func(c logisticsConnector) bool { return len(c.Plants[ev.Company]) > 0 }) {
 		return err
 	}
 	o, ok, err := q.Orders.Expected(ctx, ev.Order)
@@ -185,7 +185,7 @@ func (q *WMSQueue) queueOrder(ctx context.Context, tx pgx.Tx, ev orderReleasedEv
 
 // receivingWMS is the active WMS managing the plant of the order's first
 // stock item at a plant one manages, and that plant.
-func receivingWMS(cs []wmsConnector, company string, items []WMSExpectedItem) (wmsConnector, string, bool) {
+func receivingWMS(cs []logisticsConnector, company string, items []WMSExpectedItem) (logisticsConnector, string, bool) {
 	for _, it := range items {
 		for _, c := range cs {
 			if c.Manages(company, it.PlantCode) {
@@ -193,7 +193,7 @@ func receivingWMS(cs []wmsConnector, company string, items []WMSExpectedItem) (w
 			}
 		}
 	}
-	return wmsConnector{}, "", false
+	return logisticsConnector{}, "", false
 }
 
 // dateOf is a day as a message gives it, or nil.
@@ -234,7 +234,8 @@ func (w *WMSExchange) postReceipt(ctx context.Context, tx pgx.Tx, in *inbound, g
 		}
 		received[i] = WMSReceived{ItemNo: it.ItemNo, Quantity: it.Quantity, Unit: it.Unit}
 	}
-	return w.inSavepoint(ctx, tx, in, func(ctx context.Context) (WMSPosted, error) {
-		return w.Orders.ReceiptReported(authz.ActingFor(ctx, *in.legalEntity), *in.legalEntity, gr.OrderID, in.messageID, received)
+	return w.inSavepoint(ctx, tx, in, func(ctx context.Context) (*WMSPosted, error) {
+		p, err := w.Orders.ReceiptReported(authz.ActingFor(ctx, *in.legalEntity), *in.legalEntity, gr.OrderID, in.messageID, received)
+		return &p, err
 	})
 }
