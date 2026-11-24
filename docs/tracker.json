@@ -12988,6 +12988,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "Pin a Temporal server whose go.mod takes go.opentelemetry.io/otel/sdk ≥ 1.47.0 and remove the GO-2026-6974 exception by 2026-12-07 (AttributeValueLengthLimit bypass via U+FFFD runes in otel/sdk and otel/trace v1.45.0 of temporal/, called per govulncheck, fixed in v1.47.0; batch 91's ci-local failed on it. otel/sdk v1.47.0 needs otel/log v1.47.0 and no Temporal server release, v1.32.1, v1.33.0-168.0 or v1.33.0-169.0-rc.20261121112244, builds with that log API, so .govulncheck.yaml accepts it in temporal/ until then under the product owner's delegation of 2026-11-23; after that date the gate fails again)",
+      "r": "temporal/go.mod · temporal/go.sum · .govulncheck.yaml · ADR-0032 As built",
+      "src": "po:2026-11-23",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The race suite three times shuffled, the coverage gate and fuzzing run on GitHub for every pull request and for main's full run, as parallel jobs in shards computed from go list (a check fails when a package or a test of a split package is in no shard); make ci-local-light runs the other gates locally, and merge-pr.sh merges on its report only when the pull request's run held the three; a manual run on main is no longer cancelled by a newer one, and nothing but the fix forward merges while main's full run is red or still going",
       "r": ".github/workflows/ci.yml · scripts/ci-shards.sh · scripts/ci-shard-weights.txt · scripts/coverage.sh · scripts/ci-local.sh · scripts/merge-pr.sh · scripts/test-ci-shards.sh · scripts/test-coverage-gate.sh · scripts/test-merge-pr.sh · Makefile · 06 §6.5 · ADR-0053 As built",
