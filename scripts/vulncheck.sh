@@ -6,7 +6,7 @@
 # vulnerability that .govulncheck.yaml does not accept for this module
 # until a date not yet past, and on an expired or unused exception
 # (ADR-0032 As built). GOVULNCHECK_EXCEPTIONS names another exceptions
-# file, for scripts/test-each-module.sh alone: no workflow sets it.
+# file, for scripts/test-vulncheck.sh alone: no workflow sets it.
 #
 #   scripts/each-module.sh ./scripts/vulncheck.sh govulncheck
 #   scripts/each-module.sh ./scripts/vulncheck.sh go run golang.org/x/vuln/cmd/govulncheck@v1.9.0

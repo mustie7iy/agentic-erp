@@ -442,7 +442,7 @@ exceptions.
   with an `expires` date not yet past in UTC, and a `reason`. An expired
   entry fails the gate, and so does one that no called vulnerability of
   its module matches, so a stale entry is removed rather than left to
-  cover a later finding; an entry naming no module of the repository, a
+  cover a later finding; an entry naming no module of the repository (or not as a clean directory: `temporal`, not `./temporal`), a
   missing field or a scan that is not symbol-level cannot be checked and
   fails too. The first entry: GO-2026-6974 (AttributeValueLengthLimit
   bypass via U+FFFD runes, published 2026-11-23) in otel/sdk and otel/trace

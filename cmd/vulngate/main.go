@@ -96,6 +96,9 @@ func readExceptions(path, root string) ([]exception, error) {
 		if _, err := time.Parse(time.DateOnly, e.Expires); err != nil {
 			return nil, fmt.Errorf("%s: %s: expires %q is not a date (YYYY-MM-DD)", path, e.ID, e.Expires)
 		}
+		if e.Module != filepath.Clean(e.Module) {
+			return nil, fmt.Errorf("%s: %s: module %q is not a clean directory (write %q): no run would match it", path, e.ID, e.Module, filepath.Clean(e.Module))
+		}
 		if _, err := os.Stat(filepath.Join(root, e.Module, "go.mod")); err != nil {
 			return nil, fmt.Errorf("%s: %s: module %q is not a Go module of the repository: %w", path, e.ID, e.Module, err)
 		}
