@@ -22,7 +22,7 @@ func TestShippingPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "shipping.delivery.read shipping.delivery.write shipping.goods_issue.post"; got != want {
+	if got, want := strings.Join(codes, " "), "shipping.delivery.read shipping.delivery.write shipping.goods_issue.post shipping.trade_compliance.release"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

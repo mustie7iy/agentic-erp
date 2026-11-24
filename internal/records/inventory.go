@@ -122,7 +122,6 @@ var SchemasWithout = map[string]string{
 	"receivables":   "customer invoices and receipts: customers by id",
 	"records":       "archiving runs: requesters by id",
 	"revenue":       "revenue contracts: customers by id",
-	"shipping":      "outbound deliveries: customers by id and number, items described as their order's",
 	"tax":           "tax returns: the company's registrations",
 	"tenancy":       "the tenant and its companies: organisations, not persons",
 	"workflow":      "approval requests and decisions: principals by id",
