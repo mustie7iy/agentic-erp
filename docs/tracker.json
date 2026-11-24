@@ -1312,6 +1312,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: a goods movement reads its account determination key with no lock (ledger.Accounts.Determination, internal/ledger/ports.go), so a movement posting while a configuration activation changes a valuation class's stock account can post to the old account after the change commits; read the key FOR SHARE so the activation's update waits for the posting, or the posting for the activation",
+      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted",
+      "src": "review:batch93",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "A cash discount a UAE customer takes reduces the output tax (product owner 2026-11-21, as T36d's correction reduces input tax on the supplier side): a payment within the discount period of an invoice whose codes levy VAT corrects the output tax per tax item in proportion, with the item's jurisdiction (emirate), so the VAT 201 reports the reduced tax; today receivables writes what the customer took off as a payment difference without a tax code (ADR-0063 T75f, Not built). A Canadian cash discount keeps making no GST/HST adjustment (ETA s.161, Musto 2026-11-21)",
       "r": "ADR-0049 As built batch 88 · ADR-0063 T75f, As built cash discount granted (migration 000445) · TestUAECashDiscount · TestCanadianCashDiscount · walkthrough step 156",
@@ -9216,6 +9223,13 @@
       "r": "db/migrations/000443_intercompany_transport.down.sql · TestIntercompanyTransportDownRefused · ADR-0003 · 06 §6.4 (a down migration loses no data)",
       "src": "review:batch90",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: 50 down migrations run their RAISE guards without SET LOCAL row_security = off (from 000013 to 000418; migguards' list of batch 93 less 000443, which batch 91 fixed), so run as a migrating role held to forced row-level security they see no rows and drop data instead of refusing; each needs the line 000428's and 000435's downs have, and a down-guard test as such a role (db/migrator_test.go asMigrator)",
+      "r": "db/migrations/*.down.sql (the guards' DO blocks) · 000428_batches.down.sql and TestBatchDownRefused (the pattern) · db/migrator_test.go asMigrator · ADR-0003 · 06 §6.4 (a down migration loses no data) · migguards' list of the downs (batch 93)",
+      "src": "review:batch93",
+      "c": []
      }
     ]
    },
@@ -12395,6 +12409,13 @@
         "t": "A contract test that every status a handler can answer is declared on its operation (for example an {id} operation's 404 for a document not found or not visible): TestProblemCodes checks the problem codes only, so ics3's undeclared 404 (batch 91) was caught by review alone",
         "r": "api/problemcodes_test.go TestProblemCodes (codes, not statuses) · api/openapi.yaml responses · batch 91 review round 1 (pre-existing) · enterIntercompanySupplierInvoice's 404 · built: api/statuses_test.go, TestProblemCodes/statuses (each problem.New's status for the codes the operation's own code makes, problem.From's database translation left to the pipeline; 404 for a path's parameter; relayedStatuses for a status given at run time; 500 left out) and TestProblemCodes/statuses_refused · 51 responses added to 48 operations (409 ×32, most of them config.not_bootstrapped on reads; 422 ×14; 503 ×3, object storage; 412 ×1; 400 ×1; listed in ADR-0052 As built batch 93) · ADR-0052 G7 As built batch 93 (a 404 of a body reference is not derived: a gap) · no walkthrough step: a contract test",
         "src": "review:batch91",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "fix: a 503 that problem.From answers for a lost database connection is declared on no operation: TestProblemCodes/statuses leaves problem.From's translation to the request pipeline, so the contract tells a consumer of no operation that it can answer 503; it needs a document-level note (as 500 is treated) or a decision to declare it per operation",
+        "r": "api/statuses_test.go (problem.From left to the pipeline, 500 left out) · internal/platform/problem From · api/openapi.yaml responses · ADR-0052 G7 As built batch 93",
+        "src": "review:batch93",
         "c": []
        },
        {
