@@ -16875,10 +16875,10 @@ step_gts() {
   connector=$(field .id)
   refused 409 integration.plant_has_gts createConnector -body "{\"kind\": \"gts\", \"name\": \"Second compliance service\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
   as sally
-  say "Sally sells Northwind two brackets from the Toronto plant and confirms the order:"
+  say "Sally sells Northwind two single brackets from the Toronto plant, priced by hand (its price is by the box), and confirms the order:"
   api 201 '"sales order \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
     createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
-      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}]}"
+      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"9.50\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}]}"
   order=$(field .id)
   QUIET=1 api 200 '' getSalesOrder -p "id=$order"
   QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
