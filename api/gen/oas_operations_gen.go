@@ -47,6 +47,7 @@ const (
 	CancelRevaluationRunOperation                  OperationName = "CancelRevaluationRun"
 	CancelRfqOperation                             OperationName = "CancelRfq"
 	CancelSalesOrderOperation                      OperationName = "CancelSalesOrder"
+	CancelStockTransportOrderOperation             OperationName = "CancelStockTransportOrder"
 	CancelSupplierInvoiceOperation                 OperationName = "CancelSupplierInvoice"
 	CaptureSalesOrderOperation                     OperationName = "CaptureSalesOrder"
 	CaptureSupplierInvoiceOperation                OperationName = "CaptureSupplierInvoice"

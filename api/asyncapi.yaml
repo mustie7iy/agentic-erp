@@ -276,6 +276,7 @@ channels:
       RequisitionReopened: {$ref: '#/components/messages/RequisitionReopened'}
       ScheduleLineChanged: {$ref: '#/components/messages/ScheduleLineChanged'}
       ScheduleLineCalledOff: {$ref: '#/components/messages/ScheduleLineCalledOff'}
+      StockTransportOrderCancelled: {$ref: '#/components/messages/StockTransportOrderCancelled'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -699,6 +700,7 @@ operations:
       - $ref: '#/channels/procurement/messages/RequisitionReopened'
       - $ref: '#/channels/procurement/messages/ScheduleLineChanged'
       - $ref: '#/channels/procurement/messages/ScheduleLineCalledOff'
+      - $ref: '#/channels/procurement/messages/StockTransportOrderCancelled'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -3344,6 +3346,31 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000706", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.schedule_line_called_off.v1", "subject": "0192a000-0000-7000-8000-000000000731", "time": "2026-12-01T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"schedule_line_id": "0192a000-0000-7000-8000-000000000731", "contract_id": "0192a000-0000-7000-8000-000000000721", "document_number": "CT100001", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "line_no": 1, "contract_item_no": 1, "material_key": "CHAIR-ERGO-01", "delivery_date": "2026-12-15", "quantity": {"value": "40", "unit": "EA"}, "amount": {"amount": "16500.00", "currency": "EUR"}, "purchase_order_id": "0192a000-0000-7000-8000-000000000741", "purchase_order_document_number": "PO100007", "order_date": "2026-12-01"}
+    StockTransportOrderCancelled:
+      name: StockTransportOrderCancelled
+      x-webhook: true
+      title: Stock transport order cancelled
+      summary: "An open stock transport order within a company was cancelled before its goods issue."
+      description: |
+        Emitted by `stock-transport-orders/{id}:cancel` (ADR-0082 As built
+        S2h, cancellation) when an open order, one whose goods issue is not
+        posted, moves to `cancelled`. Nothing moved, so no material document
+        is posted; from then on a planning run counts the order neither as
+        the supplying plant's demand nor as the receiving plant's receipt
+        (ADR-0084 As built). The order, its company and plants are named by
+        id and code, its items' materials by id and number. Subject is the
+        stock transport order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.stock_transport_order_cancelled.v1}
+      payload: {$ref: '#/components/schemas/StockTransportOrderCancelledV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000707", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.stock_transport_order_cancelled.v1", "subject": "0192a000-0000-7000-8000-000000000751", "time": "2026-11-23T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"stock_transport_order_id": "0192a000-0000-7000-8000-000000000751", "number": "TO000002", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "3000", "supplying_plant_id": "0192a000-0000-7000-8000-000000000761", "supplying_plant_code": "P100", "receiving_plant_id": "0192a000-0000-7000-8000-000000000762", "receiving_plant_code": "P200", "order_date": "2026-11-23", "items": [{"item_no": 1, "material_id": "0192a000-0000-7000-8000-000000000771", "material_number": "MA000004", "quantity": {"value": "30", "unit": "EA"}, "base_quantity": {"value": "30", "unit": "EA"}}], "previous_status": "open", "status": "cancelled"}
     ContractExpired:
       name: ContractExpired
       title: Contract expired
@@ -9067,6 +9094,33 @@ components:
         purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the draft order created."}
         purchase_order_document_number: {"type": "string", "description": "The purchase order's document number."}
         order_date: {"$ref": "#/components/schemas/Date", "description": "The order's date: the legal entity's date on the day of the call-off, in its company's time zone."}
+    StockTransportOrderCancelledV1:
+      type: object
+      required: ["stock_transport_order_id", "number", "legal_entity_id", "legal_entity_code", "supplying_plant_id", "supplying_plant_code", "receiving_plant_id", "receiving_plant_code", "order_date", "items", "previous_status", "status"]
+      properties:
+        stock_transport_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.stock_transport_order.id` (`GET /v1/stock-transport-orders/{id}`)."}
+        number: {"type": "string", "description": "The order's number in its company's `stock_transport_order` range of its fiscal year."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid", "description": "The company of its plants."}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplying_plant_id: {"$ref": "#/components/schemas/Uuid", "description": "The plant it was to be issued from (`tenancy.org_unit.id`)."}
+        supplying_plant_code: {"type": "string", "description": "That plant's code."}
+        receiving_plant_id: {"$ref": "#/components/schemas/Uuid", "description": "The plant it was to be received at."}
+        receiving_plant_code: {"type": "string", "description": "That plant's code."}
+        order_date: {"$ref": "#/components/schemas/Date", "description": "The company's date the order was created on."}
+        items:
+          type: array
+          description: "Its items, by item number: what it no longer moves."
+          items:
+            type: object
+            required: ["item_no", "material_id", "material_number", "quantity", "base_quantity"]
+            properties:
+              item_no: {"type": "integer", "description": "The item's number within the order."}
+              material_id: {"$ref": "#/components/schemas/Uuid", "description": "`materials.material.id`."}
+              material_number: {"type": "string", "description": "That material's number."}
+              quantity: {"$ref": "#/components/schemas/Quantity", "description": "The quantity ordered, in the unit ordered."}
+              base_quantity: {"$ref": "#/components/schemas/Quantity", "description": "That quantity in the material's base unit, as converted when the order was created."}
+        previous_status: {"type": "string", "description": "Open enum; open in v1."}
+        status: {"type": "string", "description": "Open enum; cancelled in v1."}
     ContractExpiredV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "consumed_value", "previous_status", "status"]

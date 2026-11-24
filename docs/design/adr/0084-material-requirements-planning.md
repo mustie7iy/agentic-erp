@@ -366,6 +366,13 @@ and a receipt at the receiving plant until its goods receipt):
   `MrpRunLine`). No migration.
 - Walkthrough: `step_mrp` (step 152) plans the G20 gasket at Toronto
   and Montreal; an open order of 80 from Toronto to Montreal is Toronto's
-  demand and Montreal's receipt, so neither run proposes. The gasket has
+  demand and Montreal's receipt, so neither run proposes.
+- **A cancelled order counts on neither side** (batch 93; review:batch92):
+  an order cancelled before its goods issue (ADR-0082 As built S2h,
+  cancellation) is in none of the reads' statuses, so a run stops
+  counting it once cancelled, and an S&OP review never counts it
+  (`TestPlanningRunTransports`, `TestSopSupply`,
+  `TestStockTransportCancel` through the API). `step_mrp` cancels an
+  order of 30 entered by mistake before the runs. The gasket has
   a group of its own (`SEALS`), so step 157's S&OP figures of the hinge's
   group stay as they were.

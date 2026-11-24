@@ -142,12 +142,12 @@ func TestPlantRequirementsDue(t *testing.T) {
 
 // TestProcurementReadsForReview (S2n; procurement.TransportReceipts and
 // IntercompanyDue): stock transport orders within the company count only
-// in transit to the plant; intercompany orders the plant supplies count
+// in transit to the plant, never open, received or cancelled; intercompany orders the plant supplies count
 // by their items' delivery dates, else the order's date, while not issued,
 // closed or cancelled, their removed items not at all.
 func TestProcurementReadsForReview(t *testing.T) {
 	e := setup(t)
-	for i, status := range []string{"open", "in_transit", "received"} {
+	for i, status := range []string{"open", "in_transit", "received", "cancelled"} {
 		e.transport(t, fmt.Sprintf("ST%d", i), status, uuid.Must(uuid.NewV7()), e.p1, 10+i)
 	}
 	for _, o := range []icOrder{{"IC1", "released", "2026-12-15", "2", "EA", false, false}, {"IC2", "draft", "", "2", "EA", false, false},

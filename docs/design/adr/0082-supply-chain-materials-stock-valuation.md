@@ -1141,8 +1141,53 @@ reads a location's stock without a lock for shipping's picking.
   `GET /v1/stock-transport-orders?number=` (review round 1).
 - Walkthrough step 147, `step_stock_transport`.
 - **Not built** (Later, plan §S2h): partial issues and receipts,
-  reversals (352, 102), cancelling an open order, a delivery between the
+  reversals (352, 102), a delivery between the
   plants, a list of stock in transit, intercompany transfers (S2i).
+- **Cancellation** (batch 93, 2026-11-23; review:batch92): an order
+  entered by mistake was open for ever, a planning run counting it as the
+  supplying plant's demand and the receiving plant's receipt (ADR-0084 As
+  built, stock transport orders). Decided by default, from SAP's deletion
+  indicator on a stock transport order's items before their goods issue
+  (from memory, for the SAP specialist), and from how a purchase order is
+  cancelled (`cancelPurchaseOrder`):
+  - `POST /v1/stock-transport-orders/{id}:cancel` cancels an `open`
+    order, the whole order (it moves whole, so items are not cancelled
+    one by one), at the version read (`If-Match`), under its row lock;
+    the update is guarded by the status and version read. An order whose
+    goods issue is posted, `in_transit` or `received`, is refused (409
+    `procurement.stock_transport_issued`, its stock having moved; undoing
+    it is the reversal that is Later), and one already cancelled too (409
+    `procurement.stock_transport_cancelled`), which also refuses its goods
+    issue; its receipt is refused as for any order not in transit.
+  - `cancelled` is final: migrations 000446 (the status and issue checks
+    widened NOT VALID, the order's trigger allowing open to cancelled
+    alone) and 000447 (validated), under schema tests
+    (`db/stock_transport_test.go`, the trigger also as the owner, the
+    down's refusal of cancelled orders with row security off). No reason
+    or date columns: the audit record and `updated_at`/`updated_by` say
+    who cancelled it and when, as for a purchase order.
+  - It moves no stock and posts nothing. Planning stops counting it with
+    no change of its own: `Orders.TransportsDue`, `TransportsOnOrder` and
+    `TransportReceipts` read the orders by status (`TestStockTransportCancel`,
+    `TestPlanningRunTransports`, `TestSopSupply`).
+  - The permission is `procurement.stock_transport.write`, the one that
+    creates the order (its description says so now), as
+    `cancelPurchaseOrder` takes the purchase order's create permission.
+    Human-only (`x-agent: false`), as the order's other writes; the
+    demand forecasting and replenishment agents' never lists name it
+    (the replenishment agent's names `createStockTransportOrder` too:
+    an order to another plant is supply a run counts, so its `TestNever`
+    holds every write named `StockTransportOrder`).
+  - Audited (`procurement.stock_transport_order.cancel`) and published as
+    `StockTransportOrderCancelled` (procurement, offered to webhooks: no
+    personal data), naming the order by id and number, its company,
+    plants and items' materials by id and by code or number, the quantity
+    ordered and in the base unit. The goods issue and receipt still
+    publish no event of the order: their material documents do.
+  - Walkthrough: `step_stock_transport` (step 147) refuses cancelling the
+    issued order; `step_mrp` (step 152) cancels an order of 30 gaskets
+    entered by mistake, refuses cancelling it again, and the runs count
+    only the open order of 80.
 
 ### S2i (2026-11-21)
 

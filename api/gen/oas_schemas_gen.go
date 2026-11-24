@@ -19564,6 +19564,67 @@ type CancelSalesOrderUnprocessableEntity Problem
 
 func (*CancelSalesOrderUnprocessableEntity) cancelSalesOrderRes() {}
 
+type CancelStockTransportOrderBadRequest Problem
+
+func (*CancelStockTransportOrderBadRequest) cancelStockTransportOrderRes() {}
+
+type CancelStockTransportOrderForbidden Problem
+
+func (*CancelStockTransportOrderForbidden) cancelStockTransportOrderRes() {}
+
+type CancelStockTransportOrderNotFound Problem
+
+func (*CancelStockTransportOrderNotFound) cancelStockTransportOrderRes() {}
+
+// CancelStockTransportOrderOKHeaders wraps StockTransportOrder with response headers.
+type CancelStockTransportOrderOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           StockTransportOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelStockTransportOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelStockTransportOrderOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelStockTransportOrderOKHeaders) GetResponse() StockTransportOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelStockTransportOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelStockTransportOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelStockTransportOrderOKHeaders) SetResponse(val StockTransportOrder) {
+	s.Response = val
+}
+
+func (*CancelStockTransportOrderOKHeaders) cancelStockTransportOrderRes()      {}
+func (*CancelStockTransportOrderOKHeaders) postStockTransportGoodsIssueRes()   {}
+func (*CancelStockTransportOrderOKHeaders) postStockTransportGoodsReceiptRes() {}
+
+type CancelStockTransportOrderPreconditionFailed Problem
+
+func (*CancelStockTransportOrderPreconditionFailed) cancelStockTransportOrderRes() {}
+
+type CancelStockTransportOrderPreconditionRequired Problem
+
+func (*CancelStockTransportOrderPreconditionRequired) cancelStockTransportOrderRes() {}
+
 type CancelSupplierInvoiceBadRequest Problem
 
 func (*CancelSupplierInvoiceBadRequest) cancelSupplierInvoiceRes() {}
@@ -28284,6 +28345,7 @@ func (*ConflictHeaders) cancelRequisitionRes()                     {}
 func (*ConflictHeaders) cancelRevaluationRunRes()                  {}
 func (*ConflictHeaders) cancelRfqRes()                             {}
 func (*ConflictHeaders) cancelSalesOrderRes()                      {}
+func (*ConflictHeaders) cancelStockTransportOrderRes()             {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) captureSalesOrderRes()                     {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
@@ -93597,46 +93659,6 @@ type PostStockTransportGoodsIssueNotFound Problem
 
 func (*PostStockTransportGoodsIssueNotFound) postStockTransportGoodsIssueRes() {}
 
-// PostStockTransportGoodsIssueOKHeaders wraps StockTransportOrder with response headers.
-type PostStockTransportGoodsIssueOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           StockTransportOrder
-}
-
-// GetETag returns the value of ETag.
-func (s *PostStockTransportGoodsIssueOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *PostStockTransportGoodsIssueOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *PostStockTransportGoodsIssueOKHeaders) GetResponse() StockTransportOrder {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *PostStockTransportGoodsIssueOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *PostStockTransportGoodsIssueOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PostStockTransportGoodsIssueOKHeaders) SetResponse(val StockTransportOrder) {
-	s.Response = val
-}
-
-func (*PostStockTransportGoodsIssueOKHeaders) postStockTransportGoodsIssueRes()   {}
-func (*PostStockTransportGoodsIssueOKHeaders) postStockTransportGoodsReceiptRes() {}
-
 type PostStockTransportGoodsIssuePreconditionFailed Problem
 
 func (*PostStockTransportGoodsIssuePreconditionFailed) postStockTransportGoodsIssueRes() {}
@@ -118213,7 +118235,8 @@ func (*StockPage) listStockRes() {}
 
 // A stock transport order within a company (SAP's purchasing document type UB, from memory): materials
 // ordered from one plant to another of the same company, issued into stock in transit and received out
-// of it. Never deleted; it changes only by its goods issue and receipt.
+// of it. Never deleted; it changes only by its goods issue and receipt, or by its cancellation before
+// its goods issue (`stock-transport-orders/{id}:cancel`).
 // Ref: #/components/schemas/StockTransportOrder
 type StockTransportOrder struct {
 	// The order's id.
@@ -118240,9 +118263,9 @@ type StockTransportOrder struct {
 	ReceivingPlantCode string `json:"receiving_plant_code"`
 	// That plant's name, as it is now.
 	ReceivingPlantName string `json:"receiving_plant_name"`
-	// `open` until its goods issue, `in_transit` until its goods receipt, then `received`. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `open` until its goods issue, `in_transit` until its goods receipt, then `received`; an open order
+	// cancelled is `cancelled` and changes no more. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// Its goods issue's material document (351, `GET /v1/material-documents/{id}`), whose
 	// `journal_entry_id` moved the value to the receiving plant; absent while it is open.
@@ -122773,6 +122796,7 @@ func (*TooManyRequestsHeaders) cancelRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) cancelRevaluationRunRes()                  {}
 func (*TooManyRequestsHeaders) cancelRfqRes()                             {}
 func (*TooManyRequestsHeaders) cancelSalesOrderRes()                      {}
+func (*TooManyRequestsHeaders) cancelStockTransportOrderRes()             {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) captureSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
@@ -123757,6 +123781,7 @@ func (*UnauthorizedHeaders) cancelRequisitionRes()                     {}
 func (*UnauthorizedHeaders) cancelRevaluationRunRes()                  {}
 func (*UnauthorizedHeaders) cancelRfqRes()                             {}
 func (*UnauthorizedHeaders) cancelSalesOrderRes()                      {}
+func (*UnauthorizedHeaders) cancelStockTransportOrderRes()             {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) captureSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}

@@ -8785,6 +8785,213 @@ func (s *Server) handleCancelSalesOrderRequest(args [1]string, argsEscaped bool,
 	}
 }
 
+// handleCancelStockTransportOrderRequest handles cancelStockTransportOrder operation.
+//
+// Cancels an open stock transport order (ADR-0082 As built S2h, cancellation; SAP's deletion of a
+// stock transport order's items before their goods issue, from memory), one entered by mistake or no
+// longer needed, at the version read (`If-Match`; 412 `request.version_mismatch`). Only an order whose
+// goods issue is not posted is cancelled: one `in_transit` or `received` is refused (409
+// `procurement.stock_transport_issued`), its stock having moved, and one already `cancelled` too (409
+// `procurement.stock_transport_cancelled`). The order is `cancelled` and changes no more: it is
+// neither issued (409 `procurement.stock_transport_cancelled`) nor received (409
+// `procurement.stock_transport_not_in_transit`), and from then on a planning run counts it neither as
+// the supplying plant's demand nor as the receiving plant's receipt (`startMrpRun`; ADR-0084 As
+// built), and a sales and operations planning review never counts it (`createSopPlan`). It moves no
+// stock and posts nothing. The order is read under its row lock. Audited, and published as
+// StockTransportOrderCancelled. A retry with the same `Idempotency-Key` answers the order as it left
+// it. Human-only (`x-agent: false`).
+//
+// POST /v1/stock-transport-orders/{id}:cancel
+func (s *Server) handleCancelStockTransportOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelStockTransportOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/stock-transport-orders/{id}:cancel"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CancelStockTransportOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CancelStockTransportOrderOperation,
+			ID:   "cancelStockTransportOrder",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CancelStockTransportOrderOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCancelStockTransportOrderParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response CancelStockTransportOrderRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CancelStockTransportOrderOperation,
+			OperationSummary: "Cancel a stock transport order",
+			OperationID:      "cancelStockTransportOrder",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = CancelStockTransportOrderParams
+			Response = CancelStockTransportOrderRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCancelStockTransportOrderParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CancelStockTransportOrder(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CancelStockTransportOrder(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCancelStockTransportOrderResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCancelSupplierInvoiceRequest handles cancelSupplierInvoice operation.
 //
 // Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -114651,20 +114858,20 @@ func (s *Server) handlePostRevaluationRunRequest(args [0]string, argsEscaped boo
 //
 // Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory),
 // once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`,
-// 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage
-// location and is in transit to its receiving storage location, as one material document of movement
-// type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered
-// from its `material_document` range, its `reference` the order's number; its lines in transit
-// (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each
-// item is checked as at the order's creation, the material active and valued in both plants (422
-// `inventory.no_valuation`), the supplying location's stock enough (409
-// `inventory.insufficient_stock`) and counted by no open physical inventory document (409
-// `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the
-// stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at
-// the price, the rest a price difference), posted in one WA journal entry between the valuation
-// classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422
-// `ledger.period_not_open`). The order is `in_transit`. Audited, and published as
-// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+// 409 `procurement.stock_transport_issued`, or `procurement.stock_transport_cancelled` for one
+// cancelled). Every item's quantity leaves its supplying storage location and is in transit to its
+// receiving storage location, as one material document of movement type `351` (`issue_document_id`),
+// posted on the company's date today in its time zone and numbered from its `material_document` range,
+// its `reference` the order's number; its lines in transit (`in_transit`) are neither plant's stock
+// (`listStock`) but the receiving plant's valuation. Each item is checked as at the order's creation,
+// the material active and valued in both plants (422 `inventory.no_valuation`), the supplying
+// location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical
+// inventory document (409 `inventory.posting_blocked`). The issue takes the supplying stock's value as
+// an issue does, and the stock in transit is worth what it took (at a standard price in the receiving
+// plant, its quantity at the price, the rest a price difference), posted in one WA journal entry
+// between the valuation classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's
+// refusals, such as 422 `ledger.period_not_open`). The order is `in_transit`. Audited, and published
+// as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
 // Human-only (`x-agent: false`).
 //
 // POST /v1/stock-transport-orders/{id}:postGoodsIssue

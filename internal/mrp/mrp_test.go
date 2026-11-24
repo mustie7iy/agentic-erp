@@ -178,7 +178,7 @@ func (e env) transport(t *testing.T, number, status string, supplying, receiving
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	issued, received := any(nil), any(nil)
-	if status != "open" {
+	if status == "in_transit" || status == "received" { // an open or cancelled order names no goods issue
 		issued = uuid.Must(uuid.NewV7())
 	}
 	if status == "received" {

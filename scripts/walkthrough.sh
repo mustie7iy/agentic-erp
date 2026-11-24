@@ -15684,11 +15684,12 @@ wait_transmission() {
 # washers leave the main store and are in transit to Montreal, in neither
 # store's stock but in Montreal's valuation, at its standard price, the
 # value posted between the plants' stock accounts with the difference on
-# price differences. A second issue is refused, and so is a reversal of
-# the issue. The goods receipt (101) takes them out of transit into the
-# Montreal store and posts nothing; the order is received.
+# price differences. A second issue is refused, and so are a reversal of
+# the issue and a cancellation of the order issued. The goods receipt
+# (101) takes them out of transit into the Montreal store and posts
+# nothing; the order is received.
 step_stock_transport() {
-  heading "Step 147 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue and a reversal refused"
+  heading "Step 147 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue, a reversal and a cancellation refused"
   local montreal store washer order tag doc
   [ -n "$PLANT" ] || fail "step 122's plant is not there"
   accounts
@@ -15746,8 +15747,9 @@ step_stock_transport() {
   expect "the washers' stock" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | join(", ")')" "P100/SL01 300"
   QUIET=1 api 200 '' listMaterialValuations -p "material_id=$washer" -p "plant_id=$montreal"
   expect "Montreal's valuation" "$(field '.items[0] | "\(.quantity.value) \(.value.amount)"')" "200 50.00"
-  say "The order is issued once, and its goods issue is not reversed:"
+  say "The order is issued once, its goods issue is not reversed, and an order issued is not cancelled:"
   refused 409 procurement.stock_transport_issued postStockTransportGoodsIssue -p "id=$order" -if-match "$tag"
+  refused 409 procurement.stock_transport_issued cancelStockTransportOrder -p "id=$order" -if-match "$tag"
   QUIET=1 api 200 '' getMaterialDocument -p "id=$doc"
   refused 409 inventory.reverse_stock_transport reverseMaterialDocument -p "id=$doc" -if-match "$ETAG"
   say "The washers arrive in Montreal; Wade posts the goods receipt (101), which takes them out of transit into the store,"
@@ -16128,11 +16130,13 @@ step_serial_numbers() {
 # counts on both sides (ADR-0084 As built, stock transport orders): Mira
 # creates the G20 gasket, kept at Toronto and Montreal, Wade enters 100 at
 # Toronto, Mira plans it at both plants and Pablo orders 80 from Toronto
-# to Montreal; Toronto's run counts the open order as its demand, and
-# Montreal's as its receipt, so neither proposes.
+# to Montreal; he cancels an order of 30 more he entered by mistake
+# (review:batch92), which is not cancelled again. Toronto's run counts the
+# open order as its demand, and Montreal's as its receipt, and neither the
+# cancelled one, so neither proposes.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt"
-  local hinge sales own own_version run first second montreal store gasket plant
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither"
+  local hinge sales own own_version run first second montreal store gasket plant mistake
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -16247,9 +16251,19 @@ step_mrp() {
   api 201 '"stock transport order \(.number): \(.supplying_plant_code) to \(.receiving_plant_code), \(.status)"' createStockTransportOrder \
     -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$montreal\", \"items\": [{\"material_id\": \"$gasket\",
       \"quantity\": {\"value\": \"80\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\", \"receiving_storage_location_id\": \"$store\"}]}"
+  say "He enters an order of 30 more by mistake and cancels it at the version he reads, before its goods issue; a"
+  say "cancelled order is not cancelled again, and no run counts it:"
+  api 201 '"stock transport order \(.number): \(.supplying_plant_code) to \(.receiving_plant_code), \(.status)"' createStockTransportOrder \
+    -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$montreal\", \"items\": [{\"material_id\": \"$gasket\",
+      \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\", \"receiving_storage_location_id\": \"$store\"}]}"
+  mistake=$(field .id)
+  api 200 '"stock transport order \(.number): \(.status), version \(.version)"' cancelStockTransportOrder -p "id=$mistake" -if-match "$ETAG"
+  expect "the cancelled order" "$(field '"\(.status) \(.version)"')" "cancelled 2"
+  refused 409 procurement.stock_transport_cancelled cancelStockTransportOrder -p "id=$mistake" -if-match "$ETAG"
   as ben
   say "Toronto's run counts the order as its demand: 100 in stock less the 80 it must issue keeps it above its reorder"
-  say "point of 10, so nothing is proposed (counting none, it would see 100):"
+  say "point of 10, so nothing is proposed (counting none, it would see 100; counting the cancelled one too, a demand of"
+  say "110 would propose 20):"
   mrp_run "$PLANT" "$gasket"
   expect "Toronto's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value)"')" "80 100 0 0"
   say "Montreal's run counts the order as its receipt: the 80 coming keep it above its reorder point of 50, so it proposes"

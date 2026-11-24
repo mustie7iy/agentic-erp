@@ -165,6 +165,10 @@ type CancelSalesOrderRes interface {
 	cancelSalesOrderRes()
 }
 
+type CancelStockTransportOrderRes interface {
+	cancelStockTransportOrderRes()
+}
+
 type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
 }

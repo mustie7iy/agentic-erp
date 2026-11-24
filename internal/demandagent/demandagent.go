@@ -60,7 +60,8 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // postings of other contexts that post one: a purchase order's goods
 // receipt, an outbound delivery's goods issue, a stock transport order's
 // issue and receipt, an intercompany order's goods issue, a return's
-// receipt) and count; every write of sales orders, returns orders and
+// receipt) and count, with every write of stock transport orders (their
+// creation and cancellation); every write of sales orders, returns orders and
 // their deliveries; every write of requisitions and purchase orders, the
 // replenishment agent's never list (with an RFQ, a schedule line and its
 // call-off, which creates an order, and the GR/IR clearing); a planning
@@ -69,7 +70,7 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // them: they are reads and createRecommendation.
 var Never = []string{
 	"createMaterialDocument", "reverseMaterialDocument", "postGoodsReceipt", "reverseGoodsReceipt", "postOutboundDeliveryGoodsIssue",
-	"createStockTransportOrder", "postStockTransportGoodsIssue", "postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue",
+	"createStockTransportOrder", "cancelStockTransportOrder", "postStockTransportGoodsIssue", "postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue",
 	"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences",
 	"createSalesOrder", "captureSalesOrder", "createSalesOrderUpload", "confirmSalesOrder", "releaseSalesOrderCreditBlock", "changeSalesOrder",
 	"cancelSalesOrder", "confirmSalesDelivery", "createOutboundDelivery", "pickOutboundDelivery",

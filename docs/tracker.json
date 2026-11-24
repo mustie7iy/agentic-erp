@@ -5748,6 +5748,13 @@
      },
      {
       "s": "D",
+      "t": "fix: no operation cancels a stock transport order within the company, so one entered by mistake counts for ever as the supplying plant's MRP demand and the receiving plant's receipt (ADR-0084 As built, stock transport orders)",
+      "r": "procurement stock transport orders (S2h) · POST /v1/stock-transport-orders/{id}:cancel (cancelStockTransportOrder) · procurement.Endpoints.CancelTransport · status cancelled · db/migrations/000446, 000447 · StockTransportOrderCancelled · problem procurement.stock_transport_cancelled · procurement.Orders.TransportsDue, .TransportsOnOrder · internal/mrp/net.go · demandagent, replenishmentagent Never · ADR-0082 As built S2h (cancellation) · ADR-0084 As built (stock transport orders, batch 92) · TestStockTransportCancel, TestPlanningRunTransports, TestSopSupply · walkthrough step_stock_transport (step 147), step_mrp (step 152)",
+      "src": "review:batch92",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "S2i1 A planner of one company orders stock from a plant of another company of the tenant: the receiving company's purchase order names the supplying plant and the supplier that is the supplying company; the supplying company's goods issue (643) takes it out of its stock against cost of goods sold, and the receiving company's goods receipt takes it in at the order price, the transfer price, against GR/IR, at most what was issued",
       "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082 As built S2i · db/migrations/000443, 000444 · procurement.purchase_order.supplying_plant_id, issue_document_id · movement type 643 · POST /v1/purchase-orders (supplying_plant_id) · :postIntercompanyGoodsIssue · inventory.Endpoints.IssueForIntercompany · partner.Supplier.GroupCompanyID · walkthrough step_intercompany_transport (step 155)",
       "src": "po:2026-11-17",
