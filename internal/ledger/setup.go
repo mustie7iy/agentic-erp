@@ -192,8 +192,9 @@ func checkStartMonth(ctx context.Context, tx pgx.Tx, p string, calendar uuid.UUI
 
 // checkRemovedUnposted reports a valuation class's account determination
 // key the proposal stops naming while the class has postings
-// (removedDetermination): what applyDetermination refuses with 409
-// ledger.determination_key_posted.
+// (removedDetermination), and a class's stock account it changes while
+// that account has postings (movedStock): what applyDetermination refuses
+// with 409 ledger.determination_key_posted.
 func checkRemovedUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, out *findings) error {
 	removed, err := removedDetermination(ctx, tx, le, co)
 	if err != nil {
@@ -204,6 +205,13 @@ func checkRemovedUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID
 			out.add(p+".account_determination."+r.field(), "account %s: the valuation class has postings, and a reversal of its material "+
 				"documents determines its accounts again: keep the key, with this account or another", r.Number)
 		}
+	}
+	moved, err := movedStock(ctx, tx, le, co)
+	if err != nil {
+		return fmt.Errorf("ledger: check company %s: %w", co.Code, err)
+	}
+	for _, r := range moved {
+		out.add(p+".account_determination."+r.field(), "account %s has postings: the valuation class's stock stays on it, so it cannot change", r.Number)
 	}
 	return nil
 }
@@ -499,9 +507,11 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 // account, or the key's own account, has postings is refused (409
 // ledger.determination_key_posted); Check refuses the same on submission,
 // and a document posted while the change awaited approval is caught here.
-// Both accounts are read as they were before this activation, so a stock
-// account changed in the same document still counts its old postings. A
-// movement in flight while the activation runs reads the key unlocked:
+// A class's stock account with postings does not change either (the
+// class's stock is its balance, and the rule above reads the class's
+// postings on it): so the stock account a class names holds every
+// posting the class made, across activations. The accounts are read as
+// they were before this activation. A movement in flight while the activation runs reads the key unlocked:
 // its reversal is refused (422 inventory.no_inventory_account) until a
 // configuration names the key again, and nothing is posted wrong. The
 // removal record's own refusals (account_determination_removal_kept,
@@ -511,6 +521,14 @@ func applyDetermination(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, 
 	removed, err := removedDetermination(ctx, tx, le, co)
 	if err != nil {
 		return fmt.Errorf("ledger: apply company %s: %w", co.Code, err)
+	}
+	moved, err := movedStock(ctx, tx, le, co)
+	if err != nil {
+		return fmt.Errorf("ledger: apply company %s: %w", co.Code, err)
+	}
+	if len(moved) > 0 {
+		return problem.Conflict("ledger.determination_key_posted", "Company "+co.Code+"'s account determination names another account for "+
+			moved[0].field()+", whose account "+moved[0].Number+" has postings: the valuation class's stock stays on it, so it cannot change.")
 	}
 	keys, numbers := determination(co)
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.account_determination AS d (tenant_id, legal_entity_id, key, account_id, updated_by)
@@ -562,9 +580,8 @@ func (r removedKey) field() string {
 // removedDetermination is the legal entity's keys of the account
 // determination the company's document does not name, as the legal
 // entity's rows stand (before an activation sets the document's), in key
-// order: keys
-// setup writes (determination), a valuation class's included, and not
-// those it never writes (ar_reconciliation, output_tax, rounding).
+// order: keys setup writes (determination), a valuation class's included,
+// and not those it never writes (ar_reconciliation, output_tax, rounding).
 func removedDetermination(ctx context.Context, tx pgx.Tx, le uuid.UUID, co config.Company) ([]removedKey, error) {
 	keys, numbers := determination(co)
 	named := make([]string, 0, len(keys))
@@ -585,6 +602,25 @@ func removedDetermination(ctx context.Context, tx pgx.Tx, le uuid.UUID, co confi
 		return nil, fmt.Errorf("account determination keys no longer named: %w", err)
 	}
 	return removed, nil
+}
+
+// movedStock is the legal entity's valuation classes' stock keys, in key
+// order, that the company's document names with another account while
+// the account they name has lines in the legal entity (Posted).
+func movedStock(ctx context.Context, tx pgx.Tx, le uuid.UUID, co config.Company) ([]removedKey, error) {
+	keys, numbers := determination(co)
+	rows, _ := tx.Query(ctx, `SELECT d.key, d.account_id, g.number, true
+		FROM ledger.account_determination d JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id
+		JOIN unnest($2::text[], $3::text[]) AS x(k, n) ON x.k = d.key
+		WHERE d.legal_entity_id = $1 AND starts_with(d.key, 'inventory_stock:') AND x.n <> '' AND x.n <> g.number
+			AND EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = d.tenant_id AND l.legal_entity_id = d.legal_entity_id
+				AND l.account_id = d.account_id)
+		ORDER BY d.key`, le, keys, numbers)
+	moved, err := pgx.CollectRows(rows, pgx.RowToStructByPos[removedKey])
+	if err != nil {
+		return nil, fmt.Errorf("stock accounts changed: %w", err)
+	}
+	return moved, nil
 }
 
 // withholdingTaxCodes makes the legal entity's withholding tax codes the

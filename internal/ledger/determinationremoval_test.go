@@ -112,26 +112,26 @@ func TestDeterminationKeysRemoved(t *testing.T) {
 // of a valuation class whose stock account has postings is removed, as a
 // reversal of the class's material documents determines its accounts
 // again, the price difference account too, though nothing was posted to
-// it: the submission check reports each, and the activation is refused
-// with 409 ledger.determination_key_posted, the keys kept, even when the
-// same document gives the class another stock account. The class's
-// accounts may still change, and a class without postings goes.
+// it; nor does that stock account change, so it keeps every posting of
+// the class across activations. The submission check reports each, and
+// the activation is refused with 409 ledger.determination_key_posted, the
+// keys kept. A class without postings changes its accounts and goes.
 func TestDeterminationKeyPostedKept(t *testing.T) {
 	e := setup(t)
-	classes := func(stock string, priceDifference bool, unposted bool) *config.Config {
+	classes := func(stock string, priceDifference bool, unposted string) *config.Config {
 		doc := withKeys(t, "", "530000", "")
 		inv := config.InventoryAccounts{ValuationClass: "3000", Stock: stock, Consumption: "510000"}
 		if priceDifference {
 			inv.PriceDifference = "540000"
 		}
 		doc.Companies[1].AccountDetermination.Inventory = []config.InventoryAccounts{inv}
-		if unposted {
+		if unposted != "" {
 			doc.Companies[1].AccountDetermination.Inventory = append(doc.Companies[1].AccountDetermination.Inventory,
-				config.InventoryAccounts{ValuationClass: "3001", Stock: "610000"})
+				config.InventoryAccounts{ValuationClass: "3001", Stock: unposted})
 		}
 		return doc
 	}
-	before := classes("101000", true, true)
+	before := classes("101000", true, "610000")
 	if err := e.applyTax(t, before); err != nil {
 		t.Fatal(err)
 	}
@@ -144,46 +144,55 @@ func TestDeterminationKeyPostedKept(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var findings []string
-	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
-		fs, err := ledger.Setup{LegalEntities: tenancy.Directory{}}.Check(ctx, before, withKeys(t, "", "530000", ""))
-		for _, f := range fs {
-			findings = append(findings, f.Path+" "+strings.SplitN(f.Message, ":", 2)[0])
+	check := func(doc *config.Config) string {
+		t.Helper()
+		var findings []string
+		if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+			fs, err := ledger.Setup{LegalEntities: tenancy.Directory{}}.Check(ctx, before, doc)
+			for _, f := range fs {
+				findings = append(findings, f.Path+" "+strings.SplitN(f.Message, ":", 2)[0])
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
 		}
-		return err
-	}); err != nil {
-		t.Fatal(err)
+		return strings.Join(findings, "\n")
 	}
-	const want = "companies[2000].account_determination.inventory[3000].consumption account 510000\n" +
-		"companies[2000].account_determination.inventory[3000].price_difference account 540000\n" +
-		"companies[2000].account_determination.inventory[3000].stock account 101000"
-	if got := strings.Join(findings, "\n"); got != want {
+	const p = "companies[2000].account_determination.inventory[3000]."
+	if got, want := check(withKeys(t, "", "530000", "")), p+"consumption account 510000\n"+p+"price_difference account 540000\n"+p+"stock account 101000"; got != want {
 		t.Errorf("submission check removing both classes: got\n%s\nwant\n%s", got, want)
 	}
+	if got, want := check(classes("520000", true, "610000")), p+"stock account 101000 has postings"; got != want {
+		t.Errorf("submission check changing the posted stock account: got\n%s\nwant\n%s", got, want)
+	}
 	for _, c := range []struct {
-		name string
-		doc  *config.Config
+		name, detail string
+		doc          *config.Config
 	}{
-		{"the price difference key, never posted", classes("101000", false, true)},
-		{"the price difference key, the stock account changed too", classes("100000", false, true)},
+		{"the price difference key, never posted", "inventory[3000].price_difference (account 540000)", classes("101000", false, "610000")},
+		{"the posted stock account changed", "inventory[3000].stock, whose account 101000 has postings", classes("520000", true, "610000")},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := e.applyTax(t, c.doc)
 			if p := (*problem.Problem)(nil); !errors.As(err, &p) || p.Code != "ledger.determination_key_posted" || p.Status != 409 {
 				t.Fatalf("got %v, want 409 ledger.determination_key_posted", err)
-			} else if !strings.Contains(p.Detail, "inventory[3000].price_difference (account 540000)") {
-				t.Errorf("detail: got %q, want it to name inventory[3000].price_difference and account 540000", p.Detail)
+			} else if !strings.Contains(p.Detail, c.detail) {
+				t.Errorf("detail: got %q, want it to name %s", p.Detail, c.detail)
 			}
-			if got, want := e.determined(t, config.InventoryKey(config.InventoryPriceDifference, "3000")), e.account(t, "2000", "540000"); got != want {
-				t.Errorf("price difference key after the refusal: got %s, want %s kept", got, want)
+			if got := e.determinationKeys(t); !strings.Contains(got, "inventory_price_difference:3000=540000, inventory_stock:3000=101000") {
+				t.Errorf("class 3000's keys after the refusal: got %s, want them kept", got)
 			}
 		})
 	}
-	if err := e.applyTax(t, classes("100000", true, false)); err != nil {
-		t.Fatalf("activation changing the stock account and removing class 3001: %v", err)
+	// Class 3001 has no postings: its stock account changes, then it goes.
+	if err := e.applyTax(t, classes("101000", true, "520000")); err != nil {
+		t.Fatalf("activation changing class 3001's stock account: %v", err)
 	}
-	if got := e.determined(t, config.InventoryKey(config.InventoryStock, "3000")); got != bank.String() {
-		t.Errorf("class 3000's stock key changed: got %s, want %s", got, bank)
+	if got, want := e.determined(t, config.InventoryKey(config.InventoryStock, "3001")), e.account(t, "2000", "520000"); got != want {
+		t.Errorf("class 3001's stock key changed: got %s, want %s", got, want)
+	}
+	if err := e.applyTax(t, classes("101000", true, "")); err != nil {
+		t.Fatalf("activation removing class 3001: %v", err)
 	}
 	if got := e.determined(t, config.InventoryKey(config.InventoryStock, "3001")); got != "none" {
 		t.Errorf("class 3001's stock key removed: got %s, want none", got)

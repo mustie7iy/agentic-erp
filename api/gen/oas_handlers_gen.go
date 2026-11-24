@@ -1774,7 +1774,8 @@ func (s *Server) handleAcknowledgeMetricAlertRequest(args [1]string, argsEscaped
 // with a fallback, such as `cash_discount_granted`, posts to the fallback's account again), but for
 // the keys of a valuation class whose stock account, or the key's own account, has postings: a
 // reversal of the class's material documents determines its accounts again, so their removal is
-// refused (409 `ledger.determination_key_posted`, ADR-0048 As built batch 93); its account may change.
+// refused, as is a change of a stock account with postings (409 `ledger.determination_key_posted`,
+// ADR-0048 As built batch 93); the class's other accounts may change.
 //
 // POST /v1/change-requests/{id}:activate
 func (s *Server) handleActivateChangeRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

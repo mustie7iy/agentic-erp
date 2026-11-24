@@ -484,14 +484,19 @@ settings cannot simply overwrite their document.
      postings in the legal entity: a material document's reversal is a
      movement posted through its class's accounts again
      (`inventory.Reverse`), its price difference account too when the
-     stock's value moved since, though the original posted nothing there
-     (review round 1). Check reports each on submission and the
-     activation is refused with 409 `ledger.determination_key_posted`;
-     the accounts may change. The accounts are read as they stood before
-     the activation, so a stock account changed in the same document
-     still counts its old postings. Any line counts, a manual one too: the
-     ledger cannot tell which lines a class's documents posted, so the
-     rule errs on keeping the key. `retained_earnings` stays as ADR-0060 §4 decided. A movement
+     stock's value moved since, though the original posted nothing there.
+     Nor does a class's stock account with postings change: the class's
+     stock is its balance, which would stay behind on the old account,
+     and the stock account a class names must hold every posting the
+     class made, across activations, for the rule to see them. Check
+     reports each on submission and the activation is refused with 409
+     `ledger.determination_key_posted`; the class's other accounts may
+     change. The accounts are read as they stood before the activation.
+     Any line counts, a manual one too: the ledger cannot tell which
+     lines a class's documents posted, so the rule errs on keeping the
+     key. The alternative, a port asking inventory whether a class has
+     material documents, would add a dependency the ledger does not have;
+     reverse by relaxing `movedStock` and `removedDetermination`. `retained_earnings` stays as ADR-0060 §4 decided. A movement
      in flight while the activation runs reads the key unlocked, as
      `applyOpenItems` reasons: its reversal is refused (422
      `inventory.no_inventory_account`) until a configuration names the
