@@ -1,7 +1,7 @@
 -- The trade compliance connector (S2s; ADR-0082 As built S2s;
 -- 03-data-model §3.13, §3.36): an external trade compliance service a
 -- tenant connects as an integration connector of the kind gts, for the
--- plants its settings name, as a wms or tms connector (000445, 000449).
+-- plants its settings name, as a wms or tms connector (000449, 000462).
 -- Each outbound delivery created at such a plant is screened: created
 -- pending, it is sent to the service once (kind screening_request,
 -- outbound; wms_message_once), and the service's answer (kind
