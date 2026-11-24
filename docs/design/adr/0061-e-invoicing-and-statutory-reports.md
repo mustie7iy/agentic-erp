@@ -1498,6 +1498,13 @@ emulation answers the four calls below, scripted per filename
   `listOutgoingEInvoices?delivery_outcome=rejected`; the tax data
   documents to send again are
   `listOutgoingEInvoices?tax_data_status=TDD_FAILED` (review round 1).
+  A corrected e-invoice's transmission names the credit note that
+  corrected it (`corrected_by`, review:batch86): the first of those
+  credit notes rendered (then by id), by its e-invoice, its customer
+  credit memo and that memo's number, read in the same statement as the
+  outcome, so the worklist's reader finds it without searching the
+  credit notes by `reference_invoice_number`; null for any other
+  outcome.
 - **Retry and withdrawal, people only.** A person asks for a failed tax
   data document (TDD_FAILED) to be sent again, or for one reported
   (TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED, or WITHDRAW_FAILED to ask

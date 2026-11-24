@@ -78998,6 +78998,51 @@ func (o NilInt64) Or(d int64) int64 {
 	return d
 }
 
+// NewNilOutgoingEInvoiceCorrection returns new NilOutgoingEInvoiceCorrection with value set to v.
+func NewNilOutgoingEInvoiceCorrection(v OutgoingEInvoiceCorrection) NilOutgoingEInvoiceCorrection {
+	return NilOutgoingEInvoiceCorrection{
+		Value: v,
+	}
+}
+
+// NilOutgoingEInvoiceCorrection is nullable OutgoingEInvoiceCorrection.
+type NilOutgoingEInvoiceCorrection struct {
+	Value OutgoingEInvoiceCorrection
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilOutgoingEInvoiceCorrection) SetTo(v OutgoingEInvoiceCorrection) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilOutgoingEInvoiceCorrection) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilOutgoingEInvoiceCorrection) SetToNull() {
+	o.Null = true
+	var v OutgoingEInvoiceCorrection
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilOutgoingEInvoiceCorrection) Get() (v OutgoingEInvoiceCorrection, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilOutgoingEInvoiceCorrection) Or(d OutgoingEInvoiceCorrection) OutgoingEInvoiceCorrection {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewNilOutgoingEInvoiceTransmission returns new NilOutgoingEInvoiceTransmission with value set to v.
 func NewNilOutgoingEInvoiceTransmission(v OutgoingEInvoiceTransmission) NilOutgoingEInvoiceTransmission {
 	return NilOutgoingEInvoiceTransmission{
@@ -87706,6 +87751,48 @@ func (s *OutgoingEInvoice) SetEtag(val string) {
 	s.Etag = val
 }
 
+// A transmitted credit note that corrects a rejected e-invoice (ADR-0061 As built E4, the worklist to
+// correct by credit note).
+// Ref: #/components/schemas/OutgoingEInvoiceCorrection
+type OutgoingEInvoiceCorrection struct {
+	// The credit note's e-invoice (`getOutgoingEInvoice`).
+	OutgoingEinvoiceID uuid.UUID `json:"outgoing_einvoice_id"`
+	// The customer credit memo it renders (`getCustomerInvoice`).
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// That credit memo's number, the credit note's (IBT-001).
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+}
+
+// GetOutgoingEinvoiceID returns the value of OutgoingEinvoiceID.
+func (s *OutgoingEInvoiceCorrection) GetOutgoingEinvoiceID() uuid.UUID {
+	return s.OutgoingEinvoiceID
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *OutgoingEInvoiceCorrection) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *OutgoingEInvoiceCorrection) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// SetOutgoingEinvoiceID sets the value of OutgoingEinvoiceID.
+func (s *OutgoingEInvoiceCorrection) SetOutgoingEinvoiceID(val uuid.UUID) {
+	s.OutgoingEinvoiceID = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *OutgoingEInvoiceCorrection) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *OutgoingEInvoiceCorrection) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
 // OutgoingEInvoiceHeaders wraps OutgoingEInvoice with response headers.
 type OutgoingEInvoiceHeaders struct {
 	ETag               OptString
@@ -87925,9 +88012,13 @@ type OutgoingEInvoiceTransmission struct {
 	// What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE,
 	// BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED:
 	// to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025,
-	// transmitted), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve
-	// values not listed here; values may be added within /v1.
+	// transmitted: `corrected_by` names it), undelivered (DELIVERY_FAILURE). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
 	DeliveryOutcome NilString `json:"delivery_outcome"`
+	// The credit note that corrected a rejected e-invoice (`delivery_outcome` corrected; review:batch86):
+	// the first transmitted credit note of the company naming it (IBT-025), rendered after it, by its
+	// e-invoice and its customer credit memo; null for any other outcome.
+	CorrectedBy NilOutgoingEInvoiceCorrection `json:"corrected_by"`
 	// The tax data document's status at the authority's corner, as the provider last reported it once
 	// completed (As built E4; Evatra: TDD_SEND, TDD_FAILED, TDD_APPROVED, TDD_ACKNOWLEDGED, TDD_REJECTED,
 	// WITHDRAW_SEND, WITHDRAW_FAILED); null while none is reported. A person may send a failed one again
@@ -88034,6 +88125,11 @@ func (s *OutgoingEInvoiceTransmission) GetDeliveredAt() NilDateTime {
 // GetDeliveryOutcome returns the value of DeliveryOutcome.
 func (s *OutgoingEInvoiceTransmission) GetDeliveryOutcome() NilString {
 	return s.DeliveryOutcome
+}
+
+// GetCorrectedBy returns the value of CorrectedBy.
+func (s *OutgoingEInvoiceTransmission) GetCorrectedBy() NilOutgoingEInvoiceCorrection {
+	return s.CorrectedBy
 }
 
 // GetTaxDataStatus returns the value of TaxDataStatus.
@@ -88149,6 +88245,11 @@ func (s *OutgoingEInvoiceTransmission) SetDeliveredAt(val NilDateTime) {
 // SetDeliveryOutcome sets the value of DeliveryOutcome.
 func (s *OutgoingEInvoiceTransmission) SetDeliveryOutcome(val NilString) {
 	s.DeliveryOutcome = val
+}
+
+// SetCorrectedBy sets the value of CorrectedBy.
+func (s *OutgoingEInvoiceTransmission) SetCorrectedBy(val NilOutgoingEInvoiceCorrection) {
+	s.CorrectedBy = val
 }
 
 // SetTaxDataStatus sets the value of TaxDataStatus.

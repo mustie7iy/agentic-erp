@@ -335,10 +335,23 @@ func submissions(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]submission
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT `+submissionColumns+`, `+deliveryOutcome+` FROM einvoicing.outgoing_submission s
-		JOIN einvoicing.outgoing_einvoice x ON x.tenant_id = s.tenant_id AND x.id = s.outgoing_einvoice_id WHERE s.outgoing_einvoice_id = ANY($1)`, ids)
+	rows, _ := tx.Query(ctx, `SELECT `+submissionColumns+`, `+deliveryOutcome+`, k.id, k.customer_invoice_id, k.customer_invoice_number
+		FROM einvoicing.outgoing_submission s
+		JOIN einvoicing.outgoing_einvoice x ON x.tenant_id = s.tenant_id AND x.id = s.outgoing_einvoice_id
+		LEFT JOIN LATERAL (SELECT c.id, c.customer_invoice_id, c.customer_invoice_number FROM `+correctingNotes+`
+			ORDER BY c.rendered_at, c.id LIMIT 1) k ON s.status = 'completed' AND `+deliveryRejected+`
+		WHERE s.outgoing_einvoice_id = ANY($1)`, ids)
 	var s submission
-	if _, err := pgx.ForEachRow(rows, append(s.fields(), &s.Outcome), func() error { out[s.OutgoingID] = s; return nil }); err != nil {
+	var by correction
+	if _, err := pgx.ForEachRow(rows, append(s.fields(), &s.Outcome, &by.ID, &by.CustomerInvoiceID, &by.Number), func() error {
+		s.CorrectedBy = nil
+		if by.ID != nil {
+			c := by
+			s.CorrectedBy = &c
+		}
+		out[s.OutgoingID] = s
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("einvoicing: read the submissions of outgoing e-invoices: %w", err)
 	}
 	return out, nil
@@ -360,13 +373,27 @@ const deliveryOutcome = `CASE WHEN s.status <> 'completed' THEN NULL
 // rejected the e-invoice of submission s.
 const deliveryRejected = `(s.delivery_status IN ('REJECTION', 'BUSINESS_RULE_FATAL', 'SYNTAX_VIOLATION') OR s.tax_data_status = 'TDD_REJECTED')`
 
-// deliveryCorrected holds when a credit note c of x's company naming x's
-// invoice (IBT-025; a credit note's own reference for a credit note),
-// rendered after x, is transmitted.
-const deliveryCorrected = `EXISTS (SELECT FROM einvoicing.outgoing_einvoice c
+// deliveryCorrected holds when a credit note corrects the e-invoice x
+// (correctingNotes).
+const deliveryCorrected = `EXISTS (SELECT FROM ` + correctingNotes + `)`
+
+// correctingNotes are the credit notes c that correct the e-invoice x:
+// those of x's company naming x's invoice (IBT-025; a credit note's own
+// reference for a credit note), rendered after x and transmitted.
+const correctingNotes = `einvoicing.outgoing_einvoice c
 	JOIN einvoicing.outgoing_submission cs ON cs.tenant_id = c.tenant_id AND cs.outgoing_einvoice_id = c.id AND cs.status = 'completed'
 	WHERE c.tenant_id = x.tenant_id AND c.legal_entity_id = x.legal_entity_id AND c.type_code = '381' AND c.id <> x.id
-	  AND c.reference_invoice_number = coalesce(x.reference_invoice_number, x.customer_invoice_number) AND c.rendered_at > x.rendered_at)`
+	  AND c.reference_invoice_number = coalesce(x.reference_invoice_number, x.customer_invoice_number) AND c.rendered_at > x.rendered_at`
+
+// correction is the credit note that corrected a rejected e-invoice
+// (review:batch86): the first of correctingNotes rendered, by its
+// e-invoice and its customer credit memo with its number, so the
+// correction worklist's consumer finds it without searching the credit
+// notes by reference.
+type correction struct {
+	ID, CustomerInvoiceID *uuid.UUID
+	Number                *string
+}
 
 // transmissionAPI is a submission as the e-invoice shows it.
 func (n outgoingNames) transmissionAPI(s submission) gen.OutgoingEInvoiceTransmission {
@@ -377,6 +404,11 @@ func (n outgoingNames) transmissionAPI(s submission) gen.OutgoingEInvoiceTransmi
 		DeliveredAt: nilTime(s.DeliveredAt), DeliveryOutcome: nilString(s.Outcome), TaxDataStatus: nilString(s.TaxDataStatus),
 		TaxDataAt: nilTime(s.TaxDataAt), TaxDataRequest: nilString(s.TaxDataRequest),
 		TaxDataAwaited: nilString(s.TaxDataAwaited), FollowCheckAt: nilTime(s.FollowCheckAt), Version: s.Version}
+	if c := s.CorrectedBy; c != nil {
+		out.CorrectedBy.SetTo(gen.OutgoingEInvoiceCorrection{OutgoingEinvoiceID: *c.ID, CustomerInvoiceID: *c.CustomerInvoiceID, CustomerInvoiceNumber: *c.Number})
+	} else {
+		out.CorrectedBy.SetToNull()
+	}
 	if s.ProblemCode != nil {
 		out.Problem.SetTo(gen.OutgoingEInvoiceTransmissionProblem{Code: *s.ProblemCode, Detail: *s.ProblemDetail})
 	} else {

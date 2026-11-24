@@ -69263,7 +69263,7 @@ components:
       description: "An e-invoice's submission to the accredited provider (ADR-0061 As built E3): the outbox of its transmission and what the provider reported of it."
       required: [connector_id, connector_name, operation_id, business_type, status, provider_status, tracking_id, attempts, resends, problem, next_check_at,
         submitted_at, completed_at, delivery_status, delivery_detail, delivered_at, delivery_outcome, tax_data_status, tax_data_at, tax_data_request,
-        follow_check_at, tax_data_awaited, version]
+        follow_check_at, tax_data_awaited, corrected_by, version]
       properties:
         connector_id: {type: string, format: uuid, description: "The connector it is sent through."}
         connector_name: {type: string, description: "The connector's name."}
@@ -69291,7 +69291,12 @@ components:
         delivery_outcome:
           type: [string, 'null']
           x-extensible-enum: [pending, accepted, rejected, corrected, undelivered]
-          description: "What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED: to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025, transmitted), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED: to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025, transmitted: `corrected_by` names it), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        corrected_by:
+          oneOf:
+            - {$ref: "#/components/schemas/OutgoingEInvoiceCorrection"}
+            - {type: 'null'}
+          description: "The credit note that corrected a rejected e-invoice (`delivery_outcome` corrected; review:batch86): the first transmitted credit note of the company naming it (IBT-025), rendered after it, by its e-invoice and its customer credit memo; null for any other outcome."
         tax_data_status: {type: [string, 'null'], description: "The tax data document's status at the authority's corner, as the provider last reported it once completed (As built E4; Evatra: TDD_SEND, TDD_FAILED, TDD_APPROVED, TDD_ACKNOWLEDGED, TDD_REJECTED, WITHDRAW_SEND, WITHDRAW_FAILED); null while none is reported. A person may send a failed one again (`retryOutgoingEInvoiceTaxData`) or withdraw a reported one (`withdrawOutgoingEInvoiceTaxData`). Open enumeration."}
         tax_data_at: {type: [string, 'null'], format: date-time, description: "When that status was recorded."}
         tax_data_request:
@@ -69301,6 +69306,14 @@ components:
         tax_data_awaited: {type: [string, 'null'], description: "After a request was made, the status the call found, until the provider shows another; meanwhile a new request is refused (409 `einvoicing.tax_data_request_pending`). Null otherwise."}
         follow_check_at: {type: [string, 'null'], format: date-time, description: "When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to an hour); null before completion, once both are final and nothing is awaited, or after 500 reads. Each read moves `version`, and so the ETag."}
         version: {type: integer, format: int32, description: "The submission's version."}
+    OutgoingEInvoiceCorrection:
+      type: object
+      description: "A transmitted credit note that corrects a rejected e-invoice (ADR-0061 As built E4, the worklist to correct by credit note)."
+      required: [outgoing_einvoice_id, customer_invoice_id, customer_invoice_number]
+      properties:
+        outgoing_einvoice_id: {type: string, format: uuid, description: "The credit note's e-invoice (`getOutgoingEInvoice`)."}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer credit memo it renders (`getCustomerInvoice`)."}
+        customer_invoice_number: {type: string, description: "That credit memo's number, the credit note's (IBT-001)."}
     OutgoingEInvoiceTransmissionProblem:
       type: object
       description: "Why a submission failed: a problem code a consumer can branch on and what happened."

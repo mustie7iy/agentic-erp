@@ -2957,9 +2957,9 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "fix: an outgoing e-invoice whose delivery_outcome is corrected names the credit note that corrected it (its id and number), so the correction worklist's consumer finds it without searching the credit notes by reference_invoice_number",
-          "r": "listOutgoingEInvoices delivery_outcome · ADR-0061 As built E4 (The worklist to correct by credit note) · REVIEW.md (an identifier without the name or reference its consumer needs)",
+          "r": "OutgoingEInvoiceTransmission.corrected_by (OutgoingEInvoiceCorrection) · einvoicing.correctingNotes · TestDeliveryStatus · walkthrough step_einvoice_send (einvoice_corrected) · listOutgoingEInvoices delivery_outcome · ADR-0061 As built E4 (The worklist to correct by credit note) · REVIEW.md (an identifier without the name or reference its consumer needs)",
           "src": "review:batch86",
           "c": []
          },

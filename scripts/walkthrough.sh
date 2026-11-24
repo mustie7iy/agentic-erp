@@ -15643,9 +15643,12 @@ step_einvoice_render() {
 # (the credit note naming it failed, so it stays there), and its tax data
 # document fails at the authority's corner. A withdrawal of the failed one
 # is refused; Ruth has it sent again, approved, and then withdraws it.
+# Ruth sends the credit note again, transmitted this time, which corrects
+# the invoice and is named on its transmission (einvoice_corrected,
+# review:batch86).
 # People only: agents never send, retry or withdraw (x-agent: false).
 step_einvoice_send() {
-  heading "Step 146 — PINT AE e-invoices sent through Evatra: the tax invoice submitted and COMPLETED, the credit note sent again after SENDING_FAILED and PERMANENT_FAILED on the worklist; the documents not transmitted within 14 business days; the invoice rejected on a fatal rule, its tax data document failed, sent again and withdrawn"
+  heading "Step 146 — PINT AE e-invoices sent through Evatra: the tax invoice submitted and COMPLETED, the credit note sent again after SENDING_FAILED and PERMANENT_FAILED on the worklist; the documents not transmitted within 14 business days; the invoice rejected on a fatal rule, its tax data document failed, sent again and withdrawn; the credit note sent again corrects the invoice, which names it"
   local ae connector invoice note number notenum sent sum op
   as ruth
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
@@ -15727,8 +15730,38 @@ step_einvoice_send() {
   api 202 '"operation \(.kind): \(.status)"' withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
   wait_einvoice "$invoice" '.transmission.tax_data_status' WITHDRAW_SEND
   api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  einvoice_corrected "$invoice" "$note" "$notenum" "$connector"
   einvoice_render_usd "$ae"
   passed
+}
+
+# einvoice_corrected is review:batch86's part of step_einvoice_send (ADR-0061
+# As built E4, the worklist to correct by credit note): Evatra takes the
+# credit note this time; Ruth sends it again from the worklist of failed
+# submissions, and once it is transmitted the rejected invoice it names is
+# corrected, its transmission naming the credit note by its e-invoice,
+# its credit memo and its number, so the worklist's reader finds it without
+# searching the credit notes by reference.
+einvoice_corrected() {
+  local invoice=$1 note=$2 notenum=$3 connector=$4
+  as ruth
+  say "Ruth sends the credit note $notenum again; Evatra takes it this time (the stand-in's third status list):"
+  printf 'SENDING_FAILED\nPERMANENT_FAILED\nCOMPLETED\n' >"$WORK/provider/evatra-sent/$notenum.statuses"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$note"
+  api 202 '"operation \(.kind): \(.status)"' sendOutgoingEInvoice -p "id=$note" -if-match "$ETAG" -body "{\"connector_id\": \"$connector\", \"business_type\": \"B2B\"}"
+  wait_transmission "$note" completed
+  say "Transmitted, it corrects the rejected invoice it names (IBT-025); the invoice's transmission names it:"
+  wait_einvoice "$invoice" '.transmission.delivery_outcome' corrected
+  api 200 '"e-invoice \(.customer_invoice_number): \(.transmission.delivery_outcome) by credit note \(.transmission.corrected_by.customer_invoice_number) (e-invoice \(.transmission.corrected_by.outgoing_einvoice_id))"' \
+    getOutgoingEInvoice -p "id=$invoice"
+  expect "the credit note that corrected it" "$(field '"\(.transmission.corrected_by.outgoing_einvoice_id) \(.transmission.corrected_by.customer_invoice_number)"')" "$note $notenum"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$note"
+  local memo
+  memo=$(field .customer_invoice_id)
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  expect "its credit memo" "$(field .transmission.corrected_by.customer_invoice_id)" "$memo"
+  QUIET=1 api 200 '' listOutgoingEInvoices -p "legal_entity_id=$(field .legal_entity_id)" -p delivery_outcome=rejected
+  expect "off the worklist of rejected e-invoices" "$(field '.items | length')" 0
 }
 
 # einvoice_render_usd is batch 88's sending part of split:T65d (ADR-0061

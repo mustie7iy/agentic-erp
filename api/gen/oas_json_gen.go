@@ -205794,6 +205794,50 @@ func (s *NilInt64) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes OutgoingEInvoiceCorrection as json.
+func (o NilOutgoingEInvoiceCorrection) Encode(e *jx.Encoder) {
+	if o.Null {
+		e.Null()
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes OutgoingEInvoiceCorrection from json.
+func (o *NilOutgoingEInvoiceCorrection) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode NilOutgoingEInvoiceCorrection to nil")
+	}
+	if d.Next() == jx.Null {
+		if err := d.Null(); err != nil {
+			return err
+		}
+
+		var v OutgoingEInvoiceCorrection
+		o.Value = v
+		o.Null = true
+		return nil
+	}
+	o.Null = false
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s NilOutgoingEInvoiceCorrection) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *NilOutgoingEInvoiceCorrection) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes OutgoingEInvoiceTransmission as json.
 func (o NilOutgoingEInvoiceTransmission) Encode(e *jx.Encoder) {
 	if o.Null {
@@ -215313,6 +215357,136 @@ func (s *OutgoingEInvoice) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *OutgoingEInvoiceCorrection) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *OutgoingEInvoiceCorrection) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("outgoing_einvoice_id")
+		json.EncodeUUID(e, s.OutgoingEinvoiceID)
+	}
+	{
+		e.FieldStart("customer_invoice_id")
+		json.EncodeUUID(e, s.CustomerInvoiceID)
+	}
+	{
+		e.FieldStart("customer_invoice_number")
+		e.Str(s.CustomerInvoiceNumber)
+	}
+}
+
+var jsonFieldsNameOfOutgoingEInvoiceCorrection = [3]string{
+	0: "outgoing_einvoice_id",
+	1: "customer_invoice_id",
+	2: "customer_invoice_number",
+}
+
+// Decode decodes OutgoingEInvoiceCorrection from json.
+func (s *OutgoingEInvoiceCorrection) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode OutgoingEInvoiceCorrection to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "outgoing_einvoice_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.OutgoingEinvoiceID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"outgoing_einvoice_id\"")
+			}
+		case "customer_invoice_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CustomerInvoiceID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_invoice_id\"")
+			}
+		case "customer_invoice_number":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.CustomerInvoiceNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_invoice_number\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode OutgoingEInvoiceCorrection")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfOutgoingEInvoiceCorrection) {
+					name = jsonFieldsNameOfOutgoingEInvoiceCorrection[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *OutgoingEInvoiceCorrection) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OutgoingEInvoiceCorrection) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *OutgoingEInvoicePage) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -215869,6 +216043,10 @@ func (s *OutgoingEInvoiceTransmission) encodeFields(e *jx.Encoder) {
 		s.DeliveryOutcome.Encode(e)
 	}
 	{
+		e.FieldStart("corrected_by")
+		s.CorrectedBy.Encode(e)
+	}
+	{
 		e.FieldStart("tax_data_status")
 		s.TaxDataStatus.Encode(e)
 	}
@@ -215894,7 +216072,7 @@ func (s *OutgoingEInvoiceTransmission) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfOutgoingEInvoiceTransmission = [23]string{
+var jsonFieldsNameOfOutgoingEInvoiceTransmission = [24]string{
 	0:  "connector_id",
 	1:  "connector_name",
 	2:  "operation_id",
@@ -215912,12 +216090,13 @@ var jsonFieldsNameOfOutgoingEInvoiceTransmission = [23]string{
 	14: "delivery_detail",
 	15: "delivered_at",
 	16: "delivery_outcome",
-	17: "tax_data_status",
-	18: "tax_data_at",
-	19: "tax_data_request",
-	20: "tax_data_awaited",
-	21: "follow_check_at",
-	22: "version",
+	17: "corrected_by",
+	18: "tax_data_status",
+	19: "tax_data_at",
+	20: "tax_data_request",
+	21: "tax_data_awaited",
+	22: "follow_check_at",
+	23: "version",
 }
 
 // Decode decodes OutgoingEInvoiceTransmission from json.
@@ -216113,8 +216292,18 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"delivery_outcome\"")
 			}
-		case "tax_data_status":
+		case "corrected_by":
 			requiredBitSet[2] |= 1 << 1
+			if err := func() error {
+				if err := s.CorrectedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"corrected_by\"")
+			}
+		case "tax_data_status":
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.TaxDataStatus.Decode(d); err != nil {
 					return err
@@ -216124,7 +216313,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_data_status\"")
 			}
 		case "tax_data_at":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				if err := s.TaxDataAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -216134,7 +216323,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_data_at\"")
 			}
 		case "tax_data_request":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				if err := s.TaxDataRequest.Decode(d); err != nil {
 					return err
@@ -216144,7 +216333,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_data_request\"")
 			}
 		case "tax_data_awaited":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				if err := s.TaxDataAwaited.Decode(d); err != nil {
 					return err
@@ -216154,7 +216343,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_data_awaited\"")
 			}
 		case "follow_check_at":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				if err := s.FollowCheckAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -216164,7 +216353,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"follow_check_at\"")
 			}
 		case "version":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -216187,7 +216376,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111111,
 		0b11111111,
-		0b01111111,
+		0b11111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
