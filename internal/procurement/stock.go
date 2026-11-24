@@ -222,13 +222,8 @@ func (e *Endpoints) postStock(ctx context.Context, id uuid.UUID, number string, 
 	case g.ReversalOfID != nil:
 		doc, err = e.Movements.ReverseForOrder(ctx, *g.reverses, g.PostingDate, number, post)
 	default:
-		items := make([]inventory.OrderItem, len(stock))
-		for k, i := range stock {
-			oi := current[i]
-			items[k] = inventory.OrderItem{MaterialID: *oi.material, PlantID: *oi.plant, StorageLocationID: *oi.storageLocation, Quantity: g.Items[i].Quantity,
-				Unit: g.Items[i].Unit, Batch: g.Items[i].Batch, SerialNumbers: g.Items[i].SerialNumbers}
-		}
-		doc, err = e.Movements.ReceiveForOrder(ctx, inventory.OrderReceipt{Company: g.LegalEntityID, Day: g.PostingDate, Reference: number, Items: items}, post)
+		doc, err = e.Movements.ReceiveForOrder(ctx, inventory.OrderReceipt{Company: g.LegalEntityID, Day: g.PostingDate, Reference: number,
+			Items: orderItems(g, current, stock)}, post)
 	}
 	if err != nil {
 		return postedMovement{}, asReceiptItems(err, stock)
@@ -238,6 +233,19 @@ func (e *Endpoints) postStock(ctx context.Context, id uuid.UUID, number string, 
 		out.lines[stock[l.ItemNo-1]] = l
 	}
 	return out, nil
+}
+
+// orderItems are the stock items of a receipt (stock, the goods items'
+// indexes) as inventory receives them, with the batch and serial numbers
+// each names (S2f1, S2g1).
+func orderItems(g GoodsReceipt, current []orderItem, stock []int) []inventory.OrderItem {
+	items := make([]inventory.OrderItem, len(stock))
+	for k, i := range stock {
+		oi, it := current[i], g.Items[i]
+		items[k] = inventory.OrderItem{MaterialID: *oi.material, PlantID: *oi.plant, StorageLocationID: *oi.storageLocation, Quantity: it.Quantity, Unit: it.Unit,
+			Batch: it.Batch, SerialNumbers: it.SerialNumbers}
+	}
+	return items
 }
 
 // stockValued refuses stock items that cannot be received into stock: a
