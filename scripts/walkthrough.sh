@@ -16848,7 +16848,7 @@ step_tms() {
 # connector to the stand-in on this machine (step_wms's, free since the
 # tms connector was disabled; refused in production), its credentials in
 # Maple's vault namespace; a second for the plant is refused. Wade creates
-# two outbound deliveries of a box each: each is created with its trade
+# two outbound deliveries of one bracket each: each is created with its trade
 # compliance pending, and its creation's event, read from the bus, queues
 # the screening request the exchange sends once. While pending, the goods
 # issue is refused. The service releases the first and blocks the second
@@ -16875,10 +16875,10 @@ step_gts() {
   connector=$(field .id)
   refused 409 integration.plant_has_gts createConnector -body "{\"kind\": \"gts\", \"name\": \"Second compliance service\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$WMS_ADDR\", \"plants\": {\"$CC\": [\"P100\"]}}}"
   as sally
-  say "Sally sells Northwind two boxes of the bracket from the Toronto plant and confirms the order:"
+  say "Sally sells Northwind two brackets from the Toronto plant and confirms the order:"
   api 201 '"sales order \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
     createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
-      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"2\", \"unit\": \"BOX\"}, \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}]}"
+      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"account_id\": \"$(account 4000)\", \"tax_code\": \"GO5\"}]}"
   order=$(field .id)
   QUIET=1 api 200 '' getSalesOrder -p "id=$order"
   QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
@@ -16888,15 +16888,15 @@ step_gts() {
     api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$ETAG"
   fi
   as wade
-  say "Wade creates two outbound deliveries of a box each. Since a trade compliance service screens P100, each is"
+  say "Wade creates two outbound deliveries of one bracket each. Since a trade compliance service screens P100, each is"
   say "created pending: its goods issue waits for the screening. Its creation's event, read from the bus, queues a"
   say "screening request, which the exchange sends once:"
   api 201 '"outbound delivery \(.number) from \(.plant_code): \(.status), trade compliance \(.trade_compliance.status)"' \
-    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"BOX\"}}]}"
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
   released=$(field .id) rnumber=$(field .number)
   expect "the first delivery's trade compliance" "$(field .trade_compliance.status)" pending
   api 201 '"outbound delivery \(.number) from \(.plant_code): \(.status), trade compliance \(.trade_compliance.status)"' \
-    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"BOX\"}}]}"
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
   blocked=$(field .id) bnumber=$(field .number)
   as ada
   for i in $(seq 1 240); do
@@ -16913,9 +16913,9 @@ step_gts() {
   jq -r '"  \(.type) v\(.schema_version): \(.outbound_delivery_number) of \(.sales_order_number) for \(.customer_number) from \(.company_code)/\(.plant_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.quantity) \(.unit)")' \
     "$WORK/wms/received/$message.json"
   as wade
-  say "Wade picks the first box; its goods issue is refused while the service has not answered:"
+  say "Wade picks the first bracket; its goods issue is refused while the service has not answered:"
   QUIET=1 api 200 '' getOutboundDelivery -p "id=$released"
-  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$released" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$released" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
   refused 409 shipping.trade_compliance_block postOutboundDeliveryGoodsIssue -p "id=$released" -if-match "$ETAG"
   say "The service screens both: the first is released; the second's customer hits a sanctioned party list and it is"
   say "blocked with the service's reason code. Each answer names when the service screened, which orders its answers"
@@ -16940,7 +16940,7 @@ step_gts() {
   say "compliance officer's decision (shipping.trade_compliance.release), which Wade does not hold:"
   api 200 '"outbound delivery \(.number): trade compliance \(.trade_compliance.status), reason \(.trade_compliance.reason_code)"' getOutboundDelivery -p "id=$blocked"
   expect "the blocked delivery" "$(field '"\(.number) \(.trade_compliance.status) \(.trade_compliance.reason_code)"')" "$bnumber blocked SPL-HIT"
-  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$blocked" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$blocked" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
   refused 409 shipping.trade_compliance_block postOutboundDeliveryGoodsIssue -p "id=$blocked" -if-match "$ETAG"
   QUIET=1 api 200 '' getOutboundDelivery -p "id=$blocked"
   refused 403 identity.permission_missing releaseOutboundDeliveryTradeComplianceBlock -p "id=$blocked" -if-match "$ETAG"
