@@ -463,7 +463,7 @@ settings cannot simply overwrite their document.
   writes (`ar_reconciliation`, `output_tax`, `rounding`) are left alone.
   **Decided by default** (for the product owner's review):
   1. *How a key goes.* The application deletes from no tenant table (06
-     §6.4), so a removal is a record: migration 000453's
+     §6.4), so a removal is a record: migration 000464's
      `ledger.account_determination_removal`, insert-only, holds the key,
      the account it named, `removed_at` and `removed_by`, and its trigger
      deletes the row naming that very account, as the owner (the pattern

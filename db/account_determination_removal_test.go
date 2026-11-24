@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestAccountDeterminationRemovalRules (migration 000453; ADR-0048 As
+// TestAccountDeterminationRemovalRules (migration 000464; ADR-0048 As
 // built batch 93): the application deletes no account determination row
 // itself; recording a key's removal deletes the row naming that very
 // account, as the owner, and only the tenant's own; a removal of a key
@@ -111,7 +111,7 @@ func TestAccountDeterminationRemovalRules(t *testing.T) {
 	})
 }
 
-// TestAccountDeterminationRemovalDown (migration 000453): the revert is
+// TestAccountDeterminationRemovalDown (migration 000464): the revert is
 // refused while a removal is recorded, whose record it would lose, and
 // with none drops the table and its trigger.
 func TestAccountDeterminationRemovalDown(t *testing.T) {
@@ -129,9 +129,9 @@ func TestAccountDeterminationRemovalDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	down := migrationNamed(t, "000453_account_determination_removal").Down
+	down := migrationNamed(t, "000464_account_determination_removal").Down
 	if err := savepoint(tx, down); err == nil {
-		t.Fatal("000453's down with a removal recorded: got it reverted, want it refused")
+		t.Fatal("000464's down with a removal recorded: got it reverted, want it refused")
 	} else {
 		failsWith(t, err, "reverting would lose the record of their removal")
 	}
@@ -142,13 +142,13 @@ func TestAccountDeterminationRemovalDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := exec(tx, down); err != nil {
-		t.Fatalf("000453's down with no removal: %v", err)
+		t.Fatalf("000464's down with no removal: %v", err)
 	}
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT to_regclass('ledger.account_determination_removal') IS NOT NULL`).Scan(&exists); err != nil {
 		t.Fatal(err)
 	}
 	if exists {
-		t.Error("after 000453's down: got the removal table, want it dropped")
+		t.Error("after 000464's down: got the removal table, want it dropped")
 	}
 }

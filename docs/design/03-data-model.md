@@ -1291,7 +1291,7 @@ order is credited to, each falling back to the key it shared before,
 `payment_difference_expense` and `cash_discount`, in a company that does
 not set it: `ledger.Accounts.Determination`, ADR-0063 and ADR-0061 As
 built batch 92; a key the configuration no longer names is removed,
-migration 000453: `account_determination_removal`, insert-only, records
+migration 000464: `account_determination_removal`, insert-only, records
 each removal (the key, the account it named, `removed_at`,
 `removed_by`), and its trigger `account_determination_removal_deletes`
 deletes the row naming that very account as the owner, the application
