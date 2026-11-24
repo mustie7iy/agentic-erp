@@ -148,6 +148,7 @@ func TestCannotCheck(t *testing.T) {
 		{"no reason", []string{"-root", root, "-module", "temporal", file("reason.yaml", "exceptions:\n  - {id: GO-2026-6974, module: temporal, expires: \"2026-12-07\"}\n")}, ok, "exception 1: id, module, expires and reason are all required"},
 		{"not a date", []string{"-root", root, "-module", "temporal", file("date.yaml", "exceptions:\n"+entry("GO-2026-6974", "temporal", "2026-12-7"))}, ok, `expires "2026-12-7" is not a date`},
 		{"not a module", []string{"-root", root, "-module", "temporal", file("module.yaml", "exceptions:\n"+entry("GO-2026-6974", "tempral", "2026-12-07"))}, ok, `module "tempral" is not a Go module of the repository`},
+		{"not a clean directory", []string{"-root", root, "-module", "temporal", file("clean.yaml", "exceptions:\n"+entry("GO-2026-6974", "./temporal", "2026-12-07"))}, ok, `module "./temporal" is not a clean directory (write "temporal")`},
 		{"listed twice", []string{"-root", root, "-module", "temporal", file("twice.yaml", "exceptions:\n"+entry("GO-2026-6974", "temporal", "2026-12-07")+entry("GO-2026-6974", "temporal", "2026-12-01"))}, ok, "GO-2026-6974 is listed twice for module temporal"},
 		{"not JSON", []string{"-root", root, "-module", "temporal", empty}, "=== Symbol Results ===", "temporal: reading govulncheck's JSON"},
 		{"no config", []string{"-root", root, "-module", "temporal", empty}, osv, `not a symbol-level scan (scan_level "")`},
