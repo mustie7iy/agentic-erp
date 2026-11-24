@@ -1163,7 +1163,7 @@ warehouse (SAP EWM), freight settlement, customs declarations.
   `pending` or `blocked` (409 `shipping.trade_compliance_block`);
   `GET /v1/gts-messages`; `listOutboundDeliveries?trade_compliance_status=`;
   OutboundDeliveryChanged's `trade_compliance`.
-- **Walkthrough:** `step_gts` (after `step_tms`).
+- **Walkthrough:** step 162, `step_gts` (after `step_tms`, before close).
 - **Acceptance:** a delivery at a screened plant is created pending and
   sent once to screen, whatever reads its event twice; its goods issue,
   by a person or a WMS, is refused until it is released; the service's
