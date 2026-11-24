@@ -48,7 +48,7 @@ const BankSFTP = "bank_sftp"
 // the cash context exports its companies' snapshots to (ADR-0051 §14).
 const TreasuryExport = "treasury_export"
 
-var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport, EInvoiceProvider, WMS, TMS}
+var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport, EInvoiceProvider, WMS, TMS, GTS}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -127,7 +127,7 @@ func checkSettings(kind string, settings map[string]any) error {
 	case EInvoiceProvider:
 		_, err := einvoiceSettings(settings)
 		return err
-	case WMS, TMS:
+	case WMS, TMS, GTS:
 		_, err := plantSettings(kind, settings)
 		return err
 	}

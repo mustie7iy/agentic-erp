@@ -96,6 +96,8 @@ var Inventory = []Entry{
 	{"payments", "bank_statement_line", "text", CategoryFreeText, "The bank's text of a statement line, which may name the counterparty.", nil},
 	{"sales", "sales_order", "cancelled_by_name", CategoryName, "The name of the person who cancelled an order, kept as cancelled.", principal("cancelled_by")},
 	{"sales", "sales_order", "credit_released_by_name", CategoryName, "The name of the person who released an order's credit block, kept as released.", principal("credit_released_by")},
+	{"shipping", "outbound_delivery", "trade_compliance_released_by_name", CategoryName,
+		"The name of the person who released a delivery's trade compliance block, kept as released (S2s).", principal("trade_compliance_released_by")},
 }
 
 // SchemasWithout are the schemas that hold no column of the inventory,

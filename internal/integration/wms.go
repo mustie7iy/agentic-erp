@@ -30,35 +30,43 @@ import (
 // delivery created there to plan and reports the shipment back, recorded
 // on the delivery (tms.go). Both kinds share these settings, the port,
 // the queue, the exchange and integration.wms_message, a message kind
-// each way, as S2q2's receipts do.
+// each way, as S2q2's receipts do. The GTS connector (S2s, gts.go) is the
+// same again for a trade compliance service screening the deliveries of
+// the plants it names, one active gts connector a plant.
 
 // WMS is the kind of a warehouse management system's connector.
 const WMS = "wms"
+
+// logisticsKinds are the kinds of connector that share this machinery.
+var logisticsKinds = []string{WMS, TMS, GTS}
 
 // TMS is the kind of a transport management system's connector (S2r).
 const TMS = "tms"
 
 // systemName is what the kind's connector reaches, as problems name it.
 func systemName(kind string) string {
-	if kind == TMS {
+	switch kind {
+	case TMS:
 		return "transport system"
+	case GTS:
+		return "trade compliance service"
 	}
 	return "warehouse system"
 }
 
-// wmsKeys are the settings of a wms or tms connector: the adapter, the
+// wmsKeys are the settings of a wms, tms or gts connector: the adapter, the
 // stand-in's base URL and the plants it manages. Credentials are the
 // secret_ref's.
 var wmsKeys = []string{"adapter", "base_url", "plants"}
 
-// WMSSettings are what valid wms or tms settings name.
+// WMSSettings are what valid wms, tms or gts settings name.
 type WMSSettings struct {
 	Adapter string              // standin
 	BaseURL string              // https, without credentials, query or fragment
 	Plants  map[string][]string // company code -> its plants' codes, each sorted, at least one
 }
 
-// plantSettings validates a wms or tms connector's settings: the
+// plantSettings validates a wms, tms or gts connector's settings: the
 // stand-in's adapter and its https base URL, and the plants the system
 // manages by company code, at least one plant, each once.
 func plantSettings(kind string, settings map[string]any) (WMSSettings, error) {
@@ -135,11 +143,15 @@ func plantLock(ctx context.Context, tx pgx.Tx, kind string) error {
 }
 
 // plantTaken refuses a plant another active connector of the kind manages
-// already: 409 integration.plant_has_wms, or integration.plant_has_tms.
+// already: 409 integration.plant_has_wms, integration.plant_has_tms or
+// integration.plant_has_gts.
 func plantTaken(kind, plant, company, other string) error {
 	detail := fmt.Sprintf("Plant %s of company %s is managed by the %s of connector %s already.", plant, company, systemName(kind), other)
-	if kind == TMS {
+	switch kind {
+	case TMS:
 		return problem.Conflict("integration.plant_has_tms", detail)
+	case GTS:
+		return problem.Conflict("integration.plant_has_gts", detail)
 	}
 	return problem.Conflict("integration.plant_has_wms", detail)
 }
@@ -170,7 +182,7 @@ func plantsFree(ctx context.Context, tx pgx.Tx, self uuid.UUID, kind string, s W
 	return nil
 }
 
-// logisticsConnector is an active wms or tms connector with its settings read.
+// logisticsConnector is an active wms, tms or gts connector with its settings read.
 type logisticsConnector struct {
 	ID        uuid.UUID
 	Kind      string
@@ -212,11 +224,11 @@ func managing(ctx context.Context, tx pgx.Tx, kind, company, plant string) (logi
 	return logisticsConnector{}, false, nil
 }
 
-// checkPlantsActive refuses a wms or tms connector becoming, or staying,
+// checkPlantsActive refuses a wms, tms or gts connector becoming, or staying,
 // active with plants another active one of its kind manages; nil for any
 // other kind or for a connector that will not be active.
 func checkPlantsActive(ctx context.Context, tx pgx.Tx, id uuid.UUID, kind, status string, settings map[string]any) error {
-	if (kind != WMS && kind != TMS) || status != "active" {
+	if !slices.Contains(logisticsKinds, kind) || status != "active" {
 		return nil
 	}
 	s, err := plantSettings(kind, settings)

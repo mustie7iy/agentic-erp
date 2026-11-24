@@ -30,13 +30,15 @@ type Input struct {
 }
 
 // origin is what a delivery is made from: its order, its company, the
-// plant and storage location and the materials of the order's items.
+// plant and storage location and the materials of the order's items, and
+// whether a trade compliance service screens the plant (S2s).
 type origin struct {
 	order     sales.Order
 	le        tenancy.Entity
 	plant     tenancy.Unit
 	location  tenancy.Unit
 	materials map[uuid.UUID]materials.Material
+	screened  bool
 }
 
 // Create creates an outbound delivery (ADR-0083 §3): the order one of a
@@ -48,8 +50,10 @@ type origin struct {
 // order as Ship read it, to be an order item of an active material kept
 // in stock there (eligible), the delivery is numbered from its
 // company's outbound_delivery range of the fiscal year of the company's
-// date today, and written created with nothing picked; its audit record
-// and OutboundDeliveryChanged are written in the request's transaction.
+// date today, and written created with nothing picked, its trade
+// compliance pending when an active gts connector screens the plant (S2s:
+// its goods issue waits for the screening); its audit record and
+// OutboundDeliveryChanged are written in the request's transaction.
 func (e *Endpoints) Create(ctx context.Context, in Input) (Delivery, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -87,6 +91,9 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Delivery, error) {
 		if err := src.eligibleNamed(in.Items); err != nil {
 			return Delivery{}, err
 		}
+	}
+	if src.screened, err = e.Screening.Screens(ctx, src.le.Code, src.plant.Code); err != nil {
+		return Delivery{}, fmt.Errorf("shipping: trade compliance of plant %s: %w", src.plant.Code, err)
 	}
 	d, err := insert(ctx, tx, p, src, ship, year, shipped)
 	if err != nil {
@@ -236,10 +243,10 @@ func (s origin) eligibleNamed(items []sales.ItemQuantity) error {
 func insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, src origin, ship sales.ShipInput, year int16, shipped sales.Shipped) (Delivery, error) {
 	o := shipped.Order
 	if _, err := tx.Exec(ctx, `INSERT INTO shipping.outbound_delivery (tenant_id, id, legal_entity_id, fiscal_year, number, sales_order_id,
-			sales_order_number, customer_id, customer_number, plant_id, storage_location_id, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
+			sales_order_number, customer_id, customer_number, plant_id, storage_location_id, created_by, updated_by, trade_compliance_status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, CASE WHEN $13 THEN 'pending' END)`,
 		p.TenantID, ship.DeliveryID, o.LegalEntityID, year, ship.DeliveryNumber, o.ID, o.DocumentNumber, o.CustomerID, shipped.CustomerNumber,
-		src.plant.ID, src.location.ID, p.ID); err != nil {
+		src.plant.ID, src.location.ID, p.ID, src.screened); err != nil {
 		return Delivery{}, fmt.Errorf("shipping: insert outbound delivery %s: %w", ship.DeliveryNumber, err)
 	}
 	for i, q := range shipped.Items {

@@ -70,6 +70,24 @@ func (e *Endpoints) ListWMSMessages(ctx context.Context, params gen.ListWMSMessa
 	return page, nil
 }
 
+// ListGTSMessages implements GET /v1/gts-messages (S2s): the messages
+// exchanged with trade compliance services, as ListTMSMessages lists
+// those of transport systems; a GTS message's fields are a TMS message's.
+func (e *Endpoints) ListGTSMessages(ctx context.Context, params gen.ListGTSMessagesParams) (gen.ListGTSMessagesRes, error) {
+	ms, next, n, err := e.messages(ctx, messageQuery{kinds: gtsKinds, connector: params.ConnectorID, direction: params.Direction.Value,
+		status: params.Status.Value, delivery: params.OutboundDeliveryID, size: params.PageSize, token: params.PageToken,
+		scope: fmt.Sprintf("listGTSMessages|%s|%s|%s|%s", params.ConnectorID.Value, params.Direction.Value, params.Status.Value,
+			params.OutboundDeliveryID.Value)})
+	if err != nil {
+		return nil, err
+	}
+	page := &gen.GTSMessagePage{Items: make([]gen.GTSMessage, len(ms)), NextPageToken: next}
+	for i, m := range ms {
+		page.Items[i] = gen.GTSMessage(n.tmsToAPI(m))
+	}
+	return page, nil
+}
+
 // ListTMSMessages implements GET /v1/tms-messages (S2r): the messages
 // exchanged with transport systems, as ListWMSMessages lists those of
 // warehouse systems.
@@ -173,12 +191,14 @@ func (e *Endpoints) wmsNames(ctx context.Context, tx pgx.Tx, ms []WMSMessage) (w
 
 // The kinds whose document is an outbound delivery, and those whose
 // document is a purchase order (S2q2); the kinds a warehouse system's
-// messages are of, and a transport system's (S2r).
+// messages are of, a transport system's (S2r) and a trade compliance
+// service's (S2s).
 var (
-	deliveryKinds = []string{WMSOutboundDelivery, WMSGoodsIssue, TMSTransportRequest, TMSShipment}
+	deliveryKinds = []string{WMSOutboundDelivery, WMSGoodsIssue, TMSTransportRequest, TMSShipment, GTSScreeningRequest, GTSScreeningResult}
 	orderKinds    = []string{WMSInboundReceipt, WMSGoodsReceipt}
 	wmsKinds      = []string{WMSOutboundDelivery, WMSGoodsIssue, WMSInboundReceipt, WMSGoodsReceipt}
 	tmsKinds      = []string{TMSTransportRequest, TMSShipment}
+	gtsKinds      = []string{GTSScreeningRequest, GTSScreeningResult}
 )
 
 func (n wmsNames) toAPI(m WMSMessage) gen.WMSMessage {

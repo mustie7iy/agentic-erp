@@ -20,24 +20,36 @@ import (
 // what its deliveries take, reads materials through materials' published
 // API and stock through inventory's, and tenancy's companies and org
 // units, the ledger's fiscal calendar and the configuration's number
-// ranges and company dates through its ports.
+// ranges and company dates through its ports, and whether a trade
+// compliance service screens a plant through integration's (S2s).
 func Shipping(cfg Config) *shipping.Endpoints {
 	return &shipping.Endpoints{Pages: cfg.Pages, Orders: sales.Orders{}, Shipments: Sales(cfg), Stock: Inventory(cfg), Materials: materials.Materials{},
-		Partners: partner.Payees{}, LegalEntities: tenancy.Directory{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+		Partners: partner.Payees{}, LegalEntities: tenancy.Directory{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{},
+		Screening: integration.TradeScreening{}, People: LedgerPeople{}, Now: cfg.Now}
 }
 
-// WMS is the exchange with warehouse and transport systems (ADR-0082 As
-// built S2q, S2r) as the server runs it: its messages sent and its
+// WMS is the exchange with warehouse and transport systems and trade
+// compliance services (ADR-0082 As built S2q, S2r, S2s) as the server runs it: its messages sent and its
 // systems polled through client (integration.NewWMSClient), their
 // credentials resolved by cfg.Secrets, the goods issues they report
 // posted through shipping's published API (wmsDeliveries), the goods
 // receipts through procurement's (WMSOrders, S2q2) and the shipments
-// recorded through shipping's (tmsDeliveries, S2r), so integration imports
-// neither. The server sets the pool and roles.
+// recorded through shipping's (tmsDeliveries, S2r), as are the screenings
+// (gtsDeliveries, S2s), so integration imports neither. The server sets
+// the pool and roles.
 func WMS(cfg Config, client *egress.Client) *integration.WMSExchange {
 	ship := Shipping(cfg)
 	return &integration.WMSExchange{Secrets: resolver(cfg.Secrets), Adapter: integration.WMSAdapters(client), Deliveries: wmsDeliveries{ship},
-		Orders: WMSOrders(cfg), Shipments: tmsDeliveries{ship}, RefuseStandIn: cfg.RefuseEBICS, Now: cfg.Now}
+		Orders: WMSOrders(cfg), Shipments: tmsDeliveries{ship}, Screenings: gtsDeliveries{ship}, RefuseStandIn: cfg.RefuseEBICS, Now: cfg.Now}
+}
+
+// gtsDeliveries records a trade compliance service's answer for a
+// delivery (shipping's RecordScreening, S2s).
+type gtsDeliveries struct{ e *shipping.Endpoints }
+
+func (a gtsDeliveries) ScreeningReported(ctx context.Context, delivery uuid.UUID, s integration.GTSScreening) error {
+	_, err := a.e.RecordScreening(ctx, delivery, shipping.ScreeningInput{Result: s.Result, ReasonCode: s.ReasonCode})
+	return err
 }
 
 // tmsDeliveries records the shipment a transport system reports of a

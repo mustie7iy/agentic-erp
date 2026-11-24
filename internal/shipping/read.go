@@ -30,7 +30,9 @@ const deliverySelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number,
 		 FROM shipping.outbound_delivery_item i WHERE i.tenant_id = d.tenant_id AND i.outbound_delivery_id = d.id),
 		d.version, d.created_at, d.created_by, d.updated_at, d.updated_by,
 		d.shipment_number, d.carrier_code, d.freight_amount, d.freight_currency,
-		coalesce((SELECT c.exponent FROM ref.currency c WHERE c.code = d.freight_currency), 0), d.shipment_recorded_at
+		coalesce((SELECT c.exponent FROM ref.currency c WHERE c.code = d.freight_currency), 0), d.shipment_recorded_at,
+		d.trade_compliance_status, d.trade_compliance_reason, d.trade_compliance_screened_at, d.trade_compliance_released_by,
+		d.trade_compliance_released_by_name, d.trade_compliance_released_at
 	FROM shipping.outbound_delivery d`
 
 func scanDelivery(row pgx.Row) (Delivery, error) {
@@ -39,12 +41,19 @@ func scanDelivery(row pgx.Row) (Delivery, error) {
 	var freight *money.Minor
 	var exp int
 	var recorded *time.Time
+	var tc TradeCompliance
+	var tradeStatus *string
 	err := row.Scan(&d.ID, &d.LegalEntityID, &d.FiscalYear, &d.Number, &d.OrderID, &d.OrderNumber, &d.CustomerID, &d.CustomerNumber, &d.PlantID,
 		&d.StorageLocationID, &d.Status, &d.GoodsIssueDate, &d.MaterialDocumentID, &d.MaterialDocumentNumber, &d.Currency, &d.Exponent, &d.Items,
 		&d.Version, &d.CreatedAt,
-		&d.CreatedBy, &d.UpdatedAt, &d.UpdatedBy, &number, &carrier, &freight, &currency, &exp, &recorded)
+		&d.CreatedBy, &d.UpdatedAt, &d.UpdatedBy, &number, &carrier, &freight, &currency, &exp, &recorded,
+		&tradeStatus, &tc.ReasonCode, &tc.ScreenedAt, &tc.ReleasedBy, &tc.ReleasedByName, &tc.ReleasedAt)
 	if err == nil && number != nil { // outbound_delivery_shipment: all five or none
 		d.Shipment = &Shipment{Number: *number, Carrier: *carrier, Freight: *freight, Currency: *currency, Exponent: exp, RecordedAt: *recorded}
+	}
+	if err == nil && tradeStatus != nil { // outbound_delivery_trade_compliance: none of it without a status
+		tc.Status = *tradeStatus
+		d.TradeCompliance = &tc
 	}
 	return d, errs.Wrapf(err, "scan outbound delivery")
 }
@@ -173,7 +182,8 @@ func (e *Endpoints) record(ctx context.Context, action string, d Delivery, detai
 		"customer_id": d.CustomerID, "customer_number": d.CustomerNumber, "plant_id": d.PlantID, "plant_code": r.units[d.PlantID].Code,
 		"storage_location_id": d.StorageLocationID, "storage_location_code": r.units[d.StorageLocationID].Code, "status": d.Status,
 		"picking_status": d.PickingStatus(), "goods_issue_date": issued, "material_document_id": d.MaterialDocumentID,
-		"material_document_number": d.MaterialDocumentNumber, "items": items, "shipment": shipmentEvent(d.Shipment), "version": d.Version}
+		"material_document_number": d.MaterialDocumentNumber, "items": items, "shipment": shipmentEvent(d.Shipment),
+		"trade_compliance": tradeEvent(d.TradeCompliance), "version": d.Version}
 	audited := map[string]any{"number": d.Number, "sales_order_id": d.OrderID, "sales_order_number": d.OrderNumber, "status": d.Status,
 		"picking_status": d.PickingStatus(), "items": items}
 	for k, v := range detail {

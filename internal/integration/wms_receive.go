@@ -75,18 +75,18 @@ type WMSIssueReport struct {
 	} `json:"items"`
 }
 
-// pollTenants returns the tenants with active wms or tms connectors.
+// pollTenants returns the tenants with active wms, tms or gts connectors.
 func (w *WMSExchange) pollTenants(ctx context.Context) ([]uuid.UUID, error) {
 	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole,
 		`SELECT DISTINCT tenant_id FROM integration.connector WHERE kind = ANY($1) AND status = 'active' AND tenant_id IN `+database.ActiveTenants,
-		[]string{WMS, TMS})
+		logisticsKinds)
 	if err != nil {
-		return nil, fmt.Errorf("integration: list the tenants with wms or tms connectors: %w", err)
+		return nil, fmt.Errorf("integration: list the tenants with wms, tms or gts connectors: %w", err)
 	}
 	return tenants, nil
 }
 
-// PollOnce polls every active wms and tms connector of every active tenant and
+// PollOnce polls every active wms, tms and gts connector of every active tenant and
 // returns how many confirmations it recorded. A connector whose WMS
 // cannot be read is reported and the others are polled still.
 func (w *WMSExchange) PollOnce(ctx context.Context) (int, error) {
@@ -106,11 +106,11 @@ func (w *WMSExchange) PollOnce(ctx context.Context) (int, error) {
 	return n, errors.Join(failed...)
 }
 
-// pollTenant polls the tenant's active wms and tms connectors, by name.
+// pollTenant polls the tenant's active wms, tms and gts connectors, by name.
 func (w *WMSExchange) pollTenant(ctx context.Context, tenant uuid.UUID) (int, error) {
 	var conns []usable
-	if err := w.job(tenant, "read the wms and tms connectors").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		cs, err := activeLogistics(ctx, tx, WMS, TMS)
+	if err := w.job(tenant, "read the wms, tms and gts connectors").Tx(ctx, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		cs, err := activeLogistics(ctx, tx, logisticsKinds...)
 		for _, c := range cs {
 			if c.SecretRef != nil && (!w.RefuseStandIn || c.Adapter != StandInAdapter) {
 				conns = append(conns, usable{WMSConnection: WMSConnection{Name: c.Name, Kind: c.Kind, WMSSettings: c.WMSSettings}, secretRef: *c.SecretRef, id: c.ID})
@@ -211,7 +211,7 @@ type inbound struct {
 	body                  []byte
 	status                string
 	code, detail          *string // refused: the problem's, its detail at most 1000 characters
-	kind                  string  // WMSGoodsIssue, or WMSGoodsReceipt for a message read as one; a tms connector's TMSShipment
+	kind                  string  // WMSGoodsIssue, or WMSGoodsReceipt for a message read as one; a tms connector's TMSShipment, a gts one's GTSScreeningResult
 	posted                *WMSPosted
 }
 
@@ -234,10 +234,7 @@ func (w *WMSExchange) record(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, c
 	if !asReceived && readErr == nil {
 		readErr = unkept(id)
 	}
-	in := inbound{id: uuid.Must(uuid.NewV7()), connector: c.id, messageID: id, kind: WMSGoodsIssue, body: body}
-	if c.Kind == TMS {
-		in.kind = TMSShipment
-	}
+	in := inbound{id: uuid.Must(uuid.NewV7()), connector: c.id, messageID: id, kind: inboundKind(c.Kind), body: body}
 	err := uow.Act(ctx, tx, wmsActor(tenant), w.Now, func(ctx context.Context) error {
 		if err := w.post(ctx, tx, &in, raw, readErr); err != nil {
 			return err
@@ -278,8 +275,8 @@ func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, raw []by
 	err := w.postAs(ctx, tx, in, raw, readErr)
 	if err == nil {
 		in.status = "posted"
-		if in.kind == TMSShipment {
-			in.status = "recorded" // a shipment posts nothing
+		if in.kind == TMSShipment || in.kind == GTSScreeningResult {
+			in.status = "recorded" // a shipment or a screening posts nothing
 		}
 		return nil
 	}
@@ -293,15 +290,37 @@ func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, raw []by
 	return nil
 }
 
+// inboundKind is what a confirmation of a connector of the kind is
+// recorded as, until it is read: a goods issue (or receipt, once read as
+// one) of a WMS; a shipment of a TMS (S2r); a screening result of a GTS
+// (S2s).
+func inboundKind(connector string) string {
+	switch connector {
+	case TMS:
+		return TMSShipment
+	case GTS:
+		return GTSScreeningResult
+	}
+	return WMSGoodsIssue
+}
+
 // postAs reads the confirmation by its type and posts it: a goods issue
-// or a goods receipt (S2q2); a tms connector's, a shipment (S2r).
+// or a goods receipt (S2q2); a tms connector's, a shipment (S2r); a gts
+// connector's, a screening (S2s).
 func (w *WMSExchange) postAs(ctx context.Context, tx pgx.Tx, in *inbound, raw []byte, readErr error) error {
-	if in.kind == TMSShipment {
+	switch in.kind {
+	case TMSShipment:
 		sh, err := readShipment(in.messageID, raw, readErr)
 		if err != nil {
 			return err
 		}
 		return w.postShipment(ctx, tx, in, sh)
+	case GTSScreeningResult:
+		sc, err := readScreening(in.messageID, raw, readErr)
+		if err != nil {
+			return err
+		}
+		return w.postScreening(ctx, tx, in, sc)
 	}
 	typ, err := readType(in.messageID, raw, readErr)
 	if err != nil {

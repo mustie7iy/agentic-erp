@@ -62,27 +62,48 @@ type TMSShipmentReport struct {
 	} `json:"freight_cost"`
 }
 
+func (sh *TMSShipmentReport) head() (string, string, uuid.UUID) {
+	return sh.MessageID, sh.Type, sh.DeliveryID
+}
+
 // readShipment reads a tms connector's confirmation, which is a shipment
 // naming the message id it was listed under and a delivery; any other is
 // unreadable (the exchange's integration.wms_message_unreadable).
 func readShipment(id string, raw []byte, readErr error) (TMSShipmentReport, error) {
 	var sh TMSShipmentReport
+	err := readDeliveryReport(id, raw, readErr, TMSShipment, "TMS", "a transport system", &sh)
+	return sh, err
+}
+
+// deliveryReport is a confirmation reporting on a delivery it was sent:
+// its message id, its message type and the delivery.
+type deliveryReport interface {
+	head() (messageID, typ string, delivery uuid.UUID)
+}
+
+// readDeliveryReport reads a confirmation of a transport system or a
+// trade compliance service into r: a JSON message of the type the system
+// reports, of the protocol, naming the message id it was listed under and
+// a delivery; any other is unreadable (the exchange's
+// integration.wms_message_unreadable).
+func readDeliveryReport(id string, raw []byte, readErr error, typ, protocol, system string, r deliveryReport) error {
 	if readErr != nil {
-		return sh, readErr
+		return readErr
 	}
-	if err := json.Unmarshal(raw, &sh); err != nil {
-		return sh, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON shipment message of the TMS protocol.")
+	if err := json.Unmarshal(raw, r); err != nil {
+		return problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is not a JSON "+typ+" message of the "+protocol+" protocol.")
 	}
+	messageID, got, delivery := r.head()
 	switch {
-	case sh.Type != TMSShipment:
-		return sh, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is of type "+fmt.Sprintf("%q", sh.Type)+
-			": only shipment is read from a transport system.")
-	case sh.MessageID != id:
-		return sh, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" names another message id, "+fmt.Sprintf("%q", sh.MessageID)+".")
-	case sh.DeliveryID == uuid.Nil:
-		return sh, problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" names no outbound_delivery_id.")
+	case got != typ:
+		return problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" is of type "+fmt.Sprintf("%q", got)+
+			": only "+typ+" is read from "+system+".")
+	case messageID != id:
+		return problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" names another message id, "+fmt.Sprintf("%q", messageID)+".")
+	case delivery == uuid.Nil:
+		return problem.Unprocessable("integration.wms_message_unreadable", "Confirmation "+id+" names no outbound_delivery_id.")
 	}
-	return sh, nil
+	return nil
 }
 
 // postShipment records a shipment the TMS reports, of a delivery it was

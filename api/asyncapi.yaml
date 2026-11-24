@@ -6976,6 +6976,19 @@ components:
                 freight_cost: {$ref: '#/components/schemas/Money', description: The freight cost reported, in the currency it named.}
                 recorded_at: {type: string, format: date-time, description: When it was recorded.}
             - type: 'null'
+        trade_compliance:
+          description: "Its screening by a trade compliance service (S2s; ADR-0082 As built S2s): `status` (`pending` from its creation at a plant a `gts` connector screens until the service answers, then `released` or `blocked` by the service's latest answer, or `released` by a person), the service's `reason_code` and `screened_at`, and who released it by hand (`released_by`, `released_by_name`, `released_at`); null when it is not screened. Its goods issue waits while it is `pending` or `blocked`."
+          oneOf:
+            - type: object
+              required: [status, reason_code, screened_at, released_by, released_by_name, released_at]
+              properties:
+                status: {type: string, description: 'Open enum: pending, released, blocked.'}
+                reason_code: {type: [string, 'null'], description: "The service's reason code with its latest answer; null when it gave none."}
+                screened_at: {type: [string, 'null'], format: date-time, description: "When the service's latest answer was recorded; null before."}
+                released_by: {type: [string, 'null'], format: uuid, description: "Released by hand: who released it; null otherwise."}
+                released_by_name: {type: [string, 'null'], description: "Released by hand: that person's name then; null otherwise."}
+                released_at: {type: [string, 'null'], format: date-time, description: "Released by hand: when; null otherwise."}
+            - type: 'null'
         version: {type: integer, description: "The delivery's version after the change."}
     MaterialPriceChangedV1:
       type: object
