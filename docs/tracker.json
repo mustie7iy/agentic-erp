@@ -1298,10 +1298,17 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Cash discounts granted to customers (SAP SKT, an expense) need an account determination key of their own",
-      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Finance / Payments and bank communication: customer side, with AR)",
+      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Finance / Payments and bank communication: customer side, with AR) · built in batch 92: key cash_discount_granted (an expense; migrations 000460, 000461), the receipt application's discount net posted to it (ledger receiptDiscounts), a company without it falling back to payment_difference_expense (ledger.Accounts.Determination, determinationFallbacks); packs Canada 2026.13 and UAE 2026.10 bring 6800 Cash discounts granted · TestUAECashDiscountGrantedAccount · TestDeterminationFallbacks · TestDiscountAccountKeys · TestDiscountKeysValid · TestCanadaPack2026_13 · TestUAEPack2026_10 · ADR-0063 As built batch 92 · ADR-0048 As built (the discount keys) · walkthrough step 156 (step_uae_cash_discount: the net on 6800)",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: an account determination key a company's configuration stops naming is not removed by ledger.Setup (it only upserts rows), so the company keeps posting to the old account although its document names none; with batch 92's fallbacks a company that drops cash_discount_granted or supplier_rebate keeps posting discounts or rebates there instead of falling back to payment_difference_expense or cash_discount",
+      "r": "internal/ledger/setup.go applyCompany (account determination upsert) · ledger.Accounts.Determination, determinationFallbacks · ADR-0063 and ADR-0061 As built batch 92",
+      "src": "review:batch92",
       "c": []
      },
      {
@@ -2874,9 +2881,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A dedicated account determination key for supplier rebates, for the credit memos entered from volume discount credit notes (BTAE-03 VD) instead of cash_discount (SAP books vendor rebates through a key of its own, BO1, from memory and unverified); until then they stay on cash_discount (product owner 2026-11-22)",
-        "r": "ADR-0061 As built batch 89 · payables.rebateInput",
+        "r": "ADR-0061 As built batch 89 · payables.rebateInput · built in batch 92: key supplier_rebate (a revenue; migrations 000460, 000461), payables.rebateKey, a company without it falling back to cash_discount (ledger.Accounts.Determination, determinationFallbacks); packs Canada 2026.13 and UAE 2026.10 bring 4830 Supplier rebates received · TestVolumeDiscountOnSupplierRebates · TestRebateInput · TestDeterminationFallbacks · TestDiscountAccountKeys · ADR-0061 As built batch 92 · ADR-0048 As built (the discount keys) · walkthrough step 144 (evatra_volume_discount: EWS-501 on 4830)",
         "src": "po:2026-11-22",
         "c": []
        },

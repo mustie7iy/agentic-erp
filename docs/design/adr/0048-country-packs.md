@@ -436,6 +436,23 @@ settings cannot simply overwrite their document.
   (5016) and inventory differences (5198) accounts stay in the pilot's
   settings: accounts are not numbering, and the packs' charts change
   only with a version that is not numbering-only.
+- **As built (the discount keys, batch 92): Canada 2026.13 and UAE
+  2026.10** are 2026.12 and 2026.9 plus two accounts and the account
+  determination keys batch 92 split off (ADR-0063 and ADR-0061 As built
+  batch 92): `6800` "Cash discounts granted", an expense, as
+  `cash_discount_granted` (SAP SKT), and `4830` "Supplier rebates
+  received", a revenue beside `4800`, as `supplier_rebate`. Only
+  `accounts.yaml` and `pack.yaml` differ (`TestCanadaPack2026_13`,
+  `TestUAEPack2026_10`, `discountKeysOnly`): tax, returns, numbering and
+  every other file are the previous version's byte for byte. Both carry
+  the sign-off of 2026-11-09, **decided by default** (batch 92, for the
+  product owner's review): the rule of 2026-11-18 names numbering-only
+  versions, and its reason, that the tax content is the content signed
+  off, holds for a version whose only change is two accounts no tax code
+  posts to; without it production would refuse the versions that carry
+  the keys. A company upgrading gains the accounts and keys unless it
+  named the key itself (a conflict note). The walkthrough's step 2
+  applies Canada 2026.13 and step 41 UAE 2026.10.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

@@ -125,14 +125,19 @@ func (suppliers) PaymentTerm(context.Context, string) (partner.PaymentTerm, bool
 }
 
 // determination answers Determination with account, or none when it is
-// nil, or err; the other questions are not asked of it.
+// nil, or err, and records the key asked for; the other questions are not
+// asked of it.
 type determination struct {
 	Accounts
 	account *uuid.UUID
 	err     error
+	asked   *string
 }
 
-func (d determination) Determination(context.Context, uuid.UUID, string) (uuid.UUID, bool, error) {
+func (d determination) Determination(_ context.Context, _ uuid.UUID, key string) (uuid.UUID, bool, error) {
+	if d.asked != nil {
+		*d.asked = key
+	}
 	if d.account == nil {
 		return uuid.Nil, false, d.err
 	}
@@ -200,8 +205,8 @@ func TestSellerSupplier(t *testing.T) {
 
 // TestRebateInput: a volume discount naming no order is a credit memo of
 // the seller's supplier, each line an item of 1 EA on the account of
-// discounts received, its amounts as stated (negative ones as their
-// magnitude); a company without that account is
+// supplier rebates (supplier_rebate, batch 92), its amounts as stated
+// (negative ones as their magnitude); a company without that account is
 // payables.capture_needs_account; a document capture cannot read is
 // payables.unreadable_document; the ledger or the partner context failing
 // is its error (ADR-0061 As built batch 89).
@@ -225,9 +230,15 @@ func TestRebateInput(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		in, err := (&Endpoints{TaxNumbers: numbers, Suppliers: known, Accounts: determination{account: &account}}).rebateInput(context.Background(), d, ext)
+		var asked string
+		in, err := (&Endpoints{TaxNumbers: numbers, Suppliers: known, Accounts: determination{account: &account, asked: &asked}}).rebateInput(context.Background(), d, ext)
 		if err != nil {
 			t.Fatal(err)
+		}
+		// The ledger falls back to cash_discount for a company without it
+		// (ledger's TestDeterminationFallbacks).
+		if asked != "supplier_rebate" {
+			t.Errorf("key asked for: got %s, want supplier_rebate", asked)
 		}
 		it := in.Items[0]
 		if got, want := fmt.Sprintf("%s %s %s %s %s %v %s %s %s %v", in.Kind, in.SupplierReference, in.InvoiceDate.Format(time.DateOnly), in.Gross.Value,

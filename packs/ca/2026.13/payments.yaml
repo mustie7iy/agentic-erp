@@ -1,0 +1,10 @@
+# Payment terms customary in Canadian trade: commercial practice, not law.
+# None grants a cash discount: payment terms are the document's, shared by
+# its companies, and a discount term requires a cash discount account in
+# every company (T36a), which applying this pack to one company must not
+# impose on the others. Tenants add terms such as 2/10 net 30 themselves.
+payment_terms:
+  - {key: IMM, description: Due on receipt, net_days: 0}
+  - {key: NT15, description: 15 days net, net_days: 15}
+  - {key: NT30, description: 30 days net, net_days: 30}
+  - {key: NT60, description: 60 days net, net_days: 60}

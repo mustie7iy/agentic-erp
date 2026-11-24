@@ -113,8 +113,8 @@ func determination(ad *config.AccountDetermination) map[string]*string {
 	return map[string]*string{
 		"ap_reconciliation": &ad.APReconciliation, "input_tax": &ad.InputTax, "bank": &ad.Bank,
 		"fx_gain": &ad.FXGain, "fx_loss": &ad.FXLoss, "gr_ir": &ad.GRIR, "price_difference": &ad.PriceDifference,
-		"cash_discount": &ad.CashDiscount, "down_payment": &ad.DownPayment,
-		"contract_asset": &ad.ContractAsset, "contract_liability": &ad.ContractLiability,
+		"cash_discount": &ad.CashDiscount, "cash_discount_granted": &ad.CashDiscountGranted, "supplier_rebate": &ad.SupplierRebate,
+		"down_payment": &ad.DownPayment, "contract_asset": &ad.ContractAsset, "contract_liability": &ad.ContractLiability,
 		// Every field, so a merge (mergeDetermination) keeps the ones no pack
 		// ships: a document's lease, payment difference and dunning accounts.
 		"right_of_use_asset": &ad.RightOfUseAsset, "lease_liability": &ad.LeaseLiability, "lease_interest": &ad.LeaseInterest,

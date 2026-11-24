@@ -481,7 +481,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.9, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.10, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -1900,7 +1900,10 @@ step_pack() {
   say "ranges the pilot's settings added themselves: returns orders, credit memo requests, lease contracts, expense reports,"
   say "material documents and the WA and PR journals of valued goods movements, under the same sign-off (product"
   say "owner, 2026-11-19). 2026.12 is 2026.11 plus the ranges of count documents (step 141) and outbound deliveries"
-  say "(step 142), under it too (the batch 83 review; product owner's rule of 2026-11-18): the latest signed-off version."
+  say "(step 142), under it too (the batch 83 review; product owner's rule of 2026-11-18). 2026.13 is 2026.12 plus two"
+  say "accounts and their account determination keys: 6800 for the cash discounts customers take (cash_discount_granted,"
+  say "SAP SKT) and 4830 for supplier rebates (supplier_rebate), its tax content unchanged, under the same sign-off"
+  say "(batch 92, by default): the latest signed-off version."
   say "The pilot's settings add only Maple's material range: material numbers are unique in the tenant, so no pack ships"
   say "one prefix for every company."
   expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
@@ -1911,6 +1914,8 @@ step_pack() {
     "30 number ranges, signed off: true"
   expect "Canada 2026.12" "$(field '.items[] | select(.country == "CA" and .version == "2026.12") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "32 number ranges, signed off: true"
+  expect "Canada 2026.13" "$(field '.items[] | select(.country == "CA" and .version == "2026.13") | "\(.contents.accounts) accounts, \(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "23 accounts, 32 number ranges, signed off: true"
   expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
@@ -5035,10 +5040,11 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.9 (2026.4, signed off by the tax
+# applies the UAE pack to it, 2026.10 (2026.4, signed off by the tax
 # specialist, with the box labels' markers dropped in 2026.5, the number ranges added in 2026.6, journal_dd in
-# 2026.7, the ranges the pilot's settings added in 2026.8 and those of
-# count documents and outbound deliveries in 2026.9), so without a note
+# 2026.7, the ranges the pilot's settings added in 2026.8, those of
+# count documents and outbound deliveries in 2026.9 and the accounts of
+# cash discounts granted and supplier rebates in 2026.10), so without a note
 # (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
@@ -5062,10 +5068,13 @@ step_uae() {
   say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13); 2026.7 adds the"
   say "journal range of customer debit memos, journal_dd, under it too (product owner, 2026-11-18), and 2026.8 the ranges"
   say "of returns orders, credit memo requests, lease contracts, expense reports, material documents and the WA and PR"
-  say "journals (product owner, 2026-11-19); 2026.9 adds those of count documents and outbound deliveries."
+  say "journals (product owner, 2026-11-19); 2026.9 adds those of count documents and outbound deliveries. 2026.10 adds two"
+  say "accounts and their account determination keys, 6800 for the cash discounts customers take (cash_discount_granted,"
+  say "SAP SKT, step 156) and 4830 for supplier rebates (supplier_rebate, step 144), under the same sign-off (batch 92, by"
+  say "default)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true, 2026.9 9 true"
-  expect "UAE 2026.9's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.9") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true, 2026.9 9 true, 2026.10 9 true"
+  expect "UAE 2026.10's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.10") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -5085,10 +5094,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest signed-off UAE pack, 2026.9, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.10, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.9\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.10\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -5231,7 +5240,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.9 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.10 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -5283,10 +5292,10 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(packs/ae/TAX-PENDING-T61k.md); 2026.9's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.10's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.9"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.10"
   expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
     "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
@@ -15464,18 +15473,20 @@ step_evatra_inbound() {
 # for a volume discount (BTAE-03 VD) naming no invoice and no order; the
 # fetch enters it as a credit memo without an order or a reference, not
 # held: the supplier the one holding the seller's TRN, its line 1 EA of
-# AED 250.00 on the account of discounts received (4800, cash_discount),
+# AED 250.00 on the account of supplier rebates (4830, supplier_rebate,
+# which UAE pack 2026.10 brings; batch 92: not 4800, the cash discounts
+# received, cash_discount),
 # its 12.50 VAT as stated, on hold for Alex to choose its input code
 # between V5 and VB5, both charging 5% in category S; he releases it,
 # chooses V5 and posts it.
 evatra_volume_discount() {
-  local connector=$1 ae recon discounts supplier op memo trn=100777777700003
+  local connector=$1 ae recon rebates supplier op memo trn=100777777700003
   as alex
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   recon=$(field '.items[] | select(.number == "2000") | .id')
-  discounts=$(field '.items[] | select(.number == "4800") | .id')
+  rebates=$(field '.items[] | select(.number == "4830") | .id')
   say "Emirates Workspace Supplies grants $AE a volume discount on the year's office supplies, bought without purchase"
   say "orders. Alex sets it up as a supplier of $AE with its TRN (illustrative); Carla approves it:"
   api 201 '"supplier \(.name), \(.country_code), \(.status)"' createBusinessPartner \
@@ -15490,8 +15501,9 @@ evatra_volume_discount() {
   printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/evatra/EVA-77002.receiver"
   as alex
   say "Alex fetches. A credit memo needs no order (the product owner, 2026-11-21): the volume discount is entered without"
-  say "one, not held, the supplier the one of $AE holding the seller's TRN, its line on the account of discounts received"
-  say "(4800, the account determination's cash_discount), its VAT as stated:"
+  say "one, not held, the supplier the one of $AE holding the seller's TRN, its line on the account of supplier rebates (4830,"
+  say "the account determination's supplier_rebate, from the pack; not 4800, the cash discounts payments take), its VAT as"
+  say "stated:"
   api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
   wait_op
   op=$(field .id)
@@ -15505,7 +15517,7 @@ evatra_volume_discount() {
     getSupplierInvoice -p "id=$memo"
   expect "the credit memo without an order" "$(field '"\(.kind) \(.supplier_reference) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \(.purchase_order_id // "-") \(.reference_invoice_id // "-") \(.credit_reason.code)"')" \
     "credit_memo EWS-501 einvoice 262.50 12.50 - - VD"
-  expect "its item, on the account of discounts received" "$(field '.items[] | "\(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.account_id)"')" "1 EA 250.00 $discounts"
+  expect "its item, on the account of supplier rebates" "$(field '.items[] | "\(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.account_id)"')" "1 EA 250.00 $rebates"
   expect "on hold for its input code" "$(field '"\(.status) \(.hold_reason | contains("V5, VB5"))"')" "on_hold true"
   say "Two input codes charge 5% in category S, V5 and the blocked VB5 (Executive Regulation Art. 53), so the memo waits for"
   say "Alex to choose: he releases it, gives its item V5, as the supplies' VAT was recovered, and posts it:"
@@ -16750,8 +16762,11 @@ uae_camt() {
 # As built, cash discount granted; the product owner's answer of
 # 2026-11-21, ADR-0049 As built batch 88): Ada gives Maple Gulf Trading a
 # house bank at Emirates NBD with its incoming payments clearing account,
-# and an expense account for payment differences and cash discounts
-# granted (6850, payment_difference_expense), through a governed change.
+# and an expense account for payment differences (6850,
+# payment_difference_expense), through a governed change; its cash
+# discounts granted have an account of their own, 6800
+# (cash_discount_granted, SAP SKT, which UAE pack 2026.10 brings; batch
+# 92).
 # Ruth creates Oasis Office Supplies, a UAE customer on 2/10N30, and
 # invoices it AED 1,000.00 of desks in Dubai and AED 200.00 of chairs from
 # Sharjah at 5% (S5), 1,260.00 gross. Oasis pays within the ten days, less
@@ -16761,20 +16776,21 @@ uae_camt() {
 # the receivables tests). Ruth applies the receipt taking the discount:
 # 25.20, of which 1.00 is Dubai's VAT and 0.20 Sharjah's (each emirate's
 # VAT over the gross), the net 20.00 and 4.00. The clearing entry debits
-# the net per emirate on 6850 and the VAT on 2300, each line naming its
+# the net per emirate on 6800 and the VAT on 2300, each line naming its
 # emirate: tax items that reduce the output tax the VAT 201 reports in
 # boxes 1b and 1c (the return of a quarter not yet ended is not computed:
 # TestUAECashDiscount proves the boxes).
 step_uae_cash_discount() {
   heading "Step 156 — A cash discount a UAE customer takes: an invoice paid within its discount period less its 2%, the discount's VAT taken off the output tax of each emirate"
-  local ae base recon sales vat customer invoice entry bank st receipt body payment clearing
+  local ae base recon sales vat granted customer invoice entry bank st receipt body payment clearing
   as ada
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
   say "Maple Gulf Trading's customers pay into its account at Emirates NBD, and some pay within the discount period of"
   say "their terms, less the discount. In the UAE a cash discount reduces the VAT of the supply (the product owner,"
   say "2026-11-21), as a supplier's does the input tax. Ada proposes the bank with its incoming payments clearing account"
-  say "and an expense account for payment differences and cash discounts granted, a change of the chart, tier 4:"
+  say "and an expense account for payment differences, a change of the chart, tier 4 (the cash discounts granted have one"
+  say "of their own, 6800, cash_discount_granted, which the UAE pack brought in step 41):"
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   base=$(field '.items[0].number')
   jq --arg ae "$AE" --argjson base "$base" '{title: "Emirates NBD and cash discounts of \($ae)", rationale: "Customer receipts and cash discounts granted of the UAE company (ADR-0063)",
@@ -16782,7 +16798,7 @@ step_uae_cash_discount() {
       .chart_of_accounts += [{number: "1050", name: "Bank - Emirates NBD", type: "asset"},
         {number: "1051", name: "Bank clearing - Emirates NBD", type: "asset", open_items: true},
         {number: "1055", name: "Bank incoming - Emirates NBD", type: "asset", open_items: true},
-        {number: "6850", name: "Payment differences and cash discounts granted", type: "expense"}]
+        {number: "6850", name: "Customer payment differences", type: "expense"}]
       | .account_determination.payment_difference_expense = "6850"
       | .house_banks = ((.house_banks // []) + [{name: "ENBD", iban: "AE070331234567890123456", bic: "EBILAEAD", gl_account: "1051",
           main_gl_account: "1050", incoming_gl_account: "1055", currency: "AED"}])
@@ -16790,7 +16806,7 @@ step_uae_cash_discount() {
       else . end))}' "$WORK/last.json" >"$WORK/uae-discount.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-discount.json
   governed "$(field .id)" "the UAE company's bank and discount account"
-  recon=$(company_account "$ae" 1200) sales=$(company_account "$ae" 4000) vat=$(company_account "$ae" 2300)
+  recon=$(company_account "$ae" 1200) sales=$(company_account "$ae" 4000) vat=$(company_account "$ae" 2300) granted=$(company_account "$ae" 6800)
   as ruth
   say "Ruth creates Oasis Office Supplies, a UAE customer of $AE on 2/10N30: 2% off within ten days, net in thirty."
   say "Carla approves it:"
@@ -16839,12 +16855,13 @@ step_uae_cash_discount() {
     "1234.80 25.20 25.20 0.00 1234.80"
   say "The discount is taken off the gross, so it carries VAT: of 25.20, Dubai's 50.00 of VAT in 1,260.00 gives 1.00 and"
   say "Sharjah's 10.00 gives 0.20; the net, 20.00 and 4.00, is the discount on each emirate's sales. The DZ entry debits"
-  say "them on 6850 and on the VAT account 2300, each line with S5 and its emirate, so the quarter's VAT 201 reports"
+  say "them on 6800, the cash discounts granted (not 6850's payment differences), and on the VAT account 2300, each line"
+  say "with S5 and its emirate, so the quarter's VAT 201 reports"
   say "Dubai's and Sharjah's output tax reduced (boxes 1b and 1c):"
   api 200 '"journal entry \(.document_number)", (.lines[] | "  \(.account_id[0:8])… \(.amount.amount) \(.amount.currency) \(.tax_code // "") \(.tax_jurisdiction // "")")' \
     getJournalEntry -p "id=$clearing"
-  expect "the discount's lines" "$(field "[.lines[] | select(.tax_code != null) | \"\(.account_id == \"$vat\") \(.amount.amount) \(.tax_code) \(.tax_jurisdiction)\"] | join(\", \")")" \
-    "false 20.00 S5 AE-DU, false 4.00 S5 AE-SH, true 1.00 S5 AE-DU, true 0.20 S5 AE-SH"
+  expect "the discount's lines" "$(field "[.lines[] | select(.tax_code != null) | \"\(if .account_id == \"$vat\" then 2300 elif .account_id == \"$granted\" then 6800 else .account_id end) \(.amount.amount) \(.tax_code) \(.tax_jurisdiction)\"] | join(\", \")")" \
+    "6800 20.00 S5 AE-DU, 6800 4.00 S5 AE-SH, 2300 1.00 S5 AE-DU, 2300 0.20 S5 AE-SH"
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$ae" -p "partner_id=$customer" -p page_size=100
   expect "Oasis's open items" "$(field '.items | length')" 0
   QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
