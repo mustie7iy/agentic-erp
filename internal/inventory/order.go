@@ -62,10 +62,9 @@ type PostEntry func(bookings []ledger.GRIRStock) (ledger.Entry, []ledger.StockPo
 // company), its quantity converted to the base unit exactly, its batch
 // found or created (receiptBatches) and its serial numbers checked as a
 // 501's are, the valuations and stock locked, then the entry posted by
-// post with the
-// stock's part of each item, a moving-priced receipt taking what its
-// GR/IR line moves, a standard-priced one its quantity at the price and
-// the rest a price difference. An item without a valuation is refused
+// post with the stock's part of each item, a moving-priced receipt taking
+// what its GR/IR line moves, a standard-priced one its quantity at the
+// price and the rest a price difference. An item without a valuation is refused
 // (422 inventory.no_valuation) before anything is posted.
 func (e *Endpoints) ReceiveForOrder(ctx context.Context, in OrderReceipt, post PostEntry) (Document, error) {
 	tx, p, err := reqctx.Request(ctx)

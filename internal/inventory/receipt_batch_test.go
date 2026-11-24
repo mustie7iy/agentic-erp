@@ -3,6 +3,7 @@ package inventory_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,8 +16,13 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // Batches and serial numbers in a purchase order's goods receipt (S2f1,
@@ -237,6 +243,11 @@ func TestReceiptSerialNumbers(t *testing.T) {
 			}
 		})
 	}
+	repeated := e.Problem(422, "inventory.serial_repeated", "POST", "/v1/goods-receipts", e.trackedReceipt(t, e.tracked(3, "1", nil),
+		e.tracked(2, "1", serials("G3")), e.tracked(2, "1", serials("G3"))), "")
+	if detail, _ := repeated["detail"].(string); field(repeated) != "items[2].serial_numbers[0]" || !strings.Contains(detail, "G3 is named twice in the document;") {
+		t.Errorf("a serial number named twice after no stock item: got %v, %q, want items[2].serial_numbers[0], naming no item", field(repeated), detail)
+	}
 	rev, _ := e.Must(200, "POST", "/v1/goods-receipts/"+gr["id"].(string)+":reverse", "", e.receiptTag(t, gr))
 	if got, want := receiptItems(t, rev), `3 <nil> null; 2 <nil> ["G1","G2"]`; got != want {
 		t.Errorf("the reversal's items: got %s, want %s", got, want)
@@ -343,4 +354,25 @@ func TestReceiptBatchDatabaseFailures(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) { apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call) })
 	}
+	t.Run("receive without an audit buffer", func(t *testing.T) {
+		ctx := context.Background()
+		tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err := database.SetActor(ctx, tx, e.Tenant.Human.ID); err != nil {
+			t.Fatal(err)
+		}
+		bare := reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID})
+		_, err = endpoints(t).ReceiveForOrder(bare, inventory.OrderReceipt{Company: e.DE, Day: day, Reference: "GR9", Items: []inventory.OrderItem{{
+			MaterialID: uuid.MustParse(e.sealant), PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA",
+			Batch: &inventory.ReceiptBatch{Number: "B9", ManufactureDate: &made}}}},
+			func([]ledger.GRIRStock) (ledger.Entry, []ledger.StockPosted, error) {
+				return ledger.Entry{}, nil, errors.New("not posted")
+			})
+		if !errors.Is(err, audit.ErrNoBuffer) {
+			t.Errorf("got %v, want %v", err, audit.ErrNoBuffer)
+		}
+	})
 }

@@ -1,12 +1,9 @@
 package inventory
 
 import (
-	"bytes"
-	"cmp"
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,18 +33,10 @@ type ReceiptBatch struct {
 	ManufactureDate, ExpiryDate *time.Time
 }
 
-// batchName is a batch as a receipt names it: by its material and number.
-type batchName struct {
-	material uuid.UUID
-	number   string
-}
-
-// compare orders batch names as the receipt writes them: by material as
-// PostgreSQL orders uuids (bytewise), then number (the C collation's order
-// of the capitals, digits, '-' and '_' a number is made of, bytewise too).
-func (k batchName) compare(o batchName) int {
-	return cmp.Or(bytes.Compare(k.material[:], o.material[:]), strings.Compare(k.number, o.number))
-}
+// batchName is a batch as a receipt names it: by its material and number,
+// ordered as serial numbers are (serialKey.compare: bytewise, as the C
+// collation orders the capitals, digits, '-' and '_' of a number).
+type batchName = serialKey
 
 // receiptBatches gives each item of a receipt the batch it names (items[k]
 // is in[k]'s), creating the batches the material has none of yet, and

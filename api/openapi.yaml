@@ -13919,6 +13919,8 @@ paths:
         - inventory.batch_invalid
         - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
+        # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
+        # carries no batches; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_not_allowed
@@ -13941,6 +13943,8 @@ paths:
         - inventory.serial_in_stock
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
+        # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
+        # carries no serial numbers; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated
@@ -14110,6 +14114,8 @@ paths:
         - inventory.batch_invalid
         - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
+        # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
+        # carries no batches; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_not_allowed
@@ -14132,6 +14138,8 @@ paths:
         - inventory.serial_in_stock
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
+        # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
+        # carries no serial numbers; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated
@@ -25643,7 +25651,7 @@ paths:
         - inventory.batch_invalid
         - inventory.batch_not_allowed
         # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
-        # carries no batch (goods receipt and issue, stock transport); every type posted here carries batches (S2f).
+        # carries no batch (a delivery's goods issue, stock transport); every type posted here carries batches (S2f).
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_invalid
@@ -25670,7 +25678,7 @@ paths:
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
         # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
-        # carries no serial numbers (goods receipt and issue, stock transport); every type posted here carries them (S2g).
+        # carries no serial numbers (a delivery's goods issue, stock transport); every type posted here carries them (S2g).
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated

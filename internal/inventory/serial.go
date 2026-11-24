@@ -92,15 +92,17 @@ func (k serialKey) compare(o serialKey) int {
 // twice: a unit moves once in a document (a transfer's item receives what
 // it issues, as two lines of one item).
 func repeatedSerials(in []ItemInput) error {
-	first := map[serialKey]int{}
+	first := map[serialKey]bool{}
 	for i, it := range in {
 		for j, s := range it.SerialNumbers {
 			k := serialKey{it.MaterialID, s}
-			if before, ok := first[k]; ok {
-				return problem.Invalid("inventory.serial_repeated", fmt.Sprintf("items[%d].serial_numbers[%d]", i, j), fmt.Sprintf("Serial number %s "+
-					"is named by item %d already; each unit moves once in a document.", s, before+1))
+			if first[k] {
+				// The detail names no item: a goods receipt numbers its items
+				// otherwise (procurement renumbers the field alone).
+				return problem.Invalid("inventory.serial_repeated", fmt.Sprintf("items[%d].serial_numbers[%d]", i, j), "Serial number "+s+
+					" is named twice in the document; each unit moves once in a document.")
 			}
-			first[k] = i
+			first[k] = true
 		}
 	}
 	return nil

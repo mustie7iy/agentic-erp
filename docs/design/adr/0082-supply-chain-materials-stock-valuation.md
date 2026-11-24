@@ -1609,13 +1609,15 @@ specialist) and S2i's and S2i2's decisions above.
   through its original's lines (409 `inventory.insufficient_stock` naming
   the batch once it is issued, `inventory.serial_not_in_stock` once a unit
   is). A refusal of inventory's names the goods receipt's own item
-  (`items[i]`), not the material document's.
+  (`items[i]`), not the material document's, and `inventory.serial_repeated`'s
+  detail names no item number (review round 1).
 - **Locks:** a receipt reads the batches it names, then creates the new ones
   in one statement in (material, number) order, bytewise, `ON CONFLICT DO
   NOTHING`, so receipts creating the same batches named either way round
   never wait on each other in a cycle; a batch another receipt creates
   meanwhile is read once that one commits and its dates checked as an
-  existing batch's (`TestReceiptBatchesAtOnce`). A batch row is never
+  existing batch's (`TestReceiptBatchesAtOnce`); the re-read sees it because
+  a goods receipt runs at READ COMMITTED (it is no snapshot read). A batch row is never
   updated or locked otherwise; the valuations, stock, batch stock and
   serial numbers are locked after it as every posting locks them.
 - Walkthrough step 130, `step_stock_receipt`, extended.
