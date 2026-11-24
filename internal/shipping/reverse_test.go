@@ -242,28 +242,38 @@ func TestGoodsIssueReversalRefusals(t *testing.T) {
 
 // TestReversalTakesTheAvailabilityLock (S2b3, the leaf src
 // review:batch86): until the reversal commits, it holds the availability
-// check's lock of its material at the plant, so a check waits for it and
-// counts the stock given back with the demand it opens again.
+// check's lock of each of its materials at the plant, so a check waits
+// for it and counts the stock given back with the demand it opens again.
 func TestReversalTakesTheAvailabilityLock(t *testing.T) {
 	e := setup(t)
 	h := endpoints(t)
-	d, tag := e.shipped(t, e.order(t, false, e.ofMaterial(e.bracket, "1 BOX")), "1 1 BOX")
-	key := fmt.Sprintf("sales.availability:%s:%s:%s", e.Tenant.ID, e.p1, e.bracket)
-	free := func() bool {
+	bolt := e.material(t, "Hex bolt M10", "raw_material")
+	e.value(t, bolt, "3000", "moving_average", "1.00")
+	e.receiveOf(t, bolt, "10")
+	order := e.order(t, false, e.ofMaterial(e.bracket, "1 BOX"), e.ofMaterial(bolt, "2 EA"))
+	d, tag := e.Must(201, "POST", deliveries, e.create(order), "")
+	_, tag = e.Must(200, "POST", deliveries+"/"+d["id"].(string)+":pick", pick("1 1 BOX", "2 2 EA"), tag)
+	_, tag = e.issued(t, d["id"].(string), tag)
+	free := func(material string) bool {
 		var ok bool
-		pgtest.Scan(t, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`, []any{key}, &ok)
+		pgtest.Scan(t, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`,
+			[]any{fmt.Sprintf("sales.availability:%s:%s:%s", e.Tenant.ID, e.p1, material)}, &ok)
 		return ok
 	}
-	if !free() {
-		t.Fatal("the lock before the reversal: got taken, want free")
+	for _, m := range []string{e.bracket, bolt} {
+		if !free(m) {
+			t.Fatalf("the lock of %s before the reversal: got taken, want free", m)
+		}
 	}
 	err := e.inRequest(t, func(ctx context.Context) error {
 		if _, err := h.ReverseOutboundDeliveryGoodsIssue(ctx, gen.ReverseOutboundDeliveryGoodsIssueParams{ID: uuid.MustParse(d["id"].(string)),
 			IfMatch: tag}); err != nil {
 			return err
 		}
-		if free() {
-			t.Error("the lock during the reversal: got free, want held by the reversal")
+		for _, m := range []string{e.bracket, bolt} {
+			if free(m) {
+				t.Errorf("the lock of %s during the reversal: got free, want held by the reversal", m)
+			}
 		}
 		return nil
 	})
