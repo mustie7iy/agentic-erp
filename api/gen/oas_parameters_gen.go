@@ -94980,6 +94980,9 @@ func decodeListOrgUnitsParams(args [0]string, argsEscaped bool, r *http.Request)
 type ListOutboundDeliveriesParams struct {
 	// Only resources of this legal entity (company code).
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
+	// Only the deliveries with this number, as a document's reference names it (each company numbers its
+	// own per fiscal year, so `legal_entity_id` narrows it to one per fiscal year).
+	Number OptString `json:",omitempty,omitzero"`
 	// Only the deliveries of this sales order (`GET /v1/sales-orders/{id}`).
 	SalesOrderID OptUUID `json:",omitempty,omitzero"`
 	// Only deliveries in this status. A value that is no status matches none.
@@ -95002,6 +95005,15 @@ func unpackListOutboundDeliveriesParams(packed middleware.Parameters) (params Li
 		}
 		if v, ok := packed[key]; ok {
 			params.LegalEntityID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "number",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Number = v.(OptString)
 		}
 	}
 	{
@@ -95091,6 +95103,74 @@ func decodeListOutboundDeliveriesParams(args [0]string, argsEscaped bool, r *htt
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "legal_entity_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: number.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotNumberVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotNumberVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Number.SetTo(paramsDotNumberVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Number.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     40,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "number",
 			In:   "query",
 			Err:  err,
 		}

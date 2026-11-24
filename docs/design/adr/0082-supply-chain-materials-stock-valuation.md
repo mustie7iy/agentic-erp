@@ -1659,6 +1659,21 @@ specialist) and S2i's and S2i2's decisions above.
 - **Not built** (Later, plan §S2j): checking rules with replenishment
   lead time and planned receipts, back-order processing, product
   allocation, global ATP across plants, per-item plants.
+- **Contract step** (lane salesfix, batch 92; leaf src review:batch86):
+  migrations 000451 and 000452 make `sales.delivery_assignment.plant_id`
+  NOT NULL, as 06 §6.4 adds a NOT NULL column: every server writes it
+  since S2j (sales' `assign` refuses a delivery without a plant), so 000451
+  gives an assignment that lacks it (one a server of the release before
+  S2j wrote during the rolling upgrade) its delivery's plant, as 000430's
+  backfill did, and adds `delivery_assignment_plant_required` NOT VALID;
+  000452 validates it, sets the column NOT NULL (the validated check
+  spares the scan) and drops the check. Decided by default: a backfill
+  rather than a guard that stops the migration, since the delivery always
+  names the plant and stopping the release would need a person to run the
+  same update. `TestDeliveryAssignmentPlantRequired`,
+  `TestDeliveryAssignmentRules` (an assignment without a plant) (db).
+  `delivery_assignment_by_plant` keeps its `plant_id IS NOT NULL`
+  predicate, which every row now meets.
 
 ### S2j: the plant required, and the emirate from it (2026-11-21)
 

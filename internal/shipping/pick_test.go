@@ -115,7 +115,7 @@ func TestCreditBlocked(t *testing.T) {
 }
 
 // TestList: the deliveries of the companies the caller may act in, the
-// latest first, by company, order and status, in pages; an unknown sort
+// latest first, by company, number, order and status, in pages; an unknown sort
 // field is refused.
 func TestList(t *testing.T) {
 	e := setup(t)
@@ -137,6 +137,10 @@ func TestList(t *testing.T) {
 		{"?legal_entity_id=" + e.US.String(), ""},
 		{"?status=goods_issued", ""},
 		{"?status=created&order_by=created_at", fmt.Sprintf("%v %v %v", a["id"], b["id"], c["id"])},
+		{"?number=" + b["number"].(string), fmt.Sprint(b["id"])},
+		{"?number=" + b["number"].(string) + "&legal_entity_id=" + e.DE.String() + "&sales_order_id=" + first, fmt.Sprint(b["id"])},
+		{"?number=" + b["number"].(string) + "&sales_order_id=" + second, ""},
+		{"?number=OD-NONE", ""},
 	} {
 		page, _ := e.Must(200, "GET", deliveries+q.query, "", "")
 		if got := ids(page); got != q.want {

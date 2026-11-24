@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -259,86 +258,25 @@ func billedAmounts(ctx context.Context, tx pgx.Tx, orderID uuid.UUID) (map[int32
 	return out, nil
 }
 
-// billCheck refuses a billing document one of whose items can no longer
-// be billed on the billing date (422 sales.order_item_not_billable naming
-// sales_order_id): its account can no longer be posted in the company,
-// its tax code is no output tax code of the company with a rate on that
-// date, or its tax jurisdiction is not one that code levies then (none
-// where the code levies its items' subdivision, or one it does not levy;
-// ADR-0067 As built, the emirate on a sales item). An order's items were
-// checked when they were entered, on the order's or the quotation's date,
-// and are not changed in the first version, so such an order cannot be
-// billed on that date; the document is refused here rather than created
-// and never posted. The ledger is asked about each account and tax code
-// once.
-type billCheck struct {
-	e        *Endpoints
-	o        Order
-	date     time.Time
-	accounts map[uuid.UUID]bool        // postable in the company
-	codes    map[string]ledger.TaxCode // output tax codes in force on the billing date
-}
-
-// billableOn checks the items of a billing document of the order dated
-// date (billCheck).
+// billableOn refuses a billing document of the order dated date one of
+// whose items can no longer be billed on that date (422
+// sales.order_item_not_billable naming sales_order_id, with the order
+// item in the message): recheck's rules, the billing date being the tax
+// date (ADR-0063 §4). An order's items were checked when they were
+// entered, on the order's or the quotation's date, and are not changed in
+// the first version, so such an order cannot be billed on that date; the
+// document is refused here rather than created and never posted.
 func (e *Endpoints) billableOn(ctx context.Context, o Order, items []BillingItem, date time.Time) error {
-	c := billCheck{e: e, o: o, date: date, accounts: map[uuid.UUID]bool{}, codes: map[string]ledger.TaxCode{}}
+	c := e.newRecheck(o.LegalEntityID, date, "sales order "+o.ID.String())
 	for _, it := range items {
-		if err := c.account(ctx, it); err != nil {
+		why, err := c.item(ctx, it.OrderItemNo, it.Item)
+		if err != nil {
 			return err
 		}
-		if err := c.taxCode(ctx, it); err != nil {
-			return err
+		if why != "" {
+			return problem.Invalid("sales.order_item_not_billable", "sales_order_id", fmt.Sprintf(
+				"Item %d of sales order %s cannot be billed on %s: %s.", it.OrderItemNo, o.DocumentNumber, date.Format(time.DateOnly), why))
 		}
-	}
-	return nil
-}
-
-func (c billCheck) refuse(it BillingItem, why string) error {
-	return problem.Invalid("sales.order_item_not_billable", "sales_order_id", fmt.Sprintf(
-		"Item %d of sales order %s cannot be billed on %s: %s.", it.OrderItemNo, c.o.DocumentNumber, c.date.Format(time.DateOnly), why))
-}
-
-// account requires the item's account to be postable in the company
-// still.
-func (c billCheck) account(ctx context.Context, it BillingItem) error {
-	if c.accounts[it.AccountID] {
-		return nil
-	}
-	ok, err := c.e.Accounts.IsPostable(ctx, c.o.LegalEntityID, it.AccountID)
-	if err != nil {
-		return fmt.Errorf("sales: account of item %d of sales order %s: %w", it.OrderItemNo, c.o.ID, err)
-	}
-	if !ok {
-		return c.refuse(it, "its account can no longer be posted in the legal entity")
-	}
-	c.accounts[it.AccountID] = true
-	return nil
-}
-
-// taxCode requires the item's tax code, when it has one, to be an output
-// tax code of the company with a rate in force on the billing date, which
-// is the tax date (ADR-0063 §4), and its tax jurisdiction to be one that
-// code levies then (ledger.TaxCode.CheckJurisdiction): the order's date
-// checked both, and the configuration may have changed since (the
-// emirate guard's list).
-func (c billCheck) taxCode(ctx context.Context, it BillingItem) error {
-	if it.TaxCode == nil {
-		return nil // an order item names a jurisdiction only with a code (sales_order_item_tax_jurisdiction)
-	}
-	t, ok, err := c.e.outputCodeOn(ctx, c.codes, c.o.LegalEntityID, *it.TaxCode, c.date)
-	if err != nil {
-		return fmt.Errorf("sales: tax code %s of item %d of sales order %s: %w", *it.TaxCode, it.OrderItemNo, c.o.ID, err)
-	}
-	if !ok {
-		return c.refuse(it, "its tax code "+*it.TaxCode+" is not an output tax code of the legal entity with a rate on that date")
-	}
-	switch fault, _ := t.CheckJurisdiction(it.TaxJurisdiction); fault {
-	case ledger.JurisdictionOK:
-	case ledger.JurisdictionRequired:
-		return c.refuse(it, "its tax code "+*it.TaxCode+" levies the tax of the subdivision each item names, and the item names none")
-	default:
-		return c.refuse(it, "its tax code "+*it.TaxCode+" does not levy its tax jurisdiction "+*it.TaxJurisdiction+" on that date")
 	}
 	return nil
 }

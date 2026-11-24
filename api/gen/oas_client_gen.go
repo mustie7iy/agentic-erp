@@ -2905,7 +2905,12 @@ type Invoker interface {
 	// field given). The quotation is one of a company the caller may act in (422
 	// `request.reference_not_found` naming `quotation_id`) that the customer accepted (409
 	// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
-	// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
+	// `sales.quotation_ordered`). The quotation's items are checked again on the order's date, as an item
+	// entered directly is: an item whose account can no longer be posted in the company, whose tax code is
+	// no output tax code of the company with a rate on that date, or whose tax jurisdiction that code does
+	// not levy then (none where the code levies its items' subdivision, or one it does not levy) refuses
+	// the order (422 `sales.quotation_item_not_orderable` naming `quotation_id`, with the item in the
+	// message); the quotation stays accepted. Without `quotation_id`, the request gives `legal_entity_id`,
 	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
 	// the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed
 	// or serial-managed material is refused, 422 `sales.material_not_usable`, S2f, S2g), on the order's
@@ -6794,8 +6799,8 @@ type Invoker interface {
 	// ListOutboundDeliveries invokes listOutboundDeliveries operation.
 	//
 	// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-	// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
-	// Sortable by: `created_at`.
+	// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
+	// status. Sortable by: `created_at`.
 	//
 	// GET /v1/outbound-deliveries
 	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)
@@ -32751,7 +32756,12 @@ func (c *Client) sendCreateRoleAssignment(ctx context.Context, request *RoleAssi
 // field given). The quotation is one of a company the caller may act in (422
 // `request.reference_not_found` naming `quotation_id`) that the customer accepted (409
 // `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
-// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
+// `sales.quotation_ordered`). The quotation's items are checked again on the order's date, as an item
+// entered directly is: an item whose account can no longer be posted in the company, whose tax code is
+// no output tax code of the company with a rate on that date, or whose tax jurisdiction that code does
+// not levy then (none where the code levies its items' subdivision, or one it does not levy) refuses
+// the order (422 `sales.quotation_item_not_orderable` naming `quotation_id`, with the item in the
+// message); the quotation stays accepted. Without `quotation_id`, the request gives `legal_entity_id`,
 // `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
 // the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed
 // or serial-managed material is refused, 422 `sales.material_not_usable`, S2f, S2g), on the order's
@@ -90210,8 +90220,8 @@ func (c *Client) sendListOrgUnits(ctx context.Context, params ListOrgUnitsParams
 // ListOutboundDeliveries invokes listOutboundDeliveries operation.
 //
 // The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
-// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
-// Sortable by: `created_at`.
+// `getOutboundDelivery` gives it, the latest first. Filtered by company, number, sales order and
+// status. Sortable by: `created_at`.
 //
 // GET /v1/outbound-deliveries
 func (c *Client) ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error) {
@@ -90273,6 +90283,23 @@ func (c *Client) sendListOutboundDeliveries(ctx context.Context, params ListOutb
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.LegalEntityID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Number.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {

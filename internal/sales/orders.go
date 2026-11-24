@@ -399,12 +399,12 @@ func (e *Endpoints) source(ctx context.Context, tx pgx.Tx, in OrderInput) (order
 
 // fromQuotation is the order an accepted quotation gives: its company,
 // customer, currency and items as they were offered, dated the company's
-// date today. The quotation is read under its row lock, so two requests
-// for the same quotation's order wait for one another and the second
-// finds the first's (409 sales.quotation_ordered); one that the customer
-// did not accept gives none (409 sales.quotation_not_accepted). A
-// quotation the caller cannot read is a wrong reference (422 naming
-// quotation_id).
+// date today, each item checked again on that date (orderableOn). The
+// quotation is read under its row lock, so two requests for the same
+// quotation's order wait for one another and the second finds the
+// first's (409 sales.quotation_ordered); one that the customer did not
+// accept gives none (409 sales.quotation_not_accepted). A quotation the
+// caller cannot read is a wrong reference (422 naming quotation_id).
 func (e *Endpoints) fromQuotation(ctx context.Context, tx pgx.Tx, id uuid.UUID) (ordered, error) {
 	q, err := quotation(ctx, tx, id, true)
 	if err != nil {
@@ -429,8 +429,34 @@ func (e *Endpoints) fromQuotation(ctx context.Context, tx pgx.Tx, id uuid.UUID) 
 	if err != nil {
 		return ordered{}, err
 	}
+	if err := e.orderableOn(ctx, q, day.Date); err != nil {
+		return ordered{}, err
+	}
 	return ordered{doc: document{le: le, customer: q.CustomerID, currency: q.Currency, exp: q.Exponent, date: day.Date, zone: day.Zone}, customer: q.CustomerID, customerField: "quotation_id",
 		quotation: &q.ID, items: q.Items, net: q.Net}, nil
+}
+
+// orderableOn refuses an order from the quotation dated date one of
+// whose items can no longer be ordered on that date (422
+// sales.quotation_item_not_orderable naming quotation_id, with the item in
+// the message): recheck's rules, as an item entered directly is checked on
+// the order's date (itemCheck; ADR-0067 §4). The quotation's items were
+// checked on its own date, and the configuration may have changed since.
+// Their prices and emirates stay as offered (ADR-0067 As built, the
+// emirate on a sales item).
+func (e *Endpoints) orderableOn(ctx context.Context, q Quotation, date time.Time) error {
+	c := e.newRecheck(q.LegalEntityID, date, "quotation "+q.ID.String())
+	for _, it := range q.Items {
+		why, err := c.item(ctx, it.ItemNo, it)
+		if err != nil {
+			return err
+		}
+		if why != "" {
+			return problem.Invalid("sales.quotation_item_not_orderable", "quotation_id", fmt.Sprintf(
+				"Item %d of quotation %s cannot be ordered on %s: %s.", it.ItemNo, q.DocumentNumber, date.Format(time.DateOnly), why))
+		}
+	}
+	return nil
 }
 
 // orderCustomer is the order's customer with its data in the company,

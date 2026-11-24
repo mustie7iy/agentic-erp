@@ -5159,9 +5159,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fix: a sales order made from a quotation re-checks each item's account, tax code and tax jurisdiction on the order's date, as an order entered directly is checked, rather than copying the quotation's items as they were checked on the quotation's date",
-        "r": "internal/sales/orders.go fromQuotation · ADR-0067 §4 · ADR-0067 As built, the emirate on a sales item",
+        "r": "internal/sales/orders.go fromQuotation, orderableOn · internal/sales/recheck.go (shared with billableOn) · sales.quotation_item_not_orderable · TestOrderFromQuotationRechecked · ADR-0067 §4 · ADR-0067 As built (an order from a quotation checks its items again; the emirate on a sales item)",
         "src": "review:batch85",
         "c": []
        },
@@ -5845,9 +5845,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: GET /v1/outbound-deliveries filters by the delivery's number, so a document's reference finds its delivery as GET /v1/stock-transport-orders?number= finds its order",
-      "r": "listOutboundDeliveries · ADR-0083 · ADR-0082 As built S2h (review round 1)",
+      "r": "listOutboundDeliveries number · internal/shipping ListOutboundDeliveries · TestList (shipping) · ADR-0083 As built (delivery number filter) · ADR-0082 As built S2h (review round 1)",
       "src": "review:batch85",
       "c": []
      },
@@ -5894,9 +5894,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "contract step: sales.delivery_assignment.plant_id NOT NULL, once every server writes it (S2j's expand step left it nullable; ShipInput.PlantID and GoodsIssue.PlantID required since), with its schema test",
-      "r": "db/migrations/000430_sales_availability · ADR-0082 As built S2j · 06 §6.4 (expand, migrate, contract)",
+      "r": "db/migrations/000430_sales_availability · db/migrations/000451_delivery_assignment_plant_required (backfill, check NOT VALID) · db/migrations/000452_validate_delivery_assignment_plant (VALIDATE, SET NOT NULL) · TestDeliveryAssignmentPlantRequired · TestDeliveryAssignmentRules (db) · ADR-0082 As built S2j (contract step) · 06 §6.4 (expand, migrate, contract)",
       "src": "review:batch86",
       "c": []
      },
