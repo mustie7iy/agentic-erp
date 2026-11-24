@@ -11,9 +11,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/receivables"
 )
 
 // A relieved invoice cleared apart (ADR-0049 As built batch 94): only an
@@ -206,4 +208,15 @@ func TestRelievedClearingDatabaseFailures(t *testing.T) {
 		_, err := lg.CreateClearing(ctx, &gen.ClearingCreate{LegalEntityID: e.le, ClearingDate: date(t, "2026-09-15"), Items: items}, gen.CreateClearingParams{})
 		return err
 	})
+}
+
+// TestRelievedClearingOutsideARequest: the guard and the ledger's read of
+// clearings refuse a context without a request's transaction.
+func TestRelievedClearingOutsideARequest(t *testing.T) {
+	if err := (receivables.Clearings{}).GuardClearing(context.Background(), uuid.New(), nil, nil); err == nil {
+		t.Error("the guard outside a request: got no error, want one")
+	}
+	if _, err := (ledger.OpenItems{}).ClearedApart(context.Background(), 2026, uuid.New(), nil); err == nil {
+		t.Error("the clearings read outside a request: got no error, want one")
+	}
 }
