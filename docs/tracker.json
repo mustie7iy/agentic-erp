@@ -5768,9 +5768,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2f1 A batch-managed material is ordered as a purchase order's stock item and received naming its batch, which the goods receipt creates with its manufacture and expiry dates when the material has none of that number; the receipt's reversal takes the batch's stock back",
-      "r": "S2f1 · docs/design/plan-supply-chain.md §S2f, S2f1 · ADR-0082 As built S2f1",
+      "r": "S2f1 · docs/design/plan-supply-chain.md §S2f, S2f1 · ADR-0082 As built S2f1 · db/migrations/000464, 000465 · procurement.goods_movement_item.batch_id, .batch_number, .serial_numbers · batch and serial_numbers on POST /v1/goods-receipts · procurement.not_stock_item · inventory.batch_manufacture_date_required, .batch_dates_differ · walkthrough step_stock_receipt (step 130)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5782,9 +5782,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2g1 A serial-managed material is ordered as a purchase order's stock item and received naming the serial number of each unit, each created by the receipt; the receipt's reversal takes them out of stock again",
-      "r": "S2g1 · docs/design/plan-supply-chain.md §S2g, S2g1 · ADR-0082 As built S2f1",
+      "r": "S2g1 · docs/design/plan-supply-chain.md §S2g, S2g1 · ADR-0082 As built S2f1 · db/migrations/000464, 000465 · procurement.goods_movement_item.batch_id, .batch_number, .serial_numbers · batch and serial_numbers on POST /v1/goods-receipts · procurement.not_stock_item · inventory.batch_manufacture_date_required, .batch_dates_differ · walkthrough step_stock_receipt (step 130)",
       "src": "po:2026-11-17",
       "c": []
      },
