@@ -14129,7 +14129,7 @@ stock_receipt_tracked() {
   say "Mira creates two more of Tyrell's goods, kept in Toronto's main store: cutting oil, managed in batches, and a"
   say "torque wrench with a serial number profile; Priya approves both:"
   api 201 '"material \(.number) \(.description): batch-managed \(.batch_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
-      \"description\": \"Cutting oil 5 L\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"LUBRICANTS\",
+      \"description\": \"Cutting oil 5 L\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"OILS\",
       \"batch_managed\": true, \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
   oil=$(field .id)
   approve priya "$(material_request "$oil")" "Coolant for the lathes."
