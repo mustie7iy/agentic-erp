@@ -3080,9 +3080,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The recognition run reads every active contract of the company on each run, ended contracts and contracts whose transaction price is zero included, so the set it reads only grows with the contracts a company ever had and drifts toward revenue.recognition_run_too_large; it should read only the contracts with revenue left to recognize or to reverse, an ended contract until the run that takes its accruals off (found in T81e's review)",
-        "r": "internal/revenue run.go activeContracts · revenue.recognition_run_too_large · ADR-0068",
+        "r": "internal/revenue run.go activeContracts · revenue.recognition_run_too_large · ADR-0068 As built (the run reads the contracts whose revenue can still move)",
         "src": "review:batch79",
         "c": []
        }

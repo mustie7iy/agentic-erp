@@ -894,3 +894,36 @@ as revenue accounting items, is the reference.
   activation gives it nothing. A contract made for an order with an item
   already removed takes the items that stand (`sales.Order.Standing`),
   numbered from 1 (review round 2).
+
+### The run reads the contracts whose revenue can still move (no migration; review:batch79)
+
+T81d's run read every active contract of the company on each run, ended
+contracts and contracts at a price of zero included, so the set it read
+only grew with the contracts a company ever had and drifted toward the
+2,000 bound (`revenue.recognition_run_too_large`); each contract read
+costs its order's read and its schedule. As built (`activeContracts`):
+- **A contract that has not ended is read**: it can still be delivered,
+  billed, have a billing cancelled (T79c) or its order changed, so its
+  revenue can still move, also once fully recognized and billed.
+- **An ended contract is read until a run took its position off**: while
+  its last posting (the latest run's, by posting date and id) left
+  recognized and billed apart. Its obligations are in no period, so it
+  recognizes nothing, and it changes no more (`contract_ended`); the run
+  after its end takes its contract asset or liability off, and from then
+  on it is not read. A contract that ended with nothing posted is never
+  read: it has nothing to take off, since its order was cancelled and
+  sales refuses a billed order's cancellation (decided by default from
+  T81e's default 5, for the product owner to overrule; the alternative,
+  a stored "settled" mark on the contract, needs a migration and a
+  change to the contract's rules for the same set).
+- What the runs posted is looked up for the contracts read alone
+  (`posted`), not for every contract of the company.
+- The run's totals are unchanged by this: a contract left out recognizes
+  and bills nothing to the day. `contract_count` is the contracts read
+  (contract and event descriptions say so).
+- **Tested.** `TestRunReadsEndedContractsUntilTakenOff`, written first
+  and failing on the old read (5 contracts read where 2 should be, and a
+  bound of one refused): an ended contract with an accrual is read by the
+  run after its end, which takes the accrual off, and by no run after;
+  three contracts ended with nothing posted are never read; with a bound
+  of one, the next run reads the one live contract and runs.
