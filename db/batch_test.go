@@ -206,7 +206,9 @@ func TestBatchTriggersAsOwner(t *testing.T) {
 }
 
 // TestBatchDownRefused: 000428's down migration refuses to drop batches
-// and batch-managed materials (06 §6.4: a down migration loses no data).
+// and batch-managed materials (06 §6.4: a down migration loses no data),
+// and a role held to row-level security that would see none of them fails
+// rather than drops them.
 func TestBatchDownRefused(t *testing.T) {
 	need(t)
 	ctx := context.Background()
@@ -225,10 +227,19 @@ func TestBatchDownRefused(t *testing.T) {
 			}
 			defer tx.Rollback(ctx)
 			s := newBatchScene()
-			if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), st(s)); err != nil {
+			if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), st(s),
+				step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT migrator`)); err != nil {
 				t.Fatal(err)
 			}
-			failsWith(t, exec(tx, migrationNamed(t, "000428_batches").Down), "batches or batch-managed materials exist")
+			if err := asMigrator(tx); err != nil {
+				t.Fatal(err)
+			}
+			down := migrationNamed(t, "000428_batches").Down
+			failsWith(t, exec(tx, down), "row-level security")
+			if err := exec(tx, `ROLLBACK TO SAVEPOINT migrator`); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "batches or batch-managed materials exist")
 		})
 	}
 }

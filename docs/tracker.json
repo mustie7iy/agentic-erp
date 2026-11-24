@@ -9169,9 +9169,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: migration 000428_batches.down.sql's guard (batches or batch-managed materials exist) reads inventory.batch and materials.material without SET LOCAL row_security = off, so a migrating role held to their forced row-level security sees no tenant's rows and drops the batch columns whatever exists (pre-existing, as 000356's backfill); read every tenant's rows as 000435's down does, so such a role fails rather than sees zero rows",
-      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
+      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · TestBatchDownRefused (as a migrating role held to row-level security: neither superuser nor BYPASSRLS, a member of erp_owner) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
       "src": "review:batch87",
       "c": []
      }
