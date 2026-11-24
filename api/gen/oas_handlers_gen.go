@@ -111169,16 +111169,17 @@ func (s *Server) handlePauseWebhookSubscriptionRequest(args [1]string, argsEscap
 //
 // Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read
 // (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409
-// `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the
-// delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was
-// recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422
-// `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`)
-// and, with what the delivery's other items picked of the material, at most what the storage location
-// holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both
-// quantities). Picking reserves no stock: the goods issue takes it. The picking status follows:
-// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
-// between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key`
-// answers the delivery as it left it. Human-only (`x-agent: false`).
+// `shipping.goods_issued`, or `shipping.goods_issue_reversed` once reversed, S2b3). Each item named
+// (`item_no`, once, 422 `shipping.item_repeated`; one the delivery has, 422 `shipping.unknown_item`)
+// takes the quantity picked of it, which replaces what was recorded before: zero or more (422
+// `shipping.invalid_quantity`), in the item's unit (422 `shipping.unit_mismatch`), at most its
+// delivery quantity (422 `shipping.exceeds_delivery_quantity`) and, with what the delivery's other
+// items picked of the material, at most what the storage location holds of it now in the material's
+// base unit (422 `shipping.insufficient_stock`, naming both quantities). Picking reserves no stock:
+// the goods issue takes it. The picking status follows: `not_picked` while nothing is picked, `picked`
+// when every item is picked in full, `partly_picked` between. Audited, and published as
+// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/outbound-deliveries/{id}:pick
 func (s *Server) handlePickOutboundDeliveryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -113695,11 +113696,12 @@ func (s *Server) handlePostJournalEntryRequest(args [0]string, argsEscaped bool,
 //
 // Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
-// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
-// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
-// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
-// quantity leaves the delivery's storage location as one material document of movement type `601`
+// refused (409 `shipping.goods_issued`; reversed, `shipping.goods_issue_reversed`, S2b3: a new
+// delivery takes what is open again), as is one with nothing picked (409 `shipping.nothing_picked`),
+// and one a trade compliance service screens whose screening is `pending` or `blocked` (409
+// `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the service's release
+// or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked quantity leaves
+// the delivery's storage location as one material document of movement type `601`
 // (`material_document_id`), posted on the company's date today in its time zone and numbered from its
 // `material_document` range, its `reference` the delivery's number: the material active and kept there
 // (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
@@ -120975,16 +120977,16 @@ func (s *Server) handleReleaseInternalOrderRequest(args [1]string, argsEscaped b
 //
 // Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
-// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
-// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
-// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
-// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
-// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
-// later answer of the service still counts: a block it reports after the release blocks the delivery
-// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
-// apart from posting the goods issue. Nothing is posted. Audited, and published as
-// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-// Human-only (`x-agent: false`).
+// posted (409 `shipping.goods_issued`, or `shipping.goods_issue_reversed`, S2b3): a delivery whose
+// `trade_compliance` is `pending` (the service has not answered, or its screening request could not be
+// sent) or `blocked` (the service refused it) becomes `released`, naming who released it
+// (`released_by`, `released_by_name`) and when, and its goods issue may be posted; the service's
+// reason code and when it answered are kept. A delivery that is not screened, or is released already,
+// is refused (409 `shipping.not_trade_compliance_blocked`). A later answer of the service still
+// counts: a block it reports after the release blocks the delivery again. Releasing is a trade
+// compliance officer's decision (`shipping.trade_compliance.release`), apart from posting the goods
+// issue. Nothing is posted. Audited, and published as OutboundDeliveryChanged. A retry with the same
+// `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`).
 //
 // POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
 func (s *Server) handleReleaseOutboundDeliveryTradeComplianceBlockRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -128286,6 +128288,221 @@ func (s *Server) handleReverseMaterialDocumentRequest(args [1]string, argsEscape
 	}
 
 	if err := encodeReverseMaterialDocumentResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleReverseOutboundDeliveryGoodsIssueRequest handles reverseOutboundDeliveryGoodsIssue operation.
+//
+// Reverses an outbound delivery's goods issue (ADR-0083 As built S2b3; SAP VL09, from memory), once,
+// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is not
+// posted is refused (409 `shipping.goods_issue_not_posted`), as is one reversed already (409
+// `shipping.goods_issue_reversed`). Its goods issue's material document is reversed by one of movement
+// type `602` (`reversal_material_document_id`), posted on the company's date today in its time zone,
+// naming the 601 (`reversal_of_id`) and, as its `reference`, the delivery's number: each line gives
+// back to the storage location what its 601 line issued, at the value it took (at a standard price
+// changed since, the difference on the valuation class's price difference account), posted in one WA
+// journal entry from the cost of goods sold account back to the stock account; no open physical
+// inventory count document may count the material there (409 `inventory.posting_blocked`, S2c), and
+// the ledger's refusals apply (such as 422 `ledger.period_not_open`). The order's delivery by the
+// goods issue is reversed (`listSalesDeliveries`: its `reversal_date` and
+// `reversal_material_document_id`): each order item's `delivered_quantity` falls by what the goods
+// issue delivered, which is open again for another delivery, unless the order item is billed beyond
+// what then stays delivered (409 `sales.delivery_billed`): its billing document is cancelled first
+// (`cancelBillingDocument`). The reversal waits for, and is waited for by, the availability check of
+// its materials at the plant, so a check never counts the stock given back against the demand before
+// it. Trade compliance is not asked again. The delivery is `goods_issue_reversed` and changes no more
+// but for its shipment. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
+// SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key` answers the delivery as it left
+// it. Human-only (`x-agent: false`); the goods issue's permission.
+//
+// POST /v1/outbound-deliveries/{id}:reverseGoodsIssue
+func (s *Server) handleReverseOutboundDeliveryGoodsIssueRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseOutboundDeliveryGoodsIssue"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/outbound-deliveries/{id}:reverseGoodsIssue"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ReverseOutboundDeliveryGoodsIssueOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ReverseOutboundDeliveryGoodsIssueOperation,
+			ID:   "reverseOutboundDeliveryGoodsIssue",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ReverseOutboundDeliveryGoodsIssueOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeReverseOutboundDeliveryGoodsIssueParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ReverseOutboundDeliveryGoodsIssueRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ReverseOutboundDeliveryGoodsIssueOperation,
+			OperationSummary: "Reverse the goods issue of an outbound delivery",
+			OperationID:      "reverseOutboundDeliveryGoodsIssue",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ReverseOutboundDeliveryGoodsIssueParams
+			Response = ReverseOutboundDeliveryGoodsIssueRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackReverseOutboundDeliveryGoodsIssueParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ReverseOutboundDeliveryGoodsIssue(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ReverseOutboundDeliveryGoodsIssue(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeReverseOutboundDeliveryGoodsIssueResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

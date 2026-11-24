@@ -167,7 +167,22 @@ func TestDatabaseFailures(t *testing.T) {
 	p, ptag := e.Must(201, "POST", deliveries, e.create(order, "1 2 BOX"), "")
 	_, ptag = e.Must(200, "POST", deliveries+"/"+p["id"].(string)+":pick", pick("1 2 BOX"), ptag)
 	picked := uuid.MustParse(p["id"].(string))
+	shippedOrder := e.order(t, false, e.ofMaterial(e.bracket, "1 BOX"))
+	gi, gtag := e.shipped(t, shippedOrder, "1 1 BOX")
+	issuedID, issueDoc := uuid.MustParse(gi["id"].(string)), uuid.MustParse(gi["material_document_id"].(string))
 	calls := map[string]func(ctx context.Context) error{
+		"reverse the goods issue": func(ctx context.Context) error {
+			_, err := h.ReverseOutboundDeliveryGoodsIssue(ctx, gen.ReverseOutboundDeliveryGoodsIssueParams{ID: issuedID, IfMatch: gtag})
+			return err
+		},
+		"sales' reverse issue": func(ctx context.Context) error {
+			_, err := h.Shipments.ReverseIssue(ctx, salesReversal(uuid.MustParse(shippedOrder), issuedID, e.p1))
+			return err
+		},
+		"inventory's reverse for delivery": func(ctx context.Context) error {
+			_, err := h.Stock.ReverseForDelivery(ctx, issueDoc, "OD9")
+			return err
+		},
 		"post the goods issue": func(ctx context.Context) error {
 			_, err := h.PostOutboundDeliveryGoodsIssue(ctx, gen.PostOutboundDeliveryGoodsIssueParams{ID: picked, IfMatch: ptag})
 			return err
@@ -234,6 +249,21 @@ func TestDatabaseFailures(t *testing.T) {
 		}
 		bare := reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID})
 		if _, err := h.Shipments.Ship(bare, sales.ShipInput{OrderID: o, DeliveryID: id, DeliveryNumber: "OD9", PlantID: e.p1, Open: []int32{1}}); !errors.Is(err, audit.ErrNoBuffer) {
+			t.Errorf("got %v, want %v", err, audit.ErrNoBuffer)
+		}
+	})
+	t.Run("reverse an issue without an audit buffer", func(t *testing.T) {
+		ctx := context.Background()
+		tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err := database.SetActor(ctx, tx, e.Tenant.Human.ID); err != nil {
+			t.Fatal(err)
+		}
+		bare := reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID})
+		if _, err := h.Shipments.ReverseIssue(bare, salesReversal(uuid.MustParse(shippedOrder), issuedID, e.p1)); !errors.Is(err, audit.ErrNoBuffer) {
 			t.Errorf("got %v, want %v", err, audit.ErrNoBuffer)
 		}
 	})

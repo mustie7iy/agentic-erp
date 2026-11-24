@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -19,16 +20,15 @@ import (
 // document serialize on a lock named after it, and a second finds the
 // first (409 inventory.already_reversed; material_document_reversed_once
 // as well). The reversal moves the stock back under the same locks and
-// checks as a posting; a material blocked since is still reversed.
+// checks as a posting (reversal); a material blocked since is still
+// reversed. A delivery's goods issue is reversed by shipping
+// (ReverseForDelivery), with the order's delivered quantity.
 func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Document) error) (Document, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Document{}, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('inventory.material_document:' || $1::text, 0))`, id); err != nil {
-		return Document{}, fmt.Errorf("inventory: reverse material document %s: lock: %w", id, err)
-	}
-	orig, err := load(ctx, tx, id)
+	orig, err := original(ctx, tx, id)
 	if err != nil {
 		return Document{}, err
 	}
@@ -63,11 +63,54 @@ func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Docu
 		return Document{}, problem.Conflict("inventory.reverse_stock_transport", "Material document "+orig.Number+" is the goods issue of "+
 			"intercompany stock transport order "+*orig.Reference+"; it is not reversed yet.")
 	case mt.delivery:
-		// Its cost of goods sold, the order's delivered quantity and its
-		// billing move with it: Later (ADR-0083 §5).
+		// The order's delivered quantity moves with it, and its billing
+		// is cancelled first: shipping reverses it (S2b3).
 		return Document{}, problem.Conflict("inventory.reverse_goods_issue", "Material document "+orig.Number+" is the goods issue of outbound delivery "+
-			*orig.Reference+"; a goods issue is not reversed yet.")
+			*orig.Reference+"; reverse the delivery's goods issue (reverseOutboundDeliveryGoodsIssue), which reverses its stock too.")
 	}
+	return e.reversal(ctx, tx, p, orig, nil)
+}
+
+// ReverseForDelivery posts the reversal (602) of an outbound delivery's
+// goods issue's material document (601), once, in the request's
+// transaction (S2b3; ADR-0083 As built S2b3): on the company's date
+// today, its reference the delivery's number, its lines negated, last
+// first, each given back at what its original line took (Reverse), so
+// the stock and the cost of goods sold return what the goods issue
+// moved. Shipping holds the delivery's row lock, which reverses its goods
+// issue once; the document's own lock serializes it with Reverse.
+func (e *Endpoints) ReverseForDelivery(ctx context.Context, id uuid.UUID, reference string) (Document, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Document{}, err
+	}
+	orig, err := original(ctx, tx, id)
+	if err != nil {
+		return Document{}, err
+	}
+	if orig.MovementType != "601" || orig.ReversedByID != nil {
+		// shipping reverses a delivery's goods issue once, and only its 601.
+		return Document{}, fmt.Errorf("inventory: material document %s is a %s, reversed by %v: no goods issue of a delivery to reverse", orig.Number,
+			orig.MovementType, orig.ReversedByID)
+	}
+	return e.reversal(ctx, tx, p, orig, &reference)
+}
+
+// original reads a document to reverse under a lock named after it:
+// documents are insert-only, so reversals of one serialize on it, and
+// the second finds the first.
+func original(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Document, error) {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('inventory.material_document:' || $1::text, 0))`, id); err != nil {
+		return Document{}, fmt.Errorf("inventory: reverse material document %s: lock: %w", id, err)
+	}
+	return load(ctx, tx, id)
+}
+
+// reversal posts the reversal of orig, of its movement type's reversal
+// type, on the company's date today, with the reference, if any: its
+// lines negated (negated), moving the stock back under the same locks
+// and checks as a posting; its audit record names the original.
+func (e *Endpoints) reversal(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orig Document, reference *string) (Document, error) {
 	r, err := e.documentRefs(ctx, []Document{orig})
 	if err != nil {
 		return Document{}, err
@@ -76,7 +119,8 @@ func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Docu
 	if err != nil {
 		return Document{}, err
 	}
-	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: mt.reversal, day: c.day.Date, reversalOf: &orig.ID, lines: negated(orig.Lines)}, r)
+	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: movementTypes[orig.MovementType].reversal, day: c.day.Date, reversalOf: &orig.ID,
+		reference: reference, lines: negated(orig.Lines)}, r)
 	if err != nil {
 		return Document{}, err
 	}

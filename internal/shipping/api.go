@@ -36,10 +36,14 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 			total += *it.Cost // their sum was posted in one WA entry, whose amounts the ledger keeps within an amount's range
 		}
 	}
-	if d.Status == GoodsIssued {
+	if d.Status != Created {
 		out.GoodsIssueDate = apitypes.OptDate(d.GoodsIssueDate)
 		out.MaterialDocumentID, out.MaterialDocumentNumber = apitypes.OptUUID(d.MaterialDocumentID), apitypes.OptString(d.MaterialDocumentNumber)
 		out.CostOfGoodsSold = gen.NewOptMoney(apitypes.Money(total, d.Currency, d.Exponent))
+	}
+	if rv := d.Reversal; rv != nil {
+		out.GoodsIssueReversalDate = gen.NewOptDate(rv.Date)
+		out.ReversalMaterialDocumentID, out.ReversalMaterialDocumentNumber = gen.NewOptUUID(rv.MaterialDocumentID), gen.NewOptString(rv.MaterialDocumentNumber)
 	}
 	if s := d.Shipment; s != nil {
 		out.Shipment.SetTo(gen.OutboundDeliveryShipment{ShipmentNumber: s.Number, CarrierCode: s.Carrier,
@@ -118,6 +122,18 @@ func (e *Endpoints) PickOutboundDelivery(ctx context.Context, req *gen.OutboundD
 func (e *Endpoints) PostOutboundDeliveryGoodsIssue(ctx context.Context, params gen.PostOutboundDeliveryGoodsIssueParams) (
 	gen.PostOutboundDeliveryGoodsIssueRes, error) {
 	d, err := e.PostGoodsIssue(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	out, tag, err := e.one(ctx, d, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PickOutboundDeliveryOKHeaders{ETag: tag, Response: out}, nil
+}
+
+// ReverseOutboundDeliveryGoodsIssue implements POST
+// /v1/outbound-deliveries/{id}:reverseGoodsIssue (S2b3).
+func (e *Endpoints) ReverseOutboundDeliveryGoodsIssue(ctx context.Context, params gen.ReverseOutboundDeliveryGoodsIssueParams) (
+	gen.ReverseOutboundDeliveryGoodsIssueRes, error) {
+	d, err := e.ReverseGoodsIssue(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	out, tag, err := e.one(ctx, d, err)
 	if err != nil {
 		return nil, err

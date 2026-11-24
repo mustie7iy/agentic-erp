@@ -269,3 +269,76 @@ deliveries and partial goods issue: all Later in the plan.
 `cost_of_sales` and `margin`, `includes_cost` is true (ADR-0075 As
 built), and a goods issue of an order in another currency counts in
 `foreign_currency_documents`.
+
+**S2b3** (lane gireverse, 2026-11-24; migrations 000453, 000454;
+walkthrough step 143, `step_goods_issue`'s `goods_issue_reversal`): the
+goods issue reversal of a delivery not billed (SAP VL09, from memory),
+`POST /v1/outbound-deliveries/{id}:reverseGoodsIssue` (`If-Match`,
+human-only). Decided by default while building (listed for the product
+owner):
+
+- **What it posts.** Inventory's `Endpoints.ReverseForDelivery` posts the
+  601's reversal, a 602 naming it (`reversal_of_id`) and the delivery's
+  number as its reference, through the reversal inventory already had
+  (`reversal`, shared with `reverseMaterialDocument` and the goods
+  receipt's 102): each line, last first, gives back what its 601 line
+  took. At a moving price that is the stock's value as before the issue;
+  at a standard price changed since, the stock comes back at the new
+  price and the rest is posted on the class's price difference account,
+  so the cost of goods sold is always credited with what the goods issue
+  debited. It posts on the company's date today, as the goods issue does;
+  a count document open on the material blocks it (409
+  `inventory.posting_blocked`), as it blocks any movement.
+  `reverseMaterialDocument` still refuses a 601 (409
+  `inventory.reverse_goods_issue`), now naming this operation.
+- **The delivery ends reversed.** It becomes `goods_issue_reversed`,
+  keeping its goods issue's day, 601 and costs and naming the reversal's
+  day and 602 (`goods_issue_reversal_date`,
+  `reversal_material_document_id`, `_number`), and changes no more but
+  for its shipment (409 `shipping.goods_issue_reversed` to picking, a
+  goods issue, a second reversal and a screening;
+  `shipping.goods_issue_not_posted` for a delivery not issued). SAP takes
+  the delivery back to before its goods issue, to be issued again or
+  deleted (from memory); this version has no deletion of a delivery, so a
+  delivery taken back would hold its quantities on the order for good.
+  Instead the order's quantities are open again for a new delivery.
+  Reversible later by a slice that adds deletion and lets the reversal
+  reopen the delivery.
+- **Sales.** `Endpoints.ReverseIssue` records the reversal of the goods
+  issue's sales delivery (`sales.delivery_reversal`, once per delivery,
+  never changed, on or after the delivery's day, naming the 602); the
+  database takes the delivery's quantities off the order items'
+  `delivered_quantity` and moves the order's version (as T78c's delivery
+  adds them). The order's deliveries show the reversal
+  (`listSalesDeliveries`: `reversal_date`, `reversal_material_document_*`);
+  `SalesOrderDeliveryReversed` (a webhook event) is published with each
+  item's quantity, cost and delivered quantity after.
+- **Billed.** Billing bills an order item's delivered quantity, not a
+  delivery's, so a delivery counts as billed when reversing it would leave
+  an item billed beyond what stays delivered (409 `sales.delivery_billed`,
+  checked under the order's row lock; `sales_order_item_quantities` is the
+  database's answer): its billing document is cancelled first (T79c). A
+  delivery whose items stay covered by other deliveries is reversed with
+  the billing standing.
+- **Locks** (the leaf src review:batch86). The reversal locks the
+  delivery, then (inventory) the valuations and stock, then the order,
+  then the availability check's locks of the delivery's materials at its
+  plant (`database.LockTenant` `sales.availability`, in the materials'
+  order), as the goods issue takes the first three and as a check takes
+  the order before the materials. The check reads the demand before the
+  stock, assuming a delivered quantity only rises; holding its lock until
+  commit, the reversal's stock and demand become visible to a check
+  together (`TestReversalTakesTheAvailabilityLock`).
+- **Periods.** The reversal counts in the period of its date:
+  profitability's cost of sales by segment falls by its cost there
+  (`Orders.Segments`; in another currency, counted in
+  `foreign_currency_documents`), and an order item's deliveries
+  (`sales.Orders`, which revenue recognition reads) give the reversal on
+  its date with its quantity negated, so a point-in-time obligation
+  scheduled by deliveries loses its share in that period, earlier periods
+  unchanged.
+- **Unchanged.** Trade compliance is not asked again (the stock comes
+  back). The permission is the goods issue's (`shipping.goods_issue.post`):
+  the warehouse clerk who posts it reverses it (no separation of duties
+  for the pilot, product owner 2026-11-04). The count agent's never list
+  holds the operation.

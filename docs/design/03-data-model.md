@@ -5995,7 +5995,7 @@ erDiagram
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
   `CustomerSalesDataChanged`,
   `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`,
-  `ReturnsOrderChanged`, `ReturnReceived`).
+  `ReturnsOrderChanged`, `ReturnReceived`, `SalesOrderDeliveryReversed`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
   `.write`, `.confirm` and `.credit_release` (T77b);
   `sales.delivery.confirm`; `sales.billing.read`,
@@ -6966,10 +6966,12 @@ erDiagram
     text customer_number
     uuid plant_id "tenancy"
     uuid storage_location_id "tenancy"
-    text status "created, goods_issued"
+    text status "created, goods_issued, goods_issue_reversed"
     date goods_issue_date "once issued"
     uuid material_document_id "inventory: the 601, once issued"
     text currency "the costs', once issued"
+    date goods_issue_reversal_date "once reversed (S2b3)"
+    uuid reversal_material_document_id "inventory: the 602, once reversed"
     integer version }
   outbound_delivery_item { uuid outbound_delivery_id PK
     integer item_no PK
@@ -7068,6 +7070,29 @@ erDiagram
   (`delivery_item_cost`, `delivery_item_cost_currency_fkey`).
 - Permissions `shipping.delivery.read`, `.write` and
   `shipping.goods_issue.post`.
+- S2b3 (migrations 000453, 000454; ADR-0083 As built S2b3): a delivery
+  whose goods issue is reversed is `goods_issue_reversed`
+  (`outbound_delivery_status_check`), keeping its goods issue's day,
+  material document and currency (`outbound_delivery_goods_issue`) and
+  naming the reversal's day, on or after the goods issue's, and its
+  material document (602), the number of 1 to 40 characters, all three
+  exactly when reversed (`goods_issue_reversal_date`,
+  `reversal_material_document_id`, `reversal_material_document_number`;
+  `outbound_delivery_goods_issue_reversal`,
+  `outbound_delivery_reversal_material_document_number_check`); a
+  goods-issued delivery changes to it by its status and those columns
+  alone, and a reversed one by nothing but its shipment
+  (`outbound_delivery_issued_fixed`). `sales.delivery_reversal`: the
+  reversal of a goods issue's sales delivery
+  (`delivery_reversal_delivery_fkey`), once (`delivery_reversal_pkey`),
+  dated on or after the delivery (`delivery_reversal_date`, a trigger),
+  of a goods issue's delivery only (`delivery_reversal_of_goods_issue`),
+  naming the 602 (`delivery_reversal_material_document_number_check`);
+  insert-only (`delivery_reversal_immutable`); it takes its delivery's
+  item quantities off the order items' `delivered_quantity`, never below
+  what is billed (`sales_order_item_quantities`), and moves the order's
+  version, only a confirmed order's (`delivery_order_confirmed`; the
+  security definer trigger `delivery_reversal_delivered`).
 
 ## 3.37 Material requirements planning (`mrp`)
 

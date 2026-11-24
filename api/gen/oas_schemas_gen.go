@@ -28550,6 +28550,7 @@ func (*ConflictHeaders) reverseGoodsReceiptRes()                         {}
 func (*ConflictHeaders) reverseInternalOrderSettlementRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()                         {}
 func (*ConflictHeaders) reverseMaterialDocumentRes()                     {}
+func (*ConflictHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                      {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()             {}
 func (*ConflictHeaders) runAllocationCycleRes()                          {}
@@ -85366,7 +85367,8 @@ func (s *OrgUnitUpdate) SetRegion(val OptNilString) {
 
 // An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's
 // storage location, its picking and its goods issue. Never deleted; it changes only until its goods
-// issue is posted, but for its shipment (S2r), recorded once, also after the goods issue.
+// issue is posted, but for its shipment (S2r), recorded once, also after the goods issue, and for the
+// goods issue's reversal (S2b3), once.
 // Ref: #/components/schemas/OutboundDelivery
 type OutboundDelivery struct {
 	// The delivery's id.
@@ -85410,6 +85412,15 @@ type OutboundDelivery struct {
 	MaterialDocumentNumber OptString `json:"material_document_number"`
 	// Its items' costs added up, in the company's local currency; absent before its goods issue.
 	CostOfGoodsSold OptMoney `json:"cost_of_goods_sold"`
+	// The company's date its goods issue was reversed on (S2b3, `reverseOutboundDeliveryGoodsIssue`);
+	// absent while it is not.
+	GoodsIssueReversalDate OptDate `json:"goods_issue_reversal_date"`
+	// The reversal's material document (602, `GET /v1/material-documents/{id}`), naming the goods issue's
+	// as its `reversal_of_id`, whose `journal_entry_id` took the cost of goods sold back; absent with the
+	// date.
+	ReversalMaterialDocumentID OptUUID `json:"reversal_material_document_id"`
+	// That document's number; absent with it.
+	ReversalMaterialDocumentNumber OptString `json:"reversal_material_document_number"`
 	// The shipment a transport management system planned it in, as its `tms` connector reported it (S2r,
 	// `listTMSMessages`); absent until one is recorded. Recorded once, also after the goods issue; nothing
 	// is posted.
@@ -85417,8 +85428,9 @@ type OutboundDelivery struct {
 	// Its screening by a trade compliance service (S2s, `listGTSMessages`); absent when no active `gts`
 	// connector screened its plant when it was created.
 	TradeCompliance OptOutboundDeliveryTradeCompliance `json:"trade_compliance"`
-	// `created` until its goods issue is posted, then `goods_issued`. Open enumeration: clients must
-	// accept and preserve values not listed here; values may be added within /v1.
+	// `created` until its goods issue is posted, then `goods_issued`, and `goods_issue_reversed` once its
+	// goods issue is reversed (S2b3). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
 	Status string `json:"status"`
 	// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
 	// between (SAP's A, C and B). Open enumeration: clients must accept and preserve values not listed
@@ -85536,6 +85548,21 @@ func (s *OutboundDelivery) GetMaterialDocumentNumber() OptString {
 // GetCostOfGoodsSold returns the value of CostOfGoodsSold.
 func (s *OutboundDelivery) GetCostOfGoodsSold() OptMoney {
 	return s.CostOfGoodsSold
+}
+
+// GetGoodsIssueReversalDate returns the value of GoodsIssueReversalDate.
+func (s *OutboundDelivery) GetGoodsIssueReversalDate() OptDate {
+	return s.GoodsIssueReversalDate
+}
+
+// GetReversalMaterialDocumentID returns the value of ReversalMaterialDocumentID.
+func (s *OutboundDelivery) GetReversalMaterialDocumentID() OptUUID {
+	return s.ReversalMaterialDocumentID
+}
+
+// GetReversalMaterialDocumentNumber returns the value of ReversalMaterialDocumentNumber.
+func (s *OutboundDelivery) GetReversalMaterialDocumentNumber() OptString {
+	return s.ReversalMaterialDocumentNumber
 }
 
 // GetShipment returns the value of Shipment.
@@ -85686,6 +85713,21 @@ func (s *OutboundDelivery) SetMaterialDocumentNumber(val OptString) {
 // SetCostOfGoodsSold sets the value of CostOfGoodsSold.
 func (s *OutboundDelivery) SetCostOfGoodsSold(val OptMoney) {
 	s.CostOfGoodsSold = val
+}
+
+// SetGoodsIssueReversalDate sets the value of GoodsIssueReversalDate.
+func (s *OutboundDelivery) SetGoodsIssueReversalDate(val OptDate) {
+	s.GoodsIssueReversalDate = val
+}
+
+// SetReversalMaterialDocumentID sets the value of ReversalMaterialDocumentID.
+func (s *OutboundDelivery) SetReversalMaterialDocumentID(val OptUUID) {
+	s.ReversalMaterialDocumentID = val
+}
+
+// SetReversalMaterialDocumentNumber sets the value of ReversalMaterialDocumentNumber.
+func (s *OutboundDelivery) SetReversalMaterialDocumentNumber(val OptString) {
+	s.ReversalMaterialDocumentNumber = val
 }
 
 // SetShipment sets the value of Shipment.
@@ -92795,6 +92837,7 @@ func (s *PickOutboundDeliveryOKHeaders) SetResponse(val OutboundDelivery) {
 func (*PickOutboundDeliveryOKHeaders) pickOutboundDeliveryRes()                        {}
 func (*PickOutboundDeliveryOKHeaders) postOutboundDeliveryGoodsIssueRes()              {}
 func (*PickOutboundDeliveryOKHeaders) releaseOutboundDeliveryTradeComplianceBlockRes() {}
+func (*PickOutboundDeliveryOKHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 
 type PickOutboundDeliveryPreconditionFailed Problem
 
@@ -108564,6 +108607,31 @@ type ReverseMaterialDocumentUnprocessableEntity Problem
 
 func (*ReverseMaterialDocumentUnprocessableEntity) reverseMaterialDocumentRes() {}
 
+type ReverseOutboundDeliveryGoodsIssueBadRequest Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueBadRequest) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssueForbidden Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueForbidden) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssueNotFound Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueNotFound) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssuePreconditionFailed Problem
+
+func (*ReverseOutboundDeliveryGoodsIssuePreconditionFailed) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssuePreconditionRequired Problem
+
+func (*ReverseOutboundDeliveryGoodsIssuePreconditionRequired) reverseOutboundDeliveryGoodsIssueRes() {
+}
+
+type ReverseOutboundDeliveryGoodsIssueUnprocessableEntity Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueUnprocessableEntity) reverseOutboundDeliveryGoodsIssueRes() {}
+
 type ReverseSupplierInvoiceBadRequest Problem
 
 func (*ReverseSupplierInvoiceBadRequest) reverseSupplierInvoiceRes() {}
@@ -111820,7 +111888,9 @@ func (s *SalesConditionScale) SetFromAmount(val OptMoney) {
 // A delivery of a sales order (sales, ADR-0067 §8): quantities of its items a person confirmed as
 // delivered on a date, which moves no stock and posts nothing, or, for materials kept in stock, an
 // outbound delivery's goods issue (ADR-0083 §5, S2b1), which names the outbound delivery and its
-// material document. It is written once and never changed.
+// material document. It is written once and never changed; a goods issue's is reversed once by the
+// goods issue's reversal (S2b3), which names its day and material document and takes its quantities
+// off the order's items.
 // Ref: #/components/schemas/SalesDelivery
 type SalesDelivery struct {
 	// Identifier (UUIDv7).
@@ -111843,6 +111913,14 @@ type SalesDelivery struct {
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// That document's number; absent with it.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
+	// A goods issue's delivery reversed (S2b3, `reverseOutboundDeliveryGoodsIssue`): the day it was
+	// reversed on, from which its quantities are no longer delivered and are open again; absent while it
+	// is not reversed.
+	ReversalDate OptDate `json:"reversal_date"`
+	// The reversal's material document (602, `GET /v1/material-documents/{id}`); absent with the date.
+	ReversalMaterialDocumentID OptUUID `json:"reversal_material_document_id"`
+	// That document's number; absent with it.
+	ReversalMaterialDocumentNumber OptString `json:"reversal_material_document_number"`
 	// The items delivered, by the order's item number.
 	Items []SalesDeliveryItem `json:"items"`
 	// When the delivery was confirmed.
@@ -111894,6 +111972,21 @@ func (s *SalesDelivery) GetMaterialDocumentID() OptUUID {
 // GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
 func (s *SalesDelivery) GetMaterialDocumentNumber() OptString {
 	return s.MaterialDocumentNumber
+}
+
+// GetReversalDate returns the value of ReversalDate.
+func (s *SalesDelivery) GetReversalDate() OptDate {
+	return s.ReversalDate
+}
+
+// GetReversalMaterialDocumentID returns the value of ReversalMaterialDocumentID.
+func (s *SalesDelivery) GetReversalMaterialDocumentID() OptUUID {
+	return s.ReversalMaterialDocumentID
+}
+
+// GetReversalMaterialDocumentNumber returns the value of ReversalMaterialDocumentNumber.
+func (s *SalesDelivery) GetReversalMaterialDocumentNumber() OptString {
+	return s.ReversalMaterialDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -111954,6 +112047,21 @@ func (s *SalesDelivery) SetMaterialDocumentID(val OptUUID) {
 // SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
 func (s *SalesDelivery) SetMaterialDocumentNumber(val OptString) {
 	s.MaterialDocumentNumber = val
+}
+
+// SetReversalDate sets the value of ReversalDate.
+func (s *SalesDelivery) SetReversalDate(val OptDate) {
+	s.ReversalDate = val
+}
+
+// SetReversalMaterialDocumentID sets the value of ReversalMaterialDocumentID.
+func (s *SalesDelivery) SetReversalMaterialDocumentID(val OptUUID) {
+	s.ReversalMaterialDocumentID = val
+}
+
+// SetReversalMaterialDocumentNumber sets the value of ReversalMaterialDocumentNumber.
+func (s *SalesDelivery) SetReversalMaterialDocumentNumber(val OptString) {
+	s.ReversalMaterialDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -123722,6 +123830,7 @@ func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                         
 func (*TooManyRequestsHeaders) reverseInternalOrderSettlementRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                         {}
 func (*TooManyRequestsHeaders) reverseMaterialDocumentRes()                     {}
+func (*TooManyRequestsHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                      {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()             {}
 func (*TooManyRequestsHeaders) runAllocationCycleRes()                          {}
@@ -124705,6 +124814,7 @@ func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                         {}
 func (*UnauthorizedHeaders) reverseInternalOrderSettlementRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                         {}
 func (*UnauthorizedHeaders) reverseMaterialDocumentRes()                     {}
+func (*UnauthorizedHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                      {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()             {}
 func (*UnauthorizedHeaders) runAllocationCycleRes()                          {}

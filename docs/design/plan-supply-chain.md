@@ -587,6 +587,8 @@ delivery.
   stock, the valuation and the cost of goods sold are as before the
   issue; a billed delivery is refused; the order item's delivered
   quantity falls by what was issued.
+- **As built** (2026-11-24): ADR-0083 As built S2b3, migrations 000453
+  and 000454, walkthrough step 143 (`goods_issue_reversal`).
 
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,

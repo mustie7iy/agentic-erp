@@ -3,7 +3,8 @@
 // LIKP and LIPS), each of one confirmed order's items of materials kept in
 // stock from one plant's storage location, numbered from its company's
 // outbound_delivery range (create.go, S2a); their picking, up to what the
-// location holds (pick.go, S2a); and their goods issue (S2b1). A
+// location holds (pick.go, S2a); their goods issue (S2b1) and its
+// reversal (reverse.go, S2b3). A
 // delivery's shipment is recorded as a transport system reports it
 // (shipment.go, S2r), and its trade compliance as a trade compliance
 // service screens it, which its goods issue waits for (trade.go, S2s;
@@ -13,8 +14,9 @@
 // sales' published read (sales.Orders) and has sales hold the quantities
 // a delivery takes on the order (sales' Ship), so an order change is
 // judged on them; it reads materials through materials' published API,
-// the stock a pick checks and the goods issue through inventory's
-// (inventory.Endpoints.Held, IssueForDelivery),
+// the stock a pick checks and the goods issue and its reversal through
+// inventory's (inventory.Endpoints.Held, IssueForDelivery,
+// ReverseForDelivery),
 // tenancy's companies and org units, the ledger's fiscal calendar and the
 // configuration's number ranges and company dates, through the ports
 // below, which the composition root wires.
@@ -42,11 +44,12 @@ const NumberRange = "outbound_delivery"
 
 // Statuses of a delivery.
 const (
-	Created      = "created"
-	GoodsIssued  = "goods_issued"
-	NotPicked    = "not_picked"
-	PartlyPicked = "partly_picked"
-	Picked       = "picked"
+	Created            = "created"
+	GoodsIssued        = "goods_issued"
+	GoodsIssueReversed = "goods_issue_reversed"
+	NotPicked          = "not_picked"
+	PartlyPicked       = "partly_picked"
+	Picked             = "picked"
 )
 
 // Org unit kinds a delivery ships from (tenancy.OrgUnitKinds).
@@ -61,19 +64,21 @@ type Orders interface {
 }
 
 // Shipments has sales hold what a delivery takes of an order and record
-// its goods issue on the order (sales' Endpoints.Ship and Issue,
-// ADR-0083 §4-§5).
+// its goods issue on the order and the issue's reversal (sales'
+// Endpoints.Ship, Issue and ReverseIssue, ADR-0083 §4-§5, As built S2b3).
 type Shipments interface {
 	Ship(ctx context.Context, in sales.ShipInput) (sales.Shipped, error)
 	Issue(ctx context.Context, in sales.GoodsIssue) (sales.Delivery, error)
+	ReverseIssue(ctx context.Context, in sales.IssueReversal) (sales.Delivery, error)
 }
 
 // Stock reads what a storage location holds of a material and posts a
-// delivery's goods issue (inventory's Endpoints.Held and
-// IssueForDelivery).
+// delivery's goods issue and its reversal (inventory's Endpoints.Held,
+// IssueForDelivery and ReverseForDelivery).
 type Stock interface {
 	Held(ctx context.Context, material, plant, storageLocation uuid.UUID) (string, error)
 	IssueForDelivery(ctx context.Context, reference string, in []inventory.DeliveryItem) (inventory.Document, error)
+	ReverseForDelivery(ctx context.Context, id uuid.UUID, reference string) (inventory.Document, error)
 }
 
 // Materials reads materials by id (the materials context's published API).
@@ -174,6 +179,9 @@ type Delivery struct {
 	GoodsIssueDate         *time.Time
 	MaterialDocumentID     *uuid.UUID
 	MaterialDocumentNumber *string
+	// Reversal is its goods issue's reversal (S2b3); nil while it is not
+	// reversed.
+	Reversal *Reversal
 	// Currency and Exponent are its items' costs', the company's; ""
 	// before its goods issue.
 	Currency string
