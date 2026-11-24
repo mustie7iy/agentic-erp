@@ -53,6 +53,11 @@ type ScreeningInput struct {
 	ScreenedAt         time.Time
 }
 
+// screenedAhead is how far past the ERP's clock a service's screening
+// time may be: a little clock drift, but not a date in the future, which
+// would make every later answer, a block among them, superseded.
+const screenedAhead = 5 * time.Minute
+
 // maxReasonCode is the longest reason code a delivery holds
 // (outbound_delivery_trade_compliance_reason_check).
 const maxReasonCode = 40
@@ -83,7 +88,8 @@ func tradeHeld(d Delivery) error {
 // shipping.goods_issued: what is issued is no longer held); the answer
 // released or blocked, its reason code at most 40 characters (422
 // shipping.invalid_screening), naming when the service screened it (422
-// shipping.invalid_screening without). The service's latest answer
+// shipping.invalid_screening without, or more than screenedAhead past the
+// ERP's clock). The service's latest answer
 // counts, by that time, not by when it is read: one screened before the
 // answer recorded already is refused (409 shipping.screening_superseded),
 // so an answer read late cannot undo a later block. A newer one replaces
@@ -110,8 +116,9 @@ func (e *Endpoints) RecordScreening(ctx context.Context, id uuid.UUID, in Screen
 		}
 		reason = &in.ReasonCode
 	}
-	if in.ScreenedAt.IsZero() {
-		return Delivery{}, problem.Invalid("shipping.invalid_screening", "screened_at", "When the service screened the delivery.")
+	if in.ScreenedAt.IsZero() || in.ScreenedAt.After(clock.Now(e.Now).Add(screenedAhead)) {
+		return Delivery{}, problem.Invalid("shipping.invalid_screening", "screened_at",
+			"When the service screened the delivery, at most "+screenedAhead.String()+" past the ERP's clock.")
 	}
 	d, err := open(ctx, tx, id, func(int32) error { return nil })
 	if err != nil {

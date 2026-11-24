@@ -6217,20 +6217,20 @@ type Invoker interface {
 	// (`screening_result`): the service's answer, polled from each active `gts` connector (every 10 s) and
 	// recorded once per connector and its message id: `recorded`, the answer (its own `message_id`, type
 	// `screening`, the `outbound_delivery_id` it was sent, `result` `released` or `blocked`, optionally
-	// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339)
-	// recorded on the delivery (`getOutboundDelivery`'s `trade_compliance`, as the exchange's system
-	// principal acting for the delivery's company; the service's latest answer counts by `screened_at`,
-	// whatever the order the answers are read in), nothing posted; or `refused` with the problem that
-	// stopped it: one that is not a JSON `screening` message naming its own message id, an
-	// `outbound_delivery_id` and `screened_at`, or that holds `\u0000`
-	// (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as its
-	// text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was not
-	// sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for a
-	// delivery whose goods issue is posted, `shipping.invalid_screening` for another result or a reason
-	// code out of bounds, `shipping.screening_superseded` for an answer screened no later than the one the
-	// delivery holds). The service is told after that commit (`acknowledged_at`); one listed again is
-	// acknowledged again, not recorded twice. Filters: connector, direction, status and the outbound
-	// delivery.
+	// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339, at
+	// most 5 minutes past the ERP's clock) recorded on the delivery (`getOutboundDelivery`'s
+	// `trade_compliance`, as the exchange's system principal acting for the delivery's company; the
+	// service's latest answer counts by `screened_at`, whatever the order the answers are read in),
+	// nothing posted; or `refused` with the problem that stopped it: one that is not a JSON `screening`
+	// message naming its own message id, an `outbound_delivery_id` and `screened_at`, or that holds
+	// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as
+	// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+	// not sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for
+	// a delivery whose goods issue is posted, `shipping.invalid_screening` for another result, a reason
+	// code out of bounds or a `screened_at` too far ahead, `shipping.screening_superseded` for an answer
+	// screened no later than the one the delivery holds). The service is told after that commit
+	// (`acknowledged_at`); one listed again is acknowledged again, not recorded twice. Filters: connector,
+	// direction, status and the outbound delivery.
 	//
 	// GET /v1/gts-messages
 	ListGTSMessages(ctx context.Context, params ListGTSMessagesParams) (ListGTSMessagesRes, error)
@@ -79855,20 +79855,20 @@ func (c *Client) sendListForecastVarianceDocuments(ctx context.Context, params L
 // (`screening_result`): the service's answer, polled from each active `gts` connector (every 10 s) and
 // recorded once per connector and its message id: `recorded`, the answer (its own `message_id`, type
 // `screening`, the `outbound_delivery_id` it was sent, `result` `released` or `blocked`, optionally
-// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339)
-// recorded on the delivery (`getOutboundDelivery`'s `trade_compliance`, as the exchange's system
-// principal acting for the delivery's company; the service's latest answer counts by `screened_at`,
-// whatever the order the answers are read in), nothing posted; or `refused` with the problem that
-// stopped it: one that is not a JSON `screening` message naming its own message id, an
-// `outbound_delivery_id` and `screened_at`, or that holds `\u0000`
-// (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as its
-// text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was not
-// sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for a
-// delivery whose goods issue is posted, `shipping.invalid_screening` for another result or a reason
-// code out of bounds, `shipping.screening_superseded` for an answer screened no later than the one the
-// delivery holds). The service is told after that commit (`acknowledged_at`); one listed again is
-// acknowledged again, not recorded twice. Filters: connector, direction, status and the outbound
-// delivery.
+// its `reason_code`, 1 to 40 characters, and `screened_at`, when the service screened, RFC 3339, at
+// most 5 minutes past the ERP's clock) recorded on the delivery (`getOutboundDelivery`'s
+// `trade_compliance`, as the exchange's system principal acting for the delivery's company; the
+// service's latest answer counts by `screened_at`, whatever the order the answers are read in),
+// nothing posted; or `refused` with the problem that stopped it: one that is not a JSON `screening`
+// message naming its own message id, an `outbound_delivery_id` and `screened_at`, or that holds
+// `\u0000` (`integration.wms_message_unreadable`, the exchange's code for every kind; its body kept as
+// its text), larger than 1 MiB (`integration.wms_message_too_large`), of a delivery the connector was
+// not sent (`integration.gts_unknown_delivery`), or that shipping refuses (`shipping.goods_issued` for
+// a delivery whose goods issue is posted, `shipping.invalid_screening` for another result, a reason
+// code out of bounds or a `screened_at` too far ahead, `shipping.screening_superseded` for an answer
+// screened no later than the one the delivery holds). The service is told after that commit
+// (`acknowledged_at`); one listed again is acknowledged again, not recorded twice. Filters: connector,
+// direction, status and the outbound delivery.
 //
 // GET /v1/gts-messages
 func (c *Client) ListGTSMessages(ctx context.Context, params ListGTSMessagesParams) (ListGTSMessagesRes, error) {

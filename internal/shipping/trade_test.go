@@ -3,6 +3,7 @@ package shipping_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -325,7 +326,20 @@ func TestScreeningAnswersInTheServicesOrder(t *testing.T) {
 		t.Fatalf("a later release: got %v, want it recorded", err)
 	}
 	tc, _ := e.trade(t, id.String())
-	if want := at.Add(time.Minute).Truncate(time.Microsecond).Format(time.RFC3339Nano); tc["status"] != "released" || tc["screened_at"] != want {
-		t.Errorf("the delivery: got %v, want released, screened at %s", tc, want)
+	got, err := time.Parse(time.RFC3339, fmt.Sprint(tc["screened_at"]))
+	if want := at.Add(time.Minute).Truncate(time.Second); err != nil || tc["status"] != "released" || !got.Equal(want) {
+		t.Errorf("the delivery: got %v, want released, screened at %s (the API gives it to the second)", tc, want)
+	}
+	// Ordered to the microsecond the time is kept to: the same time again is
+	// superseded, one a microsecond later is not.
+	if p := problem.From(record("blocked", at.Add(time.Minute))); p.Code != "shipping.screening_superseded" {
+		t.Errorf("a block of the release's time: got %v, want shipping.screening_superseded", p)
+	}
+	if err := record("blocked", at.Add(time.Minute+time.Microsecond)); err != nil {
+		t.Errorf("a block a microsecond later: got %v, want it recorded", err)
+	}
+	if p := problem.From(record("released", time.Now().Add(time.Hour))); p.Code != "shipping.invalid_screening" || len(p.Errors) != 1 ||
+		p.Errors[0].Field != "screened_at" {
+		t.Errorf("an answer an hour ahead of the clock: got %v, want shipping.invalid_screening naming screened_at", p)
 	}
 }

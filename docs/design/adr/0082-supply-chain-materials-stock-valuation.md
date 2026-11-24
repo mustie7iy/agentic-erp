@@ -1937,7 +1937,11 @@ feeder system until GTS releases it), from memory, for the specialist:
   replicas may record two answers at once, so an answer screened no later
   than the one the delivery holds is refused under the delivery's row
   lock (409 `shipping.screening_superseded`, recorded refused), and a
-  release read late cannot undo a later block. While the delivery is not
+  release read late cannot undo a later block. Answers are ordered to the
+  microsecond the column keeps (the API shows the time to the second); a
+  `screened_at` more than 5 minutes past the ERP's clock is refused
+  (`shipping.invalid_screening`), so a service's bad clock cannot date a
+  release in the future and supersede every later block. While the delivery is not
   goods-issued: a later `released` releases a
   block (SAP GTS's release of a blocked document, in the service), a
   later `blocked` blocks it again, a person's release included. Refused,
