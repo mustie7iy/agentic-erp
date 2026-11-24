@@ -20,8 +20,9 @@ import (
 // (ADR-0084 §1, §2): a leaf that reads tenancy's plants and companies,
 // materials, the ledger's accounts and the configuration's company days,
 // and, through mrpSupply, sales' demand and that of the intercompany
-// orders the plant supplies, inventory's stock and prices and
-// procurement's receipts and requisitions, which it proposes and
+// and stock transport orders the plant supplies, inventory's stock and
+// prices and procurement's receipts (purchase and stock transport orders)
+// and requisitions, which it proposes and
 // withdraws through procurement's published API, and for S&OP reviews
 // inventory's goods issues, sales' and intercompany orders' demand by
 // the day it is due and procurement's stock in transit (S2n). Its runs'
@@ -120,4 +121,14 @@ func (mrpSupply) Transports(ctx context.Context, plant uuid.UUID, ms []uuid.UUID
 func (mrpSupply) IntercompanyDue(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Due, error) {
 	rs, err := procurement.Orders{}.IntercompanyDue(ctx, plant, ms)
 	return opens(rs, func(r procurement.DueOnOrder) mrp.Due { return due(r.MaterialID, r.Unit, r.Quantity, r.Due) }), err
+}
+
+func (mrpSupply) TransportsDue(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Open, error) {
+	rs, err := procurement.Orders{}.TransportsDue(ctx, plant, ms)
+	return opens(rs, onOrder), err
+}
+
+func (mrpSupply) TransportsOnOrder(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Open, error) {
+	rs, err := procurement.Orders{}.TransportsOnOrder(ctx, plant, ms)
+	return opens(rs, onOrder), err
 }

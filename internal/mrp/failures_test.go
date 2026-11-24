@@ -296,9 +296,14 @@ func TestPublishedReadsOutsideARequest(t *testing.T) {
 	ctx, ids := context.Background(), []uuid.UUID{uuid.New()}
 	inv, pr := app.Inventory(app.Config{}), app.Procurement(app.Config{})
 	for name, call := range map[string]func() error{
-		"demand":       func() error { _, err := sales.Orders{}.PlantRequirements(ctx, ids[0], ids); return err },
-		"prices":       func() error { _, err := inv.PlantPrices(ctx, ids[0], ids); return err },
-		"receipts":     func() error { _, err := procurement.Orders{}.OpenReceipts(ctx, ids[0], ids); return err },
+		"demand":         func() error { _, err := sales.Orders{}.PlantRequirements(ctx, ids[0], ids); return err },
+		"prices":         func() error { _, err := inv.PlantPrices(ctx, ids[0], ids); return err },
+		"receipts":       func() error { _, err := procurement.Orders{}.OpenReceipts(ctx, ids[0], ids); return err },
+		"transports due": func() error { _, err := procurement.Orders{}.TransportsDue(ctx, ids[0], ids); return err },
+		"transports on order": func() error {
+			_, err := procurement.Orders{}.TransportsOnOrder(ctx, ids[0], ids)
+			return err
+		},
 		"requisitions": func() error { _, err := procurement.Orders{}.Requisitions(ctx, ids); return err },
 		"withdraw":     func() error { _, err := pr.WithdrawProposal(ctx, ids[0], 1); return err },
 	} {

@@ -78689,11 +78689,13 @@ type MrpRunLine struct {
 	// The reorder point the run planned by.
 	ReorderPoint Quantity `json:"reorder_point"`
 	// What the plant's confirmed sales orders ordered and have not delivered, and the ordered quantities
-	// of the intercompany purchase orders it supplies that are not closed, cancelled or issued.
+	// of the intercompany purchase orders it supplies that are not closed, cancelled or issued and of the
+	// stock transport orders within the company from it that are not issued.
 	Demand Quantity `json:"demand"`
 	// The plant's stock at its storage locations.
 	Stock Quantity `json:"stock"`
-	// The plant's open receipts: purchase orders' open quantities and the proposals a person took over.
+	// The plant's open receipts: purchase orders' open quantities, the quantities of the stock transport
+	// orders within the company to it that are not received, and the proposals a person took over.
 	Receipts Quantity `json:"receipts"`
 	// What brings the stock and receipts less the demand back to the reorder point; zero when they are not
 	// below it.

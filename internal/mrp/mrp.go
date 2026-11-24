@@ -2,17 +2,18 @@
 // plan-supply-chain.md §S2k): materials' planning data at plants (SAP
 // MARC's MRP view) and planning runs per plant, which compute each planned
 // material's net requirement from its plant's confirmed sales orders and
-// the intercompany orders it supplies and has not issued, its stock and
-// open receipts against its reorder point and propose purchase
-// requisitions for the shortages, replacing the run's own earlier
-// proposals and never a person's requisition. A run is long work behind
-// an Operation (ADR-0012), carried out by the workflows context through
-// its port. It is a leaf (ADR-0084 §1): it reads tenancy's plants,
-// materials, the ledger's accounts, sales' demand, inventory's stock and
-// prices and procurement's intercompany orders, receipts and
-// requisitions, and writes
-// requisitions, through ports the composition root wires, in the
-// published types of materials and tenancy; no context imports it. Its
+// the intercompany and stock transport orders it supplies and has not
+// issued, its stock and open receipts (stock transport orders to it among
+// them) against its reorder point and propose purchase requisitions for
+// the shortages, replacing the run's own earlier proposals and never a
+// person's requisition. A run is long work behind an Operation
+// (ADR-0012), carried out by the workflows context through its port. It
+// is a leaf (ADR-0084 §1): it reads tenancy's plants, materials, the
+// ledger's accounts, sales' demand, inventory's stock and prices and
+// procurement's intercompany and stock transport orders, receipts and
+// requisitions, and writes requisitions, through ports the composition
+// root wires, in the published types of materials and tenancy; no context
+// imports it. Its
 // S&OP plan versions (ADR-0084 As built S2n, plan-supply-chain.md §S2n)
 // review a company's demand forecast against supply by material group
 // and month, and fix the consensus a planner agrees.
@@ -145,14 +146,16 @@ type Due struct {
 
 // Supply is what a run reads of the plant through the other contexts'
 // published APIs, in the run's transaction: the demand of the confirmed
-// sales orders (sales) and of the intercompany orders the plant supplies
-// (procurement's IntercompanyDue, its days not needed), the stock and
-// prices (inventory) and the open receipts (procurement), and the
-// requisitions it proposed, which it proposes and withdraws through
-// procurement. An S&OP review (S2n) reads besides the plant's goods
-// issues of the days (inventory), its demand by the day it is due
-// (sales' confirmed orders, procurement's intercompany orders it
-// supplies) and the stock in transit to it (procurement).
+// sales orders (sales) and of the intercompany orders (IntercompanyDue,
+// its days not needed) and stock transport orders (TransportsDue) the
+// plant supplies (procurement), the stock and prices (inventory), the
+// open receipts of purchase orders (Receipts) and stock transport orders
+// (TransportsOnOrder) (procurement), and the requisitions it proposed,
+// which it proposes and withdraws through procurement. An S&OP review
+// (S2n) reads besides the plant's goods issues of the days (inventory),
+// its demand by the day it is due (sales' confirmed orders,
+// procurement's intercompany orders it supplies) and the stock in
+// transit to it (procurement).
 type Supply interface {
 	Demand(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
 	Stock(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) (map[uuid.UUID]string, error)
@@ -165,6 +168,8 @@ type Supply interface {
 	DemandDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Due, error)
 	IntercompanyDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Due, error)
 	Transports(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
+	TransportsDue(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
+	TransportsOnOrder(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
 }
 
 // Runs keeps a run's Operation (operations context): Start writes it

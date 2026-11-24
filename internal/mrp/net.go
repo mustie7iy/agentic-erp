@@ -20,34 +20,20 @@ import (
 // Net requirements (ADR-0084 §3): per planned material, in its base
 // unit, what the plant has available is its stock plus its open receipts
 // less its demand: its confirmed sales orders' and the intercompany
-// orders' it supplies and has not issued; below the reorder point, the
-// shortage is what brings it back there, rounded up to six decimals, and
-// is proposed as a requisition.
+// orders' and stock transport orders' it supplies and has not issued;
+// below the reorder point, the shortage is what brings it back there,
+// rounded up to six decimals, and is proposed as a requisition.
 
 // counts are a run's quantities by material in the base unit.
 type counts struct{ demand, stock, receipts map[uuid.UUID]*big.Rat }
 
-// count reads the plant's demand, stock and purchase orders' open
-// receipts of the planned materials, the taken-over proposals' receipts
-// added (settle). The demand is the confirmed sales orders' and that of
-// the intercompany orders the plant supplies and has not issued (S2i;
-// ADR-0084 As built, batch 91), whatever day they are due, as a sales
-// order's is. Such an order is a purchase order of the receiving plant,
-// whose run counts it as a receipt; once issued (643) the stock has left
-// the supplying plant, so the order demands nothing more. A stock
-// transport order within the company is counted on neither side (§2).
+// count reads the plant's demand, stock and open receipts of the planned
+// materials, the taken-over proposals' receipts added (settle).
 func (e *Endpoints) count(ctx context.Context, w *work) (counts, error) {
 	c := counts{demand: map[uuid.UUID]*big.Rat{}, stock: map[uuid.UUID]*big.Rat{}, receipts: w.receipts}
-	demand, err := e.Supply.Demand(ctx, w.run.PlantID, w.ids)
+	demand, err := e.demand(ctx, w)
 	if err != nil {
-		return counts{}, fmt.Errorf("mrp: demand at plant %s: %w", w.plant.Code, err)
-	}
-	intercompany, err := e.Supply.IntercompanyDue(ctx, w.run.PlantID, w.ids)
-	if err != nil {
-		return counts{}, fmt.Errorf("mrp: intercompany orders from plant %s: %w", w.plant.Code, err)
-	}
-	for _, d := range intercompany {
-		demand = append(demand, d.Open)
+		return counts{}, err
 	}
 	if err := w.sum(demand, c.demand); err != nil {
 		return counts{}, err
@@ -63,7 +49,39 @@ func (e *Endpoints) count(ctx context.Context, w *work) (counts, error) {
 	if err != nil {
 		return counts{}, fmt.Errorf("mrp: open receipts at plant %s: %w", w.plant.Code, err)
 	}
-	return c, w.sum(receipts, c.receipts)
+	transports, err := e.Supply.TransportsOnOrder(ctx, w.run.PlantID, w.ids)
+	if err != nil {
+		return counts{}, fmt.Errorf("mrp: stock transport orders to plant %s: %w", w.plant.Code, err)
+	}
+	return c, w.sum(append(receipts, transports...), c.receipts)
+}
+
+// demand is what the plant must supply of the planned materials, whatever
+// day it is due, as a sales order's is: its confirmed sales orders', and
+// what the intercompany orders (S2i; ADR-0084 As built, batch 91) and the
+// stock transport orders within the company (S2h; As built, stock
+// transport orders) it supplies order and it has not issued. Each such
+// order is a receipt of the plant it goes to (a purchase order's, or a
+// stock transport order's until received), so one order is counted once
+// on each side; once issued the stock has left this plant, so the order
+// demands nothing more here.
+func (e *Endpoints) demand(ctx context.Context, w *work) ([]Open, error) {
+	demand, err := e.Supply.Demand(ctx, w.run.PlantID, w.ids)
+	if err != nil {
+		return nil, fmt.Errorf("mrp: demand at plant %s: %w", w.plant.Code, err)
+	}
+	intercompany, err := e.Supply.IntercompanyDue(ctx, w.run.PlantID, w.ids)
+	if err != nil {
+		return nil, fmt.Errorf("mrp: intercompany orders from plant %s: %w", w.plant.Code, err)
+	}
+	for _, d := range intercompany {
+		demand = append(demand, d.Open)
+	}
+	transports, err := e.Supply.TransportsDue(ctx, w.run.PlantID, w.ids)
+	if err != nil {
+		return nil, fmt.Errorf("mrp: stock transport orders from plant %s: %w", w.plant.Code, err)
+	}
+	return append(demand, transports...), nil
 }
 
 // shortage is what brings stock plus receipts less demand back to the

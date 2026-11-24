@@ -195,10 +195,18 @@ func (e env) transport(t *testing.T, number, status string, supplying, receiving
 		e.Tenant.ID, id, e.bracket, qty)
 }
 
-// plan plans the bracket at P1 by its reorder point and returns the plan.
+// plan plans the material at P1 by its reorder point and returns the
+// plan.
 func (e env) plan(t *testing.T, material, reorderPoint string) (map[string]any, string) {
 	t.Helper()
-	return e.Must(201, "POST", plans, mustJSON(t, map[string]any{"plant_id": e.p1, "material_id": material, "mrp_type": "reorder_point",
+	return e.planAt(t, e.p1, material, reorderPoint)
+}
+
+// planAt plans the material at the plant by its reorder point and returns
+// the plan.
+func (e env) planAt(t *testing.T, plant uuid.UUID, material, reorderPoint string) (map[string]any, string) {
+	t.Helper()
+	return e.Must(201, "POST", plans, mustJSON(t, map[string]any{"plant_id": plant, "material_id": material, "mrp_type": "reorder_point",
 		"reorder_point": reorderPoint, "account_id": e.stock}), "")
 }
 
@@ -213,7 +221,13 @@ func planner(t *testing.T) *workflows.Planner {
 // start starts a run of P1 and returns the workflow's input.
 func (e env) start(t *testing.T) workflows.MrpInput {
 	t.Helper()
-	op, _ := e.Must(202, "POST", runs, mustJSON(t, map[string]any{"plant_id": e.p1}), "")
+	return e.startAt(t, e.p1)
+}
+
+// startAt starts a run of the plant and returns the workflow's input.
+func (e env) startAt(t *testing.T, plant uuid.UUID) workflows.MrpInput {
+	t.Helper()
+	op, _ := e.Must(202, "POST", runs, mustJSON(t, map[string]any{"plant_id": plant}), "")
 	run := uuid.MustParse(strings.TrimPrefix(op["resource"].(string), runs+"/"))
 	return workflows.MrpInput{TenantID: e.Tenant.ID, RunID: run, OperationID: uuid.MustParse(op["id"].(string))}
 }
@@ -221,7 +235,13 @@ func (e env) start(t *testing.T) workflows.MrpInput {
 // run starts a run of P1, carries it out and returns it.
 func (e env) run(t *testing.T) map[string]any {
 	t.Helper()
-	in := e.start(t)
+	return e.runAt(t, e.p1)
+}
+
+// runAt starts a run of the plant, carries it out and returns it.
+func (e env) runAt(t *testing.T, plant uuid.UUID) map[string]any {
+	t.Helper()
+	in := e.startAt(t, plant)
 	if err := planner(t).Plan(context.Background(), in); err != nil {
 		t.Fatalf("plan: %v", err)
 	}
