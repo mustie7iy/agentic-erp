@@ -2257,8 +2257,9 @@ for the product owner's digest:
   a relieved invoice is outside this leaf. The credit of a write-off
   not yet relieved is not among the lines (the write-offs are read
   through the reliefs), so clearing the invoice's item with it is
-  refused too, the safer side: it can be cleared before the invoice's
-  first relief, or applied with an incoming payment.
+  refused too, the safer side: it can be cleared before that
+  write-off's relief, which must then be the invoice's first, or applied
+  with an incoming payment.
 - **The relief after such a clearing.** The same gap in the other
   order, a write-off whose invoice's item a clearing settled against a
   credit before any relief, is refused at the relief with the same code,
