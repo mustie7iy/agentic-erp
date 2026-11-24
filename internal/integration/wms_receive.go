@@ -86,9 +86,10 @@ func (w *WMSExchange) pollTenants(ctx context.Context) ([]uuid.UUID, error) {
 	return tenants, nil
 }
 
-// PollOnce polls every active wms and tms connector of every active tenant and
-// returns how many confirmations it recorded. A connector whose WMS
-// cannot be read is reported and the others are polled still.
+// PollOnce polls every active wms and tms connector of every active
+// tenant and returns how many confirmations it recorded. A connector
+// whose system cannot be read is reported and the others are polled
+// still.
 func (w *WMSExchange) PollOnce(ctx context.Context) (int, error) {
 	tenants, err := w.pollTenants(ctx)
 	if err != nil {
@@ -303,7 +304,10 @@ func unkept(id string) error {
 
 // post reads the confirmation and posts it (postAs; the posting's
 // savepoint is inSavepoint's, which rolls a refused posting back with
-// the audit records it buffered): a refusal is kept on in; a failure of
+// the audit records it buffered). A confirmation refused as read (too
+// large, or not keepable as received: conf.refusal) is recorded with
+// that refusal and never reaches postAs, which is why readType and
+// readShipment take no read error. A refusal is kept on in; a failure of
 // the machinery (5xx, or one asking to be retried) is returned, so
 // nothing is recorded and the next poll takes it again.
 func (w *WMSExchange) post(ctx context.Context, tx pgx.Tx, in *inbound, conf confirmation) error {
