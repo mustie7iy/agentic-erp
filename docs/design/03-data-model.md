@@ -5770,6 +5770,12 @@ erDiagram
   what was ordered (`sales_order_item_quantities`). Insert-only;
   `delivery_item_by_order_item` serves an order item's deliveries
   (`sales.Orders`).
+- `sales.delivery_reversal` (S2b3, migration 000453): the reversal of a
+  goods issue's delivery by its goods issue's reversal (602), once per
+  delivery, on or after its day; it takes the delivery's quantities off
+  the order items' `delivered_quantity`, which `sales.Orders` gives as a
+  negated delivery on the reversal's day. Its rules are listed with
+  shipping's S2b3 (§3.36).
 - `sales.billing_document` (T79a, migration 000293): what is billed of
   one order, numbered once per company
   (`billing_document_number_once`), with its billing date and a net
