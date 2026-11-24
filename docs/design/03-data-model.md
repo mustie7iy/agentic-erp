@@ -1296,8 +1296,8 @@ each removal (the key, the account it named, `removed_at`,
 `removed_by`), and its trigger `account_determination_removal_deletes`
 deletes the row naming that very account as the owner, the application
 holding no DELETE grant; `gr_ir`, `down_payment` and `retained_earnings`
-are never removed (`account_determination_removal_kept`), nor a
-valuation class's key whose account has postings (409
+are never removed (`account_determination_removal_kept`), nor a key of
+a valuation class whose stock account, or the key's own, has postings (409
 `ledger.determination_key_posted`, `ledger.Setup`; ADR-0048 As built
 batch 93)),
 the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`

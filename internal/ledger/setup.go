@@ -13,7 +13,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -192,7 +191,7 @@ func checkStartMonth(ctx context.Context, tx pgx.Tx, p string, calendar uuid.UUI
 }
 
 // checkRemovedUnposted reports a valuation class's account determination
-// key the proposal stops naming whose account has postings
+// key the proposal stops naming while the class has postings
 // (removedDetermination): what applyDetermination refuses with 409
 // ledger.determination_key_posted.
 func checkRemovedUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, out *findings) error {
@@ -202,8 +201,8 @@ func checkRemovedUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID
 	}
 	for _, r := range removed {
 		if r.Posted {
-			out.add(p+".account_determination."+r.field(), "account %s has postings, and a reversal of the material documents that posted "+
-				"them determines the account again: keep the key, with this account or another", r.Number)
+			out.add(p+".account_determination."+r.field(), "account %s: the valuation class has postings, and a reversal of its material "+
+				"documents determines its accounts again: keep the key, with this account or another", r.Number)
 		}
 	}
 	return nil
@@ -494,14 +493,25 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 //
 // A posted document's reversal mirrors its lines, so it needs no key
 // again, but for a material document's: inventory posts its reversal as a
-// movement, through its valuation class's accounts (inventory.Reverse).
-// Removing such a key whose account has postings is refused (409
+// movement through its valuation class's accounts (inventory.Reverse),
+// the price difference account too when the stock's value moved since,
+// though the original posted none. Removing a key of a class whose stock
+// account, or the key's own account, has postings is refused (409
 // ledger.determination_key_posted); Check refuses the same on submission,
 // and a document posted while the change awaited approval is caught here.
-// A movement in flight while the activation runs reads the key unlocked:
+// Both accounts are read as they were before this activation, so a stock
+// account changed in the same document still counts its old postings. A
+// movement in flight while the activation runs reads the key unlocked:
 // its reversal is refused (422 inventory.no_inventory_account) until a
-// configuration names the key again, and nothing is posted wrong.
+// configuration names the key again, and nothing is posted wrong. The
+// removal record's own refusals (account_determination_removal_kept,
+// _determined) have no problem of their own: checkActivated and the
+// stale-base check refuse a change that could reach them first.
 func applyDetermination(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
+	removed, err := removedDetermination(ctx, tx, le, co)
+	if err != nil {
+		return fmt.Errorf("ledger: apply company %s: %w", co.Code, err)
+	}
 	keys, numbers := determination(co)
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.account_determination AS d (tenant_id, legal_entity_id, key, account_id, updated_by)
 		SELECT $1, $2, k, g.id, $4 FROM unnest($5::text[], $6::text[]) AS x(k, n) JOIN ledger.gl_account g ON g.chart_id = $3 AND g.number = x.n
@@ -510,16 +520,15 @@ func applyDetermination(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, 
 		p.TenantID, le, chart, p.ID, keys, numbers); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
-	removed, err := removedDetermination(ctx, tx, le, co)
-	if err != nil || len(removed) == 0 {
-		return errs.Wrapf(err, "ledger: apply company %s", co.Code)
+	if len(removed) == 0 {
+		return nil
 	}
 	gone, accounts := make([]string, len(removed)), make([]uuid.UUID, len(removed))
 	for i, r := range removed {
 		if r.Posted {
 			return problem.Conflict("ledger.determination_key_posted", "Company "+co.Code+"'s account determination no longer names "+
-				r.field()+", whose account "+r.Number+" has postings: a reversal of the material documents that posted them determines "+
-				"the account again. Keep the key, with this account or another.")
+				r.field()+" (account "+r.Number+"), but its valuation class has postings: a reversal of the class's material documents "+
+				"determines its accounts again. Keep the key, with this account or another.")
 		}
 		gone[i], accounts[i] = r.Key, r.Account
 	}
@@ -532,8 +541,8 @@ func applyDetermination(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, 
 
 // removedKey is an account determination key of the legal entity that
 // the company's document no longer names: the account it names, and
-// whether that account has postings that a reversal determines again
-// (a valuation class's key whose account has lines in the legal entity).
+// Posted, for a valuation class's key, whether that account or the
+// class's stock account has lines in the legal entity.
 type removedKey struct {
 	Key     string
 	Account uuid.UUID
@@ -551,7 +560,9 @@ func (r removedKey) field() string {
 }
 
 // removedDetermination is the legal entity's keys of the account
-// determination the company's document does not name, in key order: keys
+// determination the company's document does not name, as the legal
+// entity's rows stand (before an activation sets the document's), in key
+// order: keys
 // setup writes (determination), a valuation class's included, and not
 // those it never writes (ar_reconciliation, output_tax, rounding).
 func removedDetermination(ctx context.Context, tx pgx.Tx, le uuid.UUID, co config.Company) ([]removedKey, error) {
@@ -563,7 +574,9 @@ func removedDetermination(ctx context.Context, tx pgx.Tx, le uuid.UUID, co confi
 		}
 	}
 	rows, _ := tx.Query(ctx, `SELECT d.key, d.account_id, g.number, starts_with(d.key, 'inventory_') AND EXISTS (SELECT FROM ledger.journal_line l
-			WHERE l.tenant_id = d.tenant_id AND l.legal_entity_id = d.legal_entity_id AND l.account_id = d.account_id)
+			WHERE l.tenant_id = d.tenant_id AND l.legal_entity_id = d.legal_entity_id AND l.account_id IN (d.account_id,
+				(SELECT s.account_id FROM ledger.account_determination s WHERE s.tenant_id = d.tenant_id AND s.legal_entity_id = d.legal_entity_id
+					AND s.key = 'inventory_stock:' || split_part(d.key, ':', 2))))
 		FROM ledger.account_determination d JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id
 		WHERE d.legal_entity_id = $1 AND (d.key = ANY($2) OR starts_with(d.key, 'inventory_')) AND NOT d.key = ANY($3)
 		ORDER BY d.key`, le, keys, named)

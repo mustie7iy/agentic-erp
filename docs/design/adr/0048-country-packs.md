@@ -479,15 +479,19 @@ settings cannot simply overwrite their document.
      `checkActivated`, 000054 and 000078, and now the removal record's
      `account_determination_removal_kept`), `price_difference` while
      `gr_ir` is set (a GR/IR reversal's rounding adjustment posts to it;
-     validation requires it with `gr_ir`, which stays), and a valuation
-     class's key whose account has postings in the legal entity: a
-     material document's reversal is a movement posted through its class's
-     accounts again (`inventory.Reverse`), so Check reports it on
-     submission and the activation is refused with 409
-     `ledger.determination_key_posted`; its account may change. Any line
-     on the account counts, a manual one too: the ledger cannot tell
-     which lines a class's documents posted, so the rule errs on keeping
-     the key. `retained_earnings` stays as ADR-0060 §4 decided. A movement
+     validation requires it with `gr_ir`, which stays), and every key of a
+     valuation class whose stock account, or the key's own account, has
+     postings in the legal entity: a material document's reversal is a
+     movement posted through its class's accounts again
+     (`inventory.Reverse`), its price difference account too when the
+     stock's value moved since, though the original posted nothing there
+     (review round 1). Check reports each on submission and the
+     activation is refused with 409 `ledger.determination_key_posted`;
+     the accounts may change. The accounts are read as they stood before
+     the activation, so a stock account changed in the same document
+     still counts its old postings. Any line counts, a manual one too: the
+     ledger cannot tell which lines a class's documents posted, so the
+     rule errs on keeping the key. `retained_earnings` stays as ADR-0060 §4 decided. A movement
      in flight while the activation runs reads the key unlocked, as
      `applyOpenItems` reasons: its reversal is refused (422
      `inventory.no_inventory_account`) until a configuration names the
@@ -496,6 +500,12 @@ settings cannot simply overwrite their document.
      (`ledger.determinationFallbacks`) posts to the fallback's account
      again; one without is not determined, and what needs it is refused
      as before it was set (e.g. 422 `inventory.no_inventory_account`).
+     That includes a running balance's next run, with no warning on
+     submission: a lease key removed while leases are active refuses the
+     next lease run (422 `leases.no_lease_accounts`), and
+     `contract_asset` or `contract_liability` removed with open revenue
+     contracts the next recognition run (422
+     `revenue.no_contract_accounts`); naming the key again resumes them.
   Tests: `TestDeterminationKeysRemoved`, `TestDeterminationKeyPostedKept`
   (internal/ledger), `TestAccountDeterminationRemovalRules`,
   `TestAccountDeterminationRemovalDown` (db).

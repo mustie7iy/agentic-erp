@@ -136,10 +136,10 @@ type Handler interface {
 	// `secondary`, or a secondary cost element given another cost element, is refused (409
 	// `ledger.secondary_account_not_new`, ADR-0064 §4): an account is a secondary cost element from its
 	// creation and stays one. An account determination key the proposal no longer names is removed (a key
-	// with a fallback, such as `cash_discount_granted`, posts to the fallback's account again), but for a
-	// valuation class's key whose account has postings: a reversal of the material documents that posted
-	// them determines the account again, so its removal is refused (409 `ledger.determination_key_posted`,
-	// ADR-0048 As built batch 93); its account may change.
+	// with a fallback, such as `cash_discount_granted`, posts to the fallback's account again), but for
+	// the keys of a valuation class whose stock account, or the key's own account, has postings: a
+	// reversal of the class's material documents determines its accounts again, so their removal is
+	// refused (409 `ledger.determination_key_posted`, ADR-0048 As built batch 93); its account may change.
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
