@@ -382,6 +382,13 @@ func ledgerCalls(t *testing.T, e env, h *ledger.Endpoints, d ledgerDocs) map[str
 		"setup apply":                      func(ctx context.Context) error { return setup.Apply(ctx, document(t)) },
 		"setup apply open items":           func(ctx context.Context) error { return setup.Apply(ctx, with102000OpenItems(t)) },
 		"setup apply asset reconciliation": func(ctx context.Context) error { return setup.Apply(ctx, withAssetAccount(t)) },
+		// A key set, then removed by the document that no longer names it.
+		"setup apply removing a key": func(ctx context.Context) error {
+			if err := setup.Apply(ctx, withKeys(t, "520000", "", "")); err != nil {
+				return err
+			}
+			return setup.Apply(ctx, document(t))
+		},
 		"setup check parallel ledgers": func(ctx context.Context) error {
 			_, err := setup.Check(ctx, parallel(t), parallel(t))
 			return err

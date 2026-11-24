@@ -453,6 +453,76 @@ settings cannot simply overwrite their document.
   the keys. A company upgrading gains the accounts and keys unless it
   named the key itself (a conflict note). The walkthrough's step 2
   applies Canada 2026.13 and step 41 UAE 2026.10.
+- **As built (keys a configuration stops naming, batch 93; tracker leaf
+  src review:batch92).** `ledger.Setup` only inserted and updated the
+  account determination keys a document names, so a company whose
+  document stopped naming `cash_discount_granted` or `supplier_rebate`
+  kept posting there instead of falling back. Activating a document now
+  removes every key the ledger writes that the company no longer names,
+  a valuation class's included (`applyDetermination`); the keys it never
+  writes (`ar_reconciliation`, `output_tax`, `rounding`) are left alone.
+  **Decided by default** (for the product owner's review):
+  1. *How a key goes.* The application deletes from no tenant table (06
+     §6.4), so a removal is a record: migration 000453's
+     `ledger.account_determination_removal`, insert-only, holds the key,
+     the account it named, `removed_at` and `removed_by`, and its trigger
+     deletes the row naming that very account, as the owner (the pattern
+     of 000364's clearing reset). The alternatives, a nullable account or
+     an "ended" flag on the row, would have the previous version, during
+     a rolling release, read a removed key as an error or as still set; a
+     deleted row is a key it reads as not determined, as before it was
+     set. A key named again is inserted again. Reverse: drop the
+     removal in `applyDetermination`; the records stay.
+  2. *Which keys stay.* A posted document's reversal mirrors its lines and
+     needs no key again, with three exceptions, each refused: `gr_ir` and
+     `down_payment` (their lines and their reversals live on the account:
+     `checkActivated`, 000054 and 000078, and now the removal record's
+     `account_determination_removal_kept`), `price_difference` while
+     `gr_ir` is set (a GR/IR reversal's rounding adjustment posts to it;
+     validation requires it with `gr_ir`, which stays), and every key of a
+     valuation class whose stock account, or the key's own account, has
+     postings in the legal entity: a material document's reversal is a
+     movement posted through its class's accounts again
+     (`inventory.Reverse`), its price difference account too when the
+     stock's value moved since, though the original posted nothing there.
+     Nor does a class's stock account with postings change: the class's
+     stock is its balance, which would stay behind on the old account,
+     and the stock account a class names must hold every posting the
+     class made, across activations, for the rule to see them. Check
+     reports each on submission and the activation is refused with 409
+     `ledger.determination_key_posted`; the class's other accounts may
+     change. The accounts are read as they stood before the activation.
+     Any line counts, a manual one too: the ledger cannot tell which
+     lines a class's documents posted, so the rule errs on keeping the
+     key. The alternative, a port asking inventory whether a class has
+     material documents, would add a dependency the ledger does not have;
+     reverse by relaxing `movedStock` and `removedDetermination`. `retained_earnings` stays as ADR-0060 §4 decided. A movement
+     in flight while the activation runs reads the key unlocked, as
+     `applyOpenItems` reasons: its reversal is refused (422
+     `inventory.no_inventory_account`) until a configuration names the
+     key again, and nothing is posted to a wrong account.
+  3. *What a removal does to postings.* A key with a fallback
+     (`ledger.determinationFallbacks`) posts to the fallback's account
+     again; one without is not determined, and what needs it is refused
+     as before it was set (e.g. 422 `inventory.no_inventory_account`).
+     That includes a running balance's next run, with no warning on
+     submission: a lease key removed while leases are active refuses the
+     next lease run (422 `leases.no_lease_accounts`), and
+     `contract_asset` or `contract_liability` removed with open revenue
+     contracts the next recognition run (422
+     `revenue.no_contract_accounts`); naming the key again resumes them.
+  Tests: `TestDeterminationKeysRemoved`, `TestDeterminationKeyPostedKept`
+  (internal/ledger), `TestAccountDeterminationRemovalRules`,
+  `TestAccountDeterminationRemovalDown` (db).
+- **As built (SAP T030 SKT and BO1, batch 93; the acctkeys backlog).**
+  `erp config generate` (internal/delivery/sapconfig) takes a company's
+  T030 SKT row as `cash_discount_granted` and its BO1 row as
+  `supplier_rebate`, the first row of each, a later one naming another
+  account noted (`TestDiscountKeysFromT030`); both were reported as gaps.
+  SKT as the cash discount granted to customers (an expense) and BO1 as
+  the revenue of a supplier's subsequent settlement (its rebates) are
+  **from memory**, for the SAP specialist; the generated draft is
+  validated and reviewed before it is activated.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

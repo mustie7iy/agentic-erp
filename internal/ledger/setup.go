@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -135,14 +136,8 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 	if co.Currency != le.LocalCurrency {
 		out.add(p+".currency", "must be the legal entity's local currency %s", le.LocalCurrency)
 	}
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT extract(month FROM start_date)::int FROM ledger.fiscal_period
-		WHERE calendar_id = $1 AND period = 1 ORDER BY 1`, le.FiscalCalendarID)
-	months, err := pgx.CollectRows(rows, pgx.RowTo[int32])
-	if err != nil {
-		return fmt.Errorf("ledger: check company %s: fiscal year start: %w", co.Code, err)
-	}
-	if len(months) > 0 && !slices.Contains(months, int32(co.FiscalYearStartMonth)) {
-		out.add(p+".fiscal_year_start_month", "the legal entity's fiscal calendar starts its years in month %d", months[0])
+	if err := checkStartMonth(ctx, tx, p, le.FiscalCalendarID, co, out); err != nil {
+		return err
 	}
 	if err := checkCompanyLedgers(ctx, tx, p, le.ID, co, out); err != nil {
 		return err
@@ -174,7 +169,51 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 			return err
 		}
 	}
-	return checkGRIRUnposted(ctx, tx, p, le.ID, co, out)
+	if err := checkGRIRUnposted(ctx, tx, p, le.ID, co, out); err != nil {
+		return err
+	}
+	return checkRemovedUnposted(ctx, tx, p, le.ID, co, out)
+}
+
+// checkStartMonth reports a company whose fiscal years start in another
+// month than its legal entity's existing calendar does.
+func checkStartMonth(ctx context.Context, tx pgx.Tx, p string, calendar uuid.UUID, co config.Company, out *findings) error {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT extract(month FROM start_date)::int FROM ledger.fiscal_period
+		WHERE calendar_id = $1 AND period = 1 ORDER BY 1`, calendar)
+	months, err := pgx.CollectRows(rows, pgx.RowTo[int32])
+	if err != nil {
+		return fmt.Errorf("ledger: check company %s: fiscal year start: %w", co.Code, err)
+	}
+	if len(months) > 0 && !slices.Contains(months, int32(co.FiscalYearStartMonth)) {
+		out.add(p+".fiscal_year_start_month", "the legal entity's fiscal calendar starts its years in month %d", months[0])
+	}
+	return nil
+}
+
+// checkRemovedUnposted reports a valuation class's account determination
+// key the proposal stops naming while the class has postings
+// (removedDetermination), and a class's stock account it changes while
+// that account has postings (movedStock): what applyDetermination refuses
+// with 409 ledger.determination_key_posted.
+func checkRemovedUnposted(ctx context.Context, tx pgx.Tx, p string, le uuid.UUID, co config.Company, out *findings) error {
+	removed, err := removedDetermination(ctx, tx, le, co)
+	if err != nil {
+		return fmt.Errorf("ledger: check company %s: %w", co.Code, err)
+	}
+	for _, r := range removed {
+		if r.Posted {
+			out.add(p+".account_determination."+r.field(), "account %s: the valuation class has postings, and a reversal of its material "+
+				"documents determines its accounts again: keep the key, with this account or another", r.Number)
+		}
+	}
+	moved, err := movedStock(ctx, tx, le, co)
+	if err != nil {
+		return fmt.Errorf("ledger: check company %s: %w", co.Code, err)
+	}
+	for _, r := range moved {
+		out.add(p+".account_determination."+r.field(), "account %s has postings: the valuation class's stock stays on it, so it cannot change", r.Number)
+	}
+	return nil
 }
 
 // checkDay is the company's date at now in its time zone, and whether its
@@ -336,8 +375,9 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 		if was := old.AccountDetermination.DownPayment; was != "" && co.AccountDetermination.DownPayment != was {
 			out.add(p+".account_determination.down_payment", "the down payment account cannot change once activated")
 		}
-		// The determination is never deleted (no grant); the account may be
-		// changed for the next carry-forward, not removed (ADR-0060 §4).
+		// The account may be changed for the next carry-forward, not removed
+		// (ADR-0060 §4); its removal record refuses it as well
+		// (account_determination_removal_kept).
 		if old.YearEnd.RetainedEarningsAccount != "" && co.YearEnd.RetainedEarningsAccount == "" {
 			out.add(p+".year_end.retained_earnings_account", "the retained earnings account can be changed but not removed once activated")
 		}
@@ -432,13 +472,8 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := applyControlling(ctx, tx, p, le.ID, chart, co, today); err != nil {
 		return err
 	}
-	keys, numbers := determination(co)
-	if _, err := tx.Exec(ctx, `INSERT INTO ledger.account_determination AS d (tenant_id, legal_entity_id, key, account_id, updated_by)
-		SELECT $1, $2, k, g.id, $4 FROM unnest($5::text[], $6::text[]) AS x(k, n) JOIN ledger.gl_account g ON g.chart_id = $3 AND g.number = x.n
-		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
-		WHERE d.account_id <> EXCLUDED.account_id`,
-		p.TenantID, le.ID, chart, p.ID, keys, numbers); err != nil {
-		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
+	if err := applyDetermination(ctx, tx, p, le.ID, chart, co); err != nil {
+		return err
 	}
 	if err := applyCompanyLedgers(ctx, tx, p, le.ID, co); err != nil {
 		return err
@@ -453,6 +488,138 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		return err
 	}
 	return fxValuation(ctx, tx, p, le.ID, chart, co)
+}
+
+// applyDetermination makes the legal entity's account determination the
+// company's: the keys it names set to their accounts, and those it no
+// longer names removed (ledger.account_determination_removal records
+// each, which deletes its row; ADR-0048 As built batch 93), so a key with
+// a fallback posts to the fallback's account again (determinationFallbacks)
+// and one without is not determined, as before it was set. The keys that
+// stay once activated (gr_ir, down_payment, retained_earnings) are refused
+// on submission (checkActivated), and by the removal record.
+//
+// A posted document's reversal mirrors its lines, so it needs no key
+// again, but for a material document's: inventory posts its reversal as a
+// movement through its valuation class's accounts (inventory.Reverse),
+// the price difference account too when the stock's value moved since,
+// though the original posted none. Removing a key of a class whose stock
+// account, or the key's own account, has postings is refused (409
+// ledger.determination_key_posted); Check refuses the same on submission,
+// and a document posted while the change awaited approval is caught here.
+// A class's stock account with postings does not change either (the
+// class's stock is its balance, and the rule above reads the class's
+// postings on it): so the stock account a class names holds every
+// posting the class made, across activations. The accounts are read as
+// they were before this activation. A movement in flight while the activation runs reads the key unlocked:
+// its reversal is refused (422 inventory.no_inventory_account) until a
+// configuration names the key again, and nothing is posted wrong. The
+// removal record's own refusals (account_determination_removal_kept,
+// _determined) have no problem of their own: checkActivated and the
+// stale-base check refuse a change that could reach them first.
+func applyDetermination(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {
+	removed, err := removedDetermination(ctx, tx, le, co)
+	if err != nil {
+		return fmt.Errorf("ledger: apply company %s: %w", co.Code, err)
+	}
+	moved, err := movedStock(ctx, tx, le, co)
+	if err != nil {
+		return fmt.Errorf("ledger: apply company %s: %w", co.Code, err)
+	}
+	if len(moved) > 0 {
+		return problem.Conflict("ledger.determination_key_posted", "Company "+co.Code+"'s account determination names another account for "+
+			moved[0].field()+", whose account "+moved[0].Number+" has postings: the valuation class's stock stays on it, so it cannot change.")
+	}
+	keys, numbers := determination(co)
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.account_determination AS d (tenant_id, legal_entity_id, key, account_id, updated_by)
+		SELECT $1, $2, k, g.id, $4 FROM unnest($5::text[], $6::text[]) AS x(k, n) JOIN ledger.gl_account g ON g.chart_id = $3 AND g.number = x.n
+		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
+		WHERE d.account_id <> EXCLUDED.account_id`,
+		p.TenantID, le, chart, p.ID, keys, numbers); err != nil {
+		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	gone, accounts := make([]string, len(removed)), make([]uuid.UUID, len(removed))
+	for i, r := range removed {
+		if r.Posted {
+			return problem.Conflict("ledger.determination_key_posted", "Company "+co.Code+"'s account determination no longer names "+
+				r.field()+" (account "+r.Number+"), but its valuation class has postings: a reversal of the class's material documents "+
+				"determines its accounts again. Keep the key, with this account or another.")
+		}
+		gone[i], accounts[i] = r.Key, r.Account
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger.account_determination_removal (tenant_id, legal_entity_id, key, account_id, removed_by)
+		SELECT $1, $2, k, a, $3 FROM unnest($4::text[], $5::uuid[]) AS x(k, a)`, p.TenantID, le, p.ID, gone, accounts); err != nil {
+		return fmt.Errorf("ledger: apply company %s: remove account determination keys: %w", co.Code, err)
+	}
+	return nil
+}
+
+// removedKey is an account determination key of the legal entity that
+// the company's document no longer names: the account it names, and
+// Posted, for a valuation class's key, whether that account or the
+// class's stock account has lines in the legal entity.
+type removedKey struct {
+	Key     string
+	Account uuid.UUID
+	Number  string
+	Posted  bool
+}
+
+// field is the path under companies[].account_determination of a
+// valuation class's key, the only keys Posted holds for and movedStock
+// returns.
+func (r removedKey) field() string {
+	kind, class, _ := strings.Cut(strings.TrimPrefix(r.Key, "inventory_"), ":")
+	return "inventory[" + class + "]." + kind
+}
+
+// removedDetermination is the legal entity's keys of the account
+// determination the company's document does not name, as the legal
+// entity's rows stand (before an activation sets the document's), in key
+// order: keys setup writes (determination), a valuation class's included,
+// and not those it never writes (ar_reconciliation, output_tax, rounding).
+func removedDetermination(ctx context.Context, tx pgx.Tx, le uuid.UUID, co config.Company) ([]removedKey, error) {
+	keys, numbers := determination(co)
+	named := make([]string, 0, len(keys))
+	for i, k := range keys {
+		if numbers[i] != "" {
+			named = append(named, k)
+		}
+	}
+	rows, _ := tx.Query(ctx, `SELECT d.key, d.account_id, g.number, starts_with(d.key, 'inventory_') AND EXISTS (SELECT FROM ledger.journal_line l
+			WHERE l.tenant_id = d.tenant_id AND l.legal_entity_id = d.legal_entity_id AND l.account_id IN (d.account_id,
+				(SELECT s.account_id FROM ledger.account_determination s WHERE s.tenant_id = d.tenant_id AND s.legal_entity_id = d.legal_entity_id
+					AND s.key = 'inventory_stock:' || split_part(d.key, ':', 2))))
+		FROM ledger.account_determination d JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id
+		WHERE d.legal_entity_id = $1 AND (d.key = ANY($2) OR starts_with(d.key, 'inventory_')) AND NOT d.key = ANY($3)
+		ORDER BY d.key`, le, keys, named)
+	removed, err := pgx.CollectRows(rows, pgx.RowToStructByPos[removedKey])
+	if err != nil {
+		return nil, fmt.Errorf("account determination keys no longer named: %w", err)
+	}
+	return removed, nil
+}
+
+// movedStock is the legal entity's valuation classes' stock keys, in key
+// order, that the company's document names with another account while
+// the account they name has lines in the legal entity (Posted).
+func movedStock(ctx context.Context, tx pgx.Tx, le uuid.UUID, co config.Company) ([]removedKey, error) {
+	keys, numbers := determination(co)
+	rows, _ := tx.Query(ctx, `SELECT d.key, d.account_id, g.number, true
+		FROM ledger.account_determination d JOIN ledger.gl_account g ON g.tenant_id = d.tenant_id AND g.id = d.account_id
+		JOIN unnest($2::text[], $3::text[]) AS x(k, n) ON x.k = d.key
+		WHERE d.legal_entity_id = $1 AND starts_with(d.key, 'inventory_stock:') AND x.n <> '' AND x.n <> g.number
+			AND EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = d.tenant_id AND l.legal_entity_id = d.legal_entity_id
+				AND l.account_id = d.account_id)
+		ORDER BY d.key`, le, keys, numbers)
+	moved, err := pgx.CollectRows(rows, pgx.RowToStructByPos[removedKey])
+	if err != nil {
+		return nil, fmt.Errorf("stock accounts changed: %w", err)
+	}
+	return moved, nil
 }
 
 // withholdingTaxCodes makes the legal entity's withholding tax codes the

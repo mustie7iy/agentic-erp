@@ -1305,9 +1305,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: an account determination key a company's configuration stops naming is not removed by ledger.Setup (it only upserts rows), so the company keeps posting to the old account although its document names none; with batch 92's fallbacks a company that drops cash_discount_granted or supplier_rebate keeps posting discounts or rebates there instead of falling back to payment_difference_expense or cash_discount",
-      "r": "internal/ledger/setup.go applyCompany (account determination upsert) · ledger.Accounts.Determination, determinationFallbacks · ADR-0063 and ADR-0061 As built batch 92",
+      "r": "internal/ledger/setup.go applyCompany (account determination upsert) · ledger.Accounts.Determination, determinationFallbacks · ADR-0063 and ADR-0061 As built batch 92 · built in batch 93: activating a document removes the keys it no longer names (ledger applyDetermination), each removal recorded in ledger.account_determination_removal (insert-only; migration 000453), whose trigger deletes the row as the owner; gr_ir, down_payment and retained_earnings are kept (account_determination_removal_kept), and every key of a valuation class whose stock account or own account has postings, which a material document's reversal determines again, and such a stock account does not change (Check finding; 409 ledger.determination_key_posted) · TestDeterminationKeysRemoved · TestDeterminationKeyPostedKept · TestAccountDeterminationRemovalRules · TestAccountDeterminationRemovalDown · ADR-0048 As built batch 93",
       "src": "review:batch92",
       "c": []
      },
