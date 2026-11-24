@@ -296,11 +296,10 @@ func TestCycleCountsDueLastCount(t *testing.T) {
 	e.assign(t, e.bracket, a)
 	e.assign(t, bolt, a)
 	today := time.Now()
+	admin := pgtest.Admin(t)
 	dated := func(id string, days int) {
 		t.Helper()
-		c := pgtest.Admin(t)
-		defer c.Close(context.Background())
-		if _, err := c.Exec(context.Background(), `UPDATE inventory.count_document SET document_date = $2, version = version + 1 WHERE id = $1`, id,
+		if _, err := admin.Exec(context.Background(), `UPDATE inventory.count_document SET document_date = $2, version = version + 1 WHERE id = $1`, id,
 			today.AddDate(0, 0, -days).Format(time.DateOnly)); err != nil {
 			t.Fatal(err)
 		}
