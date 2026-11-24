@@ -31,7 +31,7 @@ func TestAgentCountPlan(t *testing.T) {
 		"GET /v1/org-units":               {ok(`{"items": [{"id": "pl", "legal_entity_id": "le", "code": "P100", "name": "Toronto plant", "status": "active"}]}`)},
 		"GET /v1/legal-entities/le/today": {ok(`{"time_zone": "America/Toronto"}`)},
 		"GET /v1/materials":               {ok(`{"items": [{"id": "` + bracket + `", "status": "active"}]}`)},
-		"GET /v1/material-documents":      {noItems}, "GET /v1/physical-inventory-documents": {noItems}}
+		"GET /v1/material-documents":      {noItems}, "GET /v1/physical-inventory-documents": {noItems}, "GET /v1/cycle-count-materials": {noItems}}
 	quiet := sessionRoutes(plant)
 	quiet["GET /v1/stock"] = []reply{noItems}
 	fakeAPI(t, quiet)

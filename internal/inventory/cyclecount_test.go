@@ -170,6 +170,12 @@ func TestCycleCountMaterials(t *testing.T) {
 	if items := rows(t, page, "items"); len(items) != 1 || items[0]["id"] != id {
 		t.Errorf("list by plant, material and indicator: got %v, want the bracket's at P1", items)
 	}
+	page, _ = e.Must(200, "GET", cycleMaterials+"?material_id="+e.bracket+"&page_size=1", "", "")
+	next, _ := e.Must(200, "GET", cycleMaterials+"?material_id="+e.bracket+"&page_size=1&page_token="+fmt.Sprint(page["next_page_token"]), "", "")
+	if first, second := rows(t, page, "items"), rows(t, next, "items"); len(first) != 1 || len(second) != 1 || first[0]["plant_code"] != "P1" ||
+		second[0]["plant_code"] != "P2" {
+		t.Errorf("pages of the bracket's: got %v then %v, want P1's then P2's", first, second)
+	}
 }
 
 // dueOn lists the counts due at P1 with the clock days on (through the
