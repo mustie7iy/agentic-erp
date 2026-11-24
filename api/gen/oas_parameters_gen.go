@@ -118316,8 +118316,8 @@ func decodeListStockParams(args [0]string, argsEscaped bool, r *http.Request) (p
 type ListStockTransportOrdersParams struct {
 	// Only resources of this legal entity (company code).
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
-	// Only the order with this number, as a material document's `reference` names it (each company numbers
-	// its own, so `legal_entity_id` narrows it to one).
+	// Only the orders with this number, as a material document's `reference` names it (each company
+	// numbers its own per fiscal year, so `legal_entity_id` narrows it to one per fiscal year).
 	Number OptString `json:",omitempty,omitzero"`
 	// Only the orders from or to this plant (`GET /v1/org-units/{id}`).
 	PlantID OptUUID `json:",omitempty,omitzero"`

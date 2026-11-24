@@ -5796,6 +5796,20 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: no operation cancels a stock transport order within the company, so one entered by mistake counts for ever as the supplying plant's MRP demand and the receiving plant's receipt (ADR-0084 As built, stock transport orders)",
+      "r": "procurement stock transport orders (S2h) · procurement.Orders.TransportsDue, .TransportsOnOrder · internal/mrp/net.go · ADR-0084 As built (stock transport orders, batch 92)",
+      "src": "review:batch92",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "fix: GET /v1/stock-transport-orders?number= says legal_entity_id narrows it to one order, but a stock transport order's number is unique per company and fiscal year (stock_transport_order_number_once): the description says one per fiscal year, as the outbound deliveries' number filter does",
+      "r": "api/openapi.yaml listStockTransportOrders number · db/migrations/000418 stock_transport_order_number_once · contract description only",
+      "src": "review:batch92",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "S2i1 A planner of one company orders stock from a plant of another company of the tenant: the receiving company's purchase order names the supplying plant and the supplier that is the supplying company; the supplying company's goods issue (643) takes it out of its stock against cost of goods sold, and the receiving company's goods receipt takes it in at the order price, the transfer price, against GR/IR, at most what was issued",
       "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082 As built S2i · db/migrations/000443, 000444 · procurement.purchase_order.supplying_plant_id, issue_document_id · movement type 643 · POST /v1/purchase-orders (supplying_plant_id) · :postIntercompanyGoodsIssue · inventory.Endpoints.IssueForIntercompany · partner.Supplier.GroupCompanyID · walkthrough step_intercompany_transport (step 155)",
@@ -5947,13 +5961,6 @@
       "t": "fix: an MRP run's demand ignores unissued intercompany orders its plant must supply (internal/app/mrp.go Demand, S2k; ADR-0084), so a supplying plant proposes too little",
       "r": "internal/mrp/net.go count · procurement.Orders.IntercompanyDue · ADR-0084 §2, As built (intercompany demand, batch 91) · api/openapi.yaml startMrpRun, MrpRunLine.demand · TestPlanningRunIntercompany, TestSopSupply",
       "src": "review:batch90",
-      "c": []
-     },
-     {
-      "s": "T",
-      "t": "fix: an MRP run does not count the supplying plant's requirement from an unissued stock transport order within the company (ADR-0084 §6, not followed: stock transport orders count only as receipts), so a plant that supplies another plant of its company proposes too little for what it must issue",
-      "r": "internal/mrp/net.go count · inventory stock transport orders (S2h) · ADR-0084 §6, As built (intercompany demand, batch 91) · S2k",
-      "src": "review:batch91",
       "c": []
      },
      {
@@ -12381,6 +12388,13 @@
         "t": "getMemoRecord lists the 422 response it gives since the one company-date helper refuses a memo record whose legal entity the directory does not know (request.reference_not_found); every other operation whose call graph reaches config.EntityDay lists 422 already",
         "r": "found in batch 28's integration review: api/openapi.yaml getMemoRecord listed no 422 · checked by the operations whose handler reaches config.EntityDay in TestProblemCodes' call graph: acceptMemoRecordProposal, approveApprovalRequest, assignProfitCenter, cancelMemoRecord, createCostCenter, createMemoRecord, getMemoRecord, listMemoRecords, lockCostCenter, lockProfitCenter, moveCostCenter, moveProfitCenter, postSupplierInvoice, proposeMemoRecord, realiseMemoRecord, redateCostCenter, redateProfitCenter, rejectMemoRecordProposal, releasePaymentRun, reverseGoodsReceipt, reverseSupplierInvoice, submitRequisition, updateMemoRecord; listMemoRecords reaches it only through readDaysOf's filter, which answers an empty page rather than refusing, so it gives no 422 · built: getMemoRecord's 422 response (additive, oasdiff) and its description · ADR-0051 as built (one company-date helper) · no walkthrough step: a contract fix",
         "src": "review:batch28",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A contract test that every status a handler can answer is declared on its operation (for example an {id} operation's 404 for a document not found or not visible): TestProblemCodes checks the problem codes only, so ics3's undeclared 404 (batch 91) was caught by review alone",
+        "r": "api/problemcodes_test.go TestProblemCodes (codes, not statuses) · api/openapi.yaml responses · batch 91 review round 1 (pre-existing) · enterIntercompanySupplierInvoice's 404",
+        "src": "review:batch91",
         "c": []
        },
        {
