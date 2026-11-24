@@ -2,7 +2,9 @@ package procurement
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,10 +91,11 @@ func (e *Endpoints) stockItem(ctx context.Context, h orderHeader, field string, 
 }
 
 // usableAt checks an added stock item's plant, an active one of the
-// company, and that its material is active, kept in stock, neither
-// managed in batches nor serial-managed (a goods receipt carries no batch
-// and no serial numbers yet, ADR-0082 As built S2f, S2g) and kept at its
-// storage location there.
+// company, and that its material is active, kept in stock and kept at its
+// storage location there. A batch-managed or serial-managed material's
+// goods receipt names its batch or serial numbers (S2f1, S2g1), but an
+// intercompany stock transport order's goods issue carries neither yet
+// (ADR-0082 As built S2f, S2g), so such an order refuses one.
 func (e *Endpoints) usableAt(ctx context.Context, h orderHeader, field string, it Item, m materials.Material) error {
 	if err := e.orgUnit(ctx, it.PlantID, h.le.ID, "plant", field+".plant_id"); err != nil {
 		return err
@@ -101,12 +104,12 @@ func (e *Endpoints) usableAt(ctx context.Context, h orderHeader, field string, i
 	case m.Status != materials.Active || !m.Stocked():
 		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "Material "+m.Number+" is "+m.Status+" and of type "+m.Type+
 			"; a stock item is of an active material kept in stock.")
-	case m.BatchManaged:
+	case h.intercompany != nil && m.BatchManaged:
 		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "Material "+m.Number+
-			" is managed in batches; a purchase order's goods receipt carries no batch yet.")
-	case m.SerialManaged:
+			" is managed in batches; an intercompany stock transport order's goods issue carries no batch yet.")
+	case h.intercompany != nil && m.SerialManaged:
 		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "Material "+m.Number+
-			" has a serial number profile; a purchase order's goods receipt carries no serial numbers yet.")
+			" has a serial number profile; an intercompany stock transport order's goods issue carries no serial numbers yet.")
 	case !m.KeptAt(*it.PlantID, *it.StorageLocationID):
 		return problem.Invalid("procurement.invalid_stock_item", field+".storage_location_id", "Material "+m.Number+
 			" is not kept at this storage location of the plant.")
@@ -115,12 +118,55 @@ func (e *Endpoints) usableAt(ctx context.Context, h orderHeader, field string, i
 }
 
 // postedMovement is what a goods movement posted: its WE entry and the
-// material document of its stock items, each nil when it has none.
+// material document of its stock items, each nil when it has none, and
+// that document's lines by the goods movement's item they moved (S2f1,
+// S2g1: the batches and serial numbers, tracked).
 type postedMovement struct {
 	year           *int16
 	entry          *uuid.UUID
 	document       *uuid.UUID
 	documentNumber *string
+	lines          map[int]inventory.Line
+}
+
+// tracked gives each item the batch and serial numbers its material
+// document's line moved (lines, by the item's index), as inventory found
+// or created them; an item without a line, no stock item, names none.
+func tracked(items []ReceiptItem, lines map[int]inventory.Line) {
+	for i, l := range lines {
+		items[i].BatchID, items[i].BatchNumber, items[i].SerialNumbers = l.BatchID, l.BatchNumber, l.SerialNumbers
+	}
+}
+
+// notStockItem refuses a batch or serial numbers on a receipt's item that
+// is no stock item: only a stock item's material moves in stock (S1e).
+func notStockItem(field string, it ReceiptItem, oi orderItem) error {
+	if it.Batch != nil {
+		field += ".batch"
+	} else {
+		field += ".serial_numbers"
+	}
+	return problem.Invalid("procurement.not_stock_item", field, fmt.Sprintf("Item %d of order %s is no stock item; only a stock item's receipt names "+
+		"a batch or serial numbers.", it.POItemNo, oi.documentNumber))
+}
+
+// asReceiptItems names a refusal of the material document's item k by the
+// goods movement's item it is, stock[k]: inventory numbers the stock items
+// alone.
+func asReceiptItems(err error, stock []int) error {
+	var p *problem.Problem
+	if !errors.As(err, &p) {
+		return err
+	}
+	for j := range p.Errors {
+		for k, i := range stock {
+			if rest, ok := strings.CutPrefix(p.Errors[j].Field, fmt.Sprintf("items[%d].", k)); ok {
+				p.Errors[j].Field = fmt.Sprintf("items[%d].%s", i, rest)
+				break
+			}
+		}
+	}
+	return p
 }
 
 func entryOf(entry ledger.Entry, ok bool) postedMovement {
@@ -180,14 +226,17 @@ func (e *Endpoints) postStock(ctx context.Context, id uuid.UUID, number string, 
 		for k, i := range stock {
 			oi := current[i]
 			items[k] = inventory.OrderItem{MaterialID: *oi.material, PlantID: *oi.plant, StorageLocationID: *oi.storageLocation, Quantity: g.Items[i].Quantity,
-				Unit: g.Items[i].Unit}
+				Unit: g.Items[i].Unit, Batch: g.Items[i].Batch, SerialNumbers: g.Items[i].SerialNumbers}
 		}
 		doc, err = e.Movements.ReceiveForOrder(ctx, inventory.OrderReceipt{Company: g.LegalEntityID, Day: g.PostingDate, Reference: number, Items: items}, post)
 	}
 	if err != nil {
-		return postedMovement{}, err
+		return postedMovement{}, asReceiptItems(err, stock)
 	}
-	out.document, out.documentNumber = &doc.ID, &doc.Number
+	out.document, out.documentNumber, out.lines = &doc.ID, &doc.Number, map[int]inventory.Line{}
+	for _, l := range doc.Lines { // a receipt's document has one line per item (ItemNo), a stock item's
+		out.lines[stock[l.ItemNo-1]] = l
+	}
 	return out, nil
 }
 

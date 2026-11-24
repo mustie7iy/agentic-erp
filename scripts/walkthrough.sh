@@ -14036,9 +14036,14 @@ step_goods_movements() {
 # Tyrell invoices the brackets at 2.54: the 4.00 over the order price goes
 # to the stock, which still holds all of them, and the moving price
 # follows; GR/IR is cleared, and the invoice, which revalued stock, is not
-# reversed.
+# reversed. Then (S2f1, S2g1; ADR-0082 As built S2f1) Ben orders cutting
+# oil, managed in batches, and torque wrenches, with a serial number
+# profile: a receipt of the oil without its batch is refused; Tyrell's lot
+# is received naming a new batch, which the receipt creates with its
+# dates, and the wrenches naming each one's serial number; the rest of the
+# lot names the batch by number alone, and other dates for it are refused.
 step_stock_receipt() {
-  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it"
+  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it; a batch-managed material received naming its batch, created by the receipt, and a serial-managed one naming each unit's serial number"
   local po first second rev entry inv
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   accounts
@@ -14110,7 +14115,84 @@ step_stock_receipt() {
   say "An invoice that revalued stock is not reversed, as the stock may have been issued since; a credit memo corrects it:"
   QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
   refused 409 payables.invoice_revalued_stock reverseSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body '{"reason": "Wrong price"}'
+  stock_receipt_tracked
   passed
+}
+
+# stock_receipt_tracked is step_stock_receipt's batches and serial numbers
+# (S2f1, S2g1): cutting oil managed in batches and torque wrenches with a
+# serial number profile, ordered from Tyrell and received naming the batch
+# and each unit's serial number.
+stock_receipt_tracked() {
+  local oil wrench po batch
+  as mira
+  say "Mira creates two more of Tyrell's goods, kept in Toronto's main store: cutting oil, managed in batches, and a"
+  say "torque wrench with a serial number profile; Priya approves both:"
+  api 201 '"material \(.number) \(.description): batch-managed \(.batch_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Cutting oil 5 L\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"LUBRICANTS\",
+      \"batch_managed\": true, \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  oil=$(field .id)
+  approve priya "$(material_request "$oil")" "Coolant for the lathes."
+  as mira
+  api 201 '"material \(.number) \(.description): serial-managed \(.serial_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Torque wrench 20-100 Nm\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"TOOLS\",
+      \"serial_managed\": true, \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  wrench=$(field .id)
+  approve priya "$(material_request "$wrench")" "Wrenches for the assembly line."
+  as ines
+  say "Ines values both in Toronto at moving prices, the oil at 12.00 CAD and the wrench at 45.00 CAD:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$oil\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}}"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$wrench\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"45.00\", \"currency\": \"CAD\"}}"
+  as ben
+  say "Ben orders 20 cans of the oil at 12.00 CAD and 2 wrenches at 45.00 CAD from Tyrell, stock items of the main store:"
+  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) into \(.plant_code)/\(.storage_location_code)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"items\": [
+      {\"material_id\": \"$oil\", \"description\": \"Cutting oil 5 L\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"},
+      {\"material_id\": \"$wrench\", \"description\": \"Torque wrench\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"45.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}]}"
+  po=$(field .id)
+  api 200 '"\(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Oil and wrenches"
+    as ben
+  fi
+  tracked_receipt() { # items: a goods receipt of the order's items today
+    printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", "items": [%s]}' "$LE" "$TODAY" "$TODAY" "$1"
+  }
+  say "A receipt of the oil that names no batch is refused: the oil is managed in batches:"
+  refused 422 inventory.batch_required postGoodsReceipt -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}}")"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].batch"
+  say "Tyrell's lot CO-2611 arrives, 12 cans made on 2026-11-02 to be used by 2027-11-02: the receipt names the lot,"
+  say "and creates it as a batch of the oil with its dates (SAP MIGO). The two wrenches arrive with it, the item"
+  say "naming each one's serial number:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number)", (.items[] | "  item \(.po_item_no): \(.quantity.value) \(.quantity.unit)\(if .batch_number then ", batch \(.batch_number)" else "" end)\(if .serial_numbers then ", serial numbers \(.serial_numbers | join(", "))" else "" end)")' \
+    postGoodsReceipt -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"},
+      \"batch\": {\"number\": \"CO-2611\", \"manufacture_date\": \"2026-11-02\", \"expiry_date\": \"2027-11-02\"}},
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 2, \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"serial_numbers\": [\"TW-5002\", \"TW-5001\"]}")"
+  expect "the receipt's batch and serial numbers" "$(field '[.items[] | "\(.batch_number // "-"):\(.serial_numbers // [] | join(","))"] | join(" ")')" \
+    "CO-2611: -:TW-5001,TW-5002"
+  batch=$(field '.items[0].batch_id')
+  as wade
+  api 200 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' getBatch -p "id=$batch"
+  expect "the batch the receipt created" "$(field '"\(.number) \(.manufacture_date) \(.expiry_date)"')" "CO-2611 2026-11-02 2027-11-02"
+  as ben
+  say "The rest of the lot, 8 cans, names the batch by its number alone; another manufacture date for it is refused, as a"
+  say "batch's dates do not change:"
+  refused 422 inventory.batch_dates_differ postGoodsReceipt -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1,
+      \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"batch\": {\"number\": \"CO-2611\", \"manufacture_date\": \"2026-11-03\"}}")"
+  api 201 '"goods receipt \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit), batch \(.items[0].batch_number)"' postGoodsReceipt \
+    -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"batch\": {\"number\": \"CO-2611\"}}")"
+  expect "the second receipt's batch" "$(field '.items[0].batch_id')" "$batch"
+  as wade
+  say "The oil's stock by batch and the wrenches' serial numbers in the main store:"
+  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number) (expires \(.expiry_date)): \(.quantity.value) \(.quantity.unit)"' \
+    listBatchStock -p "material_id=$oil"
+  expect "the oil's stock by batch" "$(field '[.items[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 20"
+  api 200 '.items[] | "  \(.number): in stock at \(.plant_code) \(.storage_location_code)"' listSerialNumbers -p "material_id=$wrench"
+  expect "the wrenches' serial numbers" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:true TW-5002:true"
 }
 
 # step_debit_memo is T75j (ADR-0063 §7 As built): Maple charges Northwind

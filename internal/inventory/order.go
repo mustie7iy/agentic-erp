@@ -30,10 +30,13 @@ import (
 
 // OrderItem is a stock item of a purchase order a goods receipt moves: a
 // positive quantity of its material in the order item's unit, into a
-// storage location of a plant.
+// storage location of a plant; the batch of a batch-managed material, and
+// the serial number of each unit of a serial-managed one (S2f1, S2g1).
 type OrderItem struct {
 	MaterialID, PlantID, StorageLocationID uuid.UUID
 	Quantity, Unit                         string
+	Batch                                  *ReceiptBatch
+	SerialNumbers                          []string
 }
 
 // OrderReceipt is a purchase order goods receipt's stock items, in the
@@ -56,8 +59,10 @@ type PostEntry func(bookings []ledger.GRIRStock) (ledger.Entry, []ledger.StockPo
 // ReceiveForOrder posts a purchase order's goods receipt of stock items
 // (101) as a material document: each item checked as a receipt's is (an
 // active material kept at the storage location of a plant of the
-// company), its quantity converted to the base unit exactly, the
-// valuations and stock locked, then the entry posted by post with the
+// company), its quantity converted to the base unit exactly, its batch
+// found or created (receiptBatches) and its serial numbers checked as a
+// 501's are, the valuations and stock locked, then the entry posted by
+// post with the
 // stock's part of each item, a moving-priced receipt taking what its
 // GR/IR line moves, a standard-priced one its quantity at the price and
 // the rest a price difference. An item without a valuation is refused
@@ -69,10 +74,14 @@ func (e *Endpoints) ReceiveForOrder(ctx context.Context, in OrderReceipt, post P
 	}
 	items := make([]ItemInput, len(in.Items))
 	for i, it := range in.Items {
-		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity, Unit: it.Unit}
+		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity, Unit: it.Unit,
+			SerialNumbers: it.SerialNumbers}
 	}
 	r, err := e.inputRefs(ctx, items)
 	if err != nil {
+		return Document{}, err
+	}
+	if err := e.receiptBatches(ctx, tx, p, in.Items, items, &r); err != nil {
 		return Document{}, err
 	}
 	company, lines, err := e.items(items, movementTypes["101"], r)

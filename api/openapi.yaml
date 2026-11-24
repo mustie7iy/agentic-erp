@@ -11378,7 +11378,7 @@ paths:
               $ref: "#/components/schemas/PurchaseOrderCreate"
       responses:
         "201":
-          description: "Created; the new purchase order. A stock item of a batch-managed material is refused (422 `procurement.invalid_stock_item`): a goods receipt carries no batch yet (S2f); so is one of a serial-managed material, as it carries no serial numbers yet (S2g)."
+          description: "Created; the new purchase order. A stock item of a batch-managed or serial-managed material is received naming its batch or the serial number of each unit (`postGoodsReceipt`, S2f1, S2g1); an intercompany stock transport order's (`supplying_plant_id`) is refused (422 `procurement.invalid_stock_item`), as its goods issue carries neither yet."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -13904,14 +13904,17 @@ paths:
       tags:
         - procurement
       summary: Post a goods receipt
-      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A batch-managed material's stock item is refused (422 `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed material's too (422 `inventory.serial_not_supported`, S2g)."
+      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it expires before it was made), audited as `createBatch` is; dates given for an existing batch are its own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1; 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are. Another material's item names neither (422 `inventory.batch_not_allowed`, `inventory.serial_not_allowed`), and an item that is no stock item neither (422 `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of stock again."
       x-permission: procurement.receipt.post
       x-problem-codes:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.amount_too_large
+        - inventory.batch_dates
+        - inventory.batch_dates_differ
         - inventory.batch_invalid
+        - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
         - inventory.batch_not_supported
         - inventory.batch_required
@@ -14000,6 +14003,7 @@ paths:
         - procurement.invalid_quantity
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
+        - procurement.not_stock_item
         - procurement.order_not_released
         - procurement.over_delivery
         - procurement.reason_not_allowed
@@ -56966,6 +56970,20 @@ components:
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: "Quantity received; negative on reversals (movement type 102)."
+        batch_id:
+          type: string
+          format: uuid
+          description: "The batch the item received, or its reversal took back, of a batch-managed material (`GET /v1/batches/{id}`, ADR-0082 As built S2f1); absent on another item."
+          readOnly: true
+        batch_number:
+          type: string
+          description: "That batch's number; absent with it."
+          readOnly: true
+        serial_numbers:
+          type: array
+          items: {type: string}
+          description: "The serial numbers of the units the item received, or its reversal took out of stock, of a serial-managed material (`GET /v1/serial-numbers?number=`, S2g1), sorted by number; absent on another item."
+          readOnly: true
       examples:
         - purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
           po_item_no: 10
@@ -57094,6 +57112,15 @@ components:
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: "Quantity received; positive. Receipts above the ordered quantity plus tolerance are refused (409)."
+        batch:
+          $ref: "#/components/schemas/GoodsReceiptBatch"
+          description: "The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422 `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`, `procurement.not_stock_item`)."
+        serial_numbers:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {type: string, pattern: "^[A-Z0-9_-]{1,18}$", description: "A serial number: 1 to 18 capitals, digits, `-` or `_`."}
+          description: "The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`) and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`)."
       additionalProperties: false
       examples:
         - purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
@@ -57101,6 +57128,19 @@ components:
           quantity:
             value: "12.5"
             unit: KG
+    GoodsReceiptBatch:
+      type: object
+      description: "The batch a goods receipt's stock item receives into (ADR-0082 As built S2f1): one of the material's by its number, or a new one the receipt creates with its dates."
+      required: [number]
+      additionalProperties: false
+      properties:
+        number: {type: string, pattern: "^[A-Z0-9_-]{1,10}$", description: "The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier gives it."}
+        manufacture_date: {type: string, format: date, description: "The day the batch was made: required for a new batch (422 `inventory.batch_manufacture_date_required`); for an existing one, given only as its own (422 `inventory.batch_dates_differ`)."}
+        expiry_date: {type: string, format: date, description: "The day it is to be used by, not before its manufacture date (422 `inventory.batch_dates`); absent when a new batch does not expire. For an existing batch, given only as its own (422 `inventory.batch_dates_differ`)."}
+      examples:
+        - number: "L2612A"
+          manufacture_date: "2026-11-20"
+          expiry_date: "2027-05-20"
     GoodsReceiptCreate:
       type: object
       description: "Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive either way: a return's are stored negative."

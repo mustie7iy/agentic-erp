@@ -1809,7 +1809,10 @@ erDiagram
     int item_no PK
     uuid purchase_order_id
     int po_item_no
-    numeric quantity }
+    numeric quantity
+    uuid batch_id "S2f1: inventory.batch, by id"
+    text batch_number "S2f1"
+    text_array serial_numbers "S2g1" }
   rfq { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1911,6 +1914,13 @@ supplier, with its `reason` (required on a 122 and only there,
 reverses a 101 (migration 000064, T47b): each reverses only its own kind
 (trigger `goods_movement_reversal_type`), and each moves its quantity its
 own way, 101 and 123 in, 102 and 122 out (`goods_movement_item_sign`).
+
+A stock item's item names what its material document's line moved (S2f1,
+S2g1, migrations 000464 and 000465): the batch of a batch-managed material
+by id and number together (`goods_movement_item_batch`), and the serial
+numbers of a serial-managed material's units, one to 1000
+(`goods_movement_item_serial_numbers`); a reversal's item names its
+original's. The batch is the inventory context's (§3.35), by id.
 `check_receipt` keeps the received quantity, the net of every movement,
 between zero and the tolerance, so a return never exceeds what was
 received (409 `procurement.return_exceeds_receipts`) and a 123 never

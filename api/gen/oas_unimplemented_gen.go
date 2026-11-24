@@ -9563,9 +9563,20 @@ func (UnimplementedHandler) PostExpenseReport(ctx context.Context, req OptExpens
 // with `reason`) of goods received on released or closed orders: never more than was received (409
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-// are reversals. A batch-managed material's stock item is refused (422
-// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
-// material's too (422 `inventory.serial_not_supported`, S2g).
+// are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built
+// S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the
+// receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given
+// (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it
+// expires before it was made), audited as `createBatch` is; dates given for an existing batch are its
+// own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a
+// serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1;
+// 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in
+// stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are.
+// Another material's item names neither (422 `inventory.batch_not_allowed`,
+// `inventory.serial_not_allowed`), and an item that is no stock item neither (422
+// `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial
+// numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of
+// stock again.
 //
 // POST /v1/goods-receipts
 func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (r PostGoodsReceiptRes, _ error) {

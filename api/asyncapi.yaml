@@ -7895,6 +7895,9 @@ components:
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         po_item_no: {type: integer, minimum: 1}
         quantity: {$ref: '#/components/schemas/Quantity'}
+        batch_id: {$ref: '#/components/schemas/NullableUuid', description: 'The batch the item received or took back, of a batch-managed material (ADR-0082 As built S2f1); null on another item. Added within v1; consumers ignore it if absent.'}
+        batch_number: {type: [string, 'null'], description: 'That batch''s number; null with it. Added within v1.'}
+        serial_numbers: {type: [array, 'null'], items: {type: string}, description: 'The serial numbers of the units the item received or took out of stock, of a serial-managed material (S2g1), sorted by number; null on another item. Added within v1.'}
     GoodsReceivedV1:
       type: object
       required: [goods_receipt_id, document_number, legal_entity_id, movement_type, document_date, posting_date, items]
