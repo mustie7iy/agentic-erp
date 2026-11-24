@@ -1290,7 +1290,16 @@ a cash discount granted to a customer is debited to (SAP SKT), and
 order is credited to, each falling back to the key it shared before,
 `payment_difference_expense` and `cash_discount`, in a company that does
 not set it: `ledger.Accounts.Determination`, ADR-0063 and ADR-0061 As
-built batch 92),
+built batch 92; a key the configuration no longer names is removed,
+migration 000453: `account_determination_removal`, insert-only, records
+each removal (the key, the account it named, `removed_at`,
+`removed_by`), and its trigger `account_determination_removal_deletes`
+deletes the row naming that very account as the owner, the application
+holding no DELETE grant; `gr_ir`, `down_payment` and `retained_earnings`
+are never removed (`account_determination_removal_kept`), nor a
+valuation class's key whose account has postings (409
+`ledger.determination_key_posted`, `ledger.Setup`; ADR-0048 As built
+batch 93)),
 the tax codes (T61a, ADR-0049 §3; migration 000124): `tax_code_definition`
 (direction, never changed; kind; UN/CEFACT category), `tax_component` (one
 per tax a code levies: jurisdiction, account key, never changed;
@@ -3504,7 +3513,7 @@ line or reservation. An agent's budget is identity's
 | LFB1-ZWELS | `supplier_company.payment_methods`, the methods allowed (its letter order is not a preference: A4(c)); a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
-| T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |
+| T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE; SKT as `cash_discount_granted` and BO1 as `supplier_rebate`, batch 93, their meanings from memory) |
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
 | Group Reporting FS items, consolidation groups and units (from memory, for an SAP specialist) (planned, ADR-0059) | configuration `consolidation.accounts`, `consolidation.groups`, `companies[].chart_of_accounts[].group_account` (not built) |
