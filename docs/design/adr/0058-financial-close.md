@@ -1875,9 +1875,13 @@ is configuration.
   opened the close, assigned a task or proposed an accrual is not a
   preparer by this rule (the leaf names the tasks' completers).
 - **The check** (`closing.notPreparer`) runs after `closing.tasks_open`
-  and before the checks run again, so a refusal keeps nothing and a check
-  task that first passes at the sign-off (whose completer becomes the
-  signer) never refuses its own signer. A preparer is refused with 409
+  and before the checks run again, so a refusal keeps nothing. A check
+  task that first passes in a sign-off's own run of the checks records the
+  signer as its completer (`recordCheck`); that completion is the
+  sign-off's, not a preparation, so it never refuses that signer, also
+  when the close is signed off again after an unlock (`byASignOff`: a
+  check task completed by the caller at the instant of one of the caller's
+  sign-offs of the close; review round 1). A preparer is refused with 409
   `closing.signer_is_preparer`, its detail naming the tasks the caller
   completed and the setting; another person with the permissions signs
   off. The audit records of both sign-offs gain `sign_off_separation`
@@ -1898,10 +1902,13 @@ is configuration.
   did not ask for).
 - **Tested.** `closing.TestSignOffSeparated` (the preparer refused naming
   AP_CUTOFF and REVIEW, nothing kept, the check not run; another person
-  signs off, audited with the separation), `TestYearSignOffSeparated` (a
+  signs off, audited with the separation; the period unlocked, the same
+  signer, recorded as NO_PARKED's completer by her sign-off, signs off
+  again), `TestSignOffSeparatedDatabaseFailures`, `TestYearSignOffSeparated` (a
   reopened task completed by another no longer counts for the first
   preparer, a check counts for whoever passed it first, each preparer
-  refused naming their own tasks, a third person signs off);
+  refused naming their own tasks, a third person signs off and, period 13
+  unlocked, again);
   `config.TestSignOffSeparation` (left out on, true on, false off) and
   `TestSignOffSeparationTier`. The other closing tests run as the pilot
   does (`withTemplate` sets it false).

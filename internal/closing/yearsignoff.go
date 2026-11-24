@@ -45,7 +45,7 @@ func (e *Endpoints) SignOffYearClose(ctx context.Context, req gen.OptPeriodClose
 	if err := manualDone(tasks); err != nil {
 		return nil, err
 	}
-	separated, err := e.notPreparer(ctx, c, p, tasks)
+	separated, err := e.notPreparer(ctx, tx, yearCloses, c, p, tasks)
 	if err != nil {
 		return nil, err
 	}

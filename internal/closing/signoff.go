@@ -100,7 +100,7 @@ func (e *Endpoints) SignOffPeriodClose(ctx context.Context, req gen.OptPeriodClo
 	if err := manualDone(tasks); err != nil {
 		return nil, err
 	}
-	separated, err := e.notPreparer(ctx, c, p, tasks)
+	separated, err := e.notPreparer(ctx, tx, periodCloses, c, p, tasks)
 	if err != nil {
 		return nil, err
 	}
@@ -188,11 +188,13 @@ func manualDone(tasks []task) error {
 // preparers are the people recorded as completing its tasks as they stand
 // now, a manual task by :complete and a check by its first passing run
 // (a reopened task's completion is cleared, so its earlier completer no
-// longer counts). It runs before the checks, whose passing at sign-off
-// records the signer on a check task no one completed, so the signer is
-// judged on what others prepared. It returns whether the separation
-// applied, which the audit record keeps.
-func (e *Endpoints) notPreparer(ctx context.Context, c closeRow, p reqctx.Principal, tasks []task) (bool, error) {
+// longer counts). A sign-off's own run of the checks records its signer
+// on a check task no one had completed (recordCheck); such a completion
+// is the sign-off's, not a preparation, so it never refuses that signer
+// again, after an unlock (byASignOff). The check runs before the checks
+// run again, so the signer is judged on what others prepared. It returns
+// whether the separation applied, which the audit record keeps.
+func (e *Endpoints) notPreparer(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow, p reqctx.Principal, tasks []task) (bool, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
 		return false, fmt.Errorf("closing: configuration: %w", err)
@@ -207,9 +209,15 @@ func (e *Endpoints) notPreparer(ctx context.Context, c closeRow, p reqctx.Princi
 	if cc := doc.Company(co.Code); cc != nil && !cc.Close.SeparatesSignOff() {
 		return false, nil
 	}
+	bySignOff, err := byASignOff(ctx, tx, k, c, p)
+	if err != nil {
+		return false, err
+	}
 	var prepared []string
 	for _, t := range tasks {
-		if t.CompletedBy != nil && *t.CompletedBy == p.ID {
+		mine := t.CompletedBy != nil && *t.CompletedBy == p.ID
+		signed := t.Kind == config.CloseCheck && t.CompletedAt != nil && bySignOff(*t.CompletedAt)
+		if mine && !signed {
 			prepared = append(prepared, t.Code)
 		}
 	}
@@ -219,6 +227,20 @@ func (e *Endpoints) notPreparer(ctx context.Context, c closeRow, p reqctx.Princi
 	return true, problem.Conflict("closing.signer_is_preparer", fmt.Sprintf("You completed task %s of this close; company %s's closes are signed "+
 		"off by someone who completed none of their tasks (companies[].close.sign_off_separation). Another person signs it off.",
 		strings.Join(prepared, ", "), co.Code))
+}
+
+// byASignOff tells whether a check task the principal completed at the
+// instant was completed by the principal's own sign-off of the close: a
+// sign-off's row and the completions its check run records share the
+// transaction's now() (signed_at, completed_at).
+func byASignOff(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow, p reqctx.Principal) (func(time.Time) bool, error) {
+	offs, err := signOffsOf(ctx, tx, k, c.ID)
+	if err != nil {
+		return nil, err
+	}
+	return func(at time.Time) bool {
+		return slices.ContainsFunc(offs, func(s signOff) bool { return s.SignedBy == p.ID && s.SignedAt.Equal(at) })
+	}, nil
 }
 
 // checksPass runs every check task's check of a close of a kind again:

@@ -1,8 +1,13 @@
 package closing_test
 
 import (
+	"context"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -50,11 +55,39 @@ func TestSignOffSeparated(t *testing.T) {
 		t.Errorf("the check after the refusal: got %v recorded, want it not run", task["check_result"])
 	}
 	fiona := e.Person(t, "Fiona Finance Director")
-	off, _ := e.As(fiona).Must(200, "POST", s.path+":signOff", `{"note": "Signed off by someone who prepared none of it"}`, s.tag)
+	var tag string
+	off, tag := e.As(fiona).Must(200, "POST", s.path+":signOff", `{"note": "Signed off by someone who prepared none of it"}`, s.tag)
 	wantFields(t, "the sign-off", off, map[string]any{"signed_by": fiona.ID.String(), "signed_by_name": "Fiona Finance Director"})
-	if got := separation(t, e, "closing.period_close.sign_off"); got != "true" {
-		t.Errorf("the audit record's sign_off_separation: got %q, want true", got)
+	if task := taskOf(t, s.read(t), "NO_PARKED"); task["completed_by"] != fiona.ID.String() {
+		t.Errorf("NO_PARKED, first passed by the sign-off's checks: got completed by %v, want the signer %s", task["completed_by"], fiona.ID)
 	}
+	s.tag = tag
+	// An unlock returns the periods to closed (T32); the signer signs off
+	// again: the check her sign-off completed is not a preparation of hers
+	// (review round 1).
+	pgtest.Unguarded(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+		AND fiscal_year = 2026 AND period = 1`, e.Tenant.ID, e.DE)
+	s.read(t)
+	e.As(fiona).Must(200, "POST", s.path+":signOff", `{"note": "Signed off again after the unlock"}`, s.tag)
+	if got := separation(t, e, "closing.period_close.sign_off"); got != "true,true" {
+		t.Errorf("the audit records' sign_off_separation: got %q, want true,true", got)
+	}
+}
+
+// TestSignOffSeparatedDatabaseFailures: every statement of a separated
+// sign-off by a person who prepared none of the close failing, the
+// sign-off fails with it.
+func TestSignOffSeparatedDatabaseFailures(t *testing.T) {
+	e := fixture.NewWith(t, nil, func(doc *config.Config) { withSignOff(doc); separated(doc) }, signPermissions...)
+	s := signable(t, e, 1)
+	s.periods(t, "close")
+	s.read(t)
+	id := uuid.MustParse(strings.TrimPrefix(s.path, "/v1/period-closes/"))
+	h := endpoints(t)
+	apitest.EveryFailure(t, e.Tenant, e.Person(t, "Fiona Finance Director"), "sign off", func(ctx context.Context) error {
+		_, err := h.SignOffPeriodClose(ctx, gen.NewOptPeriodCloseSignOffInput(gen.PeriodCloseSignOffInput{}), gen.SignOffPeriodCloseParams{ID: id, IfMatch: s.tag})
+		return err
+	})
 }
 
 // TestYearSignOffSeparated: a year close's preparers are the people who
@@ -90,9 +123,14 @@ func TestYearSignOffSeparated(t *testing.T) {
 		})
 	}
 	gus := e.Person(t, "Gus Group Controller")
-	off, _ := e.As(gus).Must(200, "POST", s.path+":signOff", `{"note": "2026 signed off"}`, s.tag)
+	off, tag := e.As(gus).Must(200, "POST", s.path+":signOff", `{"note": "2026 signed off"}`, s.tag)
 	wantFields(t, "the sign-off", off, map[string]any{"signed_by": gus.ID.String(), "signed_by_name": "Gus Group Controller"})
-	if got := separation(t, e, "closing.year_close.sign_off"); got != "true" {
-		t.Errorf("the audit record's sign_off_separation: got %q, want true", got)
+	s.tag = tag
+	pgtest.Unguarded(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+		AND fiscal_year = 2026 AND period = 13`, e.Tenant.ID, e.DE)
+	s.read(t)
+	e.As(gus).Must(200, "POST", s.path+":signOff", `{"note": "Signed off again after the unlock"}`, s.tag)
+	if got := separation(t, e, "closing.year_close.sign_off"); got != "true,true" {
+		t.Errorf("the audit records' sign_off_separation: got %q, want true,true", got)
 	}
 }

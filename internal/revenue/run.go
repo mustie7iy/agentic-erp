@@ -250,7 +250,8 @@ func inOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Enti
 // delivered, billed, have a billing cancelled or its order changed, so it
 // is read. An ended one changes no more and recognizes nothing (its
 // obligations are in no period), so it is read until a run took its
-// position off: while its last posting left recognized and billed apart;
+// position off: while its last posting left an obligation's recognized
+// and billed apart, which the next run moves (posted);
 // one ended with nothing posted has nothing to take off (its order was
 // cancelled, which sales refuses once billed). More than the run's bound
 // are refused (422 revenue.recognition_run_too_large).
@@ -260,7 +261,9 @@ func (e *Endpoints) activeContracts(ctx context.Context, tx pgx.Tx, le tenancy.E
 		limit = MaxRunContracts
 	}
 	rows, _ := tx.Query(ctx, contractSelect+` WHERE k.legal_entity_id = $1 AND k.status = $2
-		AND (k.ended_at IS NULL OR (SELECT p.recognized_amount <> p.billed_amount FROM revenue.recognition_posting p
+		AND (k.ended_at IS NULL OR (SELECT EXISTS (SELECT FROM revenue.recognition_posting_obligation o WHERE o.tenant_id = p.tenant_id
+				AND o.run_id = p.run_id AND o.contract_id = p.contract_id AND o.recognized_amount <> o.billed_amount)
+			FROM revenue.recognition_posting p
 			JOIN revenue.recognition_run r ON r.tenant_id = p.tenant_id AND r.id = p.run_id
 			WHERE p.tenant_id = k.tenant_id AND p.contract_id = k.id ORDER BY r.posting_date DESC, r.id DESC LIMIT 1))
 		ORDER BY k.sales_order_number, k.id LIMIT $3`, le.ID, Active, limit+1)

@@ -132531,7 +132531,7 @@ func (s *Server) handleSettleInternalOrderRequest(args [1]string, argsEscaped bo
 // (`companies[].close.sign_off_separation`, on unless the company sets it false; ADR-0058 As built
 // T64o), a caller who completed one of the close's tasks as they stand, a manual task by `:complete`
 // or a check by its first passing run, is refused before the checks run (409
-// `closing.signer_is_preparer`, naming those tasks): another person signs it off. then every check
+// `closing.signer_is_preparer`, naming those tasks): another person signs it off; then every check
 // task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
 // problem's `failing_checks` naming each failing task with what its check found) and nothing is kept
 // (`:check` records a result); when all pass each result is recorded on its task. Each covered
@@ -132769,7 +132769,7 @@ func (s *Server) handleSignOffPeriodCloseRequest(args [1]string, argsEscaped boo
 // company separates sign-off from preparation (`companies[].close.sign_off_separation`, on unless the
 // company sets it false; ADR-0058 As built T64o), a caller who completed one of the close's tasks as
 // they stand, a manual task by `:complete` or a check by its first passing run, is refused before the
-// checks run (409 `closing.signer_is_preparer`, naming those tasks): another person signs it off.
+// checks run (409 `closing.signer_is_preparer`, naming those tasks): another person signs it off;
 // every check task's check runs again, and if any fails the sign-off is refused (409
 // `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its
 // check found) and nothing is kept; when all pass each result is recorded on its task. Every regular
@@ -132783,12 +132783,13 @@ func (s *Server) handleSignOffPeriodCloseRequest(args [1]string, argsEscaped boo
 // is recorded with who signed off and their name, when, the note and, per covered ledger, its special
 // periods and whether this sign-off locked each, and the close is `signed_off`. After a period of the
 // year was unlocked (an approved `unlockFiscalPeriod` request) the year close is signed off again,
-// adding a second sign-off. No separation of duties for the pilot: who signed is recorded (product
-// owner 2026-11-04, ADR-0060 §12). `If-Match` is the close's ETag; the answer is the sign-off, with
-// the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs
-// `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what
-// the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and
-// published as YearCloseSignedOff.
+// adding a second sign-off. Who signed is recorded; a company running without separation of duties, as
+// the pilot may until go-live, sets `sign_off_separation` false (product owner 2026-11-04, ADR-0060
+// §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People
+// only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
+// periods, and `ledger.entry.read`, since its refusal names what the checks found
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+// YearCloseSignedOff.
 //
 // POST /v1/year-closes/{id}:signOff
 func (s *Server) handleSignOffYearCloseRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

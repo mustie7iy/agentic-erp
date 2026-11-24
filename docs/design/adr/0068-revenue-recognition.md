@@ -906,8 +906,9 @@ costs its order's read and its schedule. As built (`activeContracts`):
   billed, have a billing cancelled (T79c) or its order changed, so its
   revenue can still move, also once fully recognized and billed.
 - **An ended contract is read until a run took its position off**: while
-  its last posting (the latest run's, by posting date and id) left
-  recognized and billed apart. Its obligations are in no period, so it
+  its last posting (the latest run's, by posting date and id) left an
+  obligation's recognized and billed apart (what the next run moves, per
+  obligation). Its obligations are in no period, so it
   recognizes nothing, and it changes no more (`contract_ended`); the run
   after its end takes its contract asset or liability off, and from then
   on it is not read. A contract that ended with nothing posted is never
