@@ -2895,9 +2895,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Held e-invoices resolved by people: POST /v1/e-invoices/{id}:retry (held to held with the attempt's problem, answering the document), :link (payables.EInvoices.Attach; same company, supplier and reference, no document of its own; at most one e-invoice per invoice by a partial unique index with a schema test, einvoicing.invoice_already_linked; otherwise einvoicing.link_mismatch) and :dismiss with a reason; FOR UPDATE and einvoicing.einvoice_not_held; agents refused; walkthrough: Alex links a hand-entered invoice to the held e-invoice, a second link to it refused, another dismissed, an agent's dismiss refused",
-        "r": "ADR-0061 §7, §13 · T65f",
+        "r": "ADR-0061 §7, §13 · T65f · db/migrations/000464, 000465 · retryEInvoice, linkEInvoice, dismissEInvoice · einvoicing.resolve.go · payables.Invoices.Attachable, Attach · einvoice_invoice_once · TestEInvoiceResolution · TestRetryEInvoice, TestLinkEInvoice, TestDismissEInvoice · walkthrough step_evatra_inbound (evatra_held_resolved) · ADR-0061 As built T65f",
         "src": "adr:ADR-0061",
         "c": []
        },

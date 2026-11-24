@@ -15408,9 +15408,11 @@ goods_issue_margin() {
 # keeps no acknowledgement); its download is the document; a second fetch
 # leaves it out, recorded and acknowledged. A supplier without orders sends
 # a volume discount naming no order, entered rather than held
-# (evatra_volume_discount, batch 89).
+# (evatra_volume_discount, batch 89). Held e-invoices are resolved by
+# people: retried, linked to an invoice entered by hand, dismissed
+# (evatra_held_resolved, T65f).
 step_evatra_inbound() {
-  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, entered as a draft supplier invoice, downloaded as received; a second fetch leaves it out; a volume discount of a supplier without orders entered as a credit memo without an order, its code chosen and posted"
+  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, entered as a draft supplier invoice, downloaded as received; a second fetch leaves it out; a volume discount of a supplier without orders entered as a credit memo without an order, its code chosen and posted; a held e-invoice retried, linked to the invoice entered by hand, its copy refused that invoice and dismissed, an agent refused"
   local connector op doc sum tin
   tin=1001234567
   as ada
@@ -15463,7 +15465,72 @@ step_evatra_inbound() {
   QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
   expect "the connector's documents" "$(field '[.items[].message_id] | join(" ")')" "EVA-77001"
   evatra_volume_discount "$connector"
+  evatra_held_resolved "$connector"
   passed
+}
+
+# evatra_held_resolved is T65f's part of step_evatra_inbound (ADR-0061 §7,
+# §13): Gulf Office Interiors sends GOI-2010, naming no purchase order,
+# and by mistake sends it twice; the fetch holds both with
+# payables.capture_needs_order. Alex retries the first before anything is
+# corrected and it stays held, with this attempt's problem; he enters the
+# invoice by hand and links the e-invoice to it, which enters the
+# e-invoice and makes its XML the invoice's document; linking the second
+# to the same invoice is refused (at most one e-invoice names an
+# invoice); an agent's dismissal of it is refused (people only), and Alex
+# dismisses it with a reason.
+evatra_held_resolved() {
+  local connector=$1 op first second ae supplier expense invoice sum
+  as alex
+  say "Gulf Office Interiors sends its invoice GOI-2010 for four more desks without naming a purchase order, and sends it"
+  say "twice by mistake; Evatra receives both for 0235:$AE_TIN (illustrative documents):"
+  pint_ae_invoice GOI-2010 "$AE_TRN" >"$WORK/provider/evatra/EVA-77003.xml"
+  cp "$WORK/provider/evatra/EVA-77003.xml" "$WORK/provider/evatra/EVA-77004.xml"
+  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/evatra/EVA-77003.receiver" >"$WORK/provider/evatra/EVA-77004.receiver"
+  sum=$(shasum -a 256 "$WORK/provider/evatra/EVA-77003.xml" | cut -d' ' -f1)
+  say "Alex fetches; entering either is refused for want of an order, so both are held for a person:"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  op=$(field .id)
+  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.entered) \(.result.held)"')" "2 0 2"
+  api 200 '.items[] | "  \(.message_id) \(.document_number): \(.status), \(.problem_code)"' listEInvoices -p "fetch_operation_id=$op"
+  first=$(field '.items[] | select(.message_id == "EVA-77003") | .id')
+  second=$(field '.items[] | select(.message_id == "EVA-77004") | .id')
+  local shown='"\(.message_id) \(.document_number): \(.status)\(if .problem_code then ", \(.problem_code)" else "" end), resolution \(.resolution // "-")\(if .supplier_invoice_number then ", supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status))" else "" end)"'
+  say "He retries the first before anything is corrected: entered again in his request, it stays held with the problem of"
+  say "this attempt (200: the problem is the document's, not the request's):"
+  QUIET=1 api 200 '' getEInvoice -p "id=$first"
+  api 200 "$shown" retryEInvoice -p "id=$first" -if-match "$ETAG"
+  expect "still held, retried" "$(field '"\(.status) \(.problem_code) \(.resolution)"')" "held payables.capture_needs_order retried"
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Gulf Office Interiors" -p role=supplier
+  supplier=$(field '.items[0].id')
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  expense=$(field '.items[] | select(.number == "6000") | .id')
+  say "The desks were bought without an order, so Alex enters the invoice by hand, as the supplier states it:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), source \(.source)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-2010\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1050.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"50.00\", \"currency\": \"AED\"}, \"items\": [{\"description\": \"Oak desks, bought without an order\", \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1000.00\", \"currency\": \"AED\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
+  invoice=$(field .id)
+  say "and links the held e-invoice to it: the e-invoice is entered as that invoice, whose document becomes its XML:"
+  QUIET=1 api 200 '' getEInvoice -p "id=$first"
+  api 200 "$shown" linkEInvoice -p "id=$first" -if-match "$ETAG" -body "{\"supplier_invoice_id\": \"$invoice\"}"
+  expect "linked" "$(field '"\(.status) \(.resolution) \(.supplier_invoice_id) \(.supplier_name)"')" "entered linked $invoice Gulf Office Interiors"
+  show curl -s -H "Authorization: Bearer …" "\$ERP_API_URL/v1/supplier-invoices/$invoice/document" "| shasum -a 256"
+  expect "the invoice's document, the e-invoice's XML" \
+    "$(curl -s -H "Authorization: Bearer $ERP_TOKEN" "$ERP_API_URL/v1/supplier-invoices/$invoice/document" | shasum -a 256 | cut -d' ' -f1)" "$sum"
+  say "Linking the second, the same invoice sent again, to that invoice is refused: an invoice is at most one e-invoice's:"
+  QUIET=1 api 200 '' getEInvoice -p "id=$second"
+  refused 409 einvoicing.invoice_already_linked linkEInvoice -p "id=$second" -if-match "$ETAG" -body "{\"supplier_invoice_id\": \"$invoice\"}"
+  say "Dismissing it is a person's: an agent is refused (x-agent: false), whatever its permissions:"
+  QUIET=1 api 200 '' getEInvoice -p "id=$second"
+  as tax-agent
+  refused 403 identity.agent_not_allowed dismissEInvoice -p "id=$second" -if-match "$ETAG" -body '{"reason": "An agent'"'"'s dismissal"}'
+  as alex
+  say "Alex dismisses it, with why; it keeps the problem it was held with:"
+  QUIET=1 api 200 '' getEInvoice -p "id=$second"
+  api 200 "$shown"', "  dismissed: \(.dismissal_reason)"' dismissEInvoice -p "id=$second" -if-match "$ETAG" -body '{"reason": "Gulf Office Interiors sent GOI-2010 twice; the first is entered."}'
+  expect "dismissed" "$(field '"\(.status) \(.problem_code) \(.resolution)"')" "dismissed payables.capture_needs_order dismissed"
 }
 
 # evatra_volume_discount is step_evatra_inbound's volume discount naming no

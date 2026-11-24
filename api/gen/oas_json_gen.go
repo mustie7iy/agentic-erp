@@ -107651,6 +107651,234 @@ func (s *DiscardConsolidationRunPreconditionRequired) UnmarshalJSON(data []byte)
 	return s.Decode(d)
 }
 
+// Encode encodes DismissEInvoiceBadRequest as json.
+func (s *DismissEInvoiceBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes DismissEInvoiceBadRequest from json.
+func (s *DismissEInvoiceBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DismissEInvoiceBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = DismissEInvoiceBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DismissEInvoiceBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DismissEInvoiceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes DismissEInvoiceForbidden as json.
+func (s *DismissEInvoiceForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes DismissEInvoiceForbidden from json.
+func (s *DismissEInvoiceForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DismissEInvoiceForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = DismissEInvoiceForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DismissEInvoiceForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DismissEInvoiceForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes DismissEInvoiceNotFound as json.
+func (s *DismissEInvoiceNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes DismissEInvoiceNotFound from json.
+func (s *DismissEInvoiceNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DismissEInvoiceNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = DismissEInvoiceNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DismissEInvoiceNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DismissEInvoiceNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes DismissEInvoicePreconditionFailed as json.
+func (s *DismissEInvoicePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes DismissEInvoicePreconditionFailed from json.
+func (s *DismissEInvoicePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DismissEInvoicePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = DismissEInvoicePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DismissEInvoicePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DismissEInvoicePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes DismissEInvoicePreconditionRequired as json.
+func (s *DismissEInvoicePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes DismissEInvoicePreconditionRequired from json.
+func (s *DismissEInvoicePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DismissEInvoicePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = DismissEInvoicePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DismissEInvoicePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DismissEInvoicePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes DismissEInvoiceUnprocessableEntity as json.
+func (s *DismissEInvoiceUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes DismissEInvoiceUnprocessableEntity from json.
+func (s *DismissEInvoiceUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DismissEInvoiceUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = DismissEInvoiceUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DismissEInvoiceUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DismissEInvoiceUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode implements json.Marshaler.
 func (s *DisputeCase) Encode(e *jx.Encoder) {
 	e.ObjStart()
@@ -114599,6 +114827,24 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Resolution.Set {
+			e.FieldStart("resolution")
+			s.Resolution.Encode(e)
+		}
+	}
+	{
+		if s.ResolvedAt.Set {
+			e.FieldStart("resolved_at")
+			s.ResolvedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.DismissalReason.Set {
+			e.FieldStart("dismissal_reason")
+			s.DismissalReason.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("sha256")
 		e.Str(s.SHA256)
 	}
@@ -114636,7 +114882,7 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfEInvoice = [37]string{
+var jsonFieldsNameOfEInvoice = [40]string{
 	0:  "id",
 	1:  "connector_id",
 	2:  "connector_name",
@@ -114665,15 +114911,18 @@ var jsonFieldsNameOfEInvoice = [37]string{
 	25: "supplier_invoice_status",
 	26: "supplier_id",
 	27: "supplier_name",
-	28: "sha256",
-	29: "size",
-	30: "fetch_operation_id",
-	31: "received_at",
-	32: "acknowledged_at",
-	33: "changed_sha256",
-	34: "changed_at",
-	35: "changed_fetch_operation_id",
-	36: "version",
+	28: "resolution",
+	29: "resolved_at",
+	30: "dismissal_reason",
+	31: "sha256",
+	32: "size",
+	33: "fetch_operation_id",
+	34: "received_at",
+	35: "acknowledged_at",
+	36: "changed_sha256",
+	37: "changed_at",
+	38: "changed_fetch_operation_id",
+	39: "version",
 }
 
 // Decode decodes EInvoice from json.
@@ -114975,8 +115224,38 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"supplier_name\"")
 			}
+		case "resolution":
+			if err := func() error {
+				s.Resolution.Reset()
+				if err := s.Resolution.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"resolution\"")
+			}
+		case "resolved_at":
+			if err := func() error {
+				s.ResolvedAt.Reset()
+				if err := s.ResolvedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"resolved_at\"")
+			}
+		case "dismissal_reason":
+			if err := func() error {
+				s.DismissalReason.Reset()
+				if err := s.DismissalReason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"dismissal_reason\"")
+			}
 		case "sha256":
-			requiredBitSet[3] |= 1 << 4
+			requiredBitSet[3] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.SHA256 = string(v)
@@ -114988,7 +115267,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sha256\"")
 			}
 		case "size":
-			requiredBitSet[3] |= 1 << 5
+			requiredBitSet[4] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int64()
 				s.Size = int64(v)
@@ -115000,7 +115279,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"size\"")
 			}
 		case "fetch_operation_id":
-			requiredBitSet[3] |= 1 << 6
+			requiredBitSet[4] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.FetchOperationID = v
@@ -115012,7 +115291,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fetch_operation_id\"")
 			}
 		case "received_at":
-			requiredBitSet[3] |= 1 << 7
+			requiredBitSet[4] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.ReceivedAt = v
@@ -115024,7 +115303,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"received_at\"")
 			}
 		case "acknowledged_at":
-			requiredBitSet[4] |= 1 << 0
+			requiredBitSet[4] |= 1 << 3
 			if err := func() error {
 				if err := s.AcknowledgedAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -115034,7 +115313,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"acknowledged_at\"")
 			}
 		case "changed_sha256":
-			requiredBitSet[4] |= 1 << 1
+			requiredBitSet[4] |= 1 << 4
 			if err := func() error {
 				if err := s.ChangedSHA256.Decode(d); err != nil {
 					return err
@@ -115044,7 +115323,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_sha256\"")
 			}
 		case "changed_at":
-			requiredBitSet[4] |= 1 << 2
+			requiredBitSet[4] |= 1 << 5
 			if err := func() error {
 				if err := s.ChangedAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -115054,7 +115333,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_at\"")
 			}
 		case "changed_fetch_operation_id":
-			requiredBitSet[4] |= 1 << 3
+			requiredBitSet[4] |= 1 << 6
 			if err := func() error {
 				if err := s.ChangedFetchOperationID.Decode(d); err != nil {
 					return err
@@ -115064,7 +115343,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_fetch_operation_id\"")
 			}
 		case "version":
-			requiredBitSet[4] |= 1 << 4
+			requiredBitSet[4] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -115088,8 +115367,8 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 		0b11111111,
 		0b00000001,
 		0b00000000,
-		0b11110000,
-		0b00011111,
+		0b10000000,
+		0b11111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -115689,6 +115968,102 @@ func (s *EInvoiceDeadlinePage) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *EInvoiceDismissal) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *EInvoiceDismissal) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("reason")
+		e.Str(s.Reason)
+	}
+}
+
+var jsonFieldsNameOfEInvoiceDismissal = [1]string{
+	0: "reason",
+}
+
+// Decode decodes EInvoiceDismissal from json.
+func (s *EInvoiceDismissal) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode EInvoiceDismissal to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "reason":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Reason = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode EInvoiceDismissal")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfEInvoiceDismissal) {
+					name = jsonFieldsNameOfEInvoiceDismissal[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *EInvoiceDismissal) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *EInvoiceDismissal) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *EInvoiceFetch) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -115780,6 +116155,102 @@ func (s *EInvoiceFetch) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *EInvoiceFetch) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *EInvoiceLink) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *EInvoiceLink) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("supplier_invoice_id")
+		json.EncodeUUID(e, s.SupplierInvoiceID)
+	}
+}
+
+var jsonFieldsNameOfEInvoiceLink = [1]string{
+	0: "supplier_invoice_id",
+}
+
+// Decode decodes EInvoiceLink from json.
+func (s *EInvoiceLink) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode EInvoiceLink to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "supplier_invoice_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.SupplierInvoiceID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_invoice_id\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode EInvoiceLink")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfEInvoiceLink) {
+					name = jsonFieldsNameOfEInvoiceLink[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *EInvoiceLink) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *EInvoiceLink) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -168446,6 +168917,234 @@ func (s *LegalEntityUpdate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *LegalEntityUpdate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes LinkEInvoiceBadRequest as json.
+func (s *LinkEInvoiceBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes LinkEInvoiceBadRequest from json.
+func (s *LinkEInvoiceBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LinkEInvoiceBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = LinkEInvoiceBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LinkEInvoiceBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LinkEInvoiceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes LinkEInvoiceForbidden as json.
+func (s *LinkEInvoiceForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes LinkEInvoiceForbidden from json.
+func (s *LinkEInvoiceForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LinkEInvoiceForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = LinkEInvoiceForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LinkEInvoiceForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LinkEInvoiceForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes LinkEInvoiceNotFound as json.
+func (s *LinkEInvoiceNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes LinkEInvoiceNotFound from json.
+func (s *LinkEInvoiceNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LinkEInvoiceNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = LinkEInvoiceNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LinkEInvoiceNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LinkEInvoiceNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes LinkEInvoicePreconditionFailed as json.
+func (s *LinkEInvoicePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes LinkEInvoicePreconditionFailed from json.
+func (s *LinkEInvoicePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LinkEInvoicePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = LinkEInvoicePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LinkEInvoicePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LinkEInvoicePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes LinkEInvoicePreconditionRequired as json.
+func (s *LinkEInvoicePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes LinkEInvoicePreconditionRequired from json.
+func (s *LinkEInvoicePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LinkEInvoicePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = LinkEInvoicePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LinkEInvoicePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LinkEInvoicePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes LinkEInvoiceUnprocessableEntity as json.
+func (s *LinkEInvoiceUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes LinkEInvoiceUnprocessableEntity from json.
+func (s *LinkEInvoiceUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode LinkEInvoiceUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = LinkEInvoiceUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *LinkEInvoiceUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *LinkEInvoiceUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -262778,6 +263477,196 @@ func (s *RetireEntryTemplatePreconditionRequired) MarshalJSON() ([]byte, error) 
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *RetireEntryTemplatePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RetryEInvoiceBadRequest as json.
+func (s *RetryEInvoiceBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RetryEInvoiceBadRequest from json.
+func (s *RetryEInvoiceBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RetryEInvoiceBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RetryEInvoiceBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RetryEInvoiceBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RetryEInvoiceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RetryEInvoiceForbidden as json.
+func (s *RetryEInvoiceForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RetryEInvoiceForbidden from json.
+func (s *RetryEInvoiceForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RetryEInvoiceForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RetryEInvoiceForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RetryEInvoiceForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RetryEInvoiceForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RetryEInvoiceNotFound as json.
+func (s *RetryEInvoiceNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RetryEInvoiceNotFound from json.
+func (s *RetryEInvoiceNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RetryEInvoiceNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RetryEInvoiceNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RetryEInvoiceNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RetryEInvoiceNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RetryEInvoicePreconditionFailed as json.
+func (s *RetryEInvoicePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RetryEInvoicePreconditionFailed from json.
+func (s *RetryEInvoicePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RetryEInvoicePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RetryEInvoicePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RetryEInvoicePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RetryEInvoicePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RetryEInvoicePreconditionRequired as json.
+func (s *RetryEInvoicePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RetryEInvoicePreconditionRequired from json.
+func (s *RetryEInvoicePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RetryEInvoicePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RetryEInvoicePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RetryEInvoicePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RetryEInvoicePreconditionRequired) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

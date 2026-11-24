@@ -28866,6 +28866,7 @@ func (*ConflictHeaders) declineQuotationRes()                      {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) disableConnectorRes()                      {}
 func (*ConflictHeaders) discardConsolidationRunRes()               {}
+func (*ConflictHeaders) dismissEInvoiceRes()                       {}
 func (*ConflictHeaders) drillAnalyticsQueryRes()                   {}
 func (*ConflictHeaders) enableConnectorRes()                       {}
 func (*ConflictHeaders) endAgentSessionRes()                       {}
@@ -28910,6 +28911,7 @@ func (*ConflictHeaders) getYearCloseRes()                          {}
 func (*ConflictHeaders) grantRolePermissionRes()                   {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()                   {}
 func (*ConflictHeaders) importBankStatementsRes()                  {}
+func (*ConflictHeaders) linkEInvoiceRes()                          {}
 func (*ConflictHeaders) listAccrualProposalsRes()                  {}
 func (*ConflictHeaders) listCloseTasksRes()                        {}
 func (*ConflictHeaders) listConsolidationBalancesRes()             {}
@@ -29006,6 +29008,7 @@ func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
 func (*ConflictHeaders) retireEntryTemplateRes()                   {}
+func (*ConflictHeaders) retryEInvoiceRes()                         {}
 func (*ConflictHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*ConflictHeaders) reverseAllocationRunRes()                  {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
@@ -42819,6 +42822,71 @@ type DiscardConsolidationRunPreconditionRequired Problem
 
 func (*DiscardConsolidationRunPreconditionRequired) discardConsolidationRunRes() {}
 
+type DismissEInvoiceBadRequest Problem
+
+func (*DismissEInvoiceBadRequest) dismissEInvoiceRes() {}
+
+type DismissEInvoiceForbidden Problem
+
+func (*DismissEInvoiceForbidden) dismissEInvoiceRes() {}
+
+type DismissEInvoiceNotFound Problem
+
+func (*DismissEInvoiceNotFound) dismissEInvoiceRes() {}
+
+// DismissEInvoiceOKHeaders wraps EInvoice with response headers.
+type DismissEInvoiceOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           EInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *DismissEInvoiceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DismissEInvoiceOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *DismissEInvoiceOKHeaders) GetResponse() EInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DismissEInvoiceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DismissEInvoiceOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DismissEInvoiceOKHeaders) SetResponse(val EInvoice) {
+	s.Response = val
+}
+
+func (*DismissEInvoiceOKHeaders) dismissEInvoiceRes() {}
+func (*DismissEInvoiceOKHeaders) linkEInvoiceRes()    {}
+func (*DismissEInvoiceOKHeaders) retryEInvoiceRes()   {}
+
+type DismissEInvoicePreconditionFailed Problem
+
+func (*DismissEInvoicePreconditionFailed) dismissEInvoiceRes() {}
+
+type DismissEInvoicePreconditionRequired Problem
+
+func (*DismissEInvoicePreconditionRequired) dismissEInvoiceRes() {}
+
+type DismissEInvoiceUnprocessableEntity Problem
+
+func (*DismissEInvoiceUnprocessableEntity) dismissEInvoiceRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/DisputeCase
 type DisputeCase struct {
@@ -46435,8 +46503,11 @@ type EInvoice struct {
 	// `payables.einvoice_seller_ambiguous` when no or several suppliers of the company hold the seller's
 	// TRN), or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it
 	// corrects that is not for a volume discount, for a person to resolve;
-	// `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several).
-	// The later slices add dismissed (ADR-0061 §7).
+	// `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several) or
+	// dismissed (T65f: a held document a person closed with a reason, `dismissal_reason`, keeping the
+	// problem it was held with; final). A person resolves a held document (`resolution`): entered again
+	// (`retryEInvoice`: entered, or held with that attempt's problem), linked to the invoice they entered
+	// by hand (`linkEInvoice`: entered) or dismissed (`dismissEInvoice`).
 	Status string `json:"status"`
 	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
 	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
@@ -46460,12 +46531,12 @@ type EInvoice struct {
 	// summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT
 	// subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the
 	// connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its
-	// buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused.
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused,
+	// held or dismissed (T65f: the problem a dismissed document was held with). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
 	ProblemCode OptString `json:"problem_code"`
 	// What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted
-	// unless refused or held.
+	// unless refused, held or dismissed (the problem it was held with).
 	ProblemDetail OptString `json:"problem_detail"`
 	// The document's number as it states it (IBT-001). Omitted until processed, and for a document that
 	// could not be read.
@@ -46487,8 +46558,9 @@ type EInvoice struct {
 	// `fetch_operation_id` too. Omitted with `entered_at`.
 	EntryFetchOperationID OptUUID `json:"entry_fetch_operation_id"`
 	// The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this
-	// e-invoice's bytes): a credit memo (`kind` `credit_memo`, its `reference_invoice_id` the invoice it
-	// cites when that is a posted invoice of the supplier) for a tax credit note. Omitted unless entered.
+	// e-invoice's bytes; source `manual` for one a person entered by hand and linked, T65f): a credit memo
+	// (`kind` `credit_memo`, its `reference_invoice_id` the invoice it cites when that is a posted invoice
+	// of the supplier) for a tax credit note. Omitted unless entered.
 	SupplierInvoiceID OptUUID `json:"supplier_invoice_id"`
 	// That invoice's document number. Omitted with `supplier_invoice_id`.
 	SupplierInvoiceNumber OptString `json:"supplier_invoice_number"`
@@ -46504,6 +46576,16 @@ type EInvoice struct {
 	SupplierID OptUUID `json:"supplier_id"`
 	// The supplier's name. Omitted with `supplier_invoice_id`.
 	SupplierName OptString `json:"supplier_name"`
+	// A person's last resolution of the held document (T65f, ADR-0061 §7): retried (`retryEInvoice`:
+	// entered, or held again with that attempt's problem), linked (`linkEInvoice`: entered as the invoice
+	// they entered by hand, source `manual`, whose document it became) or dismissed (`dismissEInvoice`).
+	// Omitted while none. Who resolved it is in the audit trail. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Resolution OptString `json:"resolution"`
+	// When a person last resolved it. Omitted with `resolution`.
+	ResolvedAt OptDateTime `json:"resolved_at"`
+	// Why it was dismissed, as the person gave it. Omitted unless dismissed.
+	DismissalReason OptString `json:"dismissal_reason"`
 	// The SHA-256 of its bytes as received.
 	SHA256 string `json:"sha256"`
 	// The size of its bytes as received.
@@ -46664,6 +46746,21 @@ func (s *EInvoice) GetSupplierID() OptUUID {
 // GetSupplierName returns the value of SupplierName.
 func (s *EInvoice) GetSupplierName() OptString {
 	return s.SupplierName
+}
+
+// GetResolution returns the value of Resolution.
+func (s *EInvoice) GetResolution() OptString {
+	return s.Resolution
+}
+
+// GetResolvedAt returns the value of ResolvedAt.
+func (s *EInvoice) GetResolvedAt() OptDateTime {
+	return s.ResolvedAt
+}
+
+// GetDismissalReason returns the value of DismissalReason.
+func (s *EInvoice) GetDismissalReason() OptString {
+	return s.DismissalReason
 }
 
 // GetSHA256 returns the value of SHA256.
@@ -46849,6 +46946,21 @@ func (s *EInvoice) SetSupplierID(val OptUUID) {
 // SetSupplierName sets the value of SupplierName.
 func (s *EInvoice) SetSupplierName(val OptString) {
 	s.SupplierName = val
+}
+
+// SetResolution sets the value of Resolution.
+func (s *EInvoice) SetResolution(val OptString) {
+	s.Resolution = val
+}
+
+// SetResolvedAt sets the value of ResolvedAt.
+func (s *EInvoice) SetResolvedAt(val OptDateTime) {
+	s.ResolvedAt = val
+}
+
+// SetDismissalReason sets the value of DismissalReason.
+func (s *EInvoice) SetDismissalReason(val OptString) {
+	s.DismissalReason = val
 }
 
 // SetSHA256 sets the value of SHA256.
@@ -47179,6 +47291,25 @@ func (s *EInvoiceDeadlinePage) SetNextPageToken(val OptString) {
 
 func (*EInvoiceDeadlinePage) listEInvoiceTransmissionDeadlinesRes() {}
 
+// Why a held e-invoice will not be entered (ADR-0061 §7).
+// Ref: #/components/schemas/EInvoiceDismissal
+type EInvoiceDismissal struct {
+	// Why it will not be entered (sent in error, replaced by the supplier): a text, not white space alone
+	// (422 `request.validation_failed` naming `reason`). Kept with the document as `dismissal_reason`; not
+	// in the event or the audit record.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *EInvoiceDismissal) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *EInvoiceDismissal) SetReason(val string) {
+	s.Reason = val
+}
+
 // A fetch of e-invoices from a provider (ADR-0061 §4).
 // Ref: #/components/schemas/EInvoiceFetch
 type EInvoiceFetch struct {
@@ -47223,6 +47354,24 @@ func (s *EInvoiceHeaders) SetResponse(val EInvoice) {
 }
 
 func (*EInvoiceHeaders) getEInvoiceRes() {}
+
+// The supplier invoice a person entered by hand from a held e-invoice (ADR-0061 §7).
+// Ref: #/components/schemas/EInvoiceLink
+type EInvoiceLink struct {
+	// The invoice (`getSupplierInvoice`): entered by hand, of the document's company, supplier and number,
+	// without a document of its own.
+	SupplierInvoiceID uuid.UUID `json:"supplier_invoice_id"`
+}
+
+// GetSupplierInvoiceID returns the value of SupplierInvoiceID.
+func (s *EInvoiceLink) GetSupplierInvoiceID() uuid.UUID {
+	return s.SupplierInvoiceID
+}
+
+// SetSupplierInvoiceID sets the value of SupplierInvoiceID.
+func (s *EInvoiceLink) SetSupplierInvoiceID(val uuid.UUID) {
+	s.SupplierInvoiceID = val
+}
 
 // One page of e-invoices, newest received first.
 // Ref: #/components/schemas/EInvoicePage
@@ -67283,6 +67432,30 @@ func (s *LegalEntityUpdate) SetName(val OptString) {
 func (s *LegalEntityUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
+
+type LinkEInvoiceBadRequest Problem
+
+func (*LinkEInvoiceBadRequest) linkEInvoiceRes() {}
+
+type LinkEInvoiceForbidden Problem
+
+func (*LinkEInvoiceForbidden) linkEInvoiceRes() {}
+
+type LinkEInvoiceNotFound Problem
+
+func (*LinkEInvoiceNotFound) linkEInvoiceRes() {}
+
+type LinkEInvoicePreconditionFailed Problem
+
+func (*LinkEInvoicePreconditionFailed) linkEInvoiceRes() {}
+
+type LinkEInvoicePreconditionRequired Problem
+
+func (*LinkEInvoicePreconditionRequired) linkEInvoiceRes() {}
+
+type LinkEInvoiceUnprocessableEntity Problem
+
+func (*LinkEInvoiceUnprocessableEntity) linkEInvoiceRes() {}
 
 // A legal entity's liquidity forecast (ADR-0051 §9, T53e): the flows expected per currency and bucket
 // from the read date. Amounts are signed: a payment out is negative.
@@ -106122,6 +106295,26 @@ type RetireEntryTemplatePreconditionRequired Problem
 
 func (*RetireEntryTemplatePreconditionRequired) retireEntryTemplateRes() {}
 
+type RetryEInvoiceBadRequest Problem
+
+func (*RetryEInvoiceBadRequest) retryEInvoiceRes() {}
+
+type RetryEInvoiceForbidden Problem
+
+func (*RetryEInvoiceForbidden) retryEInvoiceRes() {}
+
+type RetryEInvoiceNotFound Problem
+
+func (*RetryEInvoiceNotFound) retryEInvoiceRes() {}
+
+type RetryEInvoicePreconditionFailed Problem
+
+func (*RetryEInvoicePreconditionFailed) retryEInvoiceRes() {}
+
+type RetryEInvoicePreconditionRequired Problem
+
+func (*RetryEInvoicePreconditionRequired) retryEInvoiceRes() {}
+
 type RetryOutgoingEInvoiceTaxDataBadRequest Problem
 
 func (*RetryOutgoingEInvoiceTaxDataBadRequest) retryOutgoingEInvoiceTaxDataRes() {}
@@ -117387,6 +117580,7 @@ func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()                   {}
 func (*ServiceUnavailableHeaders) importBankStatementsRes()                  {}
+func (*ServiceUnavailableHeaders) linkEInvoiceRes()                          {}
 func (*ServiceUnavailableHeaders) lockCostCenterRes()                        {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                      {}
 func (*ServiceUnavailableHeaders) lockPlanCategoryRes()                      {}
@@ -117449,6 +117643,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountEndRes()                 {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ServiceUnavailableHeaders) retireCatalogItemRes()                     {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()                   {}
+func (*ServiceUnavailableHeaders) retryEInvoiceRes()                         {}
 func (*ServiceUnavailableHeaders) reverseAllocationRunRes()                  {}
 func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()               {}
 func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()                {}
@@ -125065,6 +125260,7 @@ func (*TooManyRequestsHeaders) declineQuotationRes()                      {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) disableConnectorRes()                      {}
 func (*TooManyRequestsHeaders) discardConsolidationRunRes()               {}
+func (*TooManyRequestsHeaders) dismissEInvoiceRes()                       {}
 func (*TooManyRequestsHeaders) drillAnalyticsQueryRes()                   {}
 func (*TooManyRequestsHeaders) enableConnectorRes()                       {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                       {}
@@ -125250,6 +125446,7 @@ func (*TooManyRequestsHeaders) getYearCloseRes()                          {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()                   {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) importBankStatementsRes()                  {}
+func (*TooManyRequestsHeaders) linkEInvoiceRes()                          {}
 func (*TooManyRequestsHeaders) listAccountsRes()                          {}
 func (*TooManyRequestsHeaders) listAccrualProposalsRes()                  {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                     {}
@@ -125510,6 +125707,7 @@ func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
+func (*TooManyRequestsHeaders) retryEInvoiceRes()                         {}
 func (*TooManyRequestsHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*TooManyRequestsHeaders) reverseAllocationRunRes()                  {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
@@ -126058,6 +126256,7 @@ func (*UnauthorizedHeaders) declineQuotationRes()                      {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) disableConnectorRes()                      {}
 func (*UnauthorizedHeaders) discardConsolidationRunRes()               {}
+func (*UnauthorizedHeaders) dismissEInvoiceRes()                       {}
 func (*UnauthorizedHeaders) drillAnalyticsQueryRes()                   {}
 func (*UnauthorizedHeaders) enableConnectorRes()                       {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                       {}
@@ -126243,6 +126442,7 @@ func (*UnauthorizedHeaders) getYearCloseRes()                          {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()                   {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()                   {}
 func (*UnauthorizedHeaders) importBankStatementsRes()                  {}
+func (*UnauthorizedHeaders) linkEInvoiceRes()                          {}
 func (*UnauthorizedHeaders) listAccountsRes()                          {}
 func (*UnauthorizedHeaders) listAccrualProposalsRes()                  {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                     {}
@@ -126503,6 +126703,7 @@ func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
+func (*UnauthorizedHeaders) retryEInvoiceRes()                         {}
 func (*UnauthorizedHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*UnauthorizedHeaders) reverseAllocationRunRes()                  {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}

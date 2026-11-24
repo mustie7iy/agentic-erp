@@ -42,8 +42,12 @@
 // supplier invoice through the Payables port, sharing capture's rules
 // without a model, in a savepoint, so any refusal of the entering holds
 // the document with its problem and only the machinery failing fails the
-// step. Credit notes and people's resolution of held documents follow in
-// T65e-T65f, sending in E3-E4.
+// step. T65e enters credit notes; E2-E4 render, send and follow outgoing
+// e-invoices.
+//
+// T65f lets people resolve a held document (ADR-0061 §7, §13): retry its
+// entering, link it to the invoice they entered by hand (payables'
+// Attach), or dismiss it with a reason; people only.
 package einvoicing
 
 import (
@@ -64,7 +68,7 @@ const KindFetch = "einvoicing.fetch"
 
 // Statuses of an e-invoice (ADR-0061 §7): received, refused
 // (StatusRefused, T65c), entered and held (StatusEntered, StatusHeld,
-// T65d).
+// T65d), dismissed (StatusDismissed, T65f).
 const (
 	StatusReceived = "received"
 )

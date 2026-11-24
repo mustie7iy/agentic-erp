@@ -4670,9 +4670,21 @@ a fetch lists every `received` document by `einvoice_to_process` (the
 status alone), which replaces `einvoice_to_enter`; no column changes.
 A processed document that was not refused states its `document_kind`,
 which the entering branches on (`einvoice_read_processed`, migrations
-000437, 000438; review:batch87). The
-other columns below arrive with the slices that write them (T65f;
-the lines and totals read are not stored, the bytes being kept).
+000437, 000438; review:batch87). T65f (migrations 000464, 000465) lets
+a person resolve a held document: `resolution` (retried, linked or
+dismissed, the last) with `resolved_at`, set only from `held` and after
+the fetch's entry (`einvoice_resolved`); the status `dismissed`, final,
+keeping the problem it was held with (`einvoice_problem`,
+`einvoice_entry` widened) and `dismissal_reason`, a text of at most 500
+characters exactly then (`einvoice_dismissal_reason`); a held document
+changes only by a resolution (a new `resolved_at`) and the fetch's entry
+stays (the trigger); at most one document names an invoice
+(`einvoice_invoice_once`, a partial unique index on `tenant_id`,
+`supplier_invoice_id`). An invoice entered by hand (`manual`) may carry a
+document: the e-invoice a person linked to it, its hash and key kept as a
+captured one's (`supplier_invoice_document_hash` widened; EDI and
+migrated invoices still carry none). The lines and totals read are not
+stored, the bytes being kept.
 E2 (migration 000415; ADR-0061 As built E2) adds
 `einvoicing.outgoing_einvoice`: a posted customer invoice or credit memo
 of a UAE company rendered as a PINT AE e-invoice, once per customer
