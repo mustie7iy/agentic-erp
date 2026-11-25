@@ -54,22 +54,19 @@ const (
 )
 
 // LinkTarget is a supplier invoice as a link checks it: its company, its
-// supplier and reference, how it was entered, its status and kind, its
+// supplier and reference, how it was entered, its status, its kind and
+// the kind of e-invoice one of that kind is entered from ("" for none,
+// the caller's mapping, so that entering and a link share it), its
 // invoice date, currency, gross and tax amounts, and whether it has a
 // document of its own.
 type LinkTarget struct {
 	LegalEntityID, SupplierID         uuid.UUID
 	SupplierReference, Source, Status string
-	Kind, Currency                    string
+	Kind, EnteredFrom, Currency       string
 	InvoiceDate                       time.Time
 	Gross, Tax                        money.Minor
 	HasDocument                       bool
 }
-
-// enteredKind is the kind of supplier invoice each kind of document is
-// entered as (a tax credit note as a credit memo, ADR-0061 §6), the only
-// kind a held document is linked to.
-var enteredKind = map[string]string{KindTaxInvoice: "invoice", KindTaxCreditNote: "credit_memo"}
 
 // sourceManual is the source of an invoice a person entered by hand, the
 // only one a held document is linked to.
@@ -346,8 +343,8 @@ func (e *Endpoints) statedDifferences(ctx context.Context, read Document, target
 	if !holds {
 		out = append(out, "its supplier does not hold the seller's TRN (IBT-031) ending "+read.Seller.TRN[max(0, len(read.Seller.TRN)-4):])
 	}
-	if want := enteredKind[read.Kind]; target.Kind != want {
-		out = append(out, "its kind "+target.Kind+" is not "+want+", the kind the e-invoice's "+read.Kind+" (IBT-003) is entered as")
+	if target.EnteredFrom != read.Kind {
+		out = append(out, "its kind "+target.Kind+" is not the kind the e-invoice's "+read.Kind+" (IBT-003) is entered as")
 	}
 	if day := read.IssueDate.Format(time.DateOnly); target.InvoiceDate.Format(time.DateOnly) != day {
 		out = append(out, "its invoice date "+target.InvoiceDate.Format(time.DateOnly)+" is not the e-invoice's issue date "+day+" (IBT-002)")

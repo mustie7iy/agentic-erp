@@ -229,10 +229,11 @@ func TestLinkEInvoice(t *testing.T) {
 		})
 	}
 	check(t, "no such invoice", link("GOI-2B", uuid.New())["code"], "request.reference_not_found")
-	// The kind is fixed once entered: a credit memo of its own, once the loop's last case cancelled the invoice above.
+	// The kind is fixed once entered: a credit memo of its own, the invoice above cancelled to free its reference.
+	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'cancelled', version = version + 1 WHERE id = $1`, again)
 	memo := link("GOI-2B", s.manualOf(t, "credit_memo", s.le, "GOI-2", "parked"))
 	check(t, "another kind", words(memo["code"], len(apitest.List(t, memo, "errors"))), "einvoicing.link_mismatch 1")
-	if want := "its kind credit_memo is not invoice, the kind the e-invoice's invoice (IBT-003) is entered as"; !strings.Contains(memo["detail"].(string), want) {
+	if want := "its kind credit_memo is not the kind the e-invoice's invoice (IBT-003) is entered as"; !strings.Contains(memo["detail"].(string), want) {
 		t.Errorf("the detail %q: want it to name %q", memo["detail"], want)
 	}
 	parked := s.manual(t, s.le, "X-1", "parked")
@@ -268,6 +269,39 @@ func TestLinkEInvoice(t *testing.T) {
 	if got, _ := s.doc(t, "GOI-6"); got["status"] != "held" || got["resolution"] != nil {
 		t.Errorf("GOI-6 after the refusals: got %v %v, want still held, unresolved", got["status"], got["resolution"])
 	}
+}
+
+// TestLinkHeldCreditNote (T65f): a tax credit note held for naming no
+// invoice is linked to the credit memo the clerk enters by hand with its
+// figures, never to an invoice with them (IBT-003).
+func TestLinkHeldCreditNote(t *testing.T) {
+	s := &resolving{entering: enteringScene(t), op: uuid.Must(uuid.NewV7()), bytes: map[string][]byte{}}
+	s.srv.Deliver("CN-3", uaeParticipant, creditNote("CN-3", "DL"))
+	s.recordAll(t, s.op)
+	if got, err := s.e.ProcessEInvoices(context.Background(), s.connector, s.op, s.within()); err != nil || got.Held != 1 {
+		t.Fatalf("the fetch: got %+v (%v), want CN-3 held", got, err)
+	}
+	s.f.Tenant.Grant(t, "einvoicing.einvoice.manage", s.f.Tenant.Human)
+	s.f.Tenant.Grant(t, "payables.invoice.read", s.f.Tenant.Human)
+	link := func(invoice uuid.UUID) (int, map[string]any) {
+		_, tag := s.doc(t, "CN-3")
+		code, m, _ := s.f.Do(http.MethodPost, s.path(t, "CN-3", "link"), fmt.Sprintf(`{"supplier_invoice_id": %q}`, invoice), tag)
+		return code, m
+	}
+	// The credit note's figures: 262.50 AED with 12.50 VAT (creditNote).
+	figures := `gross_amount = 26250, tax_amount = 1250, version = version + 1 WHERE id = $1`
+	invoice := s.manual(t, s.le, "CN-3", "parked")
+	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET `+figures, invoice)
+	code, m := link(invoice)
+	check(t, "an invoice", words(code, m["code"], len(apitest.List(t, m, "errors"))), "422 einvoicing.link_mismatch 1")
+	if want := "its kind invoice is not the kind the e-invoice's credit_note (IBT-003) is entered as"; !strings.Contains(m["detail"].(string), want) {
+		t.Errorf("the detail %q: want it to name %q", m["detail"], want)
+	}
+	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'cancelled', version = version + 1 WHERE id = $1`, invoice)
+	memo := s.manualOf(t, "credit_memo", s.le, "CN-3", "parked")
+	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET `+figures, memo)
+	code, m = link(memo)
+	check(t, "a credit memo", words(code, resolved(m)), "200 entered <nil> linked true "+memo.String())
 }
 
 // TestDismissEInvoice (T65f): a held document is dismissed with a reason,

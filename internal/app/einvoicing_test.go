@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
@@ -19,6 +20,21 @@ import (
 func TestEInvoiceFetchKind(t *testing.T) {
 	if workflows.EInvoiceFetchKind != einvoicing.KindFetch {
 		t.Errorf("got %s, want %s", workflows.EInvoiceFetchKind, einvoicing.KindFetch)
+	}
+}
+
+// TestEnteredFrom (T65f): a supplier invoice of the kind each kind of
+// e-invoice is entered as is entered from that kind, and one of a kind
+// none is entered as (a subsequent debit or credit) from none, so a link
+// compares kinds through one mapping (enteredAs).
+func TestEnteredFrom(t *testing.T) {
+	for kind, want := range map[string]string{payables.KindInvoice: einvoicing.KindTaxInvoice, payables.KindCreditMemo: einvoicing.KindTaxCreditNote,
+		payables.KindSubsequentDebit: "", payables.KindSubsequentCredit: ""} {
+		t.Run(kind, func(t *testing.T) {
+			if got := enteredFrom(kind); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }
 
