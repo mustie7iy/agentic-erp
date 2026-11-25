@@ -142,8 +142,9 @@ func (manyZones) Document(context.Context) (*config.Config, int32, error) {
 // TestReadDaysOfOneLookup (review:batch26): an unfiltered memo record list
 // finds the legal entities of every zoned company in one directory
 // lookup, not one per company; each is dated in its zone, a company
-// without a zone or without a legal entity reads none, and the directory
-// failing fails the list.
+// without a zone or without a legal entity reads none, a configuration
+// without zones reads no legal entity, a zone that does not load and
+// the directory failing fail the list.
 func TestReadDaysOfOneLookup(t *testing.T) {
 	berlin, toronto, other := uuid.New(), uuid.New(), uuid.New()
 	entities := []Entity{{ID: berlin, Company: Company{Code: "2000"}}, {ID: toronto, Company: Company{Code: "3000"}}, {ID: other, Company: Company{Code: "4000"}}}
@@ -169,6 +170,17 @@ func TestReadDaysOfOneLookup(t *testing.T) {
 		if got[id] != w {
 			t.Errorf("legal entity %s's date: got %q, want %q", id, got[id], w)
 		}
+	}
+	listed = 0
+	if err := e.zonedDays(context.Background(), &config.Config{Companies: []config.Company{{Code: "4000"}}}, at(), map[uuid.UUID]readDay{}); err != nil {
+		t.Errorf("no company with a zone: got %v, want no error", err)
+	}
+	if listed != 0 {
+		t.Errorf("directory lookups without a zoned company: got %d, want none", listed)
+	}
+	nowhere := &config.Config{Companies: []config.Company{{Code: "2000", TimeZone: "America/Nowhere"}}}
+	if err := e.zonedDays(context.Background(), nowhere, at(), map[uuid.UUID]readDay{}); err == nil || !strings.Contains(err.Error(), "cash: company 2000") {
+		t.Errorf("a zone that does not load: got %v, want the company's zone refused", err)
 	}
 	e.LegalEntities = countingEntities{err: errors.New("down"), byCode: &byCode, listed: &listed}
 	if _, err := e.readDaysOf(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "cash: legal entities of the zoned companies: down") {

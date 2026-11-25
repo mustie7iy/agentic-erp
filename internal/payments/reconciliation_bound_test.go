@@ -65,6 +65,13 @@ func TestReconcileReadsUnreconciledLines(t *testing.T) {
 	h := endpoints(nil)
 	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		tx, _ := reqctx.TxFrom(ctx) // Committed always puts its transaction in the context
+		// The test's tables hold a few thousand lines of every package's
+		// tests, few enough that the planner may scan one whole where a
+		// production-sized one is read by its keys: with sequential scans
+		// off, what is counted is what the queries ask for, not that choice.
+		if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); err != nil {
+			return err
+		}
 		before := pgtest.RowsRead(t, ctx, tx, "payments", "bank\\_statement\\_line")
 		if _, err := h.ExcludeLine(ctx, uuidOf(r2), 1, func(int32) error { return nil }, "Charged twice."); err != nil {
 			return err
