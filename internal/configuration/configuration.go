@@ -711,7 +711,12 @@ func activate(ctx context.Context, tx pgx.Tx, deps Dependencies, actor reqctx.Pr
 }
 
 // applyRanges creates the document's new number ranges and raises the
-// last number of existing ones; next_value is the database's.
+// last number of existing ones; next_value is the database's. It locks
+// only the ranges it changes, because a posting holding the ledger's
+// determination lock may be drawing from the others (ADR-0048 As built
+// finfix). The insert reads the snapshot for a range and writes only a
+// missing one, safe because the activation lock serializes activations;
+// the raise updates only a range whose last number differs.
 func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx.Principal, doc *config.Config) error {
 	for _, n := range doc.NumberRanges {
 		le, _, ok, err := les.LegalEntityByCode(ctx, n.Company)
@@ -721,13 +726,18 @@ func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx
 		if !ok { // checked on submission; legal entities are never deleted
 			return fmt.Errorf("configuration: no legal entity %s for number range %s", n.Company, n.Key())
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO config.number_range AS r (tenant_id, id, legal_entity_id, document_type, fiscal_year, prefix,
+		if _, err := tx.Exec(ctx, `INSERT INTO config.number_range (tenant_id, id, legal_entity_id, document_type, fiscal_year, prefix,
 				first_value, last_value, next_value, is_gapless, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, $9, $10)
-			ON CONFLICT (tenant_id, legal_entity_id, document_type, fiscal_year)
-			DO UPDATE SET last_value = EXCLUDED.last_value, version = r.version + 1 WHERE r.last_value <> EXCLUDED.last_value`,
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8, $7, $9, $10
+			WHERE NOT EXISTS (SELECT FROM config.number_range WHERE legal_entity_id = $3 AND document_type = $4 AND fiscal_year = $5)
+			ON CONFLICT (tenant_id, legal_entity_id, document_type, fiscal_year) DO NOTHING`,
 			actor.TenantID, uuid.Must(uuid.NewV7()), le, n.DocumentType, n.FiscalYear, n.Prefix, n.First, n.Last, n.Gapless, actor.ID); err != nil {
 			return fmt.Errorf("configuration: apply number range %s: %w", n.Key(), err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE config.number_range SET last_value = $4, version = version + 1
+			WHERE legal_entity_id = $1 AND document_type = $2 AND fiscal_year = $3 AND last_value <> $4`,
+			le, n.DocumentType, n.FiscalYear, n.Last); err != nil {
+			return fmt.Errorf("configuration: raise number range %s: %w", n.Key(), err)
 		}
 	}
 	return nil

@@ -299,7 +299,6 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	if err != nil {
 		return nil, err
 	}
-	where, args := entryFilter(params)
 	scope := fmt.Sprintf("listJournalEntries|%s|%s|%v|%v|%d|%s|%s|%s|%s|%s|%s|%d|%s", apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value,
 		apitypes.Ptr[time.Time](params.PostingDateFrom), apitypes.Ptr[time.Time](params.PostingDateTo), params.FiscalYear.Value, params.SourceContext.Value,
 		apitypes.Ptr[uuid.UUID](params.SourceDocumentID), apitypes.Ptr[uuid.UUID](params.LedgerID), apitypes.Ptr[uuid.UUID](params.CostCenterID),
@@ -313,6 +312,14 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 	if err != nil {
 		return nil, err
 	}
+	ledgerID, found, err := ledgerOrLeading(ctx, tx, apitypes.Ptr[uuid.UUID](params.LedgerID))
+	if err != nil {
+		return nil, err
+	}
+	if !found { // a ledger the tenant does not have holds no entries
+		return &gen.JournalEntryPage{Items: []gen.JournalEntry{}}, nil
+	}
+	where, args := entryFilter(params, ledgerID)
 	q, args := ks.SQL(entrySelect+` WHERE ($1 OR e.legal_entity_id = ANY($2))`+where, append([]any{access.All, access.IDs}, args...))
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) { return scanEntry(r) })
@@ -343,14 +350,13 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 // entryFilter is the condition and the arguments (from $3) of the journal
 // entries' filters.
 //
-// The ledger is tested inside a CASE on purpose. As a plain condition the
-// planner estimates its selectivity across every tenant's ledgers and
-// multiplies it with the legal entity's, expects a handful of entries,
-// and reads and sorts the legal entity's whole year instead of following
-// a page index (000055) for one page (TestListReadsOnlyItsPage). A CASE
-// is estimated at one half, so the page indexes keep serving the sort,
-// and a page reads its entries and at most their copies in the other
-// ledgers.
+// The ledger is a plain condition, e.ledger_id = $10: the ledger page
+// indexes (000470 to 000472) lead with the company and the ledger, so a
+// page reads only its ledger's entries (TestListReadsOnlyItsLedgersPage,
+// T52). The caller resolves the ledger, the one asked for or the leading
+// one (ledgerOrLeading), before the query: as coalesce($10, the leading
+// ledger) the cached statement's generic plan took an index without the
+// ledger (ADR-0045 As built finfix).
 //
 // An account is asked by a condition of its own, added only when one is
 // named: PostgreSQL turns an EXISTS into a join before it folds
@@ -361,11 +367,11 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 // lines (journal_line_account, 000005) sorted, for one on a few
 // (TestJournalEntriesByAccountBudget). Its line carries the entry's
 // company and period, so that index serves it in full.
-func entryFilter(params gen.ListJournalEntriesParams) (string, []any) {
+func entryFilter(params gen.ListJournalEntriesParams, ledgerID uuid.UUID) (string, []any) {
 	where := ` AND ($3::uuid IS NULL OR e.legal_entity_id = $3)
 		AND ($4 = '' OR e.document_number = $4) AND ($5::date IS NULL OR e.posting_date >= $5) AND ($6::date IS NULL OR e.posting_date <= $6)
 		AND ($7::smallint IS NULL OR e.fiscal_year = $7) AND ($8 = '' OR e.source_context = $8) AND ($9::uuid IS NULL OR e.source_document_id = $9)
-		AND CASE WHEN e.ledger_id = coalesce($10, (SELECT g.id FROM ledger.ledger g WHERE g.is_leading)) THEN true ELSE false END
+		AND e.ledger_id = $10
 		AND ($11::uuid IS NULL OR EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year
 			AND l.journal_entry_id = e.id AND l.cost_center_id = $11))
 		AND ($12::uuid IS NULL OR EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year
@@ -373,7 +379,7 @@ func entryFilter(params gen.ListJournalEntriesParams) (string, []any) {
 		AND ($13::smallint IS NULL OR e.fiscal_period = $13)`
 	args := []any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), params.DocumentNumber.Value, apitypes.Ptr[time.Time](params.PostingDateFrom),
 		apitypes.Ptr[time.Time](params.PostingDateTo), apitypes.Ptr[int32](params.FiscalYear), params.SourceContext.Value,
-		apitypes.Ptr[uuid.UUID](params.SourceDocumentID), apitypes.Ptr[uuid.UUID](params.LedgerID), apitypes.Ptr[uuid.UUID](params.CostCenterID),
+		apitypes.Ptr[uuid.UUID](params.SourceDocumentID), ledgerID, apitypes.Ptr[uuid.UUID](params.CostCenterID),
 		apitypes.Ptr[uuid.UUID](params.ProfitCenterID), apitypes.Ptr[int32](params.FiscalPeriod)}
 	if account, ok := params.AccountID.Get(); ok {
 		where += ` AND EXISTS (SELECT FROM ledger.journal_line l WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year

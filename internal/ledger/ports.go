@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -585,10 +586,21 @@ var determinationFallbacks = map[string]string{
 // (ap_reconciliation, input_tax, bank, ...) in the legal entity, or, for
 // a key with a fallback the company has not set (determinationFallbacks),
 // the fallback's.
+//
+// It holds the tenant's account determination lock shared to the end of
+// the transaction (determinationLock, review:batch93, ADR-0008), so an
+// activation changing a key waits for the posting that read it, and a
+// posting for an activation under way, which it then reads as changed:
+// no posting that determines its accounts here goes to an account an
+// activation has just replaced, and the activation's own checks
+// (applyDetermination) see the posting.
 func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return uuid.Nil, false, err
+	}
+	if err := database.LockTenantShared(ctx, tx, determinationLock); err != nil {
+		return uuid.Nil, false, fmt.Errorf("ledger: account determination %s in %s: %w", key, legalEntity, err)
 	}
 	keys := []string{key}
 	if fallback, ok := determinationFallbacks[key]; ok {

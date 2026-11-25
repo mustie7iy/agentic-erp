@@ -1312,10 +1312,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: a goods movement reads its account determination key with no lock (ledger.Accounts.Determination, internal/ledger/ports.go), so a movement posting while a configuration activation changes a valuation class's stock account can post to the old account after the change commits; read the key FOR SHARE so the activation's update waits for the posting, or the posting for the activation",
-      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted",
+      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted · done (finfix): one tenant lock, shared by Accounts.Determination, exclusive in Setup.Apply (database.LockTenantShared); TestDeterminationAndActivationSerialize; ADR-0048 As built finfix",
       "src": "review:batch93",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: two reads of account determination rows bypass Accounts.Determination and so the tenant's determination lock (GRIROrder's price_difference read in internal/ledger/ports.go, the gr_ir join in internal/ledger/pricedifference.go): a posting driven by them while an activation changes the key can still post to the account it replaced; read them through the lock",
+      "r": "internal/ledger/ports.go GRIROrder · internal/ledger/pricedifference.go · ADR-0048 As built finfix · ADR-0008",
+      "src": "review:batch95",
       "c": []
      },
      {
@@ -1672,9 +1679,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Bound the reconciliation check to the bank's statements from the earliest one not reconciled, before production-sized statement history",
-        "r": "internal/payments/reconciliation.go · T49",
+        "r": "internal/payments/reconciliation.go · T49 · done (finfix): 000469 reconciled_excluded and reconciled_posted_until kept at reconciliation; figures read only unreconciled statements' lines; TestReconcileReadsUnreconciledLines; ADR-0047 As built",
         "src": "baseline",
         "c": []
        }
@@ -1935,9 +1942,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A memo record list finds the legal entities of all zoned companies in one lookup, not one ByCode round trip per company: since T72n7 every new tenant's companies have a zone, so T72n2's saving for a tenant without zones no longer applies",
-      "r": "found in batch 26's integration review (nit) · internal/cash readday.go readDaysOf (LegalEntities.ByCode per company) · ADR-0051 as built (T72n2)",
+      "r": "found in batch 26's integration review (nit) · internal/cash readday.go readDaysOf (LegalEntities.ByCode per company) · ADR-0051 as built (T72n2) · done (finfix): readday.go zonedDays, one LegalEntities.Entities lookup; TestReadDaysOfOneLookup",
       "src": "review:batch26",
       "c": []
      }
@@ -2355,7 +2362,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Leading and non-leading ledgers",
       "r": "T52",
       "c": [
@@ -2395,9 +2402,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Ledger-aware list index and planner statistics for the journal list's ledger filter",
-        "r": "T52",
+        "r": "T52 · done (finfix): 000470-000472 ledger page indexes, plain ledger condition on the resolved ledger, no extended statistics (ADR-0045 As built finfix); TestListReadsOnlyItsLedgersPage, db TestJournalEntryLedgerPageIndexes",
         "src": "baseline",
         "c": []
        }

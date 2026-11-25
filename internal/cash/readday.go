@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,8 +90,8 @@ func (r readDays) args() ([]uuid.UUID, []time.Time) {
 
 // readDaysOf reads the dates, at one instant, of the legal entities a list
 // may show: only's when the list is filtered by it, else those of every
-// company of the configuration with a time zone, found by code (one with
-// no legal entity yet has no records). A tenant without zones reads no
+// company of the configuration with a time zone (zonedDays; one with no
+// legal entity yet has no records). A tenant without zones reads no
 // legal entity. A filter naming a legal entity the directory does not
 // know reads no date for it: it matches no record, so no record is judged
 // on a date, and the list answers an empty page, as it does for a legal
@@ -115,21 +116,37 @@ func (e *Endpoints) readDaysOf(ctx context.Context, only *uuid.UUID) (readDays, 
 		r.byEntity[*only] = d
 		return r, nil
 	}
-	for i := range doc.Companies {
-		co := &doc.Companies[i]
-		if co.TimeZone == "" {
-			continue
-		}
-		id, ok, err := e.LegalEntities.ByCode(ctx, co.Code)
-		if err != nil {
-			return readDays{}, fmt.Errorf("cash: legal entity of company %s: %w", co.Code, err)
-		}
-		if !ok {
-			continue
-		}
-		if r.byEntity[id], err = companyDay(doc, co.Code, now); err != nil {
-			return readDays{}, err
-		}
+	if err := e.zonedDays(ctx, doc, now, r.byEntity); err != nil {
+		return readDays{}, err
 	}
 	return r, nil
+}
+
+// zonedDays dates the legal entity of every company of doc with a time
+// zone in its zone, into byEntity. The legal entities are found in one
+// directory lookup, not one per company (review:batch26): since T72n7
+// every new tenant's companies have a zone, so a list reads them all.
+func (e *Endpoints) zonedDays(ctx context.Context, doc *config.Config, now time.Time, byEntity map[uuid.UUID]readDay) error {
+	if !slices.ContainsFunc(doc.Companies, func(co config.Company) bool { return co.TimeZone != "" }) {
+		return nil
+	}
+	entities, err := e.LegalEntities.Entities(ctx)
+	if err != nil {
+		return fmt.Errorf("cash: legal entities of the zoned companies: %w", err)
+	}
+	byCode := make(map[string]uuid.UUID, len(entities))
+	for _, le := range entities {
+		byCode[le.Code] = le.ID
+	}
+	for i := range doc.Companies {
+		co := &doc.Companies[i]
+		id, ok := byCode[co.Code]
+		if co.TimeZone == "" || !ok {
+			continue
+		}
+		if byEntity[id], err = companyDay(doc, co.Code, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
