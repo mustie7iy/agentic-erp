@@ -2357,3 +2357,82 @@ parties' names and addresses and the materials' classifications in the
 request; screening of sales orders, purchase orders and business
 partners; a delivery sent again by hand; customs declarations,
 preference calculation and licences.
+
+### S1a2 Descriptions by language (2026-11-24)
+
+The first item of "later: material master variants" (plan-supply-chain.md
+§S1a2, lane matdesc): a material's description is its default one, and it
+may have one further description per other language (SAP MAKT, one text
+per material and language, from memory), Arabic for the UAE pilot.
+
+- **Data (migrations 000469, 000470).** `materials.material` gains
+  `description_language`, added with the constant default `en` (no
+  rewrite; every material created before was described in English, and
+  the previous version's inserts, naming none, take it) and its check
+  NOT VALID, validated by 000470 (06 §6.4); it does not change
+  (`material_language_fixed`, a trigger of its own, so `material_fixed`
+  stays as 000435 left it). `materials.material_description` holds the
+  further descriptions, removed by their mark and given back as a unit is
+  (nothing is deleted, 000011); none is in the default's language
+  (`material_description_not_default`), which holds without a lock on the
+  material because that language never changes. **Nothing is
+  contracted:** `description` stays the default description's text, so
+  today's field, the duplicate check, items by material (S1f) and every
+  reader of the published API keep working unchanged.
+- **Language tags (decided by default).** A BCP 47 tag of a language with
+  an optional script and region in canonical form (`ar`, `ar-AE`,
+  `zh-Hant`, `es-419`; the contract's and the database's pattern), its
+  subtags known as `golang.org/x/text/language` holds the IANA registry
+  (`internal/platform/langtag`, new: no helper checked tags before; the web
+  workspace's `i18n` matches locales for its own pages only). A tag not
+  in canonical form is refused naming it (`iw` is written `he`; 422
+  `materials.unknown_language`), as is an unknown subtag. A business
+  partner's ISO 639-1 `language` is such a tag. Alternative: any
+  well-formed BCP 47 tag with extensions; refused as a key for a text no
+  reader would ask for.
+- **Reads (decided by default).** `getMaterial` and `listMaterials` take
+  the query parameter `language`: the API has no `Accept-Language`
+  convention (only the web workspace reads that header, for its own
+  texts), and a parameter keeps a response cacheable by its URL and
+  visible in the contract. The description is found by RFC 4647 §3.4
+  lookup (`ar-AE`, then `ar`), else the default; `description` answers
+  it, `description_language` names its language, `default_language` and
+  `descriptions` (the default first, then the others by language, byte
+  order) give the rest. A read without `language` is answered as before.
+  Responses to `createMaterial` and `updateMaterial`, and a material
+  change's `material_description`, give the default.
+- **Writes (decided by default).** `createMaterial` takes
+  `description_language` (`en` when absent) and `descriptions`;
+  `updateMaterial` takes `descriptions`, replacing the further
+  descriptions as a whole, an empty list removing them, as
+  `alternative_units` does; each language once and none the default's
+  (422 `materials.duplicate_language`). The change is governed as the
+  other fields are (S1b): pending until approved, audited with the texts
+  before and after by language, and `MaterialChangeRequested` carries
+  `description_language` (a create's) and `descriptions`. The default's
+  language does not change in this slice. The texts are master data, not
+  personal data, so the audit records them (ADR-0079 concerns free text
+  about people). The duplicate check stays on the default description.
+- **Events.** MaterialChanged carries `description_language` and
+  `descriptions` (the further ones), not required (ADR-0041).
+- **SAP (S2o's load).** MAKT-SPRAS is mapped to a tag: SAP's
+  one-character keys E, D, F, S, I, P, N, A, R, T, J and 1 (en, de, fr,
+  es, it, pt, nl, ar, ru, tr, ja, zh; T002, from memory, on the
+  specialist list), and a two-letter key as its ISO 639-1 code. The text
+  the load picked before (English, else the first other key) stays the
+  default, in its language (`und`, undetermined, with a warning, for a
+  key with no tag); the material's other MAKT texts become its further
+  descriptions, a key with no tag or a second key of one language left
+  out with a warning. The reconciliation compares every description with
+  its language. A later run does not change the descriptions of a
+  material an earlier run created (the leaf's remainder).
+- **Walkthrough:** step 122 (`step_material`): the bracket in Arabic, read
+  in `ar`, `ar-AE` and French, the zinc-plated change carrying Arabic and
+  French texts, a further English description refused; `step_migrate`
+  shows the steel sheet's German MAKT text as a further description.
+
+**Later for descriptions by language:** changing a material's default
+language; documents and outputs (sales and purchasing items, e-invoices)
+taking the description in their partner's language; the duplicate check
+across languages; a later SAP run's new or changed descriptions of a
+material an earlier run created.

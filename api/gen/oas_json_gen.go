@@ -192272,6 +192272,22 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 		e.Str(s.Description)
 	}
 	{
+		e.FieldStart("description_language")
+		e.Str(s.DescriptionLanguage)
+	}
+	{
+		e.FieldStart("default_language")
+		e.Str(s.DefaultLanguage)
+	}
+	{
+		e.FieldStart("descriptions")
+		e.ArrStart()
+		for _, elem := range s.Descriptions {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("base_unit")
 		e.Str(s.BaseUnit)
 	}
@@ -192329,7 +192345,7 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterial = [21]string{
+var jsonFieldsNameOfMaterial = [24]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -192340,17 +192356,20 @@ var jsonFieldsNameOfMaterial = [21]string{
 	7:  "legal_entity_id",
 	8:  "company_code",
 	9:  "description",
-	10: "base_unit",
-	11: "base_unit_name",
-	12: "material_type",
-	13: "material_group",
-	14: "status",
-	15: "batch_managed",
-	16: "serial_managed",
-	17: "pending_change_id",
-	18: "pending_change_number",
-	19: "plants",
-	20: "alternative_units",
+	10: "description_language",
+	11: "default_language",
+	12: "descriptions",
+	13: "base_unit",
+	14: "base_unit_name",
+	15: "material_type",
+	16: "material_group",
+	17: "status",
+	18: "batch_managed",
+	19: "serial_managed",
+	20: "pending_change_id",
+	21: "pending_change_number",
+	22: "plants",
+	23: "alternative_units",
 }
 
 // Decode decodes Material from json.
@@ -192480,8 +192499,50 @@ func (s *Material) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
-		case "base_unit":
+		case "description_language":
 			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.DescriptionLanguage = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description_language\"")
+			}
+		case "default_language":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.DefaultLanguage = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"default_language\"")
+			}
+		case "descriptions":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
+			}
+		case "base_unit":
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.BaseUnit = string(v)
@@ -192493,7 +192554,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"base_unit\"")
 			}
 		case "base_unit_name":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.BaseUnitName = string(v)
@@ -192505,7 +192566,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"base_unit_name\"")
 			}
 		case "material_type":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialType = string(v)
@@ -192517,7 +192578,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_type\"")
 			}
 		case "material_group":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialGroup = string(v)
@@ -192529,7 +192590,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_group\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -192541,7 +192602,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "batch_managed":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Bool()
 				s.BatchManaged = bool(v)
@@ -192553,7 +192614,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"batch_managed\"")
 			}
 		case "serial_managed":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Bool()
 				s.SerialManaged = bool(v)
@@ -192585,7 +192646,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"pending_change_number\"")
 			}
 		case "plants":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				s.Plants = make([]MaterialPlant, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -192603,7 +192664,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plants\"")
 			}
 		case "alternative_units":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				s.AlternativeUnits = make([]MaterialUnit, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -192632,7 +192693,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00011001,
+		0b11001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -193386,6 +193447,22 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.DescriptionLanguage.Set {
+			e.FieldStart("description_language")
+			s.DescriptionLanguage.Encode(e)
+		}
+	}
+	{
+		if s.Descriptions != nil {
+			e.FieldStart("descriptions")
+			e.ArrStart()
+			for _, elem := range s.Descriptions {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.BaseUnit.Set {
 			e.FieldStart("base_unit")
 			s.BaseUnit.Encode(e)
@@ -193443,16 +193520,18 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialChangeRequested = [9]string{
-	0: "description",
-	1: "base_unit",
-	2: "material_type",
-	3: "batch_managed",
-	4: "serial_managed",
-	5: "material_group",
-	6: "status",
-	7: "plants",
-	8: "alternative_units",
+var jsonFieldsNameOfMaterialChangeRequested = [11]string{
+	0:  "description",
+	1:  "description_language",
+	2:  "descriptions",
+	3:  "base_unit",
+	4:  "material_type",
+	5:  "batch_managed",
+	6:  "serial_managed",
+	7:  "material_group",
+	8:  "status",
+	9:  "plants",
+	10: "alternative_units",
 }
 
 // Decode decodes MaterialChangeRequested from json.
@@ -193472,6 +193551,33 @@ func (s *MaterialChangeRequested) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
+			}
+		case "description_language":
+			if err := func() error {
+				s.DescriptionLanguage.Reset()
+				if err := s.DescriptionLanguage.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description_language\"")
+			}
+		case "descriptions":
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
 			}
 		case "base_unit":
 			if err := func() error {
@@ -193609,6 +193715,22 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 		e.Str(s.Description)
 	}
 	{
+		if s.DescriptionLanguage.Set {
+			e.FieldStart("description_language")
+			s.DescriptionLanguage.Encode(e)
+		}
+	}
+	{
+		if s.Descriptions != nil {
+			e.FieldStart("descriptions")
+			e.ArrStart()
+			for _, elem := range s.Descriptions {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		e.FieldStart("base_unit")
 		e.Str(s.BaseUnit)
 	}
@@ -193666,18 +193788,20 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialCreate = [11]string{
+var jsonFieldsNameOfMaterialCreate = [13]string{
 	0:  "legal_entity_id",
 	1:  "description",
-	2:  "base_unit",
-	3:  "material_type",
-	4:  "material_group",
-	5:  "plants",
-	6:  "alternative_units",
-	7:  "reason",
-	8:  "confirm_duplicate",
-	9:  "batch_managed",
-	10: "serial_managed",
+	2:  "description_language",
+	3:  "descriptions",
+	4:  "base_unit",
+	5:  "material_type",
+	6:  "material_group",
+	7:  "plants",
+	8:  "alternative_units",
+	9:  "reason",
+	10: "confirm_duplicate",
+	11: "batch_managed",
+	12: "serial_managed",
 }
 
 // Decode decodes MaterialCreate from json.
@@ -193714,8 +193838,35 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
+		case "description_language":
+			if err := func() error {
+				s.DescriptionLanguage.Reset()
+				if err := s.DescriptionLanguage.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description_language\"")
+			}
+		case "descriptions":
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
+			}
 		case "base_unit":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.BaseUnit = string(v)
@@ -193727,7 +193878,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"base_unit\"")
 			}
 		case "material_type":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialType = string(v)
@@ -193739,7 +193890,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_type\"")
 			}
 		case "material_group":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialGroup = string(v)
@@ -193834,7 +193985,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b00011111,
+		0b01110011,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -193877,6 +194028,119 @@ func (s *MaterialCreate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *MaterialCreate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialDescription) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialDescription) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("language")
+		e.Str(s.Language)
+	}
+	{
+		e.FieldStart("description")
+		e.Str(s.Description)
+	}
+}
+
+var jsonFieldsNameOfMaterialDescription = [2]string{
+	0: "language",
+	1: "description",
+}
+
+// Decode decodes MaterialDescription from json.
+func (s *MaterialDescription) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialDescription to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "language":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Language = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"language\"")
+			}
+		case "description":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Description = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialDescription")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfMaterialDescription) {
+					name = jsonFieldsNameOfMaterialDescription[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialDescription) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialDescription) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -197150,6 +197414,16 @@ func (s *MaterialUpdate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Descriptions != nil {
+			e.FieldStart("descriptions")
+			e.ArrStart()
+			for _, elem := range s.Descriptions {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.MaterialGroup.Set {
 			e.FieldStart("material_group")
 			s.MaterialGroup.Encode(e)
@@ -197189,13 +197463,14 @@ func (s *MaterialUpdate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialUpdate = [6]string{
+var jsonFieldsNameOfMaterialUpdate = [7]string{
 	0: "description",
-	1: "material_group",
-	2: "status",
-	3: "plants",
-	4: "alternative_units",
-	5: "reason",
+	1: "descriptions",
+	2: "material_group",
+	3: "status",
+	4: "plants",
+	5: "alternative_units",
+	6: "reason",
 }
 
 // Decode decodes MaterialUpdate from json.
@@ -197215,6 +197490,23 @@ func (s *MaterialUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
+			}
+		case "descriptions":
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
 			}
 		case "material_group":
 			if err := func() error {

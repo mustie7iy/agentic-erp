@@ -25280,7 +25280,7 @@ paths:
       tags:
         - materials
       summary: List materials
-      description: "The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description, base unit, type, group and status, its plants and storage locations in the companies the caller may act in, and its alternative units. Filtered by number, plant, status, material type and material group. Sortable by: `number`."
+      description: "The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description, base unit, type, group and status, its plants and storage locations in the companies the caller may act in, and its alternative units. Filtered by number, plant, status, material type and material group; each `description` in the `language` asked for where the material has one, else its default (S1a2). Sortable by: `number`."
       x-permission: materials.material.read
       x-problem-codes:
         - request.invalid_order_by
@@ -25329,6 +25329,15 @@ paths:
           schema:
             type: string
             maxLength: 9
+        - name: language
+          in: query
+          required: false
+          description: "The language to answer each material's `description` in, a BCP 47 tag (ADR-0082 As built S1a2): the material's description in that language, found by RFC 4647 lookup (`ar-AE`, then `ar`), else its default description; `description_language` says which. Absent: the default description."
+          schema:
+            type: string
+            maxLength: 12
+            pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+            example: ar
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -25352,7 +25361,7 @@ paths:
       tags:
         - materials
       summary: Create a material
-      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and the material type do not change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays `pending` and is used nowhere. The change lists the existing materials with the same description, white space and case aside, whatever their status, a pending one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is refused (409 `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
+      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Its `description` is its default one, in `description_language` (`en` when absent); `descriptions` gives it further ones (S1a2), each in a BCP 47 language with known subtags in their canonical form (422 `materials.unknown_language`), each language once and none in the default's (422 `materials.duplicate_language`). The base unit, the material type and the default's language do not change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays `pending` and is used nowhere. The change lists the existing materials with the same description, white space and case aside, whatever their status, a pending one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is refused (409 `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
@@ -25365,6 +25374,7 @@ paths:
         - materials.batch_managed_not_stocked
         - materials.change_pending
         - materials.duplicate_description
+        - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
@@ -25373,6 +25383,7 @@ paths:
         - materials.plant_invalid
         - materials.serial_managed_not_stocked
         - materials.storage_location_invalid
+        - materials.unknown_language
         - materials.unknown_material_type
         - materials.unknown_unit
         - request.validation_failed
@@ -25436,11 +25447,20 @@ paths:
       tags:
         - materials
       summary: Get a material
-      description: "One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description, base unit, type, group and status, its plants and their storage locations in the companies the caller may act in, each with its code and name, and its alternative units with their conversions."
+      description: "One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description, base unit, type, group and status, its plants and their storage locations in the companies the caller may act in, each with its code and name, and its alternative units with their conversions; its descriptions in every language it has, and its `description` in the `language` asked for, else its default (S1a2)."
       x-permission: materials.material.read
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
+        - name: language
+          in: query
+          required: false
+          description: "The language to answer each material's `description` in, a BCP 47 tag (ADR-0082 As built S1a2): the material's description in that language, found by RFC 4647 lookup (`ar-AE`, then `ar`), else its default description; `description_language` says which. Absent: the default description."
+          schema:
+            type: string
+            maxLength: 12
+            pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+            example: ar
       responses:
         "200":
           description: The material.
@@ -25466,7 +25486,7 @@ paths:
       tags:
         - materials
       summary: Request a change of a material
-      description: "Requests a change of a material's description, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at once, a pending change or not (the material answered blocked, with a material change of kind `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a pending update approved later leaves the block in place. Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
+      description: "Requests a change of a material's description, further descriptions, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; `descriptions` replaces its further descriptions, an empty list removing them (S1a2), and `description` sets its default one; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at once, a pending change or not (the material answered blocked, with a material change of kind `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a pending update approved later leaves the block in place. Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
@@ -25474,6 +25494,7 @@ paths:
         - ledger.no_exchange_rate
         - materials.base_unit_conversion
         - materials.change_pending
+        - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
@@ -25482,6 +25503,7 @@ paths:
         - materials.number_taken
         - materials.plant_invalid
         - materials.storage_location_invalid
+        - materials.unknown_language
         - materials.unknown_status
         - materials.unknown_unit
         - request.validation_failed
@@ -40211,6 +40233,7 @@ paths:
         - materials.base_unit_conversion
         - materials.batch_managed_not_stocked
         - materials.change_pending
+        - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
@@ -40218,6 +40241,7 @@ paths:
         - materials.plant_invalid
         - materials.serial_managed_not_stocked
         - materials.storage_location_invalid
+        - materials.unknown_language
         - materials.unknown_material_type
         - materials.unknown_unit
         - partner.address_overlap
@@ -67076,7 +67100,13 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose `material` number range numbers the material, one the caller may act in. The material itself is the tenant's."}
-        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is, as people find it."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is, as people find it: its default description, in `description_language`."}
+        description_language: {type: string, maxLength: 12, pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$", default: en, description: "The default description's language, a BCP 47 tag (ADR-0082 As built S1a2): a language with an optional script and region, in their canonical form, its subtags known. It does not change."}
+        descriptions:
+          type: array
+          maxItems: 50
+          items: {$ref: "#/components/schemas/MaterialDescription"}
+          description: "Its further descriptions, one per language, none in the default's language (SAP's MAKT texts); none when absent."
         base_unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The unit stock and quantities of the material are kept in; it does not change."}
         material_type:
           type: string
@@ -67100,10 +67130,15 @@ components:
         serial_managed: {type: boolean, default: false, description: "Give the material a serial number profile (ADR-0082 As built S2g; SAP's serial number profile, from memory): every goods movement of it names the serial number of each unit it moves (`serial_numbers`), and each serial number is in stock at most once (`GET /v1/serial-numbers`). Only a material kept in stock has one (422 `materials.serial_managed_not_stocked` for `non_stock` and `service`). It does not change."}
     MaterialUpdate:
       type: object
-      description: "Merge patch of a material: its description, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
+      description: "Merge patch of a material: its description, further descriptions, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
       additionalProperties: false
       properties:
-        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is: its default description, in its default language."}
+        descriptions:
+          type: array
+          maxItems: 50
+          items: {$ref: "#/components/schemas/MaterialDescription"}
+          description: "The material's further descriptions, one per language, none in its default language, replacing those it has; an empty list removes them."
         material_group: {type: string, pattern: "^[A-Z0-9_-]{1,9}$", description: "The material group."}
         status:
           type: string
@@ -67123,6 +67158,16 @@ components:
         reason: {type: string, maxLength: 500, description: "Why it is changed, kept on the change for the approver."}
       examples:
         - material_group: FASTENERS
+    MaterialDescription:
+      type: object
+      description: "A material's description in a language (ADR-0082 As built S1a2; SAP MAKT, from memory), stored and answered as given."
+      required: [language, description]
+      additionalProperties: false
+      properties:
+        language: {type: string, maxLength: 12, pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$", description: "The language, a BCP 47 tag: a language with an optional script and region, in their canonical form, its subtags known."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is, in that language."}
+      examples:
+        - {language: ar, description: "دعامة مشغولة M10"}
     MaterialStorageLocation:
       type: object
       description: "A storage location a material is kept in at a plant."
@@ -67160,12 +67205,19 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [number, legal_entity_id, company_code, description, base_unit, base_unit_name, material_type, material_group, status, batch_managed, serial_managed, plants, alternative_units]
+          required: [number, legal_entity_id, company_code, description, description_language, default_language, descriptions, base_unit, base_unit_name, material_type, material_group, status, batch_managed, serial_managed, plants, alternative_units]
           properties:
             number: {type: string, description: "The material's number, unique in the tenant, from the `material` number range of the company that created it.", readOnly: true}
             legal_entity_id: {type: string, format: uuid, description: "The company whose range numbered the material.", readOnly: true}
             company_code: {type: string, description: "That company's code.", readOnly: true}
-            description: {type: string, description: "What the material is."}
+            description: {type: string, description: "What the material is, in the `language` the read asked for where the material has a description in it, else its default description (S1a2)."}
+            description_language: {type: string, description: "The language `description` is in.", readOnly: true}
+            default_language: {type: string, description: "The language of the material's default description; it does not change.", readOnly: true}
+            descriptions:
+              type: array
+              items: {$ref: "#/components/schemas/MaterialDescription"}
+              description: "Its descriptions in every language it has: the default first, then the others by language."
+              readOnly: true
             base_unit: {type: string, description: "The base unit of measure.", readOnly: true}
             base_unit_name: {type: string, description: "The base unit's name.", readOnly: true}
             material_type:
@@ -67204,6 +67256,11 @@ components:
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           company_code: "3000"
           description: Machined bracket M10
+          description_language: en
+          default_language: en
+          descriptions:
+            - {language: en, description: Machined bracket M10}
+            - {language: ar, description: "دعامة مشغولة M10"}
           base_unit: EA
           base_unit_name: Each
           material_type: trading_good
@@ -67255,7 +67312,13 @@ components:
       type: object
       description: "What a material change asks for: the fields it sets, absent when it leaves them. A create's names the whole material; an update's `plants` replace the material's plants in the companies its requester could act in."
       properties:
-        description: {type: string, description: "The description.", readOnly: true}
+        description: {type: string, description: "The default description.", readOnly: true}
+        description_language: {type: string, description: "The default description's language (a create's only).", readOnly: true}
+        descriptions:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialDescription"}
+          description: "The further descriptions, by language, replacing the material's."
+          readOnly: true
         base_unit: {type: string, description: "The base unit (a create's only).", readOnly: true}
         material_type: {type: string, description: "The material type (a create's only).", readOnly: true}
         batch_managed: {type: boolean, description: "Whether the material is managed in batches (a create's only).", readOnly: true}
@@ -67287,7 +67350,7 @@ components:
               readOnly: true
             material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
             material_number: {type: string, description: "The material's number.", readOnly: true}
-            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            material_description: {type: string, description: "The material's default description, as it is now.", readOnly: true}
             status:
               type: string
               x-extensible-enum: [pending, applied, rejected, cancelled]
@@ -67903,7 +67966,7 @@ components:
           properties:
             material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
             material_number: {type: string, description: "The material's number.", readOnly: true}
-            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            material_description: {type: string, description: "The material's default description, as it is now.", readOnly: true}
             plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
             plant_code: {type: string, description: "The plant's code.", readOnly: true}
             plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
@@ -68024,7 +68087,7 @@ components:
             company_code: {type: string, description: "That company's code.", readOnly: true}
             material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
             material_number: {type: string, description: "The material's number.", readOnly: true}
-            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            material_description: {type: string, description: "The material's default description, as it is now.", readOnly: true}
             mrp_type:
               type: string
               x-extensible-enum: [reorder_point, no_planning]

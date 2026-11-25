@@ -209,8 +209,9 @@ func (l *loader) material(ctx context.Context, m sapMaterial, company, numbers m
 	if !ok {
 		return nil // its number was refused (materialNumbers)
 	}
-	in := materials.MigratedMaterial{LegalEntityID: l.t.entities[company[m.plants[0].werks]].ID, Number: number, Description: m.description, BaseUnit: m.baseUnit,
-		Type: m.mtype, Group: m.group, Plants: plants, Units: m.units, Reason: reason}
+	in := materials.MigratedMaterial{LegalEntityID: l.t.entities[company[m.plants[0].werks]].ID, Number: number, Description: m.description,
+		DescriptionLanguage: m.language, Descriptions: m.descriptions, BaseUnit: m.baseUnit, Type: m.mtype, Group: m.group, Plants: plants, Units: m.units,
+		Reason: reason}
 	done, err := l.step(ctx, "MARA", m.number, func() error {
 		id, err := l.e.Materials.CreateMaterial(ctx, in)
 		if err != nil {
