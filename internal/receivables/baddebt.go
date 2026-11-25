@@ -360,15 +360,24 @@ func relieved(ctx context.Context, tx pgx.Tx, v Invoice, entry uuid.UUID, w Writ
 // paid beyond what its write-offs, this one with the earlier ones', leave
 // owed (paidOf, recharge.go): what was paid is no bad debt, and a later
 // payment would charge the relief's tax straight back (422
-// receivables.bad_debt_paid naming write_off_journal_entry_id). The
-// customer's hold orders it with its payments (RechargeLock).
+// receivables.bad_debt_paid naming write_off_journal_entry_id), and
+// relieving one whose lines a clearing settled against another item
+// (notClearedApart). The customer's hold orders it with its payments and
+// clearings (RechargeLock).
 func (e *Endpoints) unpaid(ctx context.Context, tx pgx.Tx, c claim) error {
-	s, err := e.reliefStateOf(ctx, tx, c.invoice)
+	s, err := reliefStateOf(ctx, tx, e.WriteOffs, c.invoice)
 	if err != nil {
 		return err
 	}
 	for _, line := range c.written.CreditLines {
 		s.credits = append(s.credits, ledger.ItemRef{FiscalYear: c.written.EntryYear, EntryID: c.in.WriteOffEntryID, LineNo: line})
+	}
+	r, err := relievedLinesOf(ctx, tx, c.invoice, s.credits)
+	if err != nil {
+		return err
+	}
+	if err := e.notClearedApart(ctx, r); err != nil {
+		return err
 	}
 	paid, foreign, err := paidOf(ctx, tx, c.invoice, s.credits)
 	switch {

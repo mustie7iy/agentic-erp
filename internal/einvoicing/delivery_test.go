@@ -103,9 +103,17 @@ func TestDeliveryStatus(t *testing.T) {
 	noteOp := s.send(t, noteID, s.connector)
 	s.advance(t, noteID, noteOp)
 	check(t, "a credit note not yet transmitted corrects nothing", s.delivery(t, id), "BUSINESS_RULE_FATAL rejected TDD_APPROVED <nil>")
+	got, _ = s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
+	check(t, "rejected, corrected by none", got["transmission"].(map[string]any)["corrected_by"], nil)
 	s.later(30 * time.Second)
 	s.advance(t, noteID, noteOp)
 	check(t, "corrected once the credit note is transmitted", s.delivery(t, id), "BUSINESS_RULE_FATAL corrected TDD_APPROVED <nil>")
+	got, _ = s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
+	by, _ := got["transmission"].(map[string]any)["corrected_by"].(map[string]any)
+	check(t, "the credit note that corrected it (review:batch86)", words(by["outgoing_einvoice_id"], by["customer_invoice_id"], by["customer_invoice_number"]),
+		words(noteID, memo, note["customer_invoice_number"]))
+	got, _ = s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+noteID, "", "")
+	check(t, "the credit note itself corrected by none", got["transmission"].(map[string]any)["corrected_by"], nil)
 	for outcome, want := range map[string]int{"rejected": 0, "corrected": 1, "pending": 1} {
 		page, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices?delivery_outcome="+outcome, "", "")
 		check(t, outcome, len(page["items"].([]any)), want)

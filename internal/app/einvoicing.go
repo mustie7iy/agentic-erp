@@ -33,9 +33,16 @@ func EInvoicing(cfg Config) *einvoicing.Endpoints {
 }
 
 // einvoicePayables gives the einvoicing context payables' entering of
-// e-invoices and the entered invoices' numbers and suppliers (ADR-0061
-// §2, §6).
+// e-invoices, the entered invoices' numbers and suppliers (ADR-0061 §2,
+// §6), and a held e-invoice's link to an invoice entered by hand: the
+// invoice read under its lock, the supplier's tax identifiers by
+// fingerprint (payables' partner port) and the document attached (§7, T65f).
 type einvoicePayables struct{ e *payables.Endpoints }
+
+// enteredAs is the kind of supplier invoice each kind of e-invoice is
+// entered as (ADR-0061 §6): a tax invoice an invoice, a tax credit note a
+// credit memo. Entering writes it; a link compares it (T65f).
+var enteredAs = map[string]string{einvoicing.KindTaxInvoice: payables.KindInvoice, einvoicing.KindTaxCreditNote: payables.KindCreditMemo}
 
 func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvoicing.Entered, error) {
 	d := in.Document
@@ -47,7 +54,7 @@ func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvo
 	// Only a credit note names the invoices it credits and its reason: an
 	// invoice may state a preceding invoice (IBG-03), which capture would
 	// refuse it for.
-	e := payables.EInvoice{LegalEntityID: in.LegalEntityID, Kind: payables.KindInvoice, Number: d.Number, IssueDate: d.IssueDate, Currency: d.Currency,
+	e := payables.EInvoice{LegalEntityID: in.LegalEntityID, Kind: enteredAs[d.Kind], Number: d.Number, IssueDate: d.IssueDate, Currency: d.Currency,
 		Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines, Tax: d.Tax, Gross: d.TaxInclusive,
 		SHA256: in.SHA256, ObjectRef: in.ContentRef}
 	// A document not in AED is handed over stating each line's VAT in AED
@@ -56,7 +63,6 @@ func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvo
 		e.LocalTax, e.LocalCurrency = &lc, einvoicing.AccountingCurrency
 	}
 	if d.Kind == einvoicing.KindTaxCreditNote {
-		e.Kind = payables.KindCreditMemo
 		for _, c := range d.Cited {
 			e.Cited = append(e.Cited, payables.Citation{Number: c.Number, Date: c.Date})
 		}
@@ -87,6 +93,22 @@ func (a einvoicePayables) Invoices(ctx context.Context, ids []uuid.UUID) (map[uu
 			SupplierID: v.SupplierID, SupplierName: names[v.SupplierID].Name}
 	}
 	return out, nil
+}
+
+func (einvoicePayables) Linkable(ctx context.Context, id uuid.UUID) (einvoicing.LinkTarget, bool, error) {
+	a, ok, err := payables.Invoices{}.Attachable(ctx, id)
+	return einvoicing.LinkTarget{LegalEntityID: a.LegalEntityID, SupplierID: a.SupplierID, SupplierReference: a.SupplierReference, Source: a.Source,
+		Status: a.Status, Kind: a.Kind, InvoiceDate: a.InvoiceDate, Currency: a.Currency, Gross: a.Gross, Tax: a.Tax, HasDocument: a.HasDocument}, ok, err
+}
+
+func (einvoicePayables) EnteredAs(kind string) string { return enteredAs[kind] }
+
+func (a einvoicePayables) HoldsTaxNumber(ctx context.Context, supplier uuid.UUID, trn string) (bool, error) {
+	return a.e.TaxNumbers.HasTaxNumber(ctx, supplier, trn)
+}
+
+func (einvoicePayables) Attach(ctx context.Context, id uuid.UUID, sha []byte, ref string) error {
+	return payables.Invoices{}.Attach(ctx, id, sha, ref)
 }
 
 // einvoiceConnectors gives the einvoicing context the einvoice_provider

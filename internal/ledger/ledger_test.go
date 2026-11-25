@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/collections"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	orders "github.com/mustie7iy/agentic-erp/internal/controlling"
@@ -23,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/receivables"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -69,7 +71,8 @@ func endpoints() *ledger.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &ledger.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, PartnerNames: app.LedgerPartners{}, PersonNames: app.LedgerPeople{}, Releases: payments.PeriodReleases{},
 		CostObjects: orders.CostObjects{},
-		Numbers:     configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: fixture.Approvals(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{}}
+		Numbers:     configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: fixture.Approvals(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
+		Clearings: receivables.Clearings{WriteOffs: collections.WriteOffs{}}}
 }
 
 // changes is the center changes' approval handler as the API wires it.

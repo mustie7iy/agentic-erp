@@ -10790,7 +10790,7 @@ paths:
       tags:
         - ledger
       summary: Clear open items
-      description: "Clears open items against each other and posts the clearing entry, dated `clearing_date`. The clearing date is on or after the latest posting date of the items: an item is not cleared before it was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date). A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run settles or frees it."
+      description: "Clears open items against each other and posts the clearing entry, dated `clearing_date`. The clearing date is on or after the latest posting date of the items: an item is not cleared before it was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date). A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run settles or frees it. A clearing of a relieved customer invoice's items (`createBadDebtRelief`), of the residual items its incoming payments left or of its write-offs' credits against an item that is not that invoice's, such as a credit posted straight to the customer or another relieved invoice's line, is refused (422 `receivables.relieved_invoice_clearing` naming that item in `items`): what the customer pays of a relieved invoice is applied with an incoming payment (`createIncomingPayment`), which charges the relieved tax again (ADR-0049 As built batch 94). One invoice's such items cleared with each other alone, such as its item with a relieved write-off's credit, settle nothing paid and are cleared."
       x-permission: ledger.clearing.post
       x-problem-codes:
         - config.no_number_range
@@ -10826,6 +10826,7 @@ paths:
         - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
+        - receivables.relieved_invoice_clearing
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -18845,7 +18846,7 @@ paths:
       tags:
         - receivables
       summary: Recover the output tax of a customer invoice written off as a bad debt
-      description: "Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049 As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country, whose rule its tax specialist has not confirmed), written off by a dispute case's write-off (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax items, the total rounded once half away from zero and shared out by their tax, in the invoice's currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months have passed since the supply, counted by default from the later of the invoice's date and its net due date (a relief dated on or before the day they pass is refused, 422 `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`); a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code` is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax (ADR-0049 §11). A code of another kind or direction, or without a component of each of the invoice's tax components with an account, levying the line's emirate exactly where the invoice's item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on `posting_date` (else today, the company's date in its time zone), which is its tax date and must be in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422 `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the tax recovered with the code and the emirate, and their total credited to the company's `payment_difference_expense` account, which the write-off debited (422 `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409 `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`; `createDisputeCase` disputes at most what is still owed of an item); two claims of one invoice at once are ordered by the invoice's row lock. An audit record is written with it. A retry with the same `Idempotency-Key` answers the relief recorded. An invoice the customer has paid beyond what its write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a payment applied in another currency is refused too (422 `receivables.relieved_invoice_other_currency`). When the customer pays later, the payment charges the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`)."
+      description: "Recovers the output tax of a customer invoice written off as a bad debt, a step of its own (ADR-0049 As built, bad debt relief; confirmed by the tax specialist on 2026-11-21): a plain write-off or a short payment corrects no tax, and a dispute's price cut is corrected by a credit memo. The invoice (`customer_invoice_id`) is a posted customer invoice (409 `receivables.invalid_status` otherwise; a credit or debit memo is refused, 422 `receivables.bad_debt_not_invoice`) of a company of the United Arab Emirates or of Canada (422 `receivables.bad_debt_relief_not_provided` for another country, whose rule its tax specialist has not confirmed), written off by a dispute case's write-off (`POST /v1/dispute-cases/{id}:resolve` with `resolution` `write_off`, T86d), whose journal entry `write_off_journal_entry_id` names (422 `receivables.not_written_off` when that entry is no write-off of an item of the invoice's entry). What the write-off wrote off of the invoice, in proportion to the invoice's gross amount, recovers that share of each of the invoice's output tax items, the total rounded once half away from zero and shared out by their tax, in the invoice's currency and at its booked rate in the company's; an invoice that bore no output tax, or whose share rounds to nothing, is refused (422 `receivables.no_output_tax`). A UAE company recovers it under Federal Decree-Law No. 8 of 2017 Art. 64 as the research of 2026-11-21 states it: once six months have passed since the supply, counted by default from the later of the invoice's date and its net due date (a relief dated on or before the day they pass is refused, 422 `receivables.bad_debt_relief_too_early` naming `posting_date`), and once the customer was notified of what was written off (`customer_notified_on`, required: 422 `receivables.customer_not_notified`); a Canadian company under the Excise Tax Act s.231, once the account is written off. A notice given is dated from the invoice's date to the relief's (422 `receivables.invalid_notice_date`). `tax_code` is the adjustment code the relief is posted under (kind `adjustment`): for a UAE company an output code whose `vat` component levies the emirate each line names, so the VAT 201 reports the relief in box 1's adjustment column of the emirate the invoice's item named; for a Canadian company an input code of the GST/HST, which the GST34 reports on line 107, adjustments that decrease the net tax (ADR-0049 §11). A code of another kind or direction, or without a component of each of the invoice's tax components with an account, levying the line's emirate exactly where the invoice's item named one, is refused (422 `receivables.invalid_relief_tax_code`). The relief posts one journal entry, document type `SA`, `source_context` `receivables`, the invoice's number its reference, on `posting_date` (else today, the company's date in its time zone), which is its tax date and must be in an open period (409 `ledger.period_not_open`) and not before the write-off posted (422 `receivables.relief_before_write_off`): per adjustment component account and emirate a debit of the tax recovered with the code and the emirate, and their total credited to the company's `payment_difference_expense` account, which the write-off debited (422 `receivables.no_write_off_account` without it). Counted cumulatively: the share of the invoice's tax in all its reliefs' write-offs, rounded once, less what the earlier reliefs recovered, so partial write-offs never recover more than the invoice bore. A write-off of an invoice is relieved once (409 `receivables.bad_debt_relief_claimed`), and the invoice's reliefs together relieve at most its gross amount (422 `receivables.bad_debt_relief_exceeds_invoice` naming `write_off_journal_entry_id`; `createDisputeCase` disputes at most what is still owed of an item); two claims of one invoice at once are ordered by the invoice's row lock. An audit record is written with it. A retry with the same `Idempotency-Key` answers the relief recorded. An invoice the customer has paid beyond what its write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a payment applied in another currency is refused too (422 `receivables.relieved_invoice_other_currency`). One whose items or write-off credits a ledger clearing (`createClearing`) settled against an item that is none of them, such as a credit posted straight to the customer, is refused too (422 `receivables.relieved_invoice_clearing` naming `customer_invoice_id`, its detail naming the clearing): what it settled is not counted as paid. When the customer pays later, the payment charges the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.post
       x-agent: false
       x-problem-codes:
@@ -18916,6 +18917,7 @@ paths:
         - receivables.no_write_off_account
         - receivables.not_written_off
         - receivables.relief_before_write_off
+        - receivables.relieved_invoice_clearing
         - receivables.relieved_invoice_other_currency
         - request.invalid_amount
       parameters:
@@ -29135,7 +29137,7 @@ paths:
       tags:
         - revenue
       summary: Run revenue recognition for a company and a fiscal period
-      description: "Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068 §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue contract of the company the run reads the recognition schedule to the period's last day (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the order item's posted billing to that day (the net amounts of the billing documents posted on or before it, without tax). Billing credited each item's revenue account with what was billed; per obligation the run's entry moves that account by the revenue recognized to the period's end less the revenue billed to it, less what earlier runs posted for the obligation: a credit when more is recognized than billed and posted so far, a debit when less. The contract's position is the sum of its obligations' recognized less billed amounts: the entry takes the position the last run left off its account and puts the new one on the company's contract asset account (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or on its contract liability account (`account_determination.contract_liability`) when revenue billed exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The amounts are cumulative, so a delivery or a billing document dated into a period already run is caught up by the next run, and a contract whose figures did not move since its last posting posts nothing. Each contract that moved posts one balanced journal entry (document type `SA`, `source_context` `revenue`, dated the period's last day, the sales order's number as its reference) to every ledger the company keeps. One run per company and period: a second is refused (409 `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as the first answered it. A company's first run is for any open period; each later run is for a later period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated in the first version. `legal_entity_id` is a company the caller may act in (422 `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422 `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`); the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active contracts (422 `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the run (for example an obligation's revenue account that is no longer postable). The answer is the run with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings, one per contract that moved, each naming its journal entry. Audited, and published as RevenueRecognized. Human-only (`x-agent: false`)."
+      description: "Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068 §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue contract of the company whose revenue can still move (one that has not ended, and an ended one until a run took its contract asset or liability off; one ended with nothing posted is not read) the run reads the recognition schedule to the period's last day (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the order item's posted billing to that day (the net amounts of the billing documents posted on or before it, without tax). Billing credited each item's revenue account with what was billed; per obligation the run's entry moves that account by the revenue recognized to the period's end less the revenue billed to it, less what earlier runs posted for the obligation: a credit when more is recognized than billed and posted so far, a debit when less. The contract's position is the sum of its obligations' recognized less billed amounts: the entry takes the position the last run left off its account and puts the new one on the company's contract asset account (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or on its contract liability account (`account_determination.contract_liability`) when revenue billed exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The amounts are cumulative, so a delivery or a billing document dated into a period already run is caught up by the next run, and a contract whose figures did not move since its last posting posts nothing. Each contract that moved posts one balanced journal entry (document type `SA`, `source_context` `revenue`, dated the period's last day, the sales order's number as its reference) to every ledger the company keeps. One run per company and period: a second is refused (409 `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as the first answered it. A company's first run is for any open period; each later run is for a later period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated in the first version. `legal_entity_id` is a company the caller may act in (422 `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422 `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`); the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when nothing is to post; the company has at most 2,000 active contracts (422 `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the run (for example an obligation's revenue account that is no longer postable). The answer is the run with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings, one per contract that moved, each naming its journal entry. Audited, and published as RevenueRecognized. Human-only (`x-agent: false`)."
       x-permission: revenue.recognition.run
       x-agent: false
       x-problem-codes:
@@ -30638,6 +30640,248 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/e-invoices/{id}:retry":
+    post:
+      operationId: retryEInvoice
+      tags:
+        - einvoicing
+      summary: Enter a held e-invoice again
+      description: "Enters a held e-invoice again (ADR-0061 §7, T65f), after the cause of its hold was corrected (the purchase order, the supplier's tax identifiers, the company's account determination): in the request's transaction, as a fetch enters a valid document (§6) but in the caller's name and company access, its bytes read again from the store and compared with the hash recorded. The answer is the document: `entered` naming the supplier invoice it was entered as, or still `held` with the problem of this attempt (`problem_code`, `problem_detail`), 200 either way: a refusal of the entering is the document's state, not the request's. A document the rules refuse by now, one not in AED that does not state each line's VAT in AED, and a tax credit note naming no invoice stay held with that problem. Either way `resolution` becomes `retried` and `resolved_at` the time, audited (`einvoicing.einvoice.retried`, with the outcome) and published (EInvoiceChanged, status_before `held`). Refused: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored bytes gone or not those received (409 `einvoicing.document_changed`). Not found (404) for a company the caller may not act in. 503 while the server has no object storage. People only (`x-agent: false`): agents read e-invoices and propose; a person acts (ADR-0061 §13)."
+      x-permission: einvoicing.einvoice.manage
+      x-agent: false
+      x-problem-codes:
+        # Every code but einvoicing.document_changed, einvoicing.einvoice_not_held and request.version_mismatch is a refusal of
+        # payables' entering, which TestProblemCodes lists as a retry enters the document as a fetch does; such a refusal rolls the
+        # entering back and holds the document with its code (200, `problem_code`), so the request is not expected to answer it.
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - einvoicing.document_changed
+        - einvoicing.einvoice_not_held
+        # The database's answer to an invoice another e-invoice names (einvoice_invoice_once), which TestProblemCodes lists for
+        # every operation that writes e-invoices; this one cannot reach it, as it names no invoice another document names.
+        - einvoicing.invoice_already_linked
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.internal_order_invalid
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - payables.account_not_postable
+        - payables.account_required
+        - payables.already_captured
+        - payables.amount_too_large
+        - payables.assignment_from_order
+        - payables.capture_needs_account
+        - payables.capture_needs_order
+        - payables.currency_mismatch
+        - payables.duplicate_invoice
+        - payables.einvoice_seller_ambiguous
+        - payables.einvoice_seller_unknown
+        - payables.intercompany_billing_entered
+        - payables.invalid_purchase_order
+        - payables.invalid_quantity
+        - payables.invalid_reference_invoice
+        - payables.invalid_tax_code
+        - payables.local_tax_mismatch
+        - payables.mixed_purchase_orders
+        - payables.negative_amount
+        - payables.no_tax_rate
+        - payables.po_item_required
+        - payables.purchase_order_required
+        - payables.quantity_not_zero
+        - payables.reference_not_allowed
+        - payables.supplier_not_usable
+        - payables.tax_date_human_only
+        - payables.tax_mismatch
+        - payables.unit_mismatch
+        - payables.unknown_currency
+        - payables.unknown_kind
+        - payables.unknown_payment_method
+        - payables.unknown_po_item
+        - payables.unknown_tax_code
+        - payables.unknown_unit
+        - payables.unreadable_document
+        - request.invalid_amount
+        - request.invalid_extension
+        - request.rule_refused
+        - request.rule_unevaluable
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The document after the attempt: entered, or still held with this attempt's problem."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        # Payables' refusals of the entering (TestProblemCodes/statuses): each rolls the entering back and holds the document
+        # (200), so a retry is not expected to answer 422; declared as the codes are.
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/e-invoices/{id}:link":
+    post:
+      operationId: linkEInvoice
+      tags:
+        - einvoicing
+      summary: Link a held e-invoice to the invoice a person entered by hand
+      description: "Records that a person entered a held e-invoice by hand (ADR-0061 §7, T65f; SAP Document and Reporting Compliance's assignment of an inbound e-document to an invoice posted manually): the document becomes `entered`, naming that supplier invoice and its supplier, `resolution` `linked`, and the invoice's document becomes the e-invoice's bytes (`getSupplierInvoiceDocument`), whether the invoice is parked, on hold or posted, as a document never changes what was posted; audited (`einvoicing.einvoice.linked` and the invoice's `payables.supplier_invoice.document_attached`) and published (EInvoiceChanged, status_before `held`). The invoice must be one entered by hand (source `manual`), not rejected, cancelled or reversed, of the document's company, of the supplier holding the seller's TRN (IBT-031) as a tax identifier, of the kind the document is entered as (IBT-003: a tax invoice an `invoice`, a tax credit note a `credit_memo`), with the document's issue date (IBT-002) as its invoice date, in the document's currency (IBT-005) with its total with VAT (IBT-112) as its gross amount and its VAT total (IBT-110) as its tax amount, compared exactly in minor units, with the document's number (IBT-001) as its supplier reference, and without a document of its own; otherwise 422 `einvoicing.link_mismatch`, its detail and field errors naming each that differs (the TRN by its last four characters only; the amounts with their currency). The invoice is read under its lock, held until the document is attached, so what is compared is what the document is attached to. An invoice another e-invoice names already is refused with 409 `einvoicing.invoice_already_linked` naming it (at most one e-invoice names an invoice); one whose document already is these bytes, 409 `payables.already_captured`. Refused also: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored bytes gone or not those received (409 `einvoicing.document_changed`); an invoice the tenant has none of, or of a company the caller may not act in (422 `request.reference_not_found`). Besides `einvoicing.einvoice.manage` the caller needs `payables.invoice.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Not found (404) for a company the caller may not act in. 503 while the server has no object storage. People only (`x-agent: false`, ADR-0061 §13)."
+      x-permission: einvoicing.einvoice.manage
+      x-also-permissions:
+        - payables.invoice.read
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.document_changed
+        - einvoicing.einvoice_not_held
+        - einvoicing.invoice_already_linked
+        - einvoicing.link_mismatch
+        - payables.already_captured
+        # The database's answers to a duplicate reference, an intercompany billing entered twice and a negative amount
+        # (supplier_invoice_no_duplicates, _billing_once, _amounts_not_negative), which TestProblemCodes lists for every operation
+        # that writes supplier invoices; a link cannot reach them, as it sets only the invoice's document.
+        - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
+        - payables.negative_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The invoice the person entered by hand.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EInvoiceLink"
+            examples:
+              entered_by_hand:
+                summary: The invoice Alex entered from the held e-invoice
+                value:
+                  supplier_invoice_id: 0192a000-0000-7000-8000-000000000e31
+      responses:
+        "200":
+          description: "The document, entered, naming the invoice."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/e-invoices/{id}:dismiss":
+    post:
+      operationId: dismissEInvoice
+      tags:
+        - einvoicing
+      summary: Dismiss a held e-invoice that will not be entered
+      description: "Closes a held e-invoice that will not be entered (ADR-0061 §7, T65f): sent in error, or replaced by the supplier. The document becomes `dismissed`, final, keeping the problem it was held with, with the reason given (`dismissal_reason`), `resolution` `dismissed`; audited (`einvoicing.einvoice.dismissed`, without the reason's text, ADR-0079) and published (EInvoiceChanged, status_before `held`). Refused: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); a reason that is white space alone (422 `request.validation_failed`). Not found (404) for a company the caller may not act in. People only (`x-agent: false`, ADR-0061 §13)."
+      x-permission: einvoicing.einvoice.manage
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.einvoice_not_held
+        # The database's answer to an invoice another e-invoice names (einvoice_invoice_once), which TestProblemCodes lists for
+        # every operation that writes e-invoices; this one cannot reach it, as it names no invoice another document names.
+        - einvoicing.invoice_already_linked
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the document will not be entered.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EInvoiceDismissal"
+            examples:
+              sent_twice:
+                summary: The supplier sent the invoice twice
+                value:
+                  reason: The supplier sent GOI-2003 twice; the first is entered.
+      responses:
+        "200":
+          description: "The document, dismissed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/outgoing-e-invoices:
     get:
       operationId: listOutgoingEInvoices
@@ -31343,7 +31587,7 @@ paths:
       tags:
         - closing
       summary: Sign off a period close
-      description: "Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058 §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409 `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its check found) and nothing is kept (`:check` records a result); when all pass each result is recorded on its task. Each covered ledger's period must then be `closed` or `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off after its period stopped taking postings, and a sign-off never closes a period. Each `closed` covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a period already locked is left as it is, and a period changed by someone else between its read and its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it, and the close is `signed_off`. A close already signed off whose covered periods are all locked is refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff."
+      description: "Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058 §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409 `closing.tasks_open`, naming them); where the close's company separates sign-off from preparation (`companies[].close.sign_off_separation`, on unless the company sets it false; ADR-0058 As built T64o), a caller who completed one of the close's tasks as they stand, a manual task by `:complete` or a check by its first passing run, is refused before the checks run (409 `closing.signer_is_preparer`, naming those tasks): another person signs it off; then every check task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its check found) and nothing is kept (`:check` records a result); when all pass each result is recorded on its task. Each covered ledger's period must then be `closed` or `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off after its period stopped taking postings, and a sign-off never closes a period. Each `closed` covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a period already locked is left as it is, and a period changed by someone else between its read and its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it, and the close is `signed_off`. A close already signed off whose covered periods are all locked is refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff."
       x-permission: closing.close.sign_off
       x-also-permissions:
         - ledger.period.lock
@@ -31353,6 +31597,7 @@ paths:
         - closing.checks_failing
         - closing.close_signed_off
         - closing.period_not_closed
+        - closing.signer_is_preparer
         - closing.tasks_open
         - config.not_bootstrapped
         - ledger.invalid_period_status
@@ -32085,7 +32330,7 @@ paths:
       tags:
         - closing
       summary: Sign off a year close
-      description: "Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE` in one statement, by period, then the leading ledger first, then by ledger code (the order postings lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its check found) and nothing is kept; when all pass each result is recorded on its task. Every regular period of each covered ledger must be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked: the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed` or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is left as it is. After it every period of the year is locked in the covered ledgers, and a posting into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and their name, when, the note and, per covered ledger, its special periods and whether this sign-off locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060 §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as YearCloseSignedOff."
+      description: "Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE` in one statement, by period, then the leading ledger first, then by ledger code (the order postings lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then refused while a manual task is open (409 `closing.tasks_open`, naming them); where the close's company separates sign-off from preparation (`companies[].close.sign_off_separation`, on unless the company sets it false; ADR-0058 As built T64o), a caller who completed one of the close's tasks as they stand, a manual task by `:complete` or a check by its first passing run, is refused before the checks run (409 `closing.signer_is_preparer`, naming those tasks): another person signs it off; every check task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its check found) and nothing is kept; when all pass each result is recorded on its task. Every regular period of each covered ledger must be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked: the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed` or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is left as it is. After it every period of the year is locked in the covered ledgers, and a posting into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and their name, when, the note and, per covered ledger, its special periods and whether this sign-off locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. Who signed is recorded; a company running without separation of duties, as the pilot may until go-live, sets `sign_off_separation` false (product owner 2026-11-04, ADR-0060 §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as YearCloseSignedOff."
       x-permission: closing.close.sign_off
       x-also-permissions:
         - ledger.period.lock
@@ -32095,6 +32340,7 @@ paths:
         - closing.checks_failing
         - closing.close_signed_off
         - closing.period_not_closed
+        - closing.signer_is_preparer
         - closing.tasks_open
         - closing.year_periods_not_locked
         - config.not_bootstrapped
@@ -67433,7 +67679,7 @@ components:
         fiscal_period: {type: integer, format: int32, description: "The fiscal period run.", readOnly: true}
         posting_date: {type: string, format: date, description: "The period's last day: the day revenue is recognized to and the entries are dated.", readOnly: true}
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency (ISO 4217), which every amount of the run is in.", readOnly: true}
-        contract_count: {type: integer, format: int32, description: "The active contracts of the company the run read.", readOnly: true}
+        contract_count: {type: integer, format: int32, description: "The active contracts of the company the run read: those whose revenue can still move, an ended one until a run took its position off.", readOnly: true}
         posting_count: {type: integer, format: int32, description: "The contracts whose figures moved since their last posting: the journal entries the run posted, one each.", readOnly: true}
         recognized_amount: {$ref: "#/components/schemas/Money", description: "The revenue recognized to the period's last day of all the contracts read."}
         billed_amount: {$ref: "#/components/schemas/Money", description: "The revenue billed to the period's last day of all the contracts read: their posted billing documents' net amounts."}
@@ -70387,15 +70633,15 @@ components:
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company of that participant; null when the document is addressed to none of them."}
         company_code: {type: [string, 'null'], description: "The company's code; null with `legal_entity_id`."}
         company_name: {type: [string, 'null'], description: "The company's name; null with `legal_entity_id`."}
-        status: {type: string, description: "Open enum: received (recorded; once processed, read as a PINT AE document and found valid, until it is entered or held), refused (T65c: read and refused by validation, `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as `payables.capture_needs_order` for one naming no purchase order (but a tax credit note for a volume discount, entered without one; batch 89: held with `payables.capture_needs_account` when the company has no account for discounts received, `payables.einvoice_seller_unknown` or `payables.einvoice_seller_ambiguous` when no or several suppliers of the company hold the seller's TRN), or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that is not for a volume discount, for a person to resolve; `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several). The later slices add dismissed (ADR-0061 §7)."}
+        status: {type: string, description: "Open enum: received (recorded; once processed, read as a PINT AE document and found valid, until it is entered or held), refused (T65c: read and refused by validation, `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as `payables.capture_needs_order` for one naming no purchase order (but a tax credit note for a volume discount, entered without one; batch 89: held with `payables.capture_needs_account` when the company has no account for discounts received, `payables.einvoice_seller_unknown` or `payables.einvoice_seller_ambiguous` when no or several suppliers of the company hold the seller's TRN), or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that is not for a volume discount, for a person to resolve; `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several) or dismissed (T65f: a held document a person closed with a reason, `dismissal_reason`, keeping the problem it was held with; final). A person resolves a held document (`resolution`): entered again (`retryEInvoice`: entered, or held with that attempt's problem), linked to the invoice they entered by hand (`linkEInvoice`: entered) or dismissed (`dismissEInvoice`)."}
         processed_at: {type: string, format: date-time, description: "When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing it or leaving it received. Omitted until then; every fetch processes the documents of its connector not processed yet."}
         processed_fetch_operation_id: {type: string, format: uuid, description: "The fetch that processed it: its Operation's id. Omitted with `processed_at`."}
         validated_against: {type: string, description: "The release of the PINT AE rules it was validated against (ADR-0061 §5 C2), such as `PINT AE Billing 1.0.4`. Omitted with `processed_at`."}
         problem_code:
           type: string
           x-extensible-enum: [einvoicing.unreadable, einvoicing.unsupported_document, einvoicing.missing_field, einvoicing.amount_precision, einvoicing.totals_inconsistent, einvoicing.not_addressed_to_company, einvoicing.tax_currency_not_entered, einvoicing.credit_note_names_no_invoice, einvoicing.credit_note_names_several_invoices, payables.capture_needs_order, payables.unreadable_document, payables.einvoice_seller_unknown, payables.duplicate_invoice, payables.already_captured, payables.capture_needs_account, payables.einvoice_seller_ambiguous]
-          description: "Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-        problem_detail: {type: string, maxLength: 2000, description: "What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted unless refused or held."}
+          description: "Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused, held or dismissed (T65f: the problem a dismissed document was held with). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        problem_detail: {type: string, maxLength: 2000, description: "What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted unless refused, held or dismissed (the problem it was held with)."}
         document_number: {type: string, description: "The document's number as it states it (IBT-001). Omitted until processed, and for a document that could not be read."}
         document_kind:
           type: string
@@ -70407,12 +70653,18 @@ components:
         specification: {type: string, description: "The specification it states it follows (IBT-024, CustomizationID). Omitted with `document_number`."}
         entered_at: {type: string, format: date-time, description: "When a fetch entered or held it (T65d). Omitted until then."}
         entry_fetch_operation_id: {type: string, format: uuid, description: "The fetch that entered or held it: its Operation's id, which lists the document under `fetch_operation_id` too. Omitted with `entered_at`."}
-        supplier_invoice_id: {type: string, format: uuid, description: "The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this e-invoice's bytes): a credit memo (`kind` `credit_memo`, its `reference_invoice_id` the invoice it cites when that is a posted invoice of the supplier) for a tax credit note. Omitted unless entered."}
+        supplier_invoice_id: {type: string, format: uuid, description: "The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this e-invoice's bytes; source `manual` for one a person entered by hand and linked, T65f): a credit memo (`kind` `credit_memo`, its `reference_invoice_id` the invoice it cites when that is a posted invoice of the supplier) for a tax credit note. Omitted unless entered."}
         supplier_invoice_number: {type: string, description: "That invoice's document number. Omitted with `supplier_invoice_id`."}
         supplier_reference: {type: string, description: "That invoice's supplier reference, the e-invoice's number as entered. Omitted with `supplier_invoice_id`."}
         supplier_invoice_status: {type: string, description: "That invoice's status now (`SupplierInvoice.status`: parked, on_hold, posted and the others). Omitted with `supplier_invoice_id`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1.", x-extensible-enum: [parked, on_hold, posted, rejected, cancelled, reversed]}
         supplier_id: {type: string, format: uuid, description: "That invoice's supplier, the business partner whose tax identifier is the seller's TRN. Omitted with `supplier_invoice_id`."}
         supplier_name: {type: string, description: "The supplier's name. Omitted with `supplier_invoice_id`."}
+        resolution:
+          type: string
+          x-extensible-enum: [retried, linked, dismissed]
+          description: "A person's last resolution of the held document (T65f, ADR-0061 §7): retried (`retryEInvoice`: entered, or held again with that attempt's problem), linked (`linkEInvoice`: entered as the invoice they entered by hand, source `manual`, whose document it became) or dismissed (`dismissEInvoice`). Omitted while none. Who resolved it is in the audit trail. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        resolved_at: {type: string, format: date-time, description: "When a person last resolved it. Omitted with `resolution`."}
+        dismissal_reason: {type: string, maxLength: 500, description: "Why it was dismissed, as the person gave it. Omitted unless dismissed."}
         sha256: {type: string, pattern: "^[0-9a-f]{64}$", description: The SHA-256 of its bytes as received, hex.}
         size: {type: integer, format: int64, description: The size of its bytes as received.}
         fetch_operation_id: {type: string, format: uuid, description: "The fetch that recorded it: its Operation's id."}
@@ -70422,6 +70674,20 @@ components:
         changed_at: {type: [string, 'null'], format: date-time, description: "When a fetch found those bytes; null with `changed_sha256`."}
         changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those bytes: its Operation's id, which lists the document under `fetch_operation_id` too; null with `changed_sha256`."}
         version: {type: integer, format: int32}
+    EInvoiceLink:
+      type: object
+      description: "The supplier invoice a person entered by hand from a held e-invoice (ADR-0061 §7)."
+      required: [supplier_invoice_id]
+      additionalProperties: false
+      properties:
+        supplier_invoice_id: {type: string, format: uuid, description: "The invoice (`getSupplierInvoice`): entered by hand, of the document's company, supplier and number, without a document of its own."}
+    EInvoiceDismissal:
+      type: object
+      description: "Why a held e-invoice will not be entered (ADR-0061 §7)."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why it will not be entered (sent in error, replaced by the supplier): a text, not white space alone (422 `request.validation_failed` naming `reason`). Kept with the document as `dismissal_reason`; not in the event or the audit record."}
     OutgoingEInvoiceRender:
       type: object
       description: "A posted customer document to render as an e-invoice (ADR-0061 §9, As built E2)."
@@ -70550,7 +70816,7 @@ components:
       description: "An e-invoice's submission to the accredited provider (ADR-0061 As built E3): the outbox of its transmission and what the provider reported of it."
       required: [connector_id, connector_name, operation_id, business_type, status, provider_status, tracking_id, attempts, resends, problem, next_check_at,
         submitted_at, completed_at, delivery_status, delivery_detail, delivered_at, delivery_outcome, tax_data_status, tax_data_at, tax_data_request,
-        follow_check_at, tax_data_awaited, version]
+        follow_check_at, tax_data_awaited, corrected_by, version]
       properties:
         connector_id: {type: string, format: uuid, description: "The connector it is sent through."}
         connector_name: {type: string, description: "The connector's name."}
@@ -70578,7 +70844,12 @@ components:
         delivery_outcome:
           type: [string, 'null']
           x-extensible-enum: [pending, accepted, rejected, corrected, undelivered]
-          description: "What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED: to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025, transmitted), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED: to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025, transmitted: `corrected_by` names it), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        corrected_by:
+          oneOf:
+            - {$ref: "#/components/schemas/OutgoingEInvoiceCorrection"}
+            - {type: 'null'}
+          description: "The credit note that corrected a rejected e-invoice (`delivery_outcome` corrected; review:batch86): the first transmitted credit note of the company naming it (IBT-025), rendered after it, by its e-invoice and its customer credit memo; null for any other outcome."
         tax_data_status: {type: [string, 'null'], description: "The tax data document's status at the authority's corner, as the provider last reported it once completed (As built E4; Evatra: TDD_SEND, TDD_FAILED, TDD_APPROVED, TDD_ACKNOWLEDGED, TDD_REJECTED, WITHDRAW_SEND, WITHDRAW_FAILED); null while none is reported. A person may send a failed one again (`retryOutgoingEInvoiceTaxData`) or withdraw a reported one (`withdrawOutgoingEInvoiceTaxData`). Open enumeration."}
         tax_data_at: {type: [string, 'null'], format: date-time, description: "When that status was recorded."}
         tax_data_request:
@@ -70588,6 +70859,14 @@ components:
         tax_data_awaited: {type: [string, 'null'], description: "After a request was made, the status the call found, until the provider shows another; meanwhile a new request is refused (409 `einvoicing.tax_data_request_pending`). Null otherwise."}
         follow_check_at: {type: [string, 'null'], format: date-time, description: "When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to an hour); null before completion, once both are final and nothing is awaited, or after 500 reads. Each read moves `version`, and so the ETag."}
         version: {type: integer, format: int32, description: "The submission's version."}
+    OutgoingEInvoiceCorrection:
+      type: object
+      description: "A transmitted credit note that corrects a rejected e-invoice (ADR-0061 As built E4, the worklist to correct by credit note)."
+      required: [outgoing_einvoice_id, customer_invoice_id, customer_invoice_number]
+      properties:
+        outgoing_einvoice_id: {type: string, format: uuid, description: "The credit note's e-invoice (`getOutgoingEInvoice`)."}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer credit memo it renders (`getCustomerInvoice`)."}
+        customer_invoice_number: {type: string, description: "That credit memo's number, the credit note's (IBT-001)."}
     OutgoingEInvoiceTransmissionProblem:
       type: object
       description: "Why a submission failed: a problem code a consumer can branch on and what happened."

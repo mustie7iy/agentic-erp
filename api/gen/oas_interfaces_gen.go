@@ -669,6 +669,10 @@ type DiscardConsolidationRunRes interface {
 	discardConsolidationRunRes()
 }
 
+type DismissEInvoiceRes interface {
+	dismissEInvoiceRes()
+}
+
 type DrillAnalyticsQueryRes interface {
 	drillAnalyticsQueryRes()
 }
@@ -1419,6 +1423,10 @@ type HoldSupplierInvoiceRes interface {
 
 type ImportBankStatementsRes interface {
 	importBankStatementsRes()
+}
+
+type LinkEInvoiceRes interface {
+	linkEInvoiceRes()
 }
 
 type ListAccountsRes interface {
@@ -2479,6 +2487,10 @@ type RetireControlRes interface {
 
 type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
+}
+
+type RetryEInvoiceRes interface {
+	retryEInvoiceRes()
 }
 
 type RetryOutgoingEInvoiceTaxDataRes interface {
