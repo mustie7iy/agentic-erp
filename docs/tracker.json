@@ -2355,7 +2355,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Leading and non-leading ledgers",
       "r": "T52",
       "c": [
@@ -2395,9 +2395,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Ledger-aware list index and planner statistics for the journal list's ledger filter",
-        "r": "T52",
+        "r": "T52 · done (finfix): 000470-000472 ledger page indexes, plain ledger condition on the resolved ledger, no extended statistics (ADR-0045 As built finfix); TestListReadsOnlyItsLedgersPage, db TestJournalEntryLedgerPageIndexes",
         "src": "baseline",
         "c": []
        }

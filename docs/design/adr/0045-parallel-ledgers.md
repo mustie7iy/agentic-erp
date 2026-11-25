@@ -169,9 +169,23 @@ the number range), so dropping it is safe during a rolling deploy. The copies ar
 T52b lists a copy's supplier lines as open items and reverses a copy
 alone, so no company is assigned a parallel ledger until every replica
 runs T52b. The journal
-list's ledger filter needs no index: a page follows the page indexes
-(000055) and reads at most its entries' copies besides (the filter is
-written so the planner does not underestimate it, T52c). Nothing
+list's ledger filter first needed no index: a page followed the page
+indexes (000055) and read at most its entries' copies besides (the filter
+written as a CASE so the planner did not underestimate it, T52c). As built
+(finfix, T52): the ledger page indexes 000470–000472 (company, ledger, then
+posting date, document number, or period and posting date, with id) serve
+the filter, which is now a plain condition on the ledger asked for or the
+leading one, resolved before the list's query, so a page reads its entries
+alone (`TestListReadsOnlyItsLedgersPage`). **Decided by default** (for the
+product owner's review): no extended statistics object. The planner's
+misestimate of the ledger's selectivity (across every tenant's ledgers)
+is harmless once the ledger is a column of the index the page follows,
+and an extended statistics object on the partitioned journal would not
+inform the per-partition scans nor a cached statement's generic plan,
+whose ledger is a parameter (PostgreSQL's planner, from memory); the
+test runs each list six times so the generic plan is the one measured.
+The ledger-less page indexes stay for reads across ledgers; dropping them
+is a contract step for when none uses them. Nothing
 is backfilled: a company is assigned its ledgers by the next activation, so
 until then `GET /v1/ledgers` lists 0L without legal entities. Until T52b a
 posting may still name any ledger of the tenant; T52b limits it to the

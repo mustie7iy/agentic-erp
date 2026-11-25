@@ -1586,7 +1586,10 @@ A journal entry's period in the page order (T73j2, migration 000186):
 year's partition) gives a period's first page of entries, as the page
 indexes of 000055 give a year's; with `journal_line_account` it serves the
 journal list's `account_id` and `fiscal_period` filters, a trial
-balance's row drilled down to its entries.
+balance's row drilled down to its entries. The ledger page indexes (T52,
+migrations 000470–000472: `journal_entry_page_ledger_posting`,
+`_number`, `_period`) put the ledger after the company in each page
+order, so the list's ledger filter reads one ledger's page alone.
 
 Balances by account assignment (T56f, ADR-0050 §7, migration 000163).
 `assignment_balance` holds, per ledger, company, account, cost center,
