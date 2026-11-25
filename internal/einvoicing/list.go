@@ -60,13 +60,18 @@ type EInvoice struct {
 	EntryAt                       *time.Time
 	EntryFetchedBy                *uuid.UUID
 	SupplierInvoiceID, SupplierID *uuid.UUID
-	Version                       int32
+	// Resolution is a person's last resolution of the held document and
+	// ResolvedAt when (T65f), DismissalReason the reason given for its
+	// dismissal; nil while none.
+	Resolution, DismissalReason *string
+	ResolvedAt                  *time.Time
+	Version                     int32
 }
 
 const einvoiceColumns = `id, connector_id, message_id, receiver, legal_entity_id, status, sha256, size, fetch_operation_id, received_at, acknowledged_at,
 	changed_hash, changed_at, changed_fetch_operation_id, processed_at, processed_fetch_operation_id, validated_against, problem_code, problem_detail,
 	document_number, document_kind, issue_date, currency, gross_amount, specification, entry_at, entry_fetch_operation_id, supplier_invoice_id,
-	supplier_id, version`
+	supplier_id, resolution, resolved_at, dismissal_reason, version`
 
 // fields are the destinations of einvoiceColumns, in order.
 func (d *EInvoice) fields() []any {
@@ -74,7 +79,8 @@ func (d *EInvoice) fields() []any {
 		&d.ReceivedAt, &d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.ChangedFetchedBy}
 	processed := []any{&d.ProcessedAt, &d.ProcessedBy, &d.ValidatedAgainst, &d.ProblemCode, &d.ProblemDetail, &d.DocumentNumber, &d.DocumentKind,
 		&d.IssueDate, &d.Currency, &d.Gross, &d.Specification}
-	return append(append(append(recorded, processed...), &d.EntryAt, &d.EntryFetchedBy, &d.SupplierInvoiceID, &d.SupplierID), &d.Version)
+	return append(append(append(recorded, processed...), &d.EntryAt, &d.EntryFetchedBy, &d.SupplierInvoiceID, &d.SupplierID), &d.Resolution,
+		&d.ResolvedAt, &d.DismissalReason, &d.Version)
 }
 
 func scanEInvoice(r pgx.Row) (EInvoice, error) {
@@ -249,11 +255,15 @@ func (n names) toAPI(d EInvoice) gen.EInvoice {
 }
 
 // enteredToAPI sets what the entering recorded (T65d): when and by which
-// fetch, and the invoice entered with its number, supplier reference,
-// status and supplier, each omitted while there is none.
+// fetch, a person's resolution (T65f), and the invoice entered with its
+// number, supplier reference, status and supplier, each omitted while
+// there is none.
 func (n names) enteredToAPI(d EInvoice, out *gen.EInvoice) {
 	setOpt(&out.EnteredAt, d.EntryAt)
 	setOpt(&out.EntryFetchOperationID, d.EntryFetchedBy)
+	setOpt(&out.Resolution, d.Resolution)
+	setOpt(&out.ResolvedAt, d.ResolvedAt)
+	setOpt(&out.DismissalReason, d.DismissalReason)
 	if d.SupplierInvoiceID == nil {
 		return
 	}

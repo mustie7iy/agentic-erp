@@ -29987,6 +29987,244 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/e-invoices/{id}:retry":
+    post:
+      operationId: retryEInvoice
+      tags:
+        - einvoicing
+      summary: Enter a held e-invoice again
+      description: "Enters a held e-invoice again (ADR-0061 §7, T65f), after the cause of its hold was corrected (the purchase order, the supplier's tax identifiers, the company's account determination): in the request's transaction, as a fetch enters a valid document (§6) but in the caller's name and company access, its bytes read again from the store and compared with the hash recorded. The answer is the document: `entered` naming the supplier invoice it was entered as, or still `held` with the problem of this attempt (`problem_code`, `problem_detail`), 200 either way: a refusal of the entering is the document's state, not the request's. A document the rules refuse by now, one not in AED that does not state each line's VAT in AED, and a tax credit note naming no invoice stay held with that problem. Either way `resolution` becomes `retried` and `resolved_at` the time, audited (`einvoicing.einvoice.retried`, with the outcome) and published (EInvoiceChanged, status_before `held`). Refused: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored bytes gone or not those received (409 `einvoicing.document_changed`). Not found (404) for a company the caller may not act in. 503 while the server has no object storage. People only (`x-agent: false`): agents read e-invoices and propose; a person acts (ADR-0061 §13)."
+      x-permission: einvoicing.einvoice.manage
+      x-agent: false
+      x-problem-codes:
+        # Every code but einvoicing.document_changed, einvoicing.einvoice_not_held and request.version_mismatch is a refusal of
+        # payables' entering, which TestProblemCodes lists as a retry enters the document as a fetch does; such a refusal rolls the
+        # entering back and holds the document with its code (200, `problem_code`), so the request is not expected to answer it.
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - einvoicing.document_changed
+        - einvoicing.einvoice_not_held
+        # The database's answer to an invoice another e-invoice names (einvoice_invoice_once), which TestProblemCodes lists for
+        # every operation that writes e-invoices; this one cannot reach it, as it names no invoice another document names.
+        - einvoicing.invoice_already_linked
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.internal_order_invalid
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - payables.account_not_postable
+        - payables.account_required
+        - payables.already_captured
+        - payables.amount_too_large
+        - payables.assignment_from_order
+        - payables.capture_needs_account
+        - payables.capture_needs_order
+        - payables.currency_mismatch
+        - payables.duplicate_invoice
+        - payables.einvoice_seller_ambiguous
+        - payables.einvoice_seller_unknown
+        - payables.intercompany_billing_entered
+        - payables.invalid_purchase_order
+        - payables.invalid_quantity
+        - payables.invalid_reference_invoice
+        - payables.invalid_tax_code
+        - payables.local_tax_mismatch
+        - payables.mixed_purchase_orders
+        - payables.negative_amount
+        - payables.no_tax_rate
+        - payables.po_item_required
+        - payables.purchase_order_required
+        - payables.quantity_not_zero
+        - payables.reference_not_allowed
+        - payables.supplier_not_usable
+        - payables.tax_date_human_only
+        - payables.tax_mismatch
+        - payables.unit_mismatch
+        - payables.unknown_currency
+        - payables.unknown_kind
+        - payables.unknown_payment_method
+        - payables.unknown_po_item
+        - payables.unknown_tax_code
+        - payables.unknown_unit
+        - payables.unreadable_document
+        - request.invalid_amount
+        - request.invalid_extension
+        - request.rule_refused
+        - request.rule_unevaluable
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The document after the attempt: entered, or still held with this attempt's problem."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/e-invoices/{id}:link":
+    post:
+      operationId: linkEInvoice
+      tags:
+        - einvoicing
+      summary: Link a held e-invoice to the invoice a person entered by hand
+      description: "Records that a person entered a held e-invoice by hand (ADR-0061 §7, T65f; SAP Document and Reporting Compliance's assignment of an inbound e-document to an invoice posted manually): the document becomes `entered`, naming that supplier invoice and its supplier, `resolution` `linked`, and the invoice's document becomes the e-invoice's bytes (`getSupplierInvoiceDocument`), whatever the invoice's status, as a document never changes what was posted; audited (`einvoicing.einvoice.linked` and the invoice's `payables.supplier_invoice.document_attached`) and published (EInvoiceChanged, status_before `held`). The invoice must be one entered by hand (source `manual`) of the document's company, of the supplier holding the seller's TRN (IBT-031) as a tax identifier, with the document's number (IBT-001) as its supplier reference, and without a document of its own; otherwise 422 `einvoicing.link_mismatch`, its detail and field errors naming each that differs (the TRN by its last four characters only). An invoice another e-invoice names already is refused with 409 `einvoicing.invoice_already_linked` naming it (at most one e-invoice names an invoice); one whose document already is these bytes, 409 `payables.already_captured`. Refused also: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored bytes gone or not those received (409 `einvoicing.document_changed`); an invoice the tenant has none of, or of a company the caller may not act in (422 `request.reference_not_found`). Besides `einvoicing.einvoice.manage` the caller needs `payables.invoice.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Not found (404) for a company the caller may not act in. 503 while the server has no object storage. People only (`x-agent: false`, ADR-0061 §13)."
+      x-permission: einvoicing.einvoice.manage
+      x-also-permissions:
+        - payables.invoice.read
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.document_changed
+        - einvoicing.einvoice_not_held
+        - einvoicing.invoice_already_linked
+        - einvoicing.link_mismatch
+        - payables.already_captured
+        # The database's answers to a duplicate reference, an intercompany billing entered twice and a negative amount
+        # (supplier_invoice_no_duplicates, _billing_once, _amounts_not_negative), which TestProblemCodes lists for every operation
+        # that writes supplier invoices; a link cannot reach them, as it sets only the invoice's document.
+        - payables.duplicate_invoice
+        - payables.intercompany_billing_entered
+        - payables.negative_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The invoice the person entered by hand.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EInvoiceLink"
+            examples:
+              entered_by_hand:
+                summary: The invoice Alex entered from the held e-invoice
+                value:
+                  supplier_invoice_id: 0192a000-0000-7000-8000-000000000e31
+      responses:
+        "200":
+          description: "The document, entered, naming the invoice."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/e-invoices/{id}:dismiss":
+    post:
+      operationId: dismissEInvoice
+      tags:
+        - einvoicing
+      summary: Dismiss a held e-invoice that will not be entered
+      description: "Closes a held e-invoice that will not be entered (ADR-0061 §7, T65f): sent in error, or replaced by the supplier. The document becomes `dismissed`, final, keeping the problem it was held with, with the reason given (`dismissal_reason`), `resolution` `dismissed`; audited (`einvoicing.einvoice.dismissed`, without the reason's text, ADR-0079) and published (EInvoiceChanged, status_before `held`). Refused: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); a reason that is white space alone (422 `request.validation_failed`). Not found (404) for a company the caller may not act in. People only (`x-agent: false`, ADR-0061 §13)."
+      x-permission: einvoicing.einvoice.manage
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.einvoice_not_held
+        # The database's answer to an invoice another e-invoice names (einvoice_invoice_once), which TestProblemCodes lists for
+        # every operation that writes e-invoices; this one cannot reach it, as it names no invoice another document names.
+        - einvoicing.invoice_already_linked
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the document will not be entered.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EInvoiceDismissal"
+            examples:
+              sent_twice:
+                summary: The supplier sent the invoice twice
+                value:
+                  reason: The supplier sent GOI-2003 twice; the first is entered.
+      responses:
+        "200":
+          description: "The document, dismissed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/outgoing-e-invoices:
     get:
       operationId: listOutgoingEInvoices
@@ -69391,15 +69629,15 @@ components:
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company of that participant; null when the document is addressed to none of them."}
         company_code: {type: [string, 'null'], description: "The company's code; null with `legal_entity_id`."}
         company_name: {type: [string, 'null'], description: "The company's name; null with `legal_entity_id`."}
-        status: {type: string, description: "Open enum: received (recorded; once processed, read as a PINT AE document and found valid, until it is entered or held), refused (T65c: read and refused by validation, `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as `payables.capture_needs_order` for one naming no purchase order (but a tax credit note for a volume discount, entered without one; batch 89: held with `payables.capture_needs_account` when the company has no account for discounts received, `payables.einvoice_seller_unknown` or `payables.einvoice_seller_ambiguous` when no or several suppliers of the company hold the seller's TRN), or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that is not for a volume discount, for a person to resolve; `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several). The later slices add dismissed (ADR-0061 §7)."}
+        status: {type: string, description: "Open enum: received (recorded; once processed, read as a PINT AE document and found valid, until it is entered or held), refused (T65c: read and refused by validation, `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as `payables.capture_needs_order` for one naming no purchase order (but a tax credit note for a volume discount, entered without one; batch 89: held with `payables.capture_needs_account` when the company has no account for discounts received, `payables.einvoice_seller_unknown` or `payables.einvoice_seller_ambiguous` when no or several suppliers of the company hold the seller's TRN), or `einvoicing.credit_note_names_no_invoice` for a tax credit note naming no invoice it corrects that is not for a volume discount, for a person to resolve; `einvoicing.credit_note_names_several_invoices` was given before batch 88 to one naming several) or dismissed (T65f: a held document a person closed with a reason, `dismissal_reason`, keeping the problem it was held with; final). A person resolves a held document (`resolution`): entered again (`retryEInvoice`: entered, or held with that attempt's problem), linked to the invoice they entered by hand (`linkEInvoice`: entered) or dismissed (`dismissEInvoice`)."}
         processed_at: {type: string, format: date-time, description: "When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing it or leaving it received. Omitted until then; every fetch processes the documents of its connector not processed yet."}
         processed_fetch_operation_id: {type: string, format: uuid, description: "The fetch that processed it: its Operation's id. Omitted with `processed_at`."}
         validated_against: {type: string, description: "The release of the PINT AE rules it was validated against (ADR-0061 §5 C2), such as `PINT AE Billing 1.0.4`. Omitted with `processed_at`."}
         problem_code:
           type: string
           x-extensible-enum: [einvoicing.unreadable, einvoicing.unsupported_document, einvoicing.missing_field, einvoicing.amount_precision, einvoicing.totals_inconsistent, einvoicing.not_addressed_to_company, einvoicing.tax_currency_not_entered, einvoicing.credit_note_names_no_invoice, einvoicing.credit_note_names_several_invoices, payables.capture_needs_order, payables.unreadable_document, payables.einvoice_seller_unknown, payables.duplicate_invoice, payables.already_captured, payables.capture_needs_account, payables.einvoice_seller_ambiguous]
-          description: "Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-        problem_detail: {type: string, maxLength: 2000, description: "What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted unless refused or held."}
+          description: "Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED that does not state each line's VAT in AED (BTAE-08), einvoicing.credit_note_names_no_invoice for a tax credit note naming no invoice it corrects, IBG-03 and IBT-025, that is not for a volume discount (VD, IBR-055-AE), or einvoicing.credit_note_names_several_invoices, given before batch 88 to one naming more than one, which is now entered as one credit memo citing them all). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused, held or dismissed (T65f: the problem a dismissed document was held with). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        problem_detail: {type: string, maxLength: 2000, description: "What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted unless refused, held or dismissed (the problem it was held with)."}
         document_number: {type: string, description: "The document's number as it states it (IBT-001). Omitted until processed, and for a document that could not be read."}
         document_kind:
           type: string
@@ -69411,12 +69649,18 @@ components:
         specification: {type: string, description: "The specification it states it follows (IBT-024, CustomizationID). Omitted with `document_number`."}
         entered_at: {type: string, format: date-time, description: "When a fetch entered or held it (T65d). Omitted until then."}
         entry_fetch_operation_id: {type: string, format: uuid, description: "The fetch that entered or held it: its Operation's id, which lists the document under `fetch_operation_id` too. Omitted with `entered_at`."}
-        supplier_invoice_id: {type: string, format: uuid, description: "The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this e-invoice's bytes): a credit memo (`kind` `credit_memo`, its `reference_invoice_id` the invoice it cites when that is a posted invoice of the supplier) for a tax credit note. Omitted unless entered."}
+        supplier_invoice_id: {type: string, format: uuid, description: "The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this e-invoice's bytes; source `manual` for one a person entered by hand and linked, T65f): a credit memo (`kind` `credit_memo`, its `reference_invoice_id` the invoice it cites when that is a posted invoice of the supplier) for a tax credit note. Omitted unless entered."}
         supplier_invoice_number: {type: string, description: "That invoice's document number. Omitted with `supplier_invoice_id`."}
         supplier_reference: {type: string, description: "That invoice's supplier reference, the e-invoice's number as entered. Omitted with `supplier_invoice_id`."}
         supplier_invoice_status: {type: string, description: "That invoice's status now (`SupplierInvoice.status`: parked, on_hold, posted and the others). Omitted with `supplier_invoice_id`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1.", x-extensible-enum: [parked, on_hold, posted, rejected, cancelled, reversed]}
         supplier_id: {type: string, format: uuid, description: "That invoice's supplier, the business partner whose tax identifier is the seller's TRN. Omitted with `supplier_invoice_id`."}
         supplier_name: {type: string, description: "The supplier's name. Omitted with `supplier_invoice_id`."}
+        resolution:
+          type: string
+          x-extensible-enum: [retried, linked, dismissed]
+          description: "A person's last resolution of the held document (T65f, ADR-0061 §7): retried (`retryEInvoice`: entered, or held again with that attempt's problem), linked (`linkEInvoice`: entered as the invoice they entered by hand, source `manual`, whose document it became) or dismissed (`dismissEInvoice`). Omitted while none. Who resolved it is in the audit trail. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        resolved_at: {type: string, format: date-time, description: "When a person last resolved it. Omitted with `resolution`."}
+        dismissal_reason: {type: string, maxLength: 500, description: "Why it was dismissed, as the person gave it. Omitted unless dismissed."}
         sha256: {type: string, pattern: "^[0-9a-f]{64}$", description: The SHA-256 of its bytes as received, hex.}
         size: {type: integer, format: int64, description: The size of its bytes as received.}
         fetch_operation_id: {type: string, format: uuid, description: "The fetch that recorded it: its Operation's id."}
@@ -69426,6 +69670,20 @@ components:
         changed_at: {type: [string, 'null'], format: date-time, description: "When a fetch found those bytes; null with `changed_sha256`."}
         changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those bytes: its Operation's id, which lists the document under `fetch_operation_id` too; null with `changed_sha256`."}
         version: {type: integer, format: int32}
+    EInvoiceLink:
+      type: object
+      description: "The supplier invoice a person entered by hand from a held e-invoice (ADR-0061 §7)."
+      required: [supplier_invoice_id]
+      additionalProperties: false
+      properties:
+        supplier_invoice_id: {type: string, format: uuid, description: "The invoice (`getSupplierInvoice`): entered by hand, of the document's company, supplier and number, without a document of its own."}
+    EInvoiceDismissal:
+      type: object
+      description: "Why a held e-invoice will not be entered (ADR-0061 §7)."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why it will not be entered (sent in error, replaced by the supplier): a text, not white space alone (422 `request.validation_failed` naming `reason`). Kept with the document as `dismissal_reason`; not in the event or the audit record."}
     OutgoingEInvoiceRender:
       type: object
       description: "A posted customer document to render as an e-invoice (ADR-0061 §9, As built E2)."
@@ -69554,7 +69812,7 @@ components:
       description: "An e-invoice's submission to the accredited provider (ADR-0061 As built E3): the outbox of its transmission and what the provider reported of it."
       required: [connector_id, connector_name, operation_id, business_type, status, provider_status, tracking_id, attempts, resends, problem, next_check_at,
         submitted_at, completed_at, delivery_status, delivery_detail, delivered_at, delivery_outcome, tax_data_status, tax_data_at, tax_data_request,
-        follow_check_at, tax_data_awaited, version]
+        follow_check_at, tax_data_awaited, corrected_by, version]
       properties:
         connector_id: {type: string, format: uuid, description: "The connector it is sent through."}
         connector_name: {type: string, description: "The connector's name."}
@@ -69582,7 +69840,12 @@ components:
         delivery_outcome:
           type: [string, 'null']
           x-extensible-enum: [pending, accepted, rejected, corrected, undelivered]
-          description: "What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED: to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025, transmitted), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "What the statuses mean, null until completed: pending (no final response yet), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION or TDD_REJECTED: to correct by a credit note), corrected (rejected, and a later credit note naming it, IBT-025, transmitted: `corrected_by` names it), undelivered (DELIVERY_FAILURE). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        corrected_by:
+          oneOf:
+            - {$ref: "#/components/schemas/OutgoingEInvoiceCorrection"}
+            - {type: 'null'}
+          description: "The credit note that corrected a rejected e-invoice (`delivery_outcome` corrected; review:batch86): the first transmitted credit note of the company naming it (IBT-025), rendered after it, by its e-invoice and its customer credit memo; null for any other outcome."
         tax_data_status: {type: [string, 'null'], description: "The tax data document's status at the authority's corner, as the provider last reported it once completed (As built E4; Evatra: TDD_SEND, TDD_FAILED, TDD_APPROVED, TDD_ACKNOWLEDGED, TDD_REJECTED, WITHDRAW_SEND, WITHDRAW_FAILED); null while none is reported. A person may send a failed one again (`retryOutgoingEInvoiceTaxData`) or withdraw a reported one (`withdrawOutgoingEInvoiceTaxData`). Open enumeration."}
         tax_data_at: {type: [string, 'null'], format: date-time, description: "When that status was recorded."}
         tax_data_request:
@@ -69592,6 +69855,14 @@ components:
         tax_data_awaited: {type: [string, 'null'], description: "After a request was made, the status the call found, until the provider shows another; meanwhile a new request is refused (409 `einvoicing.tax_data_request_pending`). Null otherwise."}
         follow_check_at: {type: [string, 'null'], format: date-time, description: "When the delivery and tax data statuses are next read once completed (from 30 seconds, doubling to an hour); null before completion, once both are final and nothing is awaited, or after 500 reads. Each read moves `version`, and so the ETag."}
         version: {type: integer, format: int32, description: "The submission's version."}
+    OutgoingEInvoiceCorrection:
+      type: object
+      description: "A transmitted credit note that corrects a rejected e-invoice (ADR-0061 As built E4, the worklist to correct by credit note)."
+      required: [outgoing_einvoice_id, customer_invoice_id, customer_invoice_number]
+      properties:
+        outgoing_einvoice_id: {type: string, format: uuid, description: "The credit note's e-invoice (`getOutgoingEInvoice`)."}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer credit memo it renders (`getCustomerInvoice`)."}
+        customer_invoice_number: {type: string, description: "That credit memo's number, the credit note's (IBT-001)."}
     OutgoingEInvoiceTransmissionProblem:
       type: object
       description: "Why a submission failed: a problem code a consumer can branch on and what happened."

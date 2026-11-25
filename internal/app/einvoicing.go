@@ -33,8 +33,10 @@ func EInvoicing(cfg Config) *einvoicing.Endpoints {
 }
 
 // einvoicePayables gives the einvoicing context payables' entering of
-// e-invoices and the entered invoices' numbers and suppliers (ADR-0061
-// §2, §6).
+// e-invoices, the entered invoices' numbers and suppliers (ADR-0061 §2,
+// §6), and a held e-invoice's link to an invoice entered by hand: the
+// invoice read under its lock, the supplier's tax identifiers by
+// fingerprint (payables' partner port) and the document attached (§7, T65f).
 type einvoicePayables struct{ e *payables.Endpoints }
 
 func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvoicing.Entered, error) {
@@ -87,6 +89,20 @@ func (a einvoicePayables) Invoices(ctx context.Context, ids []uuid.UUID) (map[uu
 			SupplierID: v.SupplierID, SupplierName: names[v.SupplierID].Name}
 	}
 	return out, nil
+}
+
+func (einvoicePayables) Linkable(ctx context.Context, id uuid.UUID) (einvoicing.LinkTarget, bool, error) {
+	a, ok, err := payables.Invoices{}.Attachable(ctx, id)
+	return einvoicing.LinkTarget{LegalEntityID: a.LegalEntityID, SupplierID: a.SupplierID, SupplierReference: a.SupplierReference, Source: a.Source,
+		HasDocument: a.HasDocument}, ok, err
+}
+
+func (a einvoicePayables) HoldsTaxNumber(ctx context.Context, supplier uuid.UUID, trn string) (bool, error) {
+	return a.e.TaxNumbers.HasTaxNumber(ctx, supplier, trn)
+}
+
+func (einvoicePayables) Attach(ctx context.Context, id uuid.UUID, sha []byte, ref string) error {
+	return payables.Invoices{}.Attach(ctx, id, sha, ref)
 }
 
 // einvoiceConnectors gives the einvoicing context the einvoice_provider

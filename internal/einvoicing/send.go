@@ -93,6 +93,7 @@ type submission struct {
 	TaxDataAttempts                                               int16
 	FollowPolls                                                   int32
 	Outcome                                                       *string // the delivery's outcome, as a read of the e-invoices gives it
+	CorrectedBy                                                   *correction
 }
 
 const submissionColumns = `s.id, s.outgoing_einvoice_id, s.legal_entity_id, s.connector_id, s.operation_id, s.filename, s.business_type, s.status,

@@ -3294,6 +3294,19 @@ type Invoker interface {
 	//
 	// POST /v1/consolidation-runs/{id}:discard
 	DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (DiscardConsolidationRunRes, error)
+	// DismissEInvoice invokes dismissEInvoice operation.
+	//
+	// Closes a held e-invoice that will not be entered (ADR-0061 §7, T65f): sent in error, or replaced by
+	// the supplier. The document becomes `dismissed`, final, keeping the problem it was held with, with
+	// the reason given (`dismissal_reason`), `resolution` `dismissed`; audited
+	// (`einvoicing.einvoice.dismissed`, without the reason's text, ADR-0079) and published
+	// (EInvoiceChanged, status_before `held`). Refused: a document that is not held (409
+	// `einvoicing.einvoice_not_held`); another ETag (412); a reason that is white space alone (422
+	// `request.validation_failed`). Not found (404) for a company the caller may not act in. People only
+	// (`x-agent: false`, ADR-0061 §13).
+	//
+	// POST /v1/e-invoices/{id}:dismiss
+	DismissEInvoice(ctx context.Context, request *EInvoiceDismissal, params DismissEInvoiceParams) (DismissEInvoiceRes, error)
 	// DrillAnalyticsQuery invokes drillAnalyticsQuery operation.
 	//
 	// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
@@ -5684,6 +5697,30 @@ type Invoker interface {
 	//
 	// POST /v1/bank-statements
 	ImportBankStatements(ctx context.Context, request *BankStatementUploadMultipart, params ImportBankStatementsParams) (ImportBankStatementsRes, error)
+	// LinkEInvoice invokes linkEInvoice operation.
+	//
+	// Records that a person entered a held e-invoice by hand (ADR-0061 §7, T65f; SAP Document and
+	// Reporting Compliance's assignment of an inbound e-document to an invoice posted manually): the
+	// document becomes `entered`, naming that supplier invoice and its supplier, `resolution` `linked`,
+	// and the invoice's document becomes the e-invoice's bytes (`getSupplierInvoiceDocument`), whatever
+	// the invoice's status, as a document never changes what was posted; audited
+	// (`einvoicing.einvoice.linked` and the invoice's `payables.supplier_invoice.document_attached`) and
+	// published (EInvoiceChanged, status_before `held`). The invoice must be one entered by hand (source
+	// `manual`) of the document's company, of the supplier holding the seller's TRN (IBT-031) as a tax
+	// identifier, with the document's number (IBT-001) as its supplier reference, and without a document
+	// of its own; otherwise 422 `einvoicing.link_mismatch`, its detail and field errors naming each that
+	// differs (the TRN by its last four characters only). An invoice another e-invoice names already is
+	// refused with 409 `einvoicing.invoice_already_linked` naming it (at most one e-invoice names an
+	// invoice); one whose document already is these bytes, 409 `payables.already_captured`. Refused also:
+	// a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored
+	// bytes gone or not those received (409 `einvoicing.document_changed`); an invoice the tenant has none
+	// of, or of a company the caller may not act in (422 `request.reference_not_found`). Besides
+	// `einvoicing.einvoice.manage` the caller needs `payables.invoice.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Not found (404) for a company the caller may not act in.
+	// 503 while the server has no object storage. People only (`x-agent: false`, ADR-0061 §13).
+	//
+	// POST /v1/e-invoices/{id}:link
+	LinkEInvoice(ctx context.Context, request *EInvoiceLink, params LinkEInvoiceParams) (LinkEInvoiceRes, error)
 	// ListAccounts invokes listAccounts operation.
 	//
 	// General ledger accounts. Sortable by: `number`.
@@ -9003,6 +9040,25 @@ type Invoker interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// RetryEInvoice invokes retryEInvoice operation.
+	//
+	// Enters a held e-invoice again (ADR-0061 §7, T65f), after the cause of its hold was corrected (the
+	// purchase order, the supplier's tax identifiers, the company's account determination): in the
+	// request's transaction, as a fetch enters a valid document (§6) but in the caller's name and company
+	// access, its bytes read again from the store and compared with the hash recorded. The answer is the
+	// document: `entered` naming the supplier invoice it was entered as, or still `held` with the problem
+	// of this attempt (`problem_code`, `problem_detail`), 200 either way: a refusal of the entering is the
+	// document's state, not the request's. A document the rules refuse by now, one not in AED that does
+	// not state each line's VAT in AED, and a tax credit note naming no invoice stay held with that
+	// problem. Either way `resolution` becomes `retried` and `resolved_at` the time, audited
+	// (`einvoicing.einvoice.retried`, with the outcome) and published (EInvoiceChanged, status_before
+	// `held`). Refused: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag
+	// (412); its stored bytes gone or not those received (409 `einvoicing.document_changed`). Not found
+	// (404) for a company the caller may not act in. 503 while the server has no object storage. People
+	// only (`x-agent: false`): agents read e-invoices and propose; a person acts (ADR-0061 §13).
+	//
+	// POST /v1/e-invoices/{id}:retry
+	RetryEInvoice(ctx context.Context, params RetryEInvoiceParams) (RetryEInvoiceRes, error)
 	// RetryOutgoingEInvoiceTaxData invokes retryOutgoingEInvoiceTaxData operation.
 	//
 	// Asks the company's accredited provider to send again a tax data document the authority's corner
@@ -36376,6 +36432,173 @@ func (c *Client) sendDiscardConsolidationRun(ctx context.Context, params Discard
 
 	stage = "DecodeResponse"
 	result, err := decodeDiscardConsolidationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DismissEInvoice invokes dismissEInvoice operation.
+//
+// Closes a held e-invoice that will not be entered (ADR-0061 §7, T65f): sent in error, or replaced by
+// the supplier. The document becomes `dismissed`, final, keeping the problem it was held with, with
+// the reason given (`dismissal_reason`), `resolution` `dismissed`; audited
+// (`einvoicing.einvoice.dismissed`, without the reason's text, ADR-0079) and published
+// (EInvoiceChanged, status_before `held`). Refused: a document that is not held (409
+// `einvoicing.einvoice_not_held`); another ETag (412); a reason that is white space alone (422
+// `request.validation_failed`). Not found (404) for a company the caller may not act in. People only
+// (`x-agent: false`, ADR-0061 §13).
+//
+// POST /v1/e-invoices/{id}:dismiss
+func (c *Client) DismissEInvoice(ctx context.Context, request *EInvoiceDismissal, params DismissEInvoiceParams) (DismissEInvoiceRes, error) {
+	res, err := c.sendDismissEInvoice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendDismissEInvoice(ctx context.Context, request *EInvoiceDismissal, params DismissEInvoiceParams) (res DismissEInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("dismissEInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/e-invoices/{id}:dismiss"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DismissEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":dismiss"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeDismissEInvoiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DismissEInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDismissEInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -64132,6 +64355,184 @@ func (c *Client) sendImportBankStatements(ctx context.Context, request *BankStat
 
 	stage = "DecodeResponse"
 	result, err := decodeImportBankStatementsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// LinkEInvoice invokes linkEInvoice operation.
+//
+// Records that a person entered a held e-invoice by hand (ADR-0061 §7, T65f; SAP Document and
+// Reporting Compliance's assignment of an inbound e-document to an invoice posted manually): the
+// document becomes `entered`, naming that supplier invoice and its supplier, `resolution` `linked`,
+// and the invoice's document becomes the e-invoice's bytes (`getSupplierInvoiceDocument`), whatever
+// the invoice's status, as a document never changes what was posted; audited
+// (`einvoicing.einvoice.linked` and the invoice's `payables.supplier_invoice.document_attached`) and
+// published (EInvoiceChanged, status_before `held`). The invoice must be one entered by hand (source
+// `manual`) of the document's company, of the supplier holding the seller's TRN (IBT-031) as a tax
+// identifier, with the document's number (IBT-001) as its supplier reference, and without a document
+// of its own; otherwise 422 `einvoicing.link_mismatch`, its detail and field errors naming each that
+// differs (the TRN by its last four characters only). An invoice another e-invoice names already is
+// refused with 409 `einvoicing.invoice_already_linked` naming it (at most one e-invoice names an
+// invoice); one whose document already is these bytes, 409 `payables.already_captured`. Refused also:
+// a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored
+// bytes gone or not those received (409 `einvoicing.document_changed`); an invoice the tenant has none
+// of, or of a company the caller may not act in (422 `request.reference_not_found`). Besides
+// `einvoicing.einvoice.manage` the caller needs `payables.invoice.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Not found (404) for a company the caller may not act in.
+// 503 while the server has no object storage. People only (`x-agent: false`, ADR-0061 §13).
+//
+// POST /v1/e-invoices/{id}:link
+func (c *Client) LinkEInvoice(ctx context.Context, request *EInvoiceLink, params LinkEInvoiceParams) (LinkEInvoiceRes, error) {
+	res, err := c.sendLinkEInvoice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendLinkEInvoice(ctx context.Context, request *EInvoiceLink, params LinkEInvoiceParams) (res LinkEInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("linkEInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/e-invoices/{id}:link"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, LinkEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":link"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeLinkEInvoiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, LinkEInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeLinkEInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -120338,6 +120739,176 @@ func (c *Client) sendRetireEntryTemplate(ctx context.Context, params RetireEntry
 
 	stage = "DecodeResponse"
 	result, err := decodeRetireEntryTemplateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RetryEInvoice invokes retryEInvoice operation.
+//
+// Enters a held e-invoice again (ADR-0061 §7, T65f), after the cause of its hold was corrected (the
+// purchase order, the supplier's tax identifiers, the company's account determination): in the
+// request's transaction, as a fetch enters a valid document (§6) but in the caller's name and company
+// access, its bytes read again from the store and compared with the hash recorded. The answer is the
+// document: `entered` naming the supplier invoice it was entered as, or still `held` with the problem
+// of this attempt (`problem_code`, `problem_detail`), 200 either way: a refusal of the entering is the
+// document's state, not the request's. A document the rules refuse by now, one not in AED that does
+// not state each line's VAT in AED, and a tax credit note naming no invoice stay held with that
+// problem. Either way `resolution` becomes `retried` and `resolved_at` the time, audited
+// (`einvoicing.einvoice.retried`, with the outcome) and published (EInvoiceChanged, status_before
+// `held`). Refused: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag
+// (412); its stored bytes gone or not those received (409 `einvoicing.document_changed`). Not found
+// (404) for a company the caller may not act in. 503 while the server has no object storage. People
+// only (`x-agent: false`): agents read e-invoices and propose; a person acts (ADR-0061 §13).
+//
+// POST /v1/e-invoices/{id}:retry
+func (c *Client) RetryEInvoice(ctx context.Context, params RetryEInvoiceParams) (RetryEInvoiceRes, error) {
+	res, err := c.sendRetryEInvoice(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRetryEInvoice(ctx context.Context, params RetryEInvoiceParams) (res RetryEInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("retryEInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/e-invoices/{id}:retry"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RetryEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":retry"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RetryEInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRetryEInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
