@@ -1,5 +1,5 @@
 -- A validated constraint cannot be marked unvalidated again; the down
--- restores 000453's state by adding them back NOT VALID.
+-- restores 000471's state by adding them back NOT VALID.
 ALTER TABLE shipping.outbound_delivery
   DROP CONSTRAINT outbound_delivery_status_check,
   ADD CONSTRAINT outbound_delivery_status_check CHECK (status IN ('created', 'goods_issued', 'goods_issue_reversed')) NOT VALID,

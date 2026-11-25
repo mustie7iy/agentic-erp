@@ -4,7 +4,7 @@
 -- goods_issue_reversed, naming the 602 and its day; sales records the
 -- reversal of the goods issue's delivery, which takes what it delivered
 -- off the order's items. Expand only (06 §6.4): checks widened or
--- replaced NOT VALID (validated by 000454), nullable columns and a table
+-- replaced NOT VALID (validated by 000472), nullable columns and a table
 -- the previous version neither reads nor writes.
 
 -- A delivery whose goods issue is reversed keeps its goods issue's day,

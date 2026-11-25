@@ -5896,7 +5896,7 @@
      {
       "s": "D",
       "t": "Reversing the goods issue of an outbound delivery whose quantities are not billed posts a 602 at the value its 601 took, giving the stock and its value back and taking back the cost of goods sold; the sales order's items are no longer delivered by it and are open again; a billed delivery is refused until its billing document is cancelled",
-      "r": "S2b3 · docs/design/plan-supply-chain.md §S2b3 · ADR-0083 As built S2b3 · db/migrations/000453, 000454 · reverseOutboundDeliveryGoodsIssue · inventory.Endpoints.ReverseForDelivery · sales.Endpoints.ReverseIssue · sales.delivery_reversal · SalesOrderDeliveryReversed · sales.delivery_billed · shipping.goods_issue_reversed · TestGoodsIssueReversal · walkthrough step_goods_issue (goods_issue_reversal, step 143)",
+      "r": "S2b3 · docs/design/plan-supply-chain.md §S2b3 · ADR-0083 As built S2b3 · db/migrations/000471, 000472 · reverseOutboundDeliveryGoodsIssue · inventory.Endpoints.ReverseForDelivery · sales.Endpoints.ReverseIssue · sales.delivery_reversal · SalesOrderDeliveryReversed · sales.delivery_billed · shipping.goods_issue_reversed · TestGoodsIssueReversal · walkthrough step_goods_issue (goods_issue_reversal, step 143)",
       "src": "po:2026-11-17 · adr:ADR-0083",
       "c": []
      }

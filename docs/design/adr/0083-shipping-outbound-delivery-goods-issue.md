@@ -280,7 +280,7 @@ deliveries per fiscal year (`outbound_delivery_number_once`), so
 with the others and is part of the page token's scope. Additive: no
 existing parameter or response changed.
 
-**S2b3** (lane gireverse, 2026-11-24; migrations 000453, 000454;
+**S2b3** (lane gireverse, 2026-11-24; migrations 000471, 000472;
 walkthrough step 143, `step_goods_issue`'s `goods_issue_reversal`): the
 goods issue reversal of a delivery not billed (SAP VL09, from memory),
 `POST /v1/outbound-deliveries/{id}:reverseGoodsIssue` (`If-Match`,

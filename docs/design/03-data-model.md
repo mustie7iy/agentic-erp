@@ -5851,7 +5851,7 @@ erDiagram
   what was ordered (`sales_order_item_quantities`). Insert-only;
   `delivery_item_by_order_item` serves an order item's deliveries
   (`sales.Orders`).
-- `sales.delivery_reversal` (S2b3, migration 000453): the reversal of a
+- `sales.delivery_reversal` (S2b3, migration 000471): the reversal of a
   goods issue's delivery by its goods issue's reversal (602), once per
   delivery, on or after its day; it takes the delivery's quantities off
   the order items' `delivered_quantity`, which `sales.Orders` gives as a
@@ -7180,7 +7180,7 @@ erDiagram
   (`delivery_item_cost`, `delivery_item_cost_currency_fkey`).
 - Permissions `shipping.delivery.read`, `.write` and
   `shipping.goods_issue.post`.
-- S2b3 (migrations 000453, 000454; ADR-0083 As built S2b3): a delivery
+- S2b3 (migrations 000471, 000472; ADR-0083 As built S2b3): a delivery
   whose goods issue is reversed is `goods_issue_reversed`
   (`outbound_delivery_status_check`), keeping its goods issue's day,
   material document and currency (`outbound_delivery_goods_issue`) and

@@ -10,7 +10,7 @@ import (
 )
 
 // reverse reverses the scene's delivery's goods issue as shipping's
-// ReverseGoodsIssue does (S2b3, 000453): its status, the reversal's day
+// ReverseGoodsIssue does (S2b3, 000471): its status, the reversal's day
 // and material document.
 func (s shippingScene) reverse(status, day, document, number any) stmt {
 	return step(`UPDATE shipping.outbound_delivery SET status = $2, goods_issue_reversal_date = $3, reversal_material_document_id = $4,
@@ -22,8 +22,8 @@ func (s shippingScene) issued() []stmt {
 	return append(s.made(), step(shippingIssue, s.delivery, s.document))
 }
 
-// TestGoodsIssueReversalDeliveryRules (S2b3, migrations 000453 and
-// 000454; ADR-0083 As built S2b3): a goods-issued delivery's goods issue
+// TestGoodsIssueReversalDeliveryRules (S2b3, migrations 000471 and
+// 000472; ADR-0083 As built S2b3): a goods-issued delivery's goods issue
 // is reversed by its status, goods_issue_reversed, and the reversal's
 // day, on or after the goods issue's, and material document, its number
 // of 1 to 40 characters, all three together, its goods issue kept; it
@@ -103,7 +103,7 @@ func TestGoodsIssueReversalDeliveryRules(t *testing.T) {
 	}
 }
 
-// TestGoodsIssueReversalDeliveryAsOwner (S2b3, migration 000453): past the
+// TestGoodsIssueReversalDeliveryAsOwner (S2b3, migration 000471): past the
 // grants, as the owner, a reversed delivery's text changes no more, nor
 // its items.
 func TestGoodsIssueReversalDeliveryAsOwner(t *testing.T) {
@@ -175,7 +175,7 @@ func (s reversalScene) reversal(day, number string) stmt {
 	return step(reversalRow, s.tenant, s.delivery, s.order, day, number)
 }
 
-// TestDeliveryReversalRules (S2b3, migration 000453; ADR-0083 As built
+// TestDeliveryReversalRules (S2b3, migration 000471; ADR-0083 As built
 // S2b3): a goods issue's delivery of an order is reversed once, on or
 // after its day, naming the 602 by a number of 1 to 40 characters; the
 // reversal takes its quantity off the order item's delivered quantity,
@@ -245,7 +245,7 @@ func TestDeliveryReversalRules(t *testing.T) {
 	}
 }
 
-// TestDeliveryReversalAsOwner (S2b3, migration 000453): past the
+// TestDeliveryReversalAsOwner (S2b3, migration 000471): past the
 // application's checks, as the owner, a reversal that would leave the
 // order item billed beyond what is delivered is refused, and one of an
 // order no longer confirmed; a reversal is insert-only.

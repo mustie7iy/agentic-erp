@@ -45,7 +45,7 @@ type IssueReversal struct {
 // stays delivered (409 sales.delivery_billed: its billing document is
 // cancelled first); the database takes its quantities off the order's
 // items, which are open again, and moves the order's version (migration
-// 000453). Its audit record and SalesOrderDeliveryReversed are written
+// 000471). Its audit record and SalesOrderDeliveryReversed are written
 // in the request's transaction. Shipping reverses a goods issue once,
 // under the delivery's row lock.
 func (e *Endpoints) ReverseIssue(ctx context.Context, in IssueReversal) (Delivery, error) {
