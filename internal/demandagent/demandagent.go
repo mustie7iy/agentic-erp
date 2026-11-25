@@ -60,10 +60,11 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // postings of other contexts that post one: a purchase order's goods
 // receipt, an outbound delivery's goods issue, a stock transport order's
 // issue and receipt, an intercompany order's goods issue, a return's
-// receipt) and count, with every write of stock transport orders (their
-// creation and cancellation); every write of sales orders, returns orders and
-// their deliveries (a trade compliance block's release by hand included,
-// S2s); every write of requisitions and purchase orders, the
+// receipt) and count, with cycle counting's indicators (S2c2) and every
+// write of stock transport orders (their creation and cancellation);
+// every write of sales orders, returns orders and their deliveries (a
+// trade compliance block's release by hand and a goods issue's reversal
+// included, S2s, S2b3); every write of requisitions and purchase orders, the
 // replenishment agent's never list (with a schedule line and its
 // call-off, which creates an order, and the GR/IR clearing); every write
 // of an RFQ (created, published, awarded, cancelled, closed); a planning
@@ -72,8 +73,10 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // them: they are reads and createRecommendation.
 var Never = []string{
 	"createMaterialDocument", "reverseMaterialDocument", "postGoodsReceipt", "reverseGoodsReceipt", "postOutboundDeliveryGoodsIssue",
+	"reverseOutboundDeliveryGoodsIssue",
 	"createStockTransportOrder", "cancelStockTransportOrder", "postStockTransportGoodsIssue", "postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue",
 	"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences",
+	"createCycleCountIndicator", "updateCycleCountIndicator", "createCycleCountMaterial", "updateCycleCountMaterial",
 	"createSalesOrder", "captureSalesOrder", "createSalesOrderUpload", "confirmSalesOrder", "releaseSalesOrderCreditBlock", "changeSalesOrder",
 	"cancelSalesOrder", "confirmSalesDelivery", "createOutboundDelivery", "pickOutboundDelivery", "releaseOutboundDeliveryTradeComplianceBlock",
 	"createReturnsOrder", "confirmReturnsOrder", "confirmReturnReceipt",

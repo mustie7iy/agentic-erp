@@ -90,8 +90,9 @@ type movementType struct {
 	intercompany bool
 	// tracked: an item of a batch-managed material names its batch
 	// (S2f), and one of a serial-managed material the serial number of
-	// each unit (S2g); the other movement types carry neither yet, and
-	// refuse such a material.
+	// each unit (S2g); a purchase order's goods receipt and its reversal
+	// carry both since S2f1 and S2g1; the other movement types carry
+	// neither yet, and refuse such a material.
 	tracked bool
 }
 
@@ -108,8 +109,8 @@ type movementType struct {
 // issue, which procurement posts (IssueForIntercompany, S2i1; the
 // receiving company receives it as a purchase order's 101).
 var movementTypes = map[string]movementType{
-	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true},
-	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true},
+	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true, tracked: true},
+	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true, tracked: true},
 	"501": {name: "Receipt without purchase order", sign: 1, reversal: "502", tracked: true},
 	"502": {name: "Reversal of a receipt without purchase order", sign: -1, reverses: "501", tracked: true},
 	"561": {name: "Initial entry of stock", sign: 1, reversal: "562", tracked: true},

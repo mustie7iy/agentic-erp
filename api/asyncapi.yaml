@@ -480,6 +480,7 @@ channels:
       ReturnReceived: {$ref: '#/components/messages/ReturnReceived'}
       CreditMemoRequestChanged: {$ref: '#/components/messages/CreditMemoRequestChanged'}
       CreditMemoRequestPosted: {$ref: '#/components/messages/CreditMemoRequestPosted'}
+      SalesOrderDeliveryReversed: {$ref: '#/components/messages/SalesOrderDeliveryReversed'}
   revenue:
     address: 'erp.{cell}.revenue.{tenant}.{event}'
     title: Revenue recognition events
@@ -876,6 +877,7 @@ operations:
       - $ref: '#/channels/sales/messages/ReturnReceived'
       - $ref: '#/channels/sales/messages/CreditMemoRequestChanged'
       - $ref: '#/channels/sales/messages/CreditMemoRequestPosted'
+      - $ref: '#/channels/sales/messages/SalesOrderDeliveryReversed'
   publishRevenueEvents:
     action: send
     title: Revenue recognition publishes
@@ -4913,6 +4915,34 @@ components:
         - name: delivered
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001103, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_delivered.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T15:42:07Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {delivery_id: 0192a000-0000-7000-8000-000000001211, delivery_no: 1, sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, delivery_date: '2026-11-20', items: [{item_no: 1, quantity: {value: '120', unit: EA}, delivered_quantity: {value: '120', unit: EA}}], version: 3}
+    SalesOrderDeliveryReversed:
+      name: SalesOrderDeliveryReversed
+      x-webhook: true
+      title: Sales order delivery reversed
+      summary: The goods issue that delivered quantities of a sales order was reversed.
+      description: |
+        Emitted when the goods issue of an outbound delivery is reversed
+        (ADR-0083 As built S2b3): the order's delivery by that goods issue
+        (SalesOrderDelivered's `delivery_id`) is reversed on a date, by a
+        material document of movement type 602, and its quantities are
+        no longer delivered: each item with the quantity taken back, its
+        cost, and the order item's delivered quantity after it, which is
+        open again for another delivery. Names the customer by id and
+        number, never by name. `version` is the order's after the
+        reversal: `GET /v1/sales-orders/{id}` returns the order at it or
+        later, and `GET /v1/sales-orders/{id}/deliveries` the delivery
+        with its reversal. Subject is the sales order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.sales_order_delivery_reversed.v1}
+      payload: {$ref: '#/components/schemas/SalesOrderDeliveryReversedV1'}
+      examples:
+        - name: reversed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001106, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_delivery_reversed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-24T09:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {delivery_id: 0192a000-0000-7000-8000-000000001211, delivery_no: 1, sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, delivery_date: '2026-11-20', reversal_date: '2026-11-24', outbound_delivery_id: 0192a000-0000-7000-8000-000000001511, outbound_delivery_number: OD1, material_document_id: 0192a000-0000-7000-8000-000000001411, material_document_number: MD1, reversal_material_document_id: 0192a000-0000-7000-8000-000000001412, reversal_material_document_number: MD2, items: [{item_no: 1, quantity: {value: '120', unit: EA}, cost: {amount: '240.00', currency: CAD}, delivered_quantity: {value: '0', unit: EA}}], version: 5}
     SalesOrderCreditBlocked:
       name: SalesOrderCreditBlocked
       x-webhook: true
@@ -5255,10 +5285,11 @@ components:
     OutboundDeliveryChanged:
       name: OutboundDeliveryChanged
       title: Outbound delivery changed
-      summary: An outbound delivery was created, picked or goods-issued.
+      summary: An outbound delivery was created, picked, goods-issued or its goods issue reversed.
       description: |
         Emitted when an outbound delivery is created, when its picking is
-        recorded and when its goods issue is posted (ADR-0083, S2a, S2b1):
+        recorded, when its goods issue is posted and when it is reversed
+        (ADR-0083, S2a, S2b1, S2b3):
         the delivery as it is after the change, its number, company, sales
         order and customer by id and number (never by name), plant and
         storage location by id and code, status and picking status, and
@@ -6663,6 +6694,38 @@ components:
             - $ref: '#/components/schemas/Uuid'
             - type: 'null'
         material_document_number: {type: [string, 'null'], description: "That document's number; null with it. Not required (ADR-0041)."}
+    SalesOrderDeliveryReversedV1:
+      type: object
+      required: [delivery_id, delivery_no, sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, delivery_date, reversal_date, outbound_delivery_id, outbound_delivery_number, material_document_id, material_document_number, reversal_material_document_id, reversal_material_document_number, items, version]
+      properties:
+        delivery_id: {$ref: '#/components/schemas/Uuid', description: "`sales.delivery.id`, the delivery SalesOrderDelivered published."}
+        delivery_no: {type: integer, description: "The delivery's number within its order, from 1."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.sales_order.id`.'}
+        document_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that took the order.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        delivery_date: {$ref: '#/components/schemas/Date', description: 'The day the goods issue delivered the quantities.'}
+        reversal_date: {$ref: '#/components/schemas/Date', description: 'The day its goods issue was reversed, from which they are no longer delivered.'}
+        outbound_delivery_id: {$ref: '#/components/schemas/Uuid', description: 'The outbound delivery whose goods issue was reversed, `shipping.outbound_delivery.id`.'}
+        outbound_delivery_number: {type: string, description: "That delivery's number."}
+        material_document_id: {$ref: '#/components/schemas/Uuid', description: "The goods issue's material document (601), `inventory.material_document.id`."}
+        material_document_number: {type: string, description: "That document's number."}
+        reversal_material_document_id: {$ref: '#/components/schemas/Uuid', description: "The reversal's material document (602), `inventory.material_document.id`."}
+        reversal_material_document_number: {type: string, description: "That document's number."}
+        items:
+          type: array
+          description: "The order's items no longer delivered, by item number."
+          items:
+            type: object
+            required: [item_no, quantity, cost, delivered_quantity]
+            properties:
+              item_no: {type: integer, description: "The order item's number."}
+              quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity the goods issue had delivered, taken back, in the order item's unit."}
+              cost: {$ref: '#/components/schemas/Money', description: "What the goods issue took from the stock for it, given back, in the company's currency."}
+              delivered_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is delivered of the order item after the reversal.'}
+        version: {type: integer, description: "The order's version after the reversal."}
     BillingDocumentChangedV1:
       type: object
       required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, billing_date, net_amount, status, status_before, version]
@@ -6968,7 +7031,7 @@ components:
         plant_code: {type: string, description: "The plant's code."}
         storage_location_id: {$ref: '#/components/schemas/Uuid', description: 'The storage location it ships from: `tenancy.org_unit.id`.'}
         storage_location_code: {type: string, description: "The storage location's code."}
-        status: {type: string, description: 'Open enum: created, goods_issued.'}
+        status: {type: string, description: 'Open enum: created, goods_issued, goods_issue_reversed.'}
         picking_status: {type: string, description: 'Open enum: not_picked, partly_picked, picked.'}
         goods_issue_date:
           description: "The company's date its goods issue was posted on; null before."
@@ -7022,6 +7085,16 @@ components:
                 released_by: {type: [string, 'null'], format: uuid, description: "Released by hand: who released it; null otherwise."}
                 released_by_name: {type: [string, 'null'], description: "Released by hand: that person's name then; null otherwise."}
                 released_at: {type: [string, 'null'], format: date-time, description: "Released by hand: when; null otherwise."}
+            - type: 'null'
+        goods_issue_reversal:
+          description: "Once its goods issue is reversed (S2b3; ADR-0083 As built S2b3): the company's `date` it was reversed on and the reversal's material document (602) by `material_document_id` and `material_document_number`; null before. Not required (ADR-0041)."
+          oneOf:
+            - type: object
+              required: [date, material_document_id, material_document_number]
+              properties:
+                date: {$ref: '#/components/schemas/Date', description: "The company's date it was reversed on."}
+                material_document_id: {$ref: '#/components/schemas/Uuid', description: "The reversal's material document, `inventory.material_document.id`."}
+                material_document_number: {type: string, description: "That document's number."}
             - type: 'null'
         version: {type: integer, description: "The delivery's version after the change."}
     MaterialPriceChangedV1:
@@ -7941,6 +8014,9 @@ components:
         purchase_order_id: {$ref: '#/components/schemas/Uuid'}
         po_item_no: {type: integer, minimum: 1}
         quantity: {$ref: '#/components/schemas/Quantity'}
+        batch_id: {$ref: '#/components/schemas/NullableUuid', description: 'The batch the item received or took back, of a batch-managed material (ADR-0082 As built S2f1); null on another item. Added within v1; consumers ignore it if absent.'}
+        batch_number: {type: [string, 'null'], description: 'That batch''s number; null with it. Added within v1.'}
+        serial_numbers: {type: [array, 'null'], items: {type: string}, description: 'The serial numbers of the units the item received or took out of stock, of a serial-managed material (S2g1), sorted by number; null on another item. Added within v1.'}
     GoodsReceivedV1:
       type: object
       required: [goods_receipt_id, document_number, legal_entity_id, movement_type, document_date, posting_date, items]

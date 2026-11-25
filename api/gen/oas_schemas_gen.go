@@ -28867,6 +28867,8 @@ func (*ConflictHeaders) createCreditMemoRequestRes()                     {}
 func (*ConflictHeaders) createCustomerContactRes()                       {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                       {}
 func (*ConflictHeaders) createCustomerSalesDataRes()                     {}
+func (*ConflictHeaders) createCycleCountIndicatorRes()                   {}
+func (*ConflictHeaders) createCycleCountMaterialRes()                    {}
 func (*ConflictHeaders) createDisputeCaseRes()                           {}
 func (*ConflictHeaders) createDownPaymentRequestRes()                    {}
 func (*ConflictHeaders) createDunningBlockRes()                          {}
@@ -29011,6 +29013,7 @@ func (*ConflictHeaders) listConsolidationBalancesRes()                   {}
 func (*ConflictHeaders) listConsolidationGroupsRes()                     {}
 func (*ConflictHeaders) listConsolidationRunsRes()                       {}
 func (*ConflictHeaders) listCustomerSalesDataRes()                       {}
+func (*ConflictHeaders) listCycleCountsDueRes()                          {}
 func (*ConflictHeaders) listEInvoiceTransmissionDeadlinesRes()           {}
 func (*ConflictHeaders) listExpenseReportsRes()                          {}
 func (*ConflictHeaders) listForecastVarianceDocumentsRes()               {}
@@ -29121,6 +29124,7 @@ func (*ConflictHeaders) reverseGoodsReceiptRes()                         {}
 func (*ConflictHeaders) reverseInternalOrderSettlementRes()              {}
 func (*ConflictHeaders) reverseJournalEntryRes()                         {}
 func (*ConflictHeaders) reverseMaterialDocumentRes()                     {}
+func (*ConflictHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                      {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()             {}
 func (*ConflictHeaders) runAllocationCycleRes()                          {}
@@ -29162,6 +29166,8 @@ func (*ConflictHeaders) updateControlRes()                               {}
 func (*ConflictHeaders) updateCostCenterRes()                            {}
 func (*ConflictHeaders) updateCreditLimitRes()                           {}
 func (*ConflictHeaders) updateCustomerSalesDataRes()                     {}
+func (*ConflictHeaders) updateCycleCountIndicatorRes()                   {}
+func (*ConflictHeaders) updateCycleCountMaterialRes()                    {}
 func (*ConflictHeaders) updateDisputeCaseRes()                           {}
 func (*ConflictHeaders) updateEntryTemplateRes()                         {}
 func (*ConflictHeaders) updateInternalOrderSettlementRuleRes()           {}
@@ -36105,6 +36111,30 @@ type CreateCustomerSalesDataUnprocessableEntity Problem
 
 func (*CreateCustomerSalesDataUnprocessableEntity) createCustomerSalesDataRes() {}
 
+type CreateCycleCountIndicatorBadRequest Problem
+
+func (*CreateCycleCountIndicatorBadRequest) createCycleCountIndicatorRes() {}
+
+type CreateCycleCountIndicatorForbidden Problem
+
+func (*CreateCycleCountIndicatorForbidden) createCycleCountIndicatorRes() {}
+
+type CreateCycleCountIndicatorUnprocessableEntity Problem
+
+func (*CreateCycleCountIndicatorUnprocessableEntity) createCycleCountIndicatorRes() {}
+
+type CreateCycleCountMaterialBadRequest Problem
+
+func (*CreateCycleCountMaterialBadRequest) createCycleCountMaterialRes() {}
+
+type CreateCycleCountMaterialForbidden Problem
+
+func (*CreateCycleCountMaterialForbidden) createCycleCountMaterialRes() {}
+
+type CreateCycleCountMaterialUnprocessableEntity Problem
+
+func (*CreateCycleCountMaterialUnprocessableEntity) createCycleCountMaterialRes() {}
+
 type CreateDisputeCaseBadRequest Problem
 
 func (*CreateDisputeCaseBadRequest) createDisputeCaseRes() {}
@@ -41419,6 +41449,887 @@ func (s *CustomerSalesDataUpdate) GetPriceGroup() NilString {
 // SetPriceGroup sets the value of PriceGroup.
 func (s *CustomerSalesDataUpdate) SetPriceGroup(val NilString) {
 	s.PriceGroup = val
+}
+
+// A count due: a material with a cycle counting indicator at a storage location of its plant, never
+// counted there or last counted there its indicator's interval or more days ago (ADR-0082 As built
+// S2c2).
+// Ref: #/components/schemas/CycleCountDue
+type CycleCountDue struct {
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The storage location the count is due at, the one a count document of it names.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The storage location's code.
+	StorageLocationCode string `json:"storage_location_code"`
+	// The storage location's name, as it is now.
+	StorageLocationName string `json:"storage_location_name"`
+	// The material (`GET /v1/materials/{id}`), the one a count document's item names.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The material's indicator at the plant (`GET /v1/cycle-count-indicators/{id}`).
+	IndicatorID uuid.UUID `json:"indicator_id"`
+	// The indicator's code.
+	IndicatorCode string `json:"indicator_code"`
+	// The indicator's interval in days.
+	IntervalDays int32 `json:"interval_days"`
+	// The material's last posted count document there (`GET /v1/physical-inventory-documents/{id}`);
+	// absent when it was never counted there.
+	LastCountID OptUUID `json:"last_count_id"`
+	// That document's number; absent with it.
+	LastCountNumber OptString `json:"last_count_number"`
+	// That document's date; absent with it.
+	LastCountedOn OptDate `json:"last_counted_on"`
+	// The day the count fell due, its last count's date plus the interval; absent when it was never
+	// counted there, which is due at once.
+	DueOn OptDate `json:"due_on"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CycleCountDue) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CycleCountDue) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountDue) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *CycleCountDue) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *CycleCountDue) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *CycleCountDue) GetStorageLocationCode() string {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *CycleCountDue) GetStorageLocationName() string {
+	return s.StorageLocationName
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CycleCountDue) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *CycleCountDue) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *CycleCountDue) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetIndicatorID returns the value of IndicatorID.
+func (s *CycleCountDue) GetIndicatorID() uuid.UUID {
+	return s.IndicatorID
+}
+
+// GetIndicatorCode returns the value of IndicatorCode.
+func (s *CycleCountDue) GetIndicatorCode() string {
+	return s.IndicatorCode
+}
+
+// GetIntervalDays returns the value of IntervalDays.
+func (s *CycleCountDue) GetIntervalDays() int32 {
+	return s.IntervalDays
+}
+
+// GetLastCountID returns the value of LastCountID.
+func (s *CycleCountDue) GetLastCountID() OptUUID {
+	return s.LastCountID
+}
+
+// GetLastCountNumber returns the value of LastCountNumber.
+func (s *CycleCountDue) GetLastCountNumber() OptString {
+	return s.LastCountNumber
+}
+
+// GetLastCountedOn returns the value of LastCountedOn.
+func (s *CycleCountDue) GetLastCountedOn() OptDate {
+	return s.LastCountedOn
+}
+
+// GetDueOn returns the value of DueOn.
+func (s *CycleCountDue) GetDueOn() OptDate {
+	return s.DueOn
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CycleCountDue) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CycleCountDue) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountDue) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *CycleCountDue) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *CycleCountDue) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *CycleCountDue) SetStorageLocationCode(val string) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *CycleCountDue) SetStorageLocationName(val string) {
+	s.StorageLocationName = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *CycleCountDue) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *CycleCountDue) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *CycleCountDue) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetIndicatorID sets the value of IndicatorID.
+func (s *CycleCountDue) SetIndicatorID(val uuid.UUID) {
+	s.IndicatorID = val
+}
+
+// SetIndicatorCode sets the value of IndicatorCode.
+func (s *CycleCountDue) SetIndicatorCode(val string) {
+	s.IndicatorCode = val
+}
+
+// SetIntervalDays sets the value of IntervalDays.
+func (s *CycleCountDue) SetIntervalDays(val int32) {
+	s.IntervalDays = val
+}
+
+// SetLastCountID sets the value of LastCountID.
+func (s *CycleCountDue) SetLastCountID(val OptUUID) {
+	s.LastCountID = val
+}
+
+// SetLastCountNumber sets the value of LastCountNumber.
+func (s *CycleCountDue) SetLastCountNumber(val OptString) {
+	s.LastCountNumber = val
+}
+
+// SetLastCountedOn sets the value of LastCountedOn.
+func (s *CycleCountDue) SetLastCountedOn(val OptDate) {
+	s.LastCountedOn = val
+}
+
+// SetDueOn sets the value of DueOn.
+func (s *CycleCountDue) SetDueOn(val OptDate) {
+	s.DueOn = val
+}
+
+// One page of the counts due.
+// Ref: #/components/schemas/CycleCountDuePage
+type CycleCountDuePage struct {
+	// The counts due on this page.
+	Items []CycleCountDue `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CycleCountDuePage) GetItems() []CycleCountDue {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CycleCountDuePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CycleCountDuePage) SetItems(val []CycleCountDue) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CycleCountDuePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CycleCountDuePage) listCycleCountsDueRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/CycleCountIndicator
+type CycleCountIndicator struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The indicator's code at the plant.
+	Code string `json:"code"`
+	// The days between counts of a material that carries it.
+	IntervalDays int32 `json:"interval_days"`
+}
+
+// GetID returns the value of ID.
+func (s *CycleCountIndicator) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CycleCountIndicator) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CycleCountIndicator) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CycleCountIndicator) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CycleCountIndicator) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CycleCountIndicator) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountIndicator) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *CycleCountIndicator) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *CycleCountIndicator) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CycleCountIndicator) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CycleCountIndicator) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCode returns the value of Code.
+func (s *CycleCountIndicator) GetCode() string {
+	return s.Code
+}
+
+// GetIntervalDays returns the value of IntervalDays.
+func (s *CycleCountIndicator) GetIntervalDays() int32 {
+	return s.IntervalDays
+}
+
+// SetID sets the value of ID.
+func (s *CycleCountIndicator) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CycleCountIndicator) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CycleCountIndicator) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CycleCountIndicator) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CycleCountIndicator) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CycleCountIndicator) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountIndicator) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *CycleCountIndicator) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *CycleCountIndicator) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CycleCountIndicator) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CycleCountIndicator) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCode sets the value of Code.
+func (s *CycleCountIndicator) SetCode(val string) {
+	s.Code = val
+}
+
+// SetIntervalDays sets the value of IntervalDays.
+func (s *CycleCountIndicator) SetIntervalDays(val int32) {
+	s.IntervalDays = val
+}
+
+// A plant's cycle counting indicator to create.
+// Ref: #/components/schemas/CycleCountIndicatorCreate
+type CycleCountIndicatorCreate struct {
+	// The plant (an org unit of kind `plant`).
+	PlantID uuid.UUID `json:"plant_id"`
+	// The indicator's code at the plant: A, B, C, D or the tenant's own, one to four capital letters or
+	// digits.
+	Code string `json:"code"`
+	// The days between counts of a material that carries it, at most a year.
+	IntervalDays int32 `json:"interval_days"`
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountIndicatorCreate) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetCode returns the value of Code.
+func (s *CycleCountIndicatorCreate) GetCode() string {
+	return s.Code
+}
+
+// GetIntervalDays returns the value of IntervalDays.
+func (s *CycleCountIndicatorCreate) GetIntervalDays() int32 {
+	return s.IntervalDays
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountIndicatorCreate) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetCode sets the value of Code.
+func (s *CycleCountIndicatorCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetIntervalDays sets the value of IntervalDays.
+func (s *CycleCountIndicatorCreate) SetIntervalDays(val int32) {
+	s.IntervalDays = val
+}
+
+// CycleCountIndicatorHeaders wraps CycleCountIndicator with response headers.
+type CycleCountIndicatorHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CycleCountIndicator
+}
+
+// GetETag returns the value of ETag.
+func (s *CycleCountIndicatorHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CycleCountIndicatorHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CycleCountIndicatorHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CycleCountIndicatorHeaders) GetResponse() CycleCountIndicator {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CycleCountIndicatorHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CycleCountIndicatorHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CycleCountIndicatorHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CycleCountIndicatorHeaders) SetResponse(val CycleCountIndicator) {
+	s.Response = val
+}
+
+func (*CycleCountIndicatorHeaders) createCycleCountIndicatorRes() {}
+
+// One page of cycle counting indicators.
+// Ref: #/components/schemas/CycleCountIndicatorPage
+type CycleCountIndicatorPage struct {
+	// The indicators on this page.
+	Items []CycleCountIndicator `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CycleCountIndicatorPage) GetItems() []CycleCountIndicator {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CycleCountIndicatorPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CycleCountIndicatorPage) SetItems(val []CycleCountIndicator) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CycleCountIndicatorPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CycleCountIndicatorPage) listCycleCountIndicatorsRes() {}
+
+// Merge patch of a cycle counting indicator.
+// Ref: #/components/schemas/CycleCountIndicatorUpdate
+type CycleCountIndicatorUpdate struct {
+	// The days between counts, at most a year.
+	IntervalDays OptInt32 `json:"interval_days"`
+}
+
+// GetIntervalDays returns the value of IntervalDays.
+func (s *CycleCountIndicatorUpdate) GetIntervalDays() OptInt32 {
+	return s.IntervalDays
+}
+
+// SetIntervalDays sets the value of IntervalDays.
+func (s *CycleCountIndicatorUpdate) SetIntervalDays(val OptInt32) {
+	s.IntervalDays = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/CycleCountMaterial
+type CycleCountMaterial struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The material.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The indicator (`GET /v1/cycle-count-indicators/{id}`).
+	IndicatorID uuid.UUID `json:"indicator_id"`
+	// The indicator's code.
+	IndicatorCode string `json:"indicator_code"`
+	// The indicator's interval in days, as it is now.
+	IntervalDays int32 `json:"interval_days"`
+}
+
+// GetID returns the value of ID.
+func (s *CycleCountMaterial) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CycleCountMaterial) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CycleCountMaterial) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CycleCountMaterial) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CycleCountMaterial) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CycleCountMaterial) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountMaterial) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *CycleCountMaterial) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *CycleCountMaterial) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CycleCountMaterial) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CycleCountMaterial) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CycleCountMaterial) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *CycleCountMaterial) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *CycleCountMaterial) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetIndicatorID returns the value of IndicatorID.
+func (s *CycleCountMaterial) GetIndicatorID() uuid.UUID {
+	return s.IndicatorID
+}
+
+// GetIndicatorCode returns the value of IndicatorCode.
+func (s *CycleCountMaterial) GetIndicatorCode() string {
+	return s.IndicatorCode
+}
+
+// GetIntervalDays returns the value of IntervalDays.
+func (s *CycleCountMaterial) GetIntervalDays() int32 {
+	return s.IntervalDays
+}
+
+// SetID sets the value of ID.
+func (s *CycleCountMaterial) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CycleCountMaterial) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CycleCountMaterial) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CycleCountMaterial) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CycleCountMaterial) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CycleCountMaterial) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountMaterial) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *CycleCountMaterial) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *CycleCountMaterial) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CycleCountMaterial) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CycleCountMaterial) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *CycleCountMaterial) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *CycleCountMaterial) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *CycleCountMaterial) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetIndicatorID sets the value of IndicatorID.
+func (s *CycleCountMaterial) SetIndicatorID(val uuid.UUID) {
+	s.IndicatorID = val
+}
+
+// SetIndicatorCode sets the value of IndicatorCode.
+func (s *CycleCountMaterial) SetIndicatorCode(val string) {
+	s.IndicatorCode = val
+}
+
+// SetIntervalDays sets the value of IntervalDays.
+func (s *CycleCountMaterial) SetIntervalDays(val int32) {
+	s.IntervalDays = val
+}
+
+// A material's cycle counting indicator at the indicator's plant to create.
+// Ref: #/components/schemas/CycleCountMaterialCreate
+type CycleCountMaterialCreate struct {
+	// The material (`GET /v1/materials/{id}`), kept in stock and extended to the indicator's plant.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The indicator (`GET /v1/cycle-count-indicators/{id}`), whose plant is the material's plant here.
+	IndicatorID uuid.UUID `json:"indicator_id"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CycleCountMaterialCreate) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetIndicatorID returns the value of IndicatorID.
+func (s *CycleCountMaterialCreate) GetIndicatorID() uuid.UUID {
+	return s.IndicatorID
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *CycleCountMaterialCreate) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetIndicatorID sets the value of IndicatorID.
+func (s *CycleCountMaterialCreate) SetIndicatorID(val uuid.UUID) {
+	s.IndicatorID = val
+}
+
+// CycleCountMaterialHeaders wraps CycleCountMaterial with response headers.
+type CycleCountMaterialHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CycleCountMaterial
+}
+
+// GetETag returns the value of ETag.
+func (s *CycleCountMaterialHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CycleCountMaterialHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CycleCountMaterialHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CycleCountMaterialHeaders) GetResponse() CycleCountMaterial {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CycleCountMaterialHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CycleCountMaterialHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CycleCountMaterialHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CycleCountMaterialHeaders) SetResponse(val CycleCountMaterial) {
+	s.Response = val
+}
+
+func (*CycleCountMaterialHeaders) createCycleCountMaterialRes() {}
+
+// One page of materials' cycle counting indicators.
+// Ref: #/components/schemas/CycleCountMaterialPage
+type CycleCountMaterialPage struct {
+	// The materials' indicators on this page.
+	Items []CycleCountMaterial `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CycleCountMaterialPage) GetItems() []CycleCountMaterial {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CycleCountMaterialPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CycleCountMaterialPage) SetItems(val []CycleCountMaterial) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CycleCountMaterialPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CycleCountMaterialPage) listCycleCountMaterialsRes() {}
+
+// Merge patch of a material's cycle counting indicator.
+// Ref: #/components/schemas/CycleCountMaterialUpdate
+type CycleCountMaterialUpdate struct {
+	// Another indicator of the same plant.
+	IndicatorID OptUUID `json:"indicator_id"`
+}
+
+// GetIndicatorID returns the value of IndicatorID.
+func (s *CycleCountMaterialUpdate) GetIndicatorID() OptUUID {
+	return s.IndicatorID
+}
+
+// SetIndicatorID sets the value of IndicatorID.
+func (s *CycleCountMaterialUpdate) SetIndicatorID(val OptUUID) {
+	s.IndicatorID = val
 }
 
 type DecideRecommendationBadRequest Problem
@@ -53201,6 +54112,88 @@ func (s *GetCustomerSalesDataOKHeaders) SetResponse(val CustomerSalesData) {
 
 func (*GetCustomerSalesDataOKHeaders) getCustomerSalesDataRes() {}
 
+type GetCycleCountIndicatorBadRequest Problem
+
+func (*GetCycleCountIndicatorBadRequest) getCycleCountIndicatorRes() {}
+
+type GetCycleCountIndicatorForbidden Problem
+
+func (*GetCycleCountIndicatorForbidden) getCycleCountIndicatorRes() {}
+
+type GetCycleCountIndicatorNotFound Problem
+
+func (*GetCycleCountIndicatorNotFound) getCycleCountIndicatorRes() {}
+
+// GetCycleCountIndicatorOKHeaders wraps CycleCountIndicator with response headers.
+type GetCycleCountIndicatorOKHeaders struct {
+	ETag     OptString
+	Response CycleCountIndicator
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCycleCountIndicatorOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCycleCountIndicatorOKHeaders) GetResponse() CycleCountIndicator {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCycleCountIndicatorOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCycleCountIndicatorOKHeaders) SetResponse(val CycleCountIndicator) {
+	s.Response = val
+}
+
+func (*GetCycleCountIndicatorOKHeaders) getCycleCountIndicatorRes()    {}
+func (*GetCycleCountIndicatorOKHeaders) updateCycleCountIndicatorRes() {}
+
+type GetCycleCountMaterialBadRequest Problem
+
+func (*GetCycleCountMaterialBadRequest) getCycleCountMaterialRes() {}
+
+type GetCycleCountMaterialForbidden Problem
+
+func (*GetCycleCountMaterialForbidden) getCycleCountMaterialRes() {}
+
+type GetCycleCountMaterialNotFound Problem
+
+func (*GetCycleCountMaterialNotFound) getCycleCountMaterialRes() {}
+
+// GetCycleCountMaterialOKHeaders wraps CycleCountMaterial with response headers.
+type GetCycleCountMaterialOKHeaders struct {
+	ETag     OptString
+	Response CycleCountMaterial
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCycleCountMaterialOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCycleCountMaterialOKHeaders) GetResponse() CycleCountMaterial {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCycleCountMaterialOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCycleCountMaterialOKHeaders) SetResponse(val CycleCountMaterial) {
+	s.Response = val
+}
+
+func (*GetCycleCountMaterialOKHeaders) getCycleCountMaterialRes()    {}
+func (*GetCycleCountMaterialOKHeaders) updateCycleCountMaterialRes() {}
+
 type GetDepreciationRunBadRequest Problem
 
 func (*GetDepreciationRunBadRequest) getDepreciationRunRes() {}
@@ -56719,6 +57712,53 @@ func (s *GoodsReceipt) SetItems(val []GoodsReceiptItem) {
 	s.Items = val
 }
 
+// The batch a goods receipt's stock item receives into (ADR-0082 As built S2f1): one of the material's
+// by its number, or a new one the receipt creates with its dates.
+// Ref: #/components/schemas/GoodsReceiptBatch
+type GoodsReceiptBatch struct {
+	// The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier
+	// gives it.
+	Number string `json:"number"`
+	// The day the batch was made: required for a new batch (422
+	// `inventory.batch_manufacture_date_required`); for an existing one, given only as its own (422
+	// `inventory.batch_dates_differ`).
+	ManufactureDate OptDate `json:"manufacture_date"`
+	// The day it is to be used by, not before its manufacture date (422 `inventory.batch_dates`); absent
+	// when a new batch does not expire. For an existing batch, given only as its own (422
+	// `inventory.batch_dates_differ`).
+	ExpiryDate OptDate `json:"expiry_date"`
+}
+
+// GetNumber returns the value of Number.
+func (s *GoodsReceiptBatch) GetNumber() string {
+	return s.Number
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *GoodsReceiptBatch) GetManufactureDate() OptDate {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *GoodsReceiptBatch) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// SetNumber sets the value of Number.
+func (s *GoodsReceiptBatch) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *GoodsReceiptBatch) SetManufactureDate(val OptDate) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *GoodsReceiptBatch) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
 // Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive
 // either way: a return's are stored negative.
 // Ref: #/components/schemas/GoodsReceiptCreate
@@ -56883,6 +57923,15 @@ type GoodsReceiptItem struct {
 	PoItemNo int32 `json:"po_item_no"`
 	// Quantity received; negative on reversals (movement type 102).
 	Quantity Quantity `json:"quantity"`
+	// The batch the item received, or its reversal took back, of a batch-managed material
+	// (`GET /v1/batches/{id}`, ADR-0082 As built S2f1); absent on another item.
+	BatchID OptUUID `json:"batch_id"`
+	// That batch's number; absent with it.
+	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers of the units the item received, or its reversal took out of stock, of a
+	// serial-managed material (`GET /v1/serial-numbers?number=`, S2g1), sorted by number; absent on
+	// another item.
+	SerialNumbers []string `json:"serial_numbers"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -56905,6 +57954,21 @@ func (s *GoodsReceiptItem) GetQuantity() Quantity {
 	return s.Quantity
 }
 
+// GetBatchID returns the value of BatchID.
+func (s *GoodsReceiptItem) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *GoodsReceiptItem) GetBatchNumber() OptString {
+	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *GoodsReceiptItem) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *GoodsReceiptItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -56925,6 +57989,21 @@ func (s *GoodsReceiptItem) SetQuantity(val Quantity) {
 	s.Quantity = val
 }
 
+// SetBatchID sets the value of BatchID.
+func (s *GoodsReceiptItem) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *GoodsReceiptItem) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *GoodsReceiptItem) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
+}
+
 // An item to receive.
 // Ref: #/components/schemas/GoodsReceiptItemInput
 type GoodsReceiptItemInput struct {
@@ -56934,6 +58013,16 @@ type GoodsReceiptItemInput struct {
 	PoItemNo int32 `json:"po_item_no"`
 	// Quantity received; positive. Receipts above the ordered quantity plus tolerance are refused (409).
 	Quantity Quantity `json:"quantity"`
+	// The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422
+	// `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`,
+	// `procurement.not_stock_item`).
+	Batch OptGoodsReceiptBatch `json:"batch"`
+	// The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for
+	// each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base
+	// units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`)
+	// and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none
+	// (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`).
+	SerialNumbers []string `json:"serial_numbers"`
 }
 
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
@@ -56951,6 +58040,16 @@ func (s *GoodsReceiptItemInput) GetQuantity() Quantity {
 	return s.Quantity
 }
 
+// GetBatch returns the value of Batch.
+func (s *GoodsReceiptItemInput) GetBatch() OptGoodsReceiptBatch {
+	return s.Batch
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *GoodsReceiptItemInput) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *GoodsReceiptItemInput) SetPurchaseOrderID(val uuid.UUID) {
 	s.PurchaseOrderID = val
@@ -56964,6 +58063,16 @@ func (s *GoodsReceiptItemInput) SetPoItemNo(val int32) {
 // SetQuantity sets the value of Quantity.
 func (s *GoodsReceiptItemInput) SetQuantity(val Quantity) {
 	s.Quantity = val
+}
+
+// SetBatch sets the value of Batch.
+func (s *GoodsReceiptItemInput) SetBatch(val OptGoodsReceiptBatch) {
+	s.Batch = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *GoodsReceiptItemInput) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
 }
 
 // One page of goods receipts.
@@ -70170,6 +71279,34 @@ func (*ListCustomerSalesDataBadRequest) listCustomerSalesDataRes() {}
 type ListCustomerSalesDataForbidden Problem
 
 func (*ListCustomerSalesDataForbidden) listCustomerSalesDataRes() {}
+
+type ListCycleCountIndicatorsBadRequest Problem
+
+func (*ListCycleCountIndicatorsBadRequest) listCycleCountIndicatorsRes() {}
+
+type ListCycleCountIndicatorsForbidden Problem
+
+func (*ListCycleCountIndicatorsForbidden) listCycleCountIndicatorsRes() {}
+
+type ListCycleCountMaterialsBadRequest Problem
+
+func (*ListCycleCountMaterialsBadRequest) listCycleCountMaterialsRes() {}
+
+type ListCycleCountMaterialsForbidden Problem
+
+func (*ListCycleCountMaterialsForbidden) listCycleCountMaterialsRes() {}
+
+type ListCycleCountsDueBadRequest Problem
+
+func (*ListCycleCountsDueBadRequest) listCycleCountsDueRes() {}
+
+type ListCycleCountsDueForbidden Problem
+
+func (*ListCycleCountsDueForbidden) listCycleCountsDueRes() {}
+
+type ListCycleCountsDueUnprocessableEntity Problem
+
+func (*ListCycleCountsDueUnprocessableEntity) listCycleCountsDueRes() {}
 
 type ListDepreciationRunsBadRequest Problem
 
@@ -83488,6 +84625,52 @@ func (o OptForecastVarianceCommentAccept) Or(d ForecastVarianceCommentAccept) Fo
 	return d
 }
 
+// NewOptGoodsReceiptBatch returns new OptGoodsReceiptBatch with value set to v.
+func NewOptGoodsReceiptBatch(v GoodsReceiptBatch) OptGoodsReceiptBatch {
+	return OptGoodsReceiptBatch{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptGoodsReceiptBatch is optional GoodsReceiptBatch.
+type OptGoodsReceiptBatch struct {
+	Value GoodsReceiptBatch
+	Set   bool
+}
+
+// IsSet returns true if OptGoodsReceiptBatch was set.
+func (o OptGoodsReceiptBatch) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptGoodsReceiptBatch) Reset() {
+	var v GoodsReceiptBatch
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptGoodsReceiptBatch) SetTo(v GoodsReceiptBatch) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptGoodsReceiptBatch) Get() (v GoodsReceiptBatch, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptGoodsReceiptBatch) Or(d GoodsReceiptBatch) GoodsReceiptBatch {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptGoodsReceiptReverse returns new OptGoodsReceiptReverse with value set to v.
 func NewOptGoodsReceiptReverse(v GoodsReceiptReverse) OptGoodsReceiptReverse {
 	return OptGoodsReceiptReverse{
@@ -87383,7 +88566,8 @@ func (s *OrgUnitUpdate) SetRegion(val OptNilString) {
 
 // An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's
 // storage location, its picking and its goods issue. Never deleted; it changes only until its goods
-// issue is posted, but for its shipment (S2r), recorded once, also after the goods issue.
+// issue is posted, but for its shipment (S2r), recorded once, also after the goods issue, and for the
+// goods issue's reversal (S2b3), once.
 // Ref: #/components/schemas/OutboundDelivery
 type OutboundDelivery struct {
 	// The delivery's id.
@@ -87427,6 +88611,15 @@ type OutboundDelivery struct {
 	MaterialDocumentNumber OptString `json:"material_document_number"`
 	// Its items' costs added up, in the company's local currency; absent before its goods issue.
 	CostOfGoodsSold OptMoney `json:"cost_of_goods_sold"`
+	// The company's date its goods issue was reversed on (S2b3, `reverseOutboundDeliveryGoodsIssue`);
+	// absent while it is not.
+	GoodsIssueReversalDate OptDate `json:"goods_issue_reversal_date"`
+	// The reversal's material document (602, `GET /v1/material-documents/{id}`), naming the goods issue's
+	// as its `reversal_of_id`, whose `journal_entry_id` took the cost of goods sold back; absent with the
+	// date.
+	ReversalMaterialDocumentID OptUUID `json:"reversal_material_document_id"`
+	// That document's number; absent with it.
+	ReversalMaterialDocumentNumber OptString `json:"reversal_material_document_number"`
 	// The shipment a transport management system planned it in, as its `tms` connector reported it (S2r,
 	// `listTMSMessages`); absent until one is recorded. Recorded once, also after the goods issue; nothing
 	// is posted.
@@ -87434,8 +88627,9 @@ type OutboundDelivery struct {
 	// Its screening by a trade compliance service (S2s, `listGTSMessages`); absent when no active `gts`
 	// connector screened its plant when it was created.
 	TradeCompliance OptOutboundDeliveryTradeCompliance `json:"trade_compliance"`
-	// `created` until its goods issue is posted, then `goods_issued`. Open enumeration: clients must
-	// accept and preserve values not listed here; values may be added within /v1.
+	// `created` until its goods issue is posted, then `goods_issued`, and `goods_issue_reversed` once its
+	// goods issue is reversed (S2b3). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
 	Status string `json:"status"`
 	// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
 	// between (SAP's A, C and B). Open enumeration: clients must accept and preserve values not listed
@@ -87553,6 +88747,21 @@ func (s *OutboundDelivery) GetMaterialDocumentNumber() OptString {
 // GetCostOfGoodsSold returns the value of CostOfGoodsSold.
 func (s *OutboundDelivery) GetCostOfGoodsSold() OptMoney {
 	return s.CostOfGoodsSold
+}
+
+// GetGoodsIssueReversalDate returns the value of GoodsIssueReversalDate.
+func (s *OutboundDelivery) GetGoodsIssueReversalDate() OptDate {
+	return s.GoodsIssueReversalDate
+}
+
+// GetReversalMaterialDocumentID returns the value of ReversalMaterialDocumentID.
+func (s *OutboundDelivery) GetReversalMaterialDocumentID() OptUUID {
+	return s.ReversalMaterialDocumentID
+}
+
+// GetReversalMaterialDocumentNumber returns the value of ReversalMaterialDocumentNumber.
+func (s *OutboundDelivery) GetReversalMaterialDocumentNumber() OptString {
+	return s.ReversalMaterialDocumentNumber
 }
 
 // GetShipment returns the value of Shipment.
@@ -87703,6 +88912,21 @@ func (s *OutboundDelivery) SetMaterialDocumentNumber(val OptString) {
 // SetCostOfGoodsSold sets the value of CostOfGoodsSold.
 func (s *OutboundDelivery) SetCostOfGoodsSold(val OptMoney) {
 	s.CostOfGoodsSold = val
+}
+
+// SetGoodsIssueReversalDate sets the value of GoodsIssueReversalDate.
+func (s *OutboundDelivery) SetGoodsIssueReversalDate(val OptDate) {
+	s.GoodsIssueReversalDate = val
+}
+
+// SetReversalMaterialDocumentID sets the value of ReversalMaterialDocumentID.
+func (s *OutboundDelivery) SetReversalMaterialDocumentID(val OptUUID) {
+	s.ReversalMaterialDocumentID = val
+}
+
+// SetReversalMaterialDocumentNumber sets the value of ReversalMaterialDocumentNumber.
+func (s *OutboundDelivery) SetReversalMaterialDocumentNumber(val OptString) {
+	s.ReversalMaterialDocumentNumber = val
 }
 
 // SetShipment sets the value of Shipment.
@@ -94869,6 +96093,7 @@ func (s *PickOutboundDeliveryOKHeaders) SetResponse(val OutboundDelivery) {
 func (*PickOutboundDeliveryOKHeaders) pickOutboundDeliveryRes()                        {}
 func (*PickOutboundDeliveryOKHeaders) postOutboundDeliveryGoodsIssueRes()              {}
 func (*PickOutboundDeliveryOKHeaders) releaseOutboundDeliveryTradeComplianceBlockRes() {}
+func (*PickOutboundDeliveryOKHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 
 type PickOutboundDeliveryPreconditionFailed Problem
 
@@ -110624,6 +111849,31 @@ type ReverseMaterialDocumentUnprocessableEntity Problem
 
 func (*ReverseMaterialDocumentUnprocessableEntity) reverseMaterialDocumentRes() {}
 
+type ReverseOutboundDeliveryGoodsIssueBadRequest Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueBadRequest) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssueForbidden Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueForbidden) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssueNotFound Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueNotFound) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssuePreconditionFailed Problem
+
+func (*ReverseOutboundDeliveryGoodsIssuePreconditionFailed) reverseOutboundDeliveryGoodsIssueRes() {}
+
+type ReverseOutboundDeliveryGoodsIssuePreconditionRequired Problem
+
+func (*ReverseOutboundDeliveryGoodsIssuePreconditionRequired) reverseOutboundDeliveryGoodsIssueRes() {
+}
+
+type ReverseOutboundDeliveryGoodsIssueUnprocessableEntity Problem
+
+func (*ReverseOutboundDeliveryGoodsIssueUnprocessableEntity) reverseOutboundDeliveryGoodsIssueRes() {}
+
 type ReverseSupplierInvoiceBadRequest Problem
 
 func (*ReverseSupplierInvoiceBadRequest) reverseSupplierInvoiceRes() {}
@@ -113880,7 +115130,9 @@ func (s *SalesConditionScale) SetFromAmount(val OptMoney) {
 // A delivery of a sales order (sales, ADR-0067 §8): quantities of its items a person confirmed as
 // delivered on a date, which moves no stock and posts nothing, or, for materials kept in stock, an
 // outbound delivery's goods issue (ADR-0083 §5, S2b1), which names the outbound delivery and its
-// material document. It is written once and never changed.
+// material document. It is written once and never changed; a goods issue's is reversed once by the
+// goods issue's reversal (S2b3), which names its day and material document and takes its quantities
+// off the order's items.
 // Ref: #/components/schemas/SalesDelivery
 type SalesDelivery struct {
 	// Identifier (UUIDv7).
@@ -113903,6 +115155,14 @@ type SalesDelivery struct {
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// That document's number; absent with it.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
+	// A goods issue's delivery reversed (S2b3, `reverseOutboundDeliveryGoodsIssue`): the day it was
+	// reversed on, from which its quantities are no longer delivered and are open again; absent while it
+	// is not reversed.
+	ReversalDate OptDate `json:"reversal_date"`
+	// The reversal's material document (602, `GET /v1/material-documents/{id}`); absent with the date.
+	ReversalMaterialDocumentID OptUUID `json:"reversal_material_document_id"`
+	// That document's number; absent with it.
+	ReversalMaterialDocumentNumber OptString `json:"reversal_material_document_number"`
 	// The items delivered, by the order's item number.
 	Items []SalesDeliveryItem `json:"items"`
 	// When the delivery was confirmed.
@@ -113954,6 +115214,21 @@ func (s *SalesDelivery) GetMaterialDocumentID() OptUUID {
 // GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
 func (s *SalesDelivery) GetMaterialDocumentNumber() OptString {
 	return s.MaterialDocumentNumber
+}
+
+// GetReversalDate returns the value of ReversalDate.
+func (s *SalesDelivery) GetReversalDate() OptDate {
+	return s.ReversalDate
+}
+
+// GetReversalMaterialDocumentID returns the value of ReversalMaterialDocumentID.
+func (s *SalesDelivery) GetReversalMaterialDocumentID() OptUUID {
+	return s.ReversalMaterialDocumentID
+}
+
+// GetReversalMaterialDocumentNumber returns the value of ReversalMaterialDocumentNumber.
+func (s *SalesDelivery) GetReversalMaterialDocumentNumber() OptString {
+	return s.ReversalMaterialDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -114014,6 +115289,21 @@ func (s *SalesDelivery) SetMaterialDocumentID(val OptUUID) {
 // SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
 func (s *SalesDelivery) SetMaterialDocumentNumber(val OptString) {
 	s.MaterialDocumentNumber = val
+}
+
+// SetReversalDate sets the value of ReversalDate.
+func (s *SalesDelivery) SetReversalDate(val OptDate) {
+	s.ReversalDate = val
+}
+
+// SetReversalMaterialDocumentID sets the value of ReversalMaterialDocumentID.
+func (s *SalesDelivery) SetReversalMaterialDocumentID(val OptUUID) {
+	s.ReversalMaterialDocumentID = val
+}
+
+// SetReversalMaterialDocumentNumber sets the value of ReversalMaterialDocumentNumber.
+func (s *SalesDelivery) SetReversalMaterialDocumentNumber(val OptString) {
+	s.ReversalMaterialDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -125830,6 +127120,8 @@ func (*TooManyRequestsHeaders) createCreditMemoRequestRes()                     
 func (*TooManyRequestsHeaders) createCustomerContactRes()                       {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                       {}
 func (*TooManyRequestsHeaders) createCustomerSalesDataRes()                     {}
+func (*TooManyRequestsHeaders) createCycleCountIndicatorRes()                   {}
+func (*TooManyRequestsHeaders) createCycleCountMaterialRes()                    {}
 func (*TooManyRequestsHeaders) createDisputeCaseRes()                           {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()                    {}
 func (*TooManyRequestsHeaders) createDunningBlockRes()                          {}
@@ -125981,6 +127273,8 @@ func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                         
 func (*TooManyRequestsHeaders) getCustomerContactRes()                          {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                          {}
 func (*TooManyRequestsHeaders) getCustomerSalesDataRes()                        {}
+func (*TooManyRequestsHeaders) getCycleCountIndicatorRes()                      {}
+func (*TooManyRequestsHeaders) getCycleCountMaterialRes()                       {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                          {}
 func (*TooManyRequestsHeaders) getDisputeCaseRes()                              {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                       {}
@@ -126150,6 +127444,9 @@ func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                      
 func (*TooManyRequestsHeaders) listCustomerContactsRes()                        {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) listCustomerSalesDataRes()                       {}
+func (*TooManyRequestsHeaders) listCycleCountIndicatorsRes()                    {}
+func (*TooManyRequestsHeaders) listCycleCountMaterialsRes()                     {}
+func (*TooManyRequestsHeaders) listCycleCountsDueRes()                          {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                        {}
 func (*TooManyRequestsHeaders) listDisputeCasesRes()                            {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()                     {}
@@ -126363,6 +127660,7 @@ func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                         
 func (*TooManyRequestsHeaders) reverseInternalOrderSettlementRes()              {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                         {}
 func (*TooManyRequestsHeaders) reverseMaterialDocumentRes()                     {}
+func (*TooManyRequestsHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                      {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()             {}
 func (*TooManyRequestsHeaders) runAllocationCycleRes()                          {}
@@ -126404,6 +127702,8 @@ func (*TooManyRequestsHeaders) updateControlRes()                               
 func (*TooManyRequestsHeaders) updateCostCenterRes()                            {}
 func (*TooManyRequestsHeaders) updateCreditLimitRes()                           {}
 func (*TooManyRequestsHeaders) updateCustomerSalesDataRes()                     {}
+func (*TooManyRequestsHeaders) updateCycleCountIndicatorRes()                   {}
+func (*TooManyRequestsHeaders) updateCycleCountMaterialRes()                    {}
 func (*TooManyRequestsHeaders) updateDisputeCaseRes()                           {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                         {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()                   {}
@@ -126829,6 +128129,8 @@ func (*UnauthorizedHeaders) createCreditMemoRequestRes()                     {}
 func (*UnauthorizedHeaders) createCustomerContactRes()                       {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                       {}
 func (*UnauthorizedHeaders) createCustomerSalesDataRes()                     {}
+func (*UnauthorizedHeaders) createCycleCountIndicatorRes()                   {}
+func (*UnauthorizedHeaders) createCycleCountMaterialRes()                    {}
 func (*UnauthorizedHeaders) createDisputeCaseRes()                           {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()                    {}
 func (*UnauthorizedHeaders) createDunningBlockRes()                          {}
@@ -126980,6 +128282,8 @@ func (*UnauthorizedHeaders) getCurrentPrincipalRes()                         {}
 func (*UnauthorizedHeaders) getCustomerContactRes()                          {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                          {}
 func (*UnauthorizedHeaders) getCustomerSalesDataRes()                        {}
+func (*UnauthorizedHeaders) getCycleCountIndicatorRes()                      {}
+func (*UnauthorizedHeaders) getCycleCountMaterialRes()                       {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                          {}
 func (*UnauthorizedHeaders) getDisputeCaseRes()                              {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                       {}
@@ -127149,6 +128453,9 @@ func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                      {}
 func (*UnauthorizedHeaders) listCustomerContactsRes()                        {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                        {}
 func (*UnauthorizedHeaders) listCustomerSalesDataRes()                       {}
+func (*UnauthorizedHeaders) listCycleCountIndicatorsRes()                    {}
+func (*UnauthorizedHeaders) listCycleCountMaterialsRes()                     {}
+func (*UnauthorizedHeaders) listCycleCountsDueRes()                          {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                        {}
 func (*UnauthorizedHeaders) listDisputeCasesRes()                            {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()                     {}
@@ -127362,6 +128669,7 @@ func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                         {}
 func (*UnauthorizedHeaders) reverseInternalOrderSettlementRes()              {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                         {}
 func (*UnauthorizedHeaders) reverseMaterialDocumentRes()                     {}
+func (*UnauthorizedHeaders) reverseOutboundDeliveryGoodsIssueRes()           {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                      {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()             {}
 func (*UnauthorizedHeaders) runAllocationCycleRes()                          {}
@@ -127403,6 +128711,8 @@ func (*UnauthorizedHeaders) updateControlRes()                               {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                            {}
 func (*UnauthorizedHeaders) updateCreditLimitRes()                           {}
 func (*UnauthorizedHeaders) updateCustomerSalesDataRes()                     {}
+func (*UnauthorizedHeaders) updateCycleCountIndicatorRes()                   {}
+func (*UnauthorizedHeaders) updateCycleCountMaterialRes()                    {}
 func (*UnauthorizedHeaders) updateDisputeCaseRes()                           {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                         {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()                   {}
@@ -128189,6 +129499,54 @@ func (*UpdateCustomerSalesDataPreconditionRequired) updateCustomerSalesDataRes()
 type UpdateCustomerSalesDataUnprocessableEntity Problem
 
 func (*UpdateCustomerSalesDataUnprocessableEntity) updateCustomerSalesDataRes() {}
+
+type UpdateCycleCountIndicatorBadRequest Problem
+
+func (*UpdateCycleCountIndicatorBadRequest) updateCycleCountIndicatorRes() {}
+
+type UpdateCycleCountIndicatorForbidden Problem
+
+func (*UpdateCycleCountIndicatorForbidden) updateCycleCountIndicatorRes() {}
+
+type UpdateCycleCountIndicatorNotFound Problem
+
+func (*UpdateCycleCountIndicatorNotFound) updateCycleCountIndicatorRes() {}
+
+type UpdateCycleCountIndicatorPreconditionFailed Problem
+
+func (*UpdateCycleCountIndicatorPreconditionFailed) updateCycleCountIndicatorRes() {}
+
+type UpdateCycleCountIndicatorPreconditionRequired Problem
+
+func (*UpdateCycleCountIndicatorPreconditionRequired) updateCycleCountIndicatorRes() {}
+
+type UpdateCycleCountIndicatorUnprocessableEntity Problem
+
+func (*UpdateCycleCountIndicatorUnprocessableEntity) updateCycleCountIndicatorRes() {}
+
+type UpdateCycleCountMaterialBadRequest Problem
+
+func (*UpdateCycleCountMaterialBadRequest) updateCycleCountMaterialRes() {}
+
+type UpdateCycleCountMaterialForbidden Problem
+
+func (*UpdateCycleCountMaterialForbidden) updateCycleCountMaterialRes() {}
+
+type UpdateCycleCountMaterialNotFound Problem
+
+func (*UpdateCycleCountMaterialNotFound) updateCycleCountMaterialRes() {}
+
+type UpdateCycleCountMaterialPreconditionFailed Problem
+
+func (*UpdateCycleCountMaterialPreconditionFailed) updateCycleCountMaterialRes() {}
+
+type UpdateCycleCountMaterialPreconditionRequired Problem
+
+func (*UpdateCycleCountMaterialPreconditionRequired) updateCycleCountMaterialRes() {}
+
+type UpdateCycleCountMaterialUnprocessableEntity Problem
+
+func (*UpdateCycleCountMaterialUnprocessableEntity) updateCycleCountMaterialRes() {}
 
 type UpdateDisputeCaseBadRequest Problem
 

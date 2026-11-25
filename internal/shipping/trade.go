@@ -85,22 +85,22 @@ func tradeHeld(d Delivery) error {
 // RecordScreening records a trade compliance service's answer for a
 // delivery (S2s): the delivery read under its row lock (ADR-0008), of a
 // company the caller may act in, while its goods issue is not posted (409
-// shipping.goods_issued: what is issued is no longer held); the answer
-// released or blocked, its reason code at most 40 characters (422
-// shipping.invalid_screening), naming when the service screened it (422
-// shipping.invalid_screening without, or more than screenedAhead past the
-// ERP's clock). The service's latest answer
-// counts, by that time, not by when it is read: one screened before the
-// answer recorded already is refused (409 shipping.screening_superseded),
-// so an answer read late cannot undo a later block. A newer one replaces
-// the status, reason code and time, and a person's release before it. A
-// delivery created before its plant was screened takes it all the same:
-// a block is honoured whenever it comes. The version moves; the audit
-// record and OutboundDeliveryChanged are written in the caller's
-// transaction. No If-Match: the service's answer is not a change of what
-// its caller read. It is shipping's published write for the exchange with
-// trade compliance services, which the composition root wires; no
-// operation of the API calls it.
+// shipping.goods_issued: what is issued is no longer held, or
+// shipping.goods_issue_reversed); the answer released or blocked, its
+// reason code at most 40 characters (422 shipping.invalid_screening),
+// naming when the service screened it (422 shipping.invalid_screening
+// without, or more than screenedAhead past the ERP's clock). The
+// service's latest answer counts, by that time, not by when it is read:
+// one screened before the answer recorded already is refused (409
+// shipping.screening_superseded), so an answer read late cannot undo a
+// later block. A newer one replaces the status, reason code and time,
+// and a person's release before it. A delivery created before its plant
+// was screened takes it all the same: a block is honoured whenever it
+// comes. The version moves; the audit record and OutboundDeliveryChanged
+// are written in the caller's transaction. No If-Match: the service's
+// answer is not a change of what its caller read. It is shipping's
+// published write for the exchange with trade compliance services, which
+// the composition root wires; no operation of the API calls it.
 func (e *Endpoints) RecordScreening(ctx context.Context, id uuid.UUID, in ScreeningInput) (Delivery, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -151,7 +151,7 @@ func superseded(d Delivery, at time.Time) error {
 // ReleaseTradeComplianceBlock releases a delivery's trade compliance by
 // hand (S2s): the delivery read under its row lock at the version the
 // caller read, while its goods issue is not posted (409
-// shipping.goods_issued), pending or blocked (409
+// shipping.goods_issued, or shipping.goods_issue_reversed), pending or blocked (409
 // shipping.not_trade_compliance_blocked otherwise); it is released,
 // naming the caller and when, the service's reason code and time kept.
 // Its goods issue may then be posted; a later answer of the service still

@@ -21,7 +21,9 @@ import (
 // greater consumption value make up less than ShareA percent of the
 // plant's, B while less than ShareB, else C, as is one with none; it is
 // due at a storage location never counted there, or last counted there
-// Interval[class] days or more before the day.
+// Interval[class] days or more before the day: its cycle counting
+// indicator's interval instead when it has one at the plant (ADR-0082 As
+// built S2c2), which the controller keeps on the material at the plant.
 const (
 	YearDays = 365
 	ShareA   = 80
@@ -97,6 +99,14 @@ type countDocument struct {
 	} `json:"items"`
 }
 
+// indicator is a material's cycle counting indicator at the plant, as
+// listCycleCountMaterials gives it.
+type indicator struct {
+	MaterialID    string `json:"material_id"`
+	IndicatorCode string `json:"indicator_code"`
+	IntervalDays  int    `json:"interval_days"`
+}
+
 // place is a material at a storage location.
 type place struct{ material, location string }
 
@@ -107,6 +117,7 @@ type lastCount struct{ date, number string }
 // what ranks it and its line.
 type candidate struct {
 	class          string
+	indicator      *indicator // nil: due by its class's interval
 	movements      int
 	last           lastCount
 	number, code   string // the material's number, the storage location's code
@@ -136,6 +147,7 @@ type reading struct {
 	from, day   string // the year's first and last day
 	stock       []stockRow
 	materials   map[string]material
+	indicators  map[string]indicator   // by material
 	consumption map[string]money.Minor // by material
 	movements   map[place]int
 	last        map[place]lastCount
@@ -152,7 +164,8 @@ func (a *Agent) survey(ctx context.Context, pl plant, day string) (*survey, erro
 		return nil, fmt.Errorf("countagent: the day %q: %w", day, err)
 	}
 	r := &reading{plantID: pl.ID, from: d.AddDate(0, 0, 1-YearDays).Format(time.DateOnly), day: day, materials: map[string]material{},
-		consumption: map[string]money.Minor{}, movements: map[place]int{}, last: map[place]lastCount{}, open: map[place]bool{}}
+		indicators: map[string]indicator{}, consumption: map[string]money.Minor{}, movements: map[place]int{}, last: map[place]lastCount{},
+		open: map[place]bool{}}
 	q := url.Values{"plant_id": {pl.ID}}
 	if r.stock, err = apitools.List[stockRow](ctx, a.API, "/v1/stock", q); err != nil {
 		return nil, fmt.Errorf("countagent: the stock of plant %s: %w", pl.Code, err)
@@ -163,6 +176,13 @@ func (a *Agent) survey(ctx context.Context, pl plant, day string) (*survey, erro
 	}
 	for _, m := range materials {
 		r.materials[m.ID] = m
+	}
+	indicators, err := apitools.List[indicator](ctx, a.API, "/v1/cycle-count-materials", q)
+	if err != nil {
+		return nil, fmt.Errorf("countagent: the cycle counting indicators of plant %s: %w", pl.Code, err)
+	}
+	for _, i := range indicators {
+		r.indicators[i.MaterialID] = i
 	}
 	if err := r.documents(ctx, a.API, q); err != nil {
 		return nil, fmt.Errorf("countagent: the material documents of plant %s: %w", pl.Code, err)
@@ -272,7 +292,11 @@ func (r *reading) rank(pl plant, day time.Time) (*survey, error) {
 		}
 		c := candidate{class: cmp.Or(classes[m.ID], "C"), movements: r.movements[p], last: r.last[p], number: st.MaterialNumber,
 			code: st.StorageLocationCode, materialID: m.ID, sl: st.StorageLocationID}
-		if c.last.date != "" && c.last.date > day.AddDate(0, 0, -Interval[c.class]).Format(time.DateOnly) {
+		interval := Interval[c.class]
+		if i, ok := r.indicators[m.ID]; ok {
+			c.indicator, interval = &i, i.IntervalDays
+		}
+		if c.last.date != "" && c.last.date > day.AddDate(0, 0, -interval).Format(time.DateOnly) {
 			continue
 		}
 		c.line = c.text(pl.Code, r.from)
@@ -295,8 +319,12 @@ func (c candidate) text(plantCode, from string) string {
 	if c.last.date != "" {
 		last = fmt.Sprintf("last counted on %s (%s)", c.last.date, c.last.number)
 	}
-	return fmt.Sprintf("Count %s at %s/%s (material %s, storage location %s): class %s, %s, %s", c.number, plantCode, c.code, c.materialID, c.sl,
-		c.class, moves, last)
+	class := "class " + c.class
+	if c.indicator != nil {
+		class += fmt.Sprintf(", cycle counting indicator %s every %d days", c.indicator.IndicatorCode, c.indicator.IntervalDays)
+	}
+	return fmt.Sprintf("Count %s at %s/%s (material %s, storage location %s): %s, %s, %s", c.number, plantCode, c.code, c.materialID, c.sl,
+		class, moves, last)
 }
 
 // classify gives the materials with consumption their ABC class: in the

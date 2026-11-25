@@ -1078,6 +1078,34 @@ func encodeCreateCustomerSalesDataRequest(
 	return nil
 }
 
+func encodeCreateCycleCountIndicatorRequest(
+	req *CycleCountIndicatorCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateCycleCountMaterialRequest(
+	req *CycleCountMaterialCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateDisputeCaseRequest(
 	req *DisputeCaseCreate,
 	r *http.Request,
@@ -3623,6 +3651,34 @@ func encodeUpdateCreditLimitRequest(
 
 func encodeUpdateCustomerSalesDataRequest(
 	req *CustomerSalesDataUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateCycleCountIndicatorRequest(
+	req *CycleCountIndicatorUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateCycleCountMaterialRequest(
+	req *CycleCountMaterialUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

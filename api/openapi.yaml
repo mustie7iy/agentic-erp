@@ -11386,7 +11386,7 @@ paths:
               $ref: "#/components/schemas/PurchaseOrderCreate"
       responses:
         "201":
-          description: "Created; the new purchase order. A stock item of a batch-managed material is refused (422 `procurement.invalid_stock_item`): a goods receipt carries no batch yet (S2f); so is one of a serial-managed material, as it carries no serial numbers yet (S2g)."
+          description: "Created; the new purchase order. A stock item of a batch-managed or serial-managed material is received naming its batch or the serial number of each unit (`postGoodsReceipt`, S2f1, S2g1); an intercompany stock transport order's (`supplying_plant_id`) is refused (422 `procurement.invalid_stock_item`), as its goods issue carries neither yet."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -13916,15 +13916,23 @@ paths:
       tags:
         - procurement
       summary: Post a goods receipt
-      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A batch-managed material's stock item is refused (422 `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed material's too (422 `inventory.serial_not_supported`, S2g)."
+      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it expires before it was made), audited as `createBatch` is; dates given for an existing batch are its own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1; 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are. Another material's item names neither (422 `inventory.batch_not_allowed`, `inventory.serial_not_allowed`), and an item that is no stock item neither (422 `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of stock again."
       x-permission: procurement.receipt.post
       x-problem-codes:
+        # inventory.batch_exists is the database's answer to a second batch of a number (batch_number_once), which TestProblemCodes
+        # lists as a receipt creates batches; a receipt creates them ON CONFLICT DO NOTHING, so it is not expected to reach it.
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.amount_too_large
+        - inventory.batch_dates
+        - inventory.batch_dates_differ
+        - inventory.batch_exists
         - inventory.batch_invalid
+        - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
+        # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
+        # carries no batches; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_not_allowed
@@ -13947,6 +13955,8 @@ paths:
         - inventory.serial_in_stock
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
+        # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
+        # carries no serial numbers; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated
@@ -14012,6 +14022,7 @@ paths:
         - procurement.invalid_quantity
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
+        - procurement.not_stock_item
         - procurement.order_not_released
         - procurement.over_delivery
         - procurement.reason_not_allowed
@@ -14102,12 +14113,21 @@ paths:
       description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both quantities) if it would leave an order item received less than posted supplier documents invoiced of it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
       x-permission: procurement.receipt.post
       x-problem-codes:
+        # inventory.batch_dates, .batch_dates_differ, .batch_exists and .batch_manufacture_date_required are a receipt's refusals of
+        # the batch it names, which TestProblemCodes lists as a reversal posts through the receipt's code; a reversal takes its
+        # original's batches and names none, so it is not expected to reach them.
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.amount_too_large
+        - inventory.batch_dates
+        - inventory.batch_dates_differ
+        - inventory.batch_exists
         - inventory.batch_invalid
+        - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
+        # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
+        # carries no batches; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_not_allowed
@@ -14130,6 +14150,8 @@ paths:
         - inventory.serial_in_stock
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
+        # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
+        # carries no serial numbers; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated
@@ -25690,7 +25712,7 @@ paths:
         - inventory.batch_invalid
         - inventory.batch_not_allowed
         # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
-        # carries no batch (goods receipt and issue, stock transport); every type posted here carries batches (S2f).
+        # carries no batch (a delivery's goods issue, stock transport); every type posted here carries batches (S2f).
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_invalid
@@ -25717,7 +25739,7 @@ paths:
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
         # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
-        # carries no serial numbers (goods receipt and issue, stock transport); every type posted here carries them (S2g).
+        # carries no serial numbers (a delivery's goods issue, stock transport); every type posted here carries them (S2g).
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated
@@ -26605,6 +26627,437 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-indicators:
+    get:
+      operationId: listCycleCountIndicators
+      tags:
+        - inventory
+      summary: List cycle counting indicators
+      description: "The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP T159C, from memory), each as `getCycleCountIndicator` gives it, in the order they were created. Filtered by plant and by code. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the indicators of this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: code
+          in: query
+          required: false
+          description: Only the indicators with this code.
+          schema:
+            type: string
+            maxLength: 4
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of cycle counting indicators.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicatorPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCycleCountIndicator
+      tags:
+        - inventory
+      summary: Create a plant's cycle counting indicator
+      description: "Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a code (A, B, C, D or the tenant's own, one to four capital letters or digits) and the interval in days, 1 to 366, between counts of a material that carries it (`createCycleCountMaterial`). The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`); a code is used once at a plant (409 `inventory.cycle_count_indicator_exists`). Audited. A retry with the same `Idempotency-Key` answers the indicator created. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_indicator_exists
+        - inventory.plant_invalid
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The indicator to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CycleCountIndicatorCreate"
+            examples:
+              quarterly:
+                summary: Materials counted every 90 days
+                value:
+                  plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  code: A
+                  interval_days: 90
+      responses:
+        "201":
+          description: "Created; the indicator."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicator"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-indicators/{id}":
+    get:
+      operationId: getCycleCountIndicator
+      tags:
+        - inventory
+      summary: Get a cycle counting indicator
+      description: "A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code and its interval in days. One of a company the caller cannot act in is not found."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicator"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCycleCountIndicator
+      tags:
+        - inventory
+      summary: Change a cycle counting indicator's interval
+      description: "Changes an indicator's interval at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2); an interval it already has is 422 `inventory.nothing_to_change`. Its plant and code do not change. The counts due of the materials that carry it (`listCycleCountsDue`) follow it at once. JSON Merge Patch. Audited with the interval before and after. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_indicator_exists
+        - inventory.nothing_to_change
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CycleCountIndicatorUpdate"
+      responses:
+        "200":
+          description: The changed indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicator"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-materials:
+    get:
+      operationId: listCycleCountMaterials
+      tags:
+        - inventory
+      summary: List materials' cycle counting indicators
+      description: "The cycle counting indicators of materials at the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the materials' indicators at this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: material_id
+          in: query
+          required: false
+          description: "Only this material's indicators (`GET /v1/materials/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - name: indicator_id
+          in: query
+          required: false
+          description: "Only the materials carrying this indicator (`GET /v1/cycle-count-indicators/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of materials' cycle counting indicators.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterialPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCycleCountMaterial
+      tags:
+        - inventory
+      summary: Give a material its cycle counting indicator at a plant
+      description: "Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant falls due once the indicator's interval has passed since its last posted count there (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422 `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`), neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422 `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited. A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.batch_not_supported
+        - inventory.cycle_count_material_exists
+        - inventory.indicator_invalid
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.plant_not_extended
+        - inventory.serial_not_supported
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The material and its indicator.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CycleCountMaterialCreate"
+            examples:
+              bracket:
+                summary: The bracket counted by indicator A
+                value:
+                  material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  indicator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+      responses:
+        "201":
+          description: "Created; the material's indicator."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-materials/{id}":
+    get:
+      operationId: getCycleCountMaterial
+      tags:
+        - inventory
+      summary: Get a material's cycle counting indicator
+      description: "A material's cycle counting indicator at a plant (ADR-0082 As built S2c2): its plant and company by code, its material by number and description, and its indicator by code with its interval. One of a company the caller cannot act in is not found."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The material's indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCycleCountMaterial
+      tags:
+        - inventory
+      summary: Change a material's cycle counting indicator
+      description: "Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge Patch. Audited with the indicator before and after. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_material_exists
+        - inventory.indicator_invalid
+        - inventory.nothing_to_change
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CycleCountMaterialUpdate"
+      responses:
+        "200":
+          description: The changed material's indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-counts-due:
+    get:
+      operationId: listCycleCountsDue
+      tags:
+        - inventory
+      summary: List the cycle counts due at a plant
+      description: "The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from memory): each material with a cycle counting indicator at the plant, at each storage location of the plant where it has stock now (as `listStock` lists it), that no open count document holds there and that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its indicator's interval or more days before today. Each names its material, storage location, indicator and interval, its last count and the day it fell due. Never counted first, then the longest due. A count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is posted, an interval before they fall due again. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.plant_invalid
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: true
+          description: The plant.
+          schema:
+            type: string
+            format: uuid
+        - name: storage_location_id
+          in: query
+          required: false
+          description: Only the counts due at this storage location.
+          schema:
+            type: string
+            format: uuid
+        - name: indicator_id
+          in: query
+          required: false
+          description: "Only the counts due of materials carrying this indicator (`GET /v1/cycle-count-indicators/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the counts due.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountDuePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/stock:
@@ -27541,7 +27994,7 @@ paths:
             type: string
             maxLength: 20
             description: "Status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: [created, goods_issued]
+            x-extensible-enum: [created, goods_issued, goods_issue_reversed]
         - name: trade_compliance_status
           in: query
           required: false
@@ -27683,12 +28136,13 @@ paths:
       tags:
         - shipping
       summary: Record the picked quantities of an outbound delivery
-      description: "Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409 `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422 `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`) and, with what the delivery's other items picked of the material, at most what the storage location holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both quantities). Picking reserves no stock: the goods issue takes it. The picking status follows: `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked` between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
+      description: "Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409 `shipping.goods_issued`, or `shipping.goods_issue_reversed` once reversed, S2b3). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422 `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`) and, with what the delivery's other items picked of the material, at most what the storage location holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both quantities). Picking reserves no stock: the goods issue takes it. The picking status follows: `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked` between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
       x-permission: shipping.delivery.write
       x-agent: false
       x-problem-codes:
         - request.version_mismatch
         - shipping.exceeds_delivery_quantity
+        - shipping.goods_issue_reversed
         - shipping.goods_issued
         - shipping.inexact_quantity
         - shipping.insufficient_stock
@@ -27743,7 +28197,7 @@ paths:
       tags:
         - shipping
       summary: Post the goods issue of an outbound delivery
-      description: "Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is refused (409 `shipping.goods_issued`), as is one with nothing picked (409 `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending` or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked quantity leaves the delivery's storage location as one material document of movement type `601` (`material_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical inventory count document counting the material there (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound delivery and the material document, each item with its cost, the order item's `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open again on the order. An order blocked for credit since the delivery was made is refused until its block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422 `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a serial-managed material too (422 `inventory.serial_not_supported`, S2g)."
+      description: "Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is refused (409 `shipping.goods_issued`; reversed, `shipping.goods_issue_reversed`, S2b3: a new delivery takes what is open again), as is one with nothing picked (409 `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending` or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked quantity leaves the delivery's storage location as one material document of movement type `601` (`material_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`: picking reserves none), and no open physical inventory count document counting the material there (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an issue does (at a standard price the stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound delivery and the material document, each item with its cost, the order item's `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open again on the order. An order blocked for credit since the delivery was made is refused until its block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422 `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a serial-managed material too (422 `inventory.serial_not_supported`, S2g)."
       x-permission: shipping.goods_issue.post
       x-agent: false
       x-problem-codes:
@@ -27840,6 +28294,7 @@ paths:
         - request.invalid_amount
         - request.version_mismatch
         - sales.order_credit_blocked
+        - shipping.goods_issue_reversed
         - shipping.goods_issued
         - shipping.nothing_picked
         - shipping.trade_compliance_block
@@ -27877,17 +28332,132 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/outbound-deliveries/{id}:reverseGoodsIssue":
+    post:
+      operationId: reverseOutboundDeliveryGoodsIssue
+      tags:
+        - shipping
+      summary: Reverse the goods issue of an outbound delivery
+      description: "Reverses an outbound delivery's goods issue (ADR-0083 As built S2b3; SAP VL09, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is not posted is refused (409 `shipping.goods_issue_not_posted`), as is one reversed already (409 `shipping.goods_issue_reversed`). Its goods issue's material document is reversed by one of movement type `602` (`reversal_material_document_id`), posted on the company's date today in its time zone, naming the 601 (`reversal_of_id`) and, as its `reference`, the delivery's number: each line gives back to the storage location what its 601 line issued, at the value it took (at a standard price changed since, the difference on the valuation class's price difference account), posted in one WA journal entry from the cost of goods sold account back to the stock account; no open physical inventory count document may count the material there (409 `inventory.posting_blocked`, S2c), and the ledger's refusals apply (such as 422 `ledger.period_not_open`). The order's delivery by the goods issue is reversed (`listSalesDeliveries`: its `reversal_date` and `reversal_material_document_id`): each order item's `delivered_quantity` falls by what the goods issue delivered, which is open again for another delivery, unless the order item is billed beyond what then stays delivered (409 `sales.delivery_billed`): its billing document is cancelled first (`cancelBillingDocument`). The reversal waits for, and is waited for by, the availability check of its materials at the plant, so a check never counts the stock given back against the demand before it. Trade compliance is not asked again. The delivery is `goods_issue_reversed` and changes no more but for its shipment. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`); the goods issue's permission."
+      x-permission: shipping.goods_issue.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.currency_mismatch
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.serial_in_stock
+        - inventory.serial_not_in_stock
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+        - sales.delivery_billed
+        - shipping.goods_issue_not_posted
+        - shipping.goods_issue_reversed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The outbound delivery with its goods issue reversed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/outbound-deliveries/{id}:releaseTradeComplianceBlock":
     post:
       operationId: releaseOutboundDeliveryTradeComplianceBlock
       tags:
         - shipping
       summary: Release the trade compliance block of an outbound delivery
-      description: "Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once, at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service has not answered, or its screening request could not be sent) or `blocked` (the service refused it) becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its goods issue may be posted; the service's reason code and when it answered are kept. A delivery that is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A later answer of the service still counts: a block it reports after the release blocks the delivery again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`), apart from posting the goods issue. Nothing is posted. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
+      description: "Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once, at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409 `shipping.goods_issued`, or `shipping.goods_issue_reversed`, S2b3): a delivery whose `trade_compliance` is `pending` (the service has not answered, or its screening request could not be sent) or `blocked` (the service refused it) becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its goods issue may be posted; the service's reason code and when it answered are kept. A delivery that is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A later answer of the service still counts: a block it reports after the release blocks the delivery again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`), apart from posting the goods issue. Nothing is posted. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
       x-permission: shipping.trade_compliance.release
       x-agent: false
       x-problem-codes:
         - request.version_mismatch
+        - shipping.goods_issue_reversed
         - shipping.goods_issued
         - shipping.not_trade_compliance_blocked
       parameters:
@@ -40328,6 +40898,10 @@ paths:
       description: "Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403 `identity.agent_not_allowed`, whoever created it."
       x-permission: integration.migration.run
       x-problem-codes:
+        # inventory.batch_dates, .batch_dates_differ, .batch_exists and .batch_manufacture_date_required and
+        # procurement.not_stock_item are a goods receipt's refusals of the batches and serial numbers it names, which
+        # TestProblemCodes lists as a run loads receipts through the receipt's code; a loaded receipt names none, so it is not
+        # expected to reach them.
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
@@ -40339,7 +40913,11 @@ paths:
         - integration.secret_unavailable
         - inventory.amount_not_allowed
         - inventory.amount_too_large
+        - inventory.batch_dates
+        - inventory.batch_dates_differ
+        - inventory.batch_exists
         - inventory.batch_invalid
+        - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
         - inventory.batch_not_supported
         - inventory.batch_required
@@ -40563,6 +41141,7 @@ paths:
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
         - procurement.no_gr_ir_account
+        - procurement.not_stock_item
         - procurement.order_not_released
         - procurement.over_delivery
         - procurement.reason_not_allowed
@@ -57483,6 +58062,20 @@ components:
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: "Quantity received; negative on reversals (movement type 102)."
+        batch_id:
+          type: string
+          format: uuid
+          description: "The batch the item received, or its reversal took back, of a batch-managed material (`GET /v1/batches/{id}`, ADR-0082 As built S2f1); absent on another item."
+          readOnly: true
+        batch_number:
+          type: string
+          description: "That batch's number; absent with it."
+          readOnly: true
+        serial_numbers:
+          type: array
+          items: {type: string}
+          description: "The serial numbers of the units the item received, or its reversal took out of stock, of a serial-managed material (`GET /v1/serial-numbers?number=`, S2g1), sorted by number; absent on another item."
+          readOnly: true
       examples:
         - purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
           po_item_no: 10
@@ -57611,6 +58204,15 @@ components:
         quantity:
           $ref: "#/components/schemas/Quantity"
           description: "Quantity received; positive. Receipts above the ordered quantity plus tolerance are refused (409)."
+        batch:
+          $ref: "#/components/schemas/GoodsReceiptBatch"
+          description: "The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422 `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`, `procurement.not_stock_item`)."
+        serial_numbers:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {type: string, pattern: "^[A-Z0-9_-]{1,18}$", description: "A serial number: 1 to 18 capitals, digits, `-` or `_`."}
+          description: "The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`) and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`)."
       additionalProperties: false
       examples:
         - purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
@@ -57618,6 +58220,19 @@ components:
           quantity:
             value: "12.5"
             unit: KG
+    GoodsReceiptBatch:
+      type: object
+      description: "The batch a goods receipt's stock item receives into (ADR-0082 As built S2f1): one of the material's by its number, or a new one the receipt creates with its dates."
+      required: [number]
+      additionalProperties: false
+      properties:
+        number: {type: string, pattern: "^[A-Z0-9_-]{1,10}$", description: "The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier gives it."}
+        manufacture_date: {type: string, format: date, description: "The day the batch was made: required for a new batch (422 `inventory.batch_manufacture_date_required`); for an existing one, given only as its own (422 `inventory.batch_dates_differ`)."}
+        expiry_date: {type: string, format: date, description: "The day it is to be used by, not before its manufacture date (422 `inventory.batch_dates`); absent when a new batch does not expire. For an existing batch, given only as its own (422 `inventory.batch_dates_differ`)."}
+      examples:
+        - number: "L2612A"
+          manufacture_date: "2026-11-20"
+          expiry_date: "2027-05-20"
     GoodsReceiptCreate:
       type: object
       description: "Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive either way: a return's are stored negative."
@@ -65986,7 +66601,7 @@ components:
         cost: {$ref: "#/components/schemas/Money", description: "On a goods issue's delivery (S2b1): what the quantity issued took from the stock, its cost of goods sold, in the company's local currency. Absent on a confirmation by hand.", readOnly: true}
     SalesDelivery:
       type: object
-      description: "A delivery of a sales order (sales, ADR-0067 §8): quantities of its items a person confirmed as delivered on a date, which moves no stock and posts nothing, or, for materials kept in stock, an outbound delivery's goods issue (ADR-0083 §5, S2b1), which names the outbound delivery and its material document. It is written once and never changed."
+      description: "A delivery of a sales order (sales, ADR-0067 §8): quantities of its items a person confirmed as delivered on a date, which moves no stock and posts nothing, or, for materials kept in stock, an outbound delivery's goods issue (ADR-0083 §5, S2b1), which names the outbound delivery and its material document. It is written once and never changed; a goods issue's is reversed once by the goods issue's reversal (S2b3), which names its day and material document and takes its quantities off the order's items."
       required: [id, delivery_no, sales_order_id, sales_order_number, delivery_date, items, created_at, created_by]
       properties:
         id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
@@ -65998,6 +66613,9 @@ components:
         outbound_delivery_number: {type: string, description: "That delivery's number; absent with it.", readOnly: true}
         material_document_id: {type: string, format: uuid, description: "Its goods issue's material document (601, `GET /v1/material-documents/{id}`), whose journal entry posted the cost of goods sold; absent with the delivery.", readOnly: true}
         material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        reversal_date: {type: string, format: date, description: "A goods issue's delivery reversed (S2b3, `reverseOutboundDeliveryGoodsIssue`): the day it was reversed on, from which its quantities are no longer delivered and are open again; absent while it is not reversed.", readOnly: true}
+        reversal_material_document_id: {type: string, format: uuid, description: "The reversal's material document (602, `GET /v1/material-documents/{id}`); absent with the date.", readOnly: true}
+        reversal_material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
         items:
           type: array
           items: {$ref: "#/components/schemas/SalesDeliveryItem"}
@@ -67815,6 +68433,151 @@ components:
           items: {$ref: "#/components/schemas/PhysicalInventoryDocument"}
           description: The count documents on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountIndicatorCreate:
+      type: object
+      description: "A plant's cycle counting indicator to create."
+      required: [plant_id, code, interval_days]
+      additionalProperties: false
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant (an org unit of kind `plant`)."}
+        code: {type: string, minLength: 1, maxLength: 4, pattern: "^[A-Z0-9]{1,4}$", description: "The indicator's code at the plant: A, B, C, D or the tenant's own, one to four capital letters or digits."}
+        interval_days: {type: integer, format: int32, minimum: 1, maximum: 366, description: "The days between counts of a material that carries it, at most a year."}
+    CycleCountIndicatorUpdate:
+      type: object
+      description: "Merge patch of a cycle counting indicator."
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        interval_days: {type: integer, format: int32, minimum: 1, maximum: 366, description: "The days between counts, at most a year."}
+    CycleCountIndicator:
+      description: "A plant's cycle counting indicator (SAP T159C, from memory; ADR-0082 As built S2c2)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, code, interval_days]
+          properties:
+            plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+            plant_code: {type: string, description: "The plant's code.", readOnly: true}
+            plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            code: {type: string, description: "The indicator's code at the plant.", readOnly: true}
+            interval_days: {type: integer, format: int32, description: "The days between counts of a material that carries it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-11-24T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-24T10:00:01Z"
+          plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          code: A
+          interval_days: 90
+    CycleCountIndicatorPage:
+      type: object
+      description: One page of cycle counting indicators.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountIndicator"}
+          description: The indicators on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountMaterialCreate:
+      type: object
+      description: "A material's cycle counting indicator at the indicator's plant to create."
+      required: [material_id, indicator_id]
+      additionalProperties: false
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`), kept in stock and extended to the indicator's plant."}
+        indicator_id: {type: string, format: uuid, description: "The indicator (`GET /v1/cycle-count-indicators/{id}`), whose plant is the material's plant here."}
+    CycleCountMaterialUpdate:
+      type: object
+      description: "Merge patch of a material's cycle counting indicator."
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        indicator_id: {type: string, format: uuid, description: "Another indicator of the same plant."}
+    CycleCountMaterial:
+      description: "A material's cycle counting indicator at a plant (SAP MARC-ABCIN, from memory; ADR-0082 As built S2c2)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, indicator_id, indicator_code, interval_days]
+          properties:
+            plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+            plant_code: {type: string, description: "The plant's code.", readOnly: true}
+            plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
+            material_number: {type: string, description: "The material's number.", readOnly: true}
+            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            indicator_id: {type: string, format: uuid, description: "The indicator (`GET /v1/cycle-count-indicators/{id}`)."}
+            indicator_code: {type: string, description: "The indicator's code.", readOnly: true}
+            interval_days: {type: integer, format: int32, description: "The indicator's interval in days, as it is now.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          version: 1
+          created_at: "2026-11-24T10:00:02Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-24T10:00:02Z"
+          plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          material_number: MA000001
+          material_description: Bracket B10
+          indicator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          indicator_code: A
+          interval_days: 90
+    CycleCountMaterialPage:
+      type: object
+      description: One page of materials' cycle counting indicators.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountMaterial"}
+          description: The materials' indicators on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountDue:
+      type: object
+      description: "A count due: a material with a cycle counting indicator at a storage location of its plant, never counted there or last counted there its indicator's interval or more days ago (ADR-0082 As built S2c2)."
+      required: [legal_entity_id, company_code, plant_id, plant_code, storage_location_id, storage_location_code, storage_location_name, material_id, material_number, material_description, indicator_id, indicator_code, interval_days]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company."}
+        company_code: {type: string, description: "That company's code."}
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        plant_code: {type: string, description: "The plant's code."}
+        storage_location_id: {type: string, format: uuid, description: "The storage location the count is due at, the one a count document of it names."}
+        storage_location_code: {type: string, description: "The storage location's code."}
+        storage_location_name: {type: string, description: "The storage location's name, as it is now."}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`), the one a count document's item names."}
+        material_number: {type: string, description: "The material's number."}
+        material_description: {type: string, description: "The material's description, as it is now."}
+        indicator_id: {type: string, format: uuid, description: "The material's indicator at the plant (`GET /v1/cycle-count-indicators/{id}`)."}
+        indicator_code: {type: string, description: "The indicator's code."}
+        interval_days: {type: integer, format: int32, description: "The indicator's interval in days."}
+        last_count_id: {type: string, format: uuid, description: "The material's last posted count document there (`GET /v1/physical-inventory-documents/{id}`); absent when it was never counted there."}
+        last_count_number: {type: string, description: "That document's number; absent with it."}
+        last_counted_on: {type: string, format: date, description: "That document's date; absent with it."}
+        due_on: {type: string, format: date, description: "The day the count fell due, its last count's date plus the interval; absent when it was never counted there, which is due at once."}
+    CycleCountDuePage:
+      type: object
+      description: One page of the counts due.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountDue"}
+          description: The counts due on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     OutboundDeliveryItemInput:
       type: object
       description: "An item of an outbound delivery to create: a quantity of a sales order item."
@@ -67897,7 +68660,7 @@ components:
         released_at: {type: string, format: date-time, description: "Released by hand: when; absent otherwise.", readOnly: true}
     OutboundDelivery:
       type: object
-      description: "An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's storage location, its picking and its goods issue. Never deleted; it changes only until its goods issue is posted, but for its shipment (S2r), recorded once, also after the goods issue."
+      description: "An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's storage location, its picking and its goods issue. Never deleted; it changes only until its goods issue is posted, but for its shipment (S2r), recorded once, also after the goods issue, and for the goods issue's reversal (S2b3), once."
       required: [id, number, legal_entity_id, company_code, fiscal_year, sales_order_id, sales_order_number, customer_id, customer_number, customer_name, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, status, picking_status, items, version, created_at, created_by, updated_at, updated_by]
       properties:
         id: {type: string, format: uuid, readOnly: true, description: "The delivery's id."}
@@ -67920,12 +68683,15 @@ components:
         material_document_id: {type: string, format: uuid, description: "Its goods issue's material document (601, `GET /v1/material-documents/{id}`), whose `journal_entry_id` posted the cost of goods sold; absent before.", readOnly: true}
         material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
         cost_of_goods_sold: {$ref: "#/components/schemas/Money", description: "Its items' costs added up, in the company's local currency; absent before its goods issue.", readOnly: true}
+        goods_issue_reversal_date: {type: string, format: date, description: "The company's date its goods issue was reversed on (S2b3, `reverseOutboundDeliveryGoodsIssue`); absent while it is not.", readOnly: true}
+        reversal_material_document_id: {type: string, format: uuid, description: "The reversal's material document (602, `GET /v1/material-documents/{id}`), naming the goods issue's as its `reversal_of_id`, whose `journal_entry_id` took the cost of goods sold back; absent with the date.", readOnly: true}
+        reversal_material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
         shipment: {$ref: "#/components/schemas/OutboundDeliveryShipment", description: "The shipment a transport management system planned it in, as its `tms` connector reported it (S2r, `listTMSMessages`); absent until one is recorded. Recorded once, also after the goods issue; nothing is posted.", readOnly: true}
         trade_compliance: {$ref: "#/components/schemas/OutboundDeliveryTradeCompliance", description: "Its screening by a trade compliance service (S2s, `listGTSMessages`); absent when no active `gts` connector screened its plant when it was created.", readOnly: true}
         status:
           type: string
-          x-extensible-enum: [created, goods_issued]
-          description: "`created` until its goods issue is posted, then `goods_issued`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [created, goods_issued, goods_issue_reversed]
+          description: "`created` until its goods issue is posted, then `goods_issued`, and `goods_issue_reversed` once its goods issue is reversed (S2b3). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         picking_status:
           type: string

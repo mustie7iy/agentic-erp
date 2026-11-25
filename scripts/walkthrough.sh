@@ -14045,9 +14045,14 @@ step_goods_movements() {
 # Tyrell invoices the brackets at 2.54: the 4.00 over the order price goes
 # to the stock, which still holds all of them, and the moving price
 # follows; GR/IR is cleared, and the invoice, which revalued stock, is not
-# reversed.
+# reversed. Then (S2f1, S2g1; ADR-0082 As built S2f1) Ben orders cutting
+# oil, managed in batches, and torque wrenches, with a serial number
+# profile: a receipt of the oil without its batch is refused; Tyrell's lot
+# is received naming a new batch, which the receipt creates with its
+# dates, and the wrenches naming each one's serial number; the rest of the
+# lot names the batch by number alone, and other dates for it are refused.
 step_stock_receipt() {
-  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it"
+  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it; a batch-managed material received naming its batch, created by the receipt, and a serial-managed one naming each unit's serial number"
   local po first second rev entry inv
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   accounts
@@ -14119,7 +14124,84 @@ step_stock_receipt() {
   say "An invoice that revalued stock is not reversed, as the stock may have been issued since; a credit memo corrects it:"
   QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
   refused 409 payables.invoice_revalued_stock reverseSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body '{"reason": "Wrong price"}'
+  stock_receipt_tracked
   passed
+}
+
+# stock_receipt_tracked is step_stock_receipt's batches and serial numbers
+# (S2f1, S2g1): cutting oil managed in batches and torque wrenches with a
+# serial number profile, ordered from Tyrell and received naming the batch
+# and each unit's serial number.
+stock_receipt_tracked() {
+  local oil wrench po batch
+  as mira
+  say "Mira creates two more of Tyrell's goods, kept in Toronto's main store: cutting oil, managed in batches, and a"
+  say "torque wrench with a serial number profile; Priya approves both:"
+  api 201 '"material \(.number) \(.description): batch-managed \(.batch_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Cutting oil 5 L\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"OILS\",
+      \"batch_managed\": true, \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  oil=$(field .id)
+  approve priya "$(material_request "$oil")" "Coolant for the lathes."
+  as mira
+  api 201 '"material \(.number) \(.description): serial-managed \(.serial_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Torque wrench 20-100 Nm\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"TOOLS\",
+      \"serial_managed\": true, \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  wrench=$(field .id)
+  approve priya "$(material_request "$wrench")" "Wrenches for the assembly line."
+  as ines
+  say "Ines values both in Toronto at moving prices, the oil at 12.00 CAD and the wrench at 45.00 CAD:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$oil\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}}"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$wrench\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"45.00\", \"currency\": \"CAD\"}}"
+  as ben
+  say "Ben orders 20 cans of the oil at 12.00 CAD and 2 wrenches at 45.00 CAD from Tyrell, stock items of the main store:"
+  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) into \(.plant_code)/\(.storage_location_code)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"items\": [
+      {\"material_id\": \"$oil\", \"description\": \"Cutting oil 5 L\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"},
+      {\"material_id\": \"$wrench\", \"description\": \"Torque wrench\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"45.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}]}"
+  po=$(field .id)
+  api 200 '"\(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Oil and wrenches"
+    as ben
+  fi
+  tracked_receipt() { # items: a goods receipt of the order's items today
+    printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", "items": [%s]}' "$LE" "$TODAY" "$TODAY" "$1"
+  }
+  say "A receipt of the oil that names no batch is refused: the oil is managed in batches:"
+  refused 422 inventory.batch_required postGoodsReceipt -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}}")"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].batch"
+  say "Tyrell's lot CO-2611 arrives, 12 cans made on 2026-11-02 to be used by 2027-11-02: the receipt names the lot,"
+  say "and creates it as a batch of the oil with its dates (SAP MIGO). The two wrenches arrive with it, the item"
+  say "naming each one's serial number:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number)", (.items[] | "  item \(.po_item_no): \(.quantity.value) \(.quantity.unit)\(if .batch_number then ", batch \(.batch_number)" else "" end)\(if .serial_numbers then ", serial numbers \(.serial_numbers | join(", "))" else "" end)")' \
+    postGoodsReceipt -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"},
+      \"batch\": {\"number\": \"CO-2611\", \"manufacture_date\": \"2026-11-02\", \"expiry_date\": \"2027-11-02\"}},
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 2, \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"serial_numbers\": [\"TW-5002\", \"TW-5001\"]}")"
+  expect "the receipt's batch and serial numbers" "$(field '[.items[] | "\(.batch_number // "-"):\(.serial_numbers // [] | join(","))"] | join(" ")')" \
+    "CO-2611: -:TW-5001,TW-5002"
+  batch=$(field '.items[0].batch_id')
+  as wade
+  api 200 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' getBatch -p "id=$batch"
+  expect "the batch the receipt created" "$(field '"\(.number) \(.manufacture_date) \(.expiry_date)"')" "CO-2611 2026-11-02 2027-11-02"
+  as ben
+  say "The rest of the lot, 8 cans, names the batch by its number alone; another manufacture date for it is refused, as a"
+  say "batch's dates do not change:"
+  refused 422 inventory.batch_dates_differ postGoodsReceipt -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1,
+      \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"batch\": {\"number\": \"CO-2611\", \"manufacture_date\": \"2026-11-03\"}}")"
+  api 201 '"goods receipt \(.document_number): \(.items[0].quantity.value) \(.items[0].quantity.unit), batch \(.items[0].batch_number)"' postGoodsReceipt \
+    -body "$(tracked_receipt "{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"batch\": {\"number\": \"CO-2611\"}}")"
+  expect "the second receipt's batch" "$(field '.items[0].batch_id')" "$batch"
+  as wade
+  say "The oil's stock by batch and the wrenches' serial numbers in the main store:"
+  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number) (expires \(.expiry_date)): \(.quantity.value) \(.quantity.unit)"' \
+    listBatchStock -p "material_id=$oil"
+  expect "the oil's stock by batch" "$(field '[.items[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 20"
+  api 200 '.items[] | "  \(.number): in stock at \(.plant_code) \(.storage_location_code)"' listSerialNumbers -p "material_id=$wrench"
+  expect "the wrenches' serial numbers" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:true TW-5002:true"
 }
 
 # step_debit_memo is T75j (ADR-0063 §7 As built): Maple charges Northwind
@@ -15183,23 +15265,52 @@ step_dispute_resolution() {
 # document freezes their book quantities and blocks their postings there
 # until it is closed; a second count of the brackets there is refused. He
 # enters the bracket's count, which is not entered twice, and the bolts'
-# in a second entry; the document is then counted.
+# in a second entry; the document is then counted. First, S2c2 (ADR-0082
+# As built S2c2): Ines plans cycle counting at the plant, indicator A
+# every 90 days for the brackets and C every 365 for the bolts; never
+# counted, both are due at the main store, and Wade's count document is
+# made from that list, which then leaves them out; counted, they are not
+# due again until their intervals have passed.
 step_count() {
-  local loss brackets
-  heading "Step 141 — Physical inventory: a count document of the main store's brackets and bolts freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves"
+  local loss brackets ind_a ind_c due
+  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
   local doc book
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
+  as ines
+  say "Ines, the inventory controller, plans cycle counting at the Toronto plant (S2c2; SAP T159C, from memory): indicator"
+  say "A counts a material every 90 days, C every 365. A code is used once at a plant:"
+  api 201 '"indicator \(.code) at \(.plant_code): every \(.interval_days) days"' createCycleCountIndicator \
+    -body "{\"plant_id\": \"$PLANT\", \"code\": \"A\", \"interval_days\": 90}"
+  ind_a=$(field .id)
+  api 201 '"indicator \(.code) at \(.plant_code): every \(.interval_days) days"' createCycleCountIndicator \
+    -body "{\"plant_id\": \"$PLANT\", \"code\": \"C\", \"interval_days\": 365}"
+  ind_c=$(field .id)
+  refused 409 inventory.cycle_count_indicator_exists createCycleCountIndicator -body "{\"plant_id\": \"$PLANT\", \"code\": \"A\", \"interval_days\": 30}"
+  say "She gives the brackets indicator A and the bolts C at the plant (SAP MARC-ABCIN, from memory); one each:"
+  api 201 '"\(.material_number) \(.material_description) at \(.plant_code): indicator \(.indicator_code), every \(.interval_days) days"' \
+    createCycleCountMaterial -body "{\"material_id\": \"$MATERIAL\", \"indicator_id\": \"$ind_a\"}"
+  api 201 '"\(.material_number) \(.material_description) at \(.plant_code): indicator \(.indicator_code), every \(.interval_days) days"' \
+    createCycleCountMaterial -body "{\"material_id\": \"$BOLT\", \"indicator_id\": \"$ind_c\"}"
+  refused 409 inventory.cycle_count_material_exists createCycleCountMaterial -body "{\"material_id\": \"$MATERIAL\", \"indicator_id\": \"$ind_c\"}"
+  say "Neither was ever counted at the main store, so both are due there today (SAP MICN, from memory):"
+  api 200 '.items[] | "  \(.material_number) \(.material_description) at \(.plant_code)/\(.storage_location_code): indicator \(.indicator_code), \(.last_count_number // "never counted")"' \
+    listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
+  expect "the counts due at the main store" "$(field '[.items[] | "\(.material_id) \(.indicator_code) \(.due_on // "now")"] | sort | join(",")')" \
+    "$(printf '%s\n' "$MATERIAL A now" "$BOLT C now" | sort | paste -sd, -)"
+  due=$(jq -c --arg m "$MATERIAL" '[.items[] | {material_id}] | sort_by(.material_id != $m)' "$WORK/last.json")
   as wade
-  say "Wade counts the main store's brackets and bolts (SAP MI01): the count document freezes their book quantities"
-  say "and blocks their postings there until it is closed:"
+  say "Wade counts the main store's brackets and bolts from the list (SAP MI01): the count document freezes their book"
+  say "quantities and blocks their postings there until it is closed:"
   api 201 '"count document \(.number): \(.status) at \(.plant_code)/\(.storage_location_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.material_description), book \(.book_quantity.value) \(.book_quantity.unit)")' \
-    createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"material_id\": \"$MATERIAL\"},
-      {\"material_id\": \"$BOLT\"}]}"
+    createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": $due}"
   case "$(field .number)" in PI*) ;; *) fail "the count document's number: got $(field .number), want one of the PI range" ;; esac
   doc=$(field .id)
   book=$(field '.items[0].book_quantity.value')
   brackets=$book
   expect "the bracket's book quantity" "$book EA" "$(stock_at "$MAIN_STORE")"
+  say "The list leaves out what an open count holds:"
+  QUIET=1 api 200 '' listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
+  expect "the counts due while counted" "$(field '.items | length')" 0
   say "While it is counted no bracket leaves the main store, whatever posts it:"
   QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
   refused 409 inventory.posting_blocked createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\",
@@ -15251,6 +15362,9 @@ step_count() {
   api 200 '"count document \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): \(.difference.value) \(.difference.unit) worth \(.difference_value.amount), material document \(.material_document_number)")' \
     getPhysicalInventoryDocument -p "id=$doc"
   expect "after the approval" "$(field '[.status, (.items[] | .difference_value.amount)] | join(" ")')" "posted 5.02 -55.00"
+  say "Counted today, the brackets fall due again in 90 days and the bolts in 365; nothing is due at the main store:"
+  api 200 '"  \(.items | length) counts due"' listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
+  expect "the counts due once counted" "$(field '.items | length')" 0
   passed
 }
 
@@ -15331,9 +15445,10 @@ step_outbound_delivery() {
 # from the stock account 1416 to the cost of goods sold 5016; the order
 # has its 6 boxes delivered, by the goods issue, with their cost. It posts
 # once. Sally confirms the installation by hand, which a stock item is
-# not, and bills the order: both items, the brackets as issued. Last,
-# S2b2: cost of sales and margin by profitability segment
-# (goods_issue_margin).
+# not, and bills the order: both items, the brackets as issued. Then
+# S2b3: a goods issue reversed (goods_issue_reversal). Last, S2b2: cost of
+# sales and margin by profitability segment (goods_issue_margin), where
+# the reversed goods issue's cost nets out.
 step_goods_issue() {
   heading "Step 143 — Goods issue: the picked delivery's 601 takes the stock at the moving price and posts its value to the cost of goods sold; the order delivered by it and billed; once only; a stock item not confirmed by hand; cost of sales and margin by profitability segment"
   local before after doc cost day
@@ -15378,8 +15493,74 @@ step_goods_issue() {
     createBillingDocument -body "{\"sales_order_id\": \"$ORDER_SHIPPED\"}"
   expect "the items billed" "$(field '[.items[] | "\(.order_item_no) \(.quantity.value) \(.quantity.unit)"] | join(", ")')" "1 6 BOX, 2 1 EA"
   ISSUED_COST=$(jq -rn --arg a "${ISSUED_COST:-0}" --arg c "$cost" '(($a | tonumber) * 100 + ($c | tonumber) * 100) | round / 100')
+  goods_issue_reversal
   goods_issue_margin
   passed
+}
+
+# goods_issue_reversal is S2b3's part of step_goods_issue (ADR-0083 As
+# built S2b3; SAP VL09): the billed delivery's goods issue is not
+# reversed until its billing document is cancelled. Sally sells
+# Northwind one more bracket, which Wade delivers and issues, and then
+# reverses: a 602 naming the 601 gives the bracket back to the main store
+# at the value it took, its WA entry credits the cost of goods sold 5016
+# and debits the stock 1416, and the valuation is as before the issue;
+# the order's bracket is no longer delivered and the delivery changes no
+# more. Sally then cancels the order, which nothing holds or delivers.
+goods_issue_reversal() {
+  local order delivery tag before cost doc sales
+  as wade
+  say "Step 142's delivery is billed: its goods issue is not reversed until the billing document is cancelled (S2b3):"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$DELIVERY"
+  refused 409 sales.delivery_billed reverseOutboundDeliveryGoodsIssue -p "id=$DELIVERY" -if-match "$ETAG"
+  as sally
+  sales=$(account 4000)
+  say "Sally sells Northwind one more bracket from the Toronto plant, priced by hand (the price record is by the box);"
+  say "Wade delivers, picks and issues it:"
+  QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\",
+    \"items\": [{\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"},
+    \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as ruth
+    QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  before=$(valuation "$MATERIAL")
+  as wade
+  QUIET=1 api 201 '' createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  delivery=$(field .id)
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$delivery" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
+  api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number), cost \(.cost_of_goods_sold.amount) \(.cost_of_goods_sold.currency)"' \
+    postOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$ETAG"
+  cost=$(field .cost_of_goods_sold.amount)
+  say "Northwind refuses the bracket at the door; Wade reverses the goods issue (SAP VL09): a 602 gives it back to the"
+  say "main store at the value it took, and the order's bracket is no longer delivered:"
+  api 200 '"outbound delivery \(.number): \(.status) on \(.goods_issue_reversal_date), reversal \(.reversal_material_document_number) of \(.material_document_number)"' \
+    reverseOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$ETAG"
+  expect "the delivery's status" "$(field .status)" goods_issue_reversed
+  tag=$ETAG
+  doc=$(field .reversal_material_document_id)
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)) of \(.reversal_of_number), reference \(.reference): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) worth \(.lines[0].amount.amount)"' \
+    getMaterialDocument -p "id=$doc"
+  expect "the movement type" "$(field .movement_type)" 602
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the cost of goods sold, 5016, credited" "$(field "[.lines[] | select(.account_id == \"$(account 5016)\") | .amount.amount] | join(\" \")")" "-$cost"
+  expect "the stock, 1416, debited" "$(field "[.lines[] | select(.account_id == \"$(account 1416)\") | .amount.amount] | join(\" \")")" "$cost"
+  expect "the bracket's valuation, as before the goods issue" "$(valuation "$MATERIAL")" "$before"
+  say "  the bracket's valuation: $before, as before the goods issue"
+  say "A goods issue is reversed once:"
+  refused 409 shipping.goods_issue_reversed reverseOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$tag"
+  as sally
+  api 200 '.items[] | "  delivery \(.delivery_no) on \(.delivery_date) by goods issue of \(.outbound_delivery_number)\(if .reversal_date then ", reversed on \(.reversal_date) by \(.reversal_material_document_number)" else "" end)"' \
+    listSalesDeliveries -p "id=$order"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "the order's bracket" "$(field '.items[0] | "\(.delivered_quantity.value) delivered, \(.in_delivery_quantity.value) in delivery"')" "0 delivered, 0 in delivery"
+  say "Northwind does not want the bracket after all; Sally cancels the order, which nothing delivers any more:"
+  api 200 '"sales order \(.document_number): \(.status), \(.cancellation_reason)"' cancelSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body '{"reason": "Refused at delivery; the goods issue is reversed"}'
+  expect "the order" "$(field .status)" cancelled
 }
 
 # goods_issue_margin is S2b2's part of step_goods_issue (ADR-0083 §6):

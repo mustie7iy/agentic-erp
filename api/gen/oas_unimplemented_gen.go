@@ -2069,6 +2069,40 @@ func (UnimplementedHandler) CreateCustomerSalesData(ctx context.Context, req *Cu
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCycleCountIndicator implements createCycleCountIndicator operation.
+//
+// Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
+// code (A, B, C, D or the tenant's own, one to four capital letters or digits) and the interval in
+// days, 1 to 366, between counts of a material that carries it (`createCycleCountMaterial`). The plant
+// is an active plant of a company the caller may act in (422 `inventory.plant_invalid`); a code is
+// used once at a plant (409 `inventory.cycle_count_indicator_exists`). Audited. A retry with the same
+// `Idempotency-Key` answers the indicator created. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-indicators
+func (UnimplementedHandler) CreateCycleCountIndicator(ctx context.Context, req *CycleCountIndicatorCreate, params CreateCycleCountIndicatorParams) (r CreateCycleCountIndicatorRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateCycleCountMaterial implements createCycleCountMaterial operation.
+//
+// Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP
+// MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant
+// falls due once the indicator's interval has passed since its last posted count there
+// (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422
+// `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422
+// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
+// `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
+// neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
+// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
+// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
+// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/cycle-count-materials
+func (UnimplementedHandler) CreateCycleCountMaterial(ctx context.Context, req *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (r CreateCycleCountMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateDisputeCase implements createDisputeCase operation.
 //
 // Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more
@@ -5139,6 +5173,27 @@ func (UnimplementedHandler) GetCustomerSalesData(ctx context.Context, params Get
 	return r, ht.ErrNotImplemented
 }
 
+// GetCycleCountIndicator implements getCycleCountIndicator operation.
+//
+// A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code
+// and its interval in days. One of a company the caller cannot act in is not found.
+//
+// GET /v1/cycle-count-indicators/{id}
+func (UnimplementedHandler) GetCycleCountIndicator(ctx context.Context, params GetCycleCountIndicatorParams) (r GetCycleCountIndicatorRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCycleCountMaterial implements getCycleCountMaterial operation.
+//
+// A material's cycle counting indicator at a plant (ADR-0082 As built S2c2): its plant and company by
+// code, its material by number and description, and its indicator by code with its interval. One of a
+// company the caller cannot act in is not found.
+//
+// GET /v1/cycle-count-materials/{id}
+func (UnimplementedHandler) GetCycleCountMaterial(ctx context.Context, params GetCycleCountMaterialParams) (r GetCycleCountMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetDepreciationRun implements getDepreciationRun operation.
 //
 // One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -7568,6 +7623,46 @@ func (UnimplementedHandler) ListCustomerSalesData(ctx context.Context, params Li
 	return r, ht.ErrNotImplemented
 }
 
+// ListCycleCountIndicators implements listCycleCountIndicators operation.
+//
+// The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
+// built S2c2; SAP T159C, from memory), each as `getCycleCountIndicator` gives it, in the order they
+// were created. Filtered by plant and by code. Sortable by: `created_at`.
+//
+// GET /v1/cycle-count-indicators
+func (UnimplementedHandler) ListCycleCountIndicators(ctx context.Context, params ListCycleCountIndicatorsParams) (r ListCycleCountIndicatorsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCycleCountMaterials implements listCycleCountMaterials operation.
+//
+// The cycle counting indicators of materials at the plants of the companies the caller may act in
+// (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
+// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+//
+// GET /v1/cycle-count-materials
+func (UnimplementedHandler) ListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (r ListCycleCountMaterialsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCycleCountsDue implements listCycleCountsDue operation.
+//
+// The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
+// memory): each material with a cycle counting indicator at the plant, at each storage location of the
+// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
+// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
+// posted count there is its indicator's interval or more days before today. Each names its material,
+// storage location, indicator and interval, its last count and the day it fell due. Never counted
+// first, then the longest due. A count document of a storage location's materials as listed
+// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
+// posted, an interval before they fall due again. The plant is an active plant of a company the caller
+// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+//
+// GET /v1/cycle-counts-due
+func (UnimplementedHandler) ListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (r ListCycleCountsDueRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListDepreciationRuns implements listDepreciationRuns operation.
 //
 // The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -9429,16 +9524,17 @@ func (UnimplementedHandler) PauseWebhookSubscription(ctx context.Context, params
 //
 // Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read
 // (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409
-// `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the
-// delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was
-// recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422
-// `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`)
-// and, with what the delivery's other items picked of the material, at most what the storage location
-// holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both
-// quantities). Picking reserves no stock: the goods issue takes it. The picking status follows:
-// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
-// between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key`
-// answers the delivery as it left it. Human-only (`x-agent: false`).
+// `shipping.goods_issued`, or `shipping.goods_issue_reversed` once reversed, S2b3). Each item named
+// (`item_no`, once, 422 `shipping.item_repeated`; one the delivery has, 422 `shipping.unknown_item`)
+// takes the quantity picked of it, which replaces what was recorded before: zero or more (422
+// `shipping.invalid_quantity`), in the item's unit (422 `shipping.unit_mismatch`), at most its
+// delivery quantity (422 `shipping.exceeds_delivery_quantity`) and, with what the delivery's other
+// items picked of the material, at most what the storage location holds of it now in the material's
+// base unit (422 `shipping.insufficient_stock`, naming both quantities). Picking reserves no stock:
+// the goods issue takes it. The picking status follows: `not_picked` while nothing is picked, `picked`
+// when every item is picked in full, `partly_picked` between. Audited, and published as
+// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/outbound-deliveries/{id}:pick
 func (UnimplementedHandler) PickOutboundDelivery(ctx context.Context, req *OutboundDeliveryPick, params PickOutboundDeliveryParams) (r PickOutboundDeliveryRes, _ error) {
@@ -9688,9 +9784,20 @@ func (UnimplementedHandler) PostExpenseReport(ctx context.Context, req OptExpens
 // with `reason`) of goods received on released or closed orders: never more than was received (409
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-// are reversals. A batch-managed material's stock item is refused (422
-// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
-// material's too (422 `inventory.serial_not_supported`, S2g).
+// are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built
+// S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the
+// receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given
+// (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it
+// expires before it was made), audited as `createBatch` is; dates given for an existing batch are its
+// own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a
+// serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1;
+// 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in
+// stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are.
+// Another material's item names neither (422 `inventory.batch_not_allowed`,
+// `inventory.serial_not_allowed`), and an item that is no stock item neither (422
+// `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial
+// numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of
+// stock again.
 //
 // POST /v1/goods-receipts
 func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (r PostGoodsReceiptRes, _ error) {
@@ -9771,11 +9878,12 @@ func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEn
 //
 // Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
-// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
-// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
-// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
-// quantity leaves the delivery's storage location as one material document of movement type `601`
+// refused (409 `shipping.goods_issued`; reversed, `shipping.goods_issue_reversed`, S2b3: a new
+// delivery takes what is open again), as is one with nothing picked (409 `shipping.nothing_picked`),
+// and one a trade compliance service screens whose screening is `pending` or `blocked` (409
+// `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the service's release
+// or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked quantity leaves
+// the delivery's storage location as one material document of movement type `601`
 // (`material_document_id`), posted on the company's date today in its time zone and numbered from its
 // `material_document` range, its `reference` the delivery's number: the material active and kept there
 // (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
@@ -10449,16 +10557,16 @@ func (UnimplementedHandler) ReleaseInternalOrder(ctx context.Context, params Rel
 //
 // Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
-// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
-// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
-// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
-// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
-// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
-// later answer of the service still counts: a block it reports after the release blocks the delivery
-// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
-// apart from posting the goods issue. Nothing is posted. Audited, and published as
-// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-// Human-only (`x-agent: false`).
+// posted (409 `shipping.goods_issued`, or `shipping.goods_issue_reversed`, S2b3): a delivery whose
+// `trade_compliance` is `pending` (the service has not answered, or its screening request could not be
+// sent) or `blocked` (the service refused it) becomes `released`, naming who released it
+// (`released_by`, `released_by_name`) and when, and its goods issue may be posted; the service's
+// reason code and when it answered are kept. A delivery that is not screened, or is released already,
+// is refused (409 `shipping.not_trade_compliance_blocked`). A later answer of the service still
+// counts: a block it reports after the release blocks the delivery again. Releasing is a trade
+// compliance officer's decision (`shipping.trade_compliance.release`), apart from posting the goods
+// issue. Nothing is posted. Audited, and published as OutboundDeliveryChanged. A retry with the same
+// `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`).
 //
 // POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
 func (UnimplementedHandler) ReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params ReleaseOutboundDeliveryTradeComplianceBlockParams) (r ReleaseOutboundDeliveryTradeComplianceBlockRes, _ error) {
@@ -11141,6 +11249,35 @@ func (UnimplementedHandler) ReverseJournalEntry(ctx context.Context, req OptJour
 //
 // POST /v1/material-documents/{id}:reverse
 func (UnimplementedHandler) ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (r ReverseMaterialDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ReverseOutboundDeliveryGoodsIssue implements reverseOutboundDeliveryGoodsIssue operation.
+//
+// Reverses an outbound delivery's goods issue (ADR-0083 As built S2b3; SAP VL09, from memory), once,
+// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is not
+// posted is refused (409 `shipping.goods_issue_not_posted`), as is one reversed already (409
+// `shipping.goods_issue_reversed`). Its goods issue's material document is reversed by one of movement
+// type `602` (`reversal_material_document_id`), posted on the company's date today in its time zone,
+// naming the 601 (`reversal_of_id`) and, as its `reference`, the delivery's number: each line gives
+// back to the storage location what its 601 line issued, at the value it took (at a standard price
+// changed since, the difference on the valuation class's price difference account), posted in one WA
+// journal entry from the cost of goods sold account back to the stock account; no open physical
+// inventory count document may count the material there (409 `inventory.posting_blocked`, S2c), and
+// the ledger's refusals apply (such as 422 `ledger.period_not_open`). The order's delivery by the
+// goods issue is reversed (`listSalesDeliveries`: its `reversal_date` and
+// `reversal_material_document_id`): each order item's `delivered_quantity` falls by what the goods
+// issue delivered, which is open again for another delivery, unless the order item is billed beyond
+// what then stays delivered (409 `sales.delivery_billed`): its billing document is cancelled first
+// (`cancelBillingDocument`). The reversal waits for, and is waited for by, the availability check of
+// its materials at the plant, so a check never counts the stock given back against the demand before
+// it. Trade compliance is not asked again. The delivery is `goods_issue_reversed` and changes no more
+// but for its shipment. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
+// SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key` answers the delivery as it left
+// it. Human-only (`x-agent: false`); the goods issue's permission.
+//
+// POST /v1/outbound-deliveries/{id}:reverseGoodsIssue
+func (UnimplementedHandler) ReverseOutboundDeliveryGoodsIssue(ctx context.Context, params ReverseOutboundDeliveryGoodsIssueParams) (r ReverseOutboundDeliveryGoodsIssueRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -12032,6 +12169,30 @@ func (UnimplementedHandler) UpdateCreditLimit(ctx context.Context, req *Customer
 //
 // PATCH /v1/customer-sales-data/{id}
 func (UnimplementedHandler) UpdateCustomerSalesData(ctx context.Context, req *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (r UpdateCustomerSalesDataRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCycleCountIndicator implements updateCycleCountIndicator operation.
+//
+// Changes an indicator's interval at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As
+// built S2c2); an interval it already has is 422 `inventory.nothing_to_change`. Its plant and code do
+// not change. The counts due of the materials that carry it (`listCycleCountsDue`) follow it at once.
+// JSON Merge Patch. Audited with the interval before and after. Human-only (`x-agent: false`).
+//
+// PATCH /v1/cycle-count-indicators/{id}
+func (UnimplementedHandler) UpdateCycleCountIndicator(ctx context.Context, req *CycleCountIndicatorUpdate, params UpdateCycleCountIndicatorParams) (r UpdateCycleCountIndicatorRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCycleCountMaterial implements updateCycleCountMaterial operation.
+//
+// Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
+// ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
+// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
+// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+//
+// PATCH /v1/cycle-count-materials/{id}
+func (UnimplementedHandler) UpdateCycleCountMaterial(ctx context.Context, req *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (r UpdateCycleCountMaterialRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

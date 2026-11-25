@@ -369,6 +369,14 @@ type CreateCustomerSalesDataRes interface {
 	createCustomerSalesDataRes()
 }
 
+type CreateCycleCountIndicatorRes interface {
+	createCycleCountIndicatorRes()
+}
+
+type CreateCycleCountMaterialRes interface {
+	createCycleCountMaterialRes()
+}
+
 type CreateDisputeCaseRes interface {
 	createDisputeCaseRes()
 }
@@ -971,6 +979,14 @@ type GetCustomerInvoiceRes interface {
 
 type GetCustomerSalesDataRes interface {
 	getCustomerSalesDataRes()
+}
+
+type GetCycleCountIndicatorRes interface {
+	getCycleCountIndicatorRes()
+}
+
+type GetCycleCountMaterialRes interface {
+	getCycleCountMaterialRes()
 }
 
 type GetDepreciationRunRes interface {
@@ -1647,6 +1663,18 @@ type ListCustomerInvoicesRes interface {
 
 type ListCustomerSalesDataRes interface {
 	listCustomerSalesDataRes()
+}
+
+type ListCycleCountIndicatorsRes interface {
+	listCycleCountIndicatorsRes()
+}
+
+type ListCycleCountMaterialsRes interface {
+	listCycleCountMaterialsRes()
+}
+
+type ListCycleCountsDueRes interface {
+	listCycleCountsDueRes()
 }
 
 type ListDepreciationRunsRes interface {
@@ -2501,6 +2529,10 @@ type ReverseMaterialDocumentRes interface {
 	reverseMaterialDocumentRes()
 }
 
+type ReverseOutboundDeliveryGoodsIssueRes interface {
+	reverseOutboundDeliveryGoodsIssueRes()
+}
+
 type ReverseSupplierInvoiceRes interface {
 	reverseSupplierInvoiceRes()
 }
@@ -2663,6 +2695,14 @@ type UpdateCreditLimitRes interface {
 
 type UpdateCustomerSalesDataRes interface {
 	updateCustomerSalesDataRes()
+}
+
+type UpdateCycleCountIndicatorRes interface {
+	updateCycleCountIndicatorRes()
+}
+
+type UpdateCycleCountMaterialRes interface {
+	updateCycleCountMaterialRes()
 }
 
 type UpdateDisputeCaseRes interface {
