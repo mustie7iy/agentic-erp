@@ -3810,9 +3810,11 @@ ASSET_SETTINGS='
       {"number": "1695", "name": "Asset sale clearing", "type": "asset"},
       {"number": "4950", "name": "Gain on asset retirements", "type": "revenue"},
       {"number": "6250", "name": "Depreciation of machinery", "type": "expense"},
-      {"number": "6950", "name": "Loss on asset retirements", "type": "expense"}]
+      {"number": "6950", "name": "Loss on asset retirements", "type": "expense"},
+      {"number": "6960", "name": "Impairment of machinery", "type": "expense"},
+      {"number": "4960", "name": "Reversal of asset impairments", "type": "revenue"}]
     | .asset_accounts = (["MACHINES", "TOOLS"] | map({"class": ., "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
-        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"})))
+        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695", "impairment_loss": "6960", "impairment_reversal": "4960"})))
 | .number_ranges += (["asset", "journal_aa", "journal_af"] | map({"company": "@CC@", "document_type": ., "fiscal_year": @YEAR@, "first": 1, "last": 999999}))'
 
 step_assets() {
@@ -6401,7 +6403,7 @@ year_end_sign_off() {
 # through this period in the leading ledger by step 29's run, gets a
 # shorter useful life and a residual value from the next period on.
 step_asset_estimate() {
-  heading "Step 44 — A change in estimate: the lathe's useful life and residual value changed from the next period on, the periods booked untouched"
+  heading "Step 44 — A change in estimate and an impairment: the lathe's useful life and residual value changed from the next period on, the periods booked untouched; an impairment loss and its partial reversal"
   as carla
   say "At the year-end review Carla finds the lathe will last five years in all, not ten, and fetch CAD 500.00 at"
   say "the end (IAS 16.51). Its depreciation is booked through this period in the leading ledger, so its terms there"
@@ -6434,6 +6436,38 @@ step_asset_estimate() {
   api 200 '.periods[] | select(.planned.amount != "0.00") | "  \(.fiscal_year)/\(.period): planned \(.planned.amount), booked \(.booked.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
     getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
   expect "the next period" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 75.56
+  say "The review also finds the lathe impaired (IAS 36.59): its recoverable amount at this period's end is CAD 1,000.00"
+  say "below its carrying amount, 4,958.33. Carla posts the loss in the leading ledger, measured at the period's end after"
+  say "its depreciation; the next period depreciates the 3,958.33 left on the changed terms: (3,958.33 - 500.00) / 59 = 58.62."
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  refused 422 assets.impairment_exceeds_carrying_amount impairAsset -p "id=$lathe" -if-match "$ETAG" \
+    -body '{"kind": "loss", "amount": {"amount": "4958.34", "currency": "CAD"}, "text": "Above its carrying amount"}'
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  api 201 '"impairment \(.kind) of asset \(.asset_number) in \(.ledger_code): \(.amount.amount) \(.amount.currency) (group \(.amount_gc.amount) \(.amount_gc.currency)); carrying amount \(.carrying_amount.amount) -> \(.carrying_amount_after.amount), entry \(.entries[0].document_number)"' \
+    impairAsset -p "id=$lathe" -if-match "$ETAG" -body '{"kind": "loss", "amount": {"amount": "1000.00", "currency": "CAD"}, "text": "Lathe impaired at the review"}'
+  expect "the carrying amount it was measured against, and after" "$(field '"\(.carrying_amount.amount) \(.carrying_amount_after.amount) \(.unimpaired_amount.amount)"')" \
+    "4958.33 3958.33 4958.33"
+  api 200 '"entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(", "))"' getJournalEntry -p "id=$(field '.entries[0].journal_entry_id')"
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
+  expect "the next period, on the impaired amount" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 58.62
+  say "A buyer's offer later the same period shows part of the loss recovered. A reversal restores at most what the loss"
+  say "took, net of the depreciation it saved (IAS 36.117): 1,000.00 here, since none has been depreciated since; more is refused."
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  refused 422 assets.reversal_exceeds_impairment impairAsset -p "id=$lathe" -if-match "$ETAG" -body '{"kind": "reversal", "amount": {"amount": "1000.01", "currency": "CAD"}}'
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  api 201 '"impairment \(.kind) of asset \(.asset_number): \(.amount.amount) \(.amount.currency); carrying amount \(.carrying_amount.amount) -> \(.carrying_amount_after.amount)"' \
+    impairAsset -p "id=$lathe" -if-match "$ETAG" -body '{"kind": "reversal", "amount": {"amount": "400.00", "currency": "CAD"}}'
+  expect "the carrying amount after the reversal" "$(field .carrying_amount_after.amount)" 4358.33
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
+  expect "the next period, (4,358.33 - 500.00) / 59" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 65.40
+  say "This year's sheet shows the lathe's impairment lines; its accumulated depreciation holds them (IAS 16.73(d), (e)):"
+  api 200 '.items[] | select(.description == "CNC lathe") | "  \(.asset_number) \(.description): accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + impaired \(.impairment_losses.amount) + reversed \(.impairment_reversals.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
+  expect "the lathe's impairment lines" "$(field '.items[] | select(.description == "CNC lathe") | "\(.impairment_losses.amount) \(.impairment_reversals.amount) \(.closing_net_book_value.amount)"')" \
+    "-1000.00 400.00 4358.33"
+  sheet_reconciles "by asset, the lathe impaired"
+  api 200 '"the lathe'"'"'s impairments: \([.items[] | "\(.kind) \(.amount.amount)"] | join(", "))"' listAssetImpairments -p "asset_id=$lathe"
+  expect "the lathe's impairments" "$(field '[.items[].kind] | join(" ")')" "loss reversal"
   passed
 }
 
@@ -6471,10 +6505,10 @@ step_asset_held_for_sale() {
   api 200 '.periods[] | select(.period == '"$next"') | "  the machine, \(.fiscal_year)/\(.period): planned \(.planned.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
     getAssetSchedule -p "id=$mill" -p "fiscal_year=$year"
   expect "no depreciation from the next period" "$(field ".periods[] | select(.period == $next) | .planned.amount")" 0.00
-  say "Both apply from the next period, so this year's asset history sheet is as it was: the lathe (step 44) and the"
-  say "machine, still active, stay on their rows with their cost, a classification as held for sale moving no value,"
-  say "and each row reconciles from opening to closing (po:2026-11-09, B14):"
-  api 200 '.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
+  say "Both apply from the next period, so this year's asset history sheet shows only what was posted: the lathe (step"
+  say "44) with its impairment lines and the machine, still active, stay on their rows with their cost, a classification"
+  say "as held for sale moving no value, and each row reconciles from opening to closing (po:2026-11-09, B14):"
+  api 200 '.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + impaired \(.impairment_losses.amount) + reversed \(.impairment_reversals.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
     getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
   expect "the lathe and the machine on the sheet" "$(field '[.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | .description] | unique | join(", ")')" "CNC lathe, CNC milling machine"
   expect "the machine held for sale: active, its cost on the sheet" \
@@ -19122,13 +19156,15 @@ step_cash_orders() {
 # sheet_reconciles WHAT checks the asset history sheet just read (ADR-0057
 # §9; po:2026-11-09, B14; IAS 16.73(d), (e)): every row and the totals
 # reconcile from opening to closing for cost and for accumulated
-# depreciation, and each net book value is its cost plus its accumulated
-# depreciation.
+# depreciation, impairment losses and their reversals included (ADR-0057
+# As built, impairment), and each net book value is its cost plus its
+# accumulated depreciation.
 sheet_reconciles() {
   expect "$1: rows and totals that do not reconcile from opening to closing" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
     [(.items[], .totals) | select(
       (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) != (.closing_cost | c)
-      or (.opening_accumulated | c) + (.depreciation | c) + (.retirements_accumulated | c) + (.transfers_accumulated | c) != (.closing_accumulated | c)
+      or (.opening_accumulated | c) + (.depreciation | c) + (.impairment_losses | c) + (.impairment_reversals | c) + (.retirements_accumulated | c)
+        + (.transfers_accumulated | c) != (.closing_accumulated | c)
       or (.opening_cost | c) + (.opening_accumulated | c) != (.opening_net_book_value | c)
       or (.closing_cost | c) + (.closing_accumulated | c) != (.closing_net_book_value | c))] | length')" 0
 }

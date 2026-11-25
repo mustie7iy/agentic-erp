@@ -14749,15 +14749,16 @@ func (s *Server) handleCreateAssetAcquisitionRequest(args [0]string, argsEscaped
 // `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422
 // `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
 // valued in a later period nor depreciation booked through a later period in any ledger, a
-// depreciation run of a later period included, even one that posted nothing for it (409
-// `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it
-// first catches up the depreciation through the period before the posting period: the planned
-// depreciation through that period less what is booked, negative when the posting period's run already
-// posted (its depreciation is posted back: the share retired depreciates for none of its period); the
-// asset is then booked through that period, unless it is already booked through the posting period. It
-// then takes the share of the asset's balances in that ledger as posted so far, the catch-up included:
-// the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them
-// for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
+// depreciation run of a later period included, even one that posted nothing for it, nor an impairment
+// or its reversal valued in its own period (409 `assets.later_value_date`; it is then valued in the
+// next period). Per ledger the company keeps (the leading ledger first, then by code) it first catches
+// up the depreciation through the period before the posting period: the planned depreciation through
+// that period less what is booked, negative when the posting period's run already posted (its
+// depreciation is posted back: the share retired depreciates for none of its period); the asset is
+// then booked through that period, unless it is already booked through the posting period. It then
+// takes the share of the asset's balances in that ledger as posted so far, the catch-up included: the
+// cost, accumulated depreciation and residual value, each rounded half away from zero, all of them for
+// a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
 // accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA,
 // source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other
 // way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for
@@ -15012,7 +15013,8 @@ func (s *Server) handleCreateAssetRetirementRequest(args [0]string, argsEscaped 
 // remaining life. A planned receiver becomes active with the transfer's value date as its
 // capitalisation date; a full transfer retires the asset. For either kind, the asset (and the
 // receiver) may have no movement or center assignment valued in a later period nor depreciation booked
-// through a later period in any ledger (409 `assets.later_value_date`); a planned asset is 422
+// through a later period in any ledger, nor an impairment or its reversal valued in the transfer's
+// period (409 `assets.later_value_date`; it is then valued in the next period); a planned asset is 422
 // `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422
 // `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company
 // keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A
@@ -42439,6 +42441,195 @@ func (s *Server) handleGetAssetHistorySheetRequest(args [0]string, argsEscaped b
 	}
 
 	if err := encodeGetAssetHistorySheetResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetAssetImpairmentRequest handles getAssetImpairment operation.
+//
+// One impairment loss or reversal with its asset, ledger, the carrying amounts it was measured against
+// and its journal entry (ADR-0057 As built, impairment). One of a legal entity the caller cannot act
+// in is not found. An impairment is never changed, so it has no version.
+//
+// GET /v1/asset-impairments/{id}
+func (s *Server) handleGetAssetImpairmentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetImpairment"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/asset-impairments/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetAssetImpairmentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetAssetImpairmentOperation,
+			ID:   "getAssetImpairment",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetAssetImpairmentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetAssetImpairmentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetAssetImpairmentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetAssetImpairmentOperation,
+			OperationSummary: "Get an asset impairment",
+			OperationID:      "getAssetImpairment",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetAssetImpairmentParams
+			Response = GetAssetImpairmentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetAssetImpairmentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetAssetImpairment(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetAssetImpairment(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetAssetImpairmentResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -72414,6 +72605,248 @@ func (s *Server) handleHoldSupplierInvoiceRequest(args [1]string, argsEscaped bo
 	}
 }
 
+// handleImpairAssetRequest handles impairAsset operation.
+//
+// Recognises an impairment loss on an active asset (`kind` `loss`), or reverses earlier ones (`kind`
+// `reversal`), in one ledger the company keeps (`ledger_id`, default the leading ledger; 422
+// `ledger.ledger_not_kept` for another), for the amount a person gives in the company's local
+// currency, above zero (IAS 36.59-60, 36.114-119; po:2026-11-09, B14; ADR-0057 As built, impairment).
+// Testing for impairment and measuring the recoverable amount happen outside the system. The posting
+// date defaults to the company's date today and the value date to the posting date; an impairment is
+// not backdated: its value date lies in its posting date's period, on or before the posting date (422
+// `assets.value_date_outside_period`), on or after the asset's capitalisation date (422
+// `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
+// valued in a later period nor depreciation booked through a later period in any ledger (409
+// `assets.later_value_date`); a change in estimate from a later period is allowed. The impairment
+// takes effect at the end of its value date's period, after that period's depreciation: the carrying
+// amount it is measured against is the asset's net book value in that ledger at the end of the period
+// as its schedule plans it (`carrying_amount`), and every later period depreciates the carrying amount
+// then over the useful life left (IAS 36.63), so the next depreciation run posts the difference. A
+// loss takes at most the carrying amount (422 `assets.impairment_exceeds_carrying_amount`). A reversal
+// restores at most the carrying amount the asset would have had without any impairment, net of the
+// depreciation since (`unimpaired_amount`), less the carrying amount (IAS 36.117; 422
+// `assets.reversal_exceeds_impairment`); once a retirement or asset transfer has taken a share of the
+// asset in that ledger after its first impairment there, a reversal is refused (409
+// `assets.impairment_reversal_after_retirement`), since what was taken is not split between
+// depreciation and impairment. It posts one entry to that ledger alone (document type AA, source
+// context `assets`): a loss Dr the class's impairment loss account (on the asset's cost center and
+// profit center) / Cr accumulated depreciation (on its profit center), which holds accumulated
+// impairment with it (IAS 16.73(d)); a reversal Dr accumulated depreciation / Cr the class's
+// impairment reversal account (on its profit center); in group currency at the posting date's rate
+// (422 `ledger.no_exchange_rate` without one). The company's accounts of the asset's class must name
+// the account (`companies[].asset_accounts[].impairment_loss`, `impairment_reversal`; 422
+// `assets.impairment_account_missing`). The If-Match is the asset's ETag (`GET /v1/assets/{id}`): its
+// version moves with its values. A planned asset is 422 `assets.asset_not_capitalised`; a retired or
+// cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; one without terms in the
+// ledger 422 `assets.ledger_terms_missing`; an asset the caller cannot act in is 404. Audited, and
+// published as AssetMovementPosted. Human-only.
+//
+// POST /v1/assets/{id}:impair
+func (s *Server) handleImpairAssetRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("impairAsset"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/assets/{id}:impair"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ImpairAssetOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ImpairAssetOperation,
+			ID:   "impairAsset",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ImpairAssetOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeImpairAssetParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeImpairAssetRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ImpairAssetRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ImpairAssetOperation,
+			OperationSummary: "Post an impairment loss on an asset, or its reversal, in one ledger",
+			OperationID:      "impairAsset",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *AssetImpairmentCreate
+			Params   = ImpairAssetParams
+			Response = ImpairAssetRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackImpairAssetParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ImpairAsset(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ImpairAsset(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeImpairAssetResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleImportBankStatementsRequest handles importBankStatements operation.
 //
 // Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
@@ -75223,6 +75656,227 @@ func (s *Server) handleListAssetClearingItemsRequest(args [0]string, argsEscaped
 	}
 
 	if err := encodeListAssetClearingItemsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListAssetImpairmentsRequest handles listAssetImpairments operation.
+//
+// The impairment losses and their reversals of the legal entities the caller may act in (ADR-0057 As
+// built, impairment), each with its asset, ledger, carrying amounts and journal entry. Filters:
+// company, asset, ledger, kind and posting dates. Sortable by: `posting_date` (default), `created_at`.
+//
+// GET /v1/asset-impairments
+func (s *Server) handleListAssetImpairmentsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssetImpairments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/asset-impairments"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListAssetImpairmentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListAssetImpairmentsOperation,
+			ID:   "listAssetImpairments",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListAssetImpairmentsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListAssetImpairmentsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListAssetImpairmentsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListAssetImpairmentsOperation,
+			OperationSummary: "List asset impairments",
+			OperationID:      "listAssetImpairments",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "asset_id",
+					In:   "query",
+				}: params.AssetID,
+				{
+					Name: "ledger_id",
+					In:   "query",
+				}: params.LedgerID,
+				{
+					Name: "kind",
+					In:   "query",
+				}: params.Kind,
+				{
+					Name: "posting_date_from",
+					In:   "query",
+				}: params.PostingDateFrom,
+				{
+					Name: "posting_date_to",
+					In:   "query",
+				}: params.PostingDateTo,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListAssetImpairmentsParams
+			Response = ListAssetImpairmentsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListAssetImpairmentsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListAssetImpairments(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListAssetImpairments(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListAssetImpairmentsResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -131123,15 +131777,17 @@ func (s *Server) handleReverseInternalOrderSettlementRequest(args [2]string, arg
 // (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
 // reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
 // `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse`
-// (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
-// `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
-// with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
-// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an
-// inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
-// document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
-// entry, and a price change's (document type `PR`) is not reversed but corrected by another price
-// change: the detail names the material by its number, whose plant's valuation
-// (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price
+// (a depreciation run's entries never one by one; an impairment's entry is not reversed: a reversal of
+// its loss is posted with `POST /v1/assets/{id}:impair`, kind `reversal`); an accounts receivable
+// entry (`receivables`) is 409 `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo
+// or debit memo is reversed with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice
+// is corrected by a credit memo, an incoming payment's application is undone with
+// `POST /v1/incoming-payments/{id}:reset`; an inventory entry (`inventory`) is 409
+// `ledger.entry_owned_elsewhere` naming its path: a material document's entry is reversed with
+// `POST /v1/material-documents/{id}:reverse`, which posts its own entry, and a price change's
+// (document type `PR`) is not reversed but corrected by another price change: the detail names the
+// material by its number, whose plant's valuation (`GET /v1/materials?number=`,
+// `GET /v1/material-valuations?material_id=`) takes the new price
 // (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
 // `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
 // entry. Human-only.

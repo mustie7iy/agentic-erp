@@ -7637,6 +7637,11 @@ type AssetClassAccounts struct {
 	Loss AssetAccountRef `json:"loss"`
 	// The clearing account a sale's proceeds wait on until they are billed.
 	SaleClearing AssetAccountRef `json:"sale_clearing"`
+	// The impairment loss (an expense); absent when the company does not impair the class's assets.
+	ImpairmentLoss OptAssetAccountRef `json:"impairment_loss"`
+	// The reversal of impairment losses (a revenue); absent when the company does not reverse impairments
+	// of the class's assets.
+	ImpairmentReversal OptAssetAccountRef `json:"impairment_reversal"`
 }
 
 // GetAcquisitionCost returns the value of AcquisitionCost.
@@ -7674,6 +7679,16 @@ func (s *AssetClassAccounts) GetSaleClearing() AssetAccountRef {
 	return s.SaleClearing
 }
 
+// GetImpairmentLoss returns the value of ImpairmentLoss.
+func (s *AssetClassAccounts) GetImpairmentLoss() OptAssetAccountRef {
+	return s.ImpairmentLoss
+}
+
+// GetImpairmentReversal returns the value of ImpairmentReversal.
+func (s *AssetClassAccounts) GetImpairmentReversal() OptAssetAccountRef {
+	return s.ImpairmentReversal
+}
+
 // SetAcquisitionCost sets the value of AcquisitionCost.
 func (s *AssetClassAccounts) SetAcquisitionCost(val AssetAccountRef) {
 	s.AcquisitionCost = val
@@ -7707,6 +7722,16 @@ func (s *AssetClassAccounts) SetLoss(val AssetAccountRef) {
 // SetSaleClearing sets the value of SaleClearing.
 func (s *AssetClassAccounts) SetSaleClearing(val AssetAccountRef) {
 	s.SaleClearing = val
+}
+
+// SetImpairmentLoss sets the value of ImpairmentLoss.
+func (s *AssetClassAccounts) SetImpairmentLoss(val OptAssetAccountRef) {
+	s.ImpairmentLoss = val
+}
+
+// SetImpairmentReversal sets the value of ImpairmentReversal.
+func (s *AssetClassAccounts) SetImpairmentReversal(val OptAssetAccountRef) {
+	s.ImpairmentReversal = val
 }
 
 // The accounts a company posts one class's assets to (ADR-0057 §3).
@@ -9060,9 +9085,9 @@ func (*AssetHistorySheet) getAssetHistorySheetRes() {}
 // One row of the asset history sheet: an asset class, or an asset with its class, and its values, the
 // columns of `AssetHistorySheetValues` with the same signs. The row reconciles: `closing_cost` =
 // `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` =
-// `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`;
-// `opening_net_book_value` = `opening_cost` + `opening_accumulated`; `closing_net_book_value` =
-// `closing_cost` + `closing_accumulated`.
+// `opening_accumulated` + `depreciation` + `impairment_losses` + `impairment_reversals` +
+// `retirements_accumulated` + `transfers_accumulated`; `opening_net_book_value` = `opening_cost` +
+// `opening_accumulated`; `closing_net_book_value` = `closing_cost` + `closing_accumulated`.
 // Ref: #/components/schemas/AssetHistorySheetRow
 type AssetHistorySheetRow struct {
 	// The asset class (`GET /v1/asset-classes`).
@@ -9085,6 +9110,8 @@ type AssetHistorySheetRow struct {
 	ClosingCost            Money     `json:"closing_cost"`
 	OpeningAccumulated     Money     `json:"opening_accumulated"`
 	Depreciation           Money     `json:"depreciation"`
+	ImpairmentLosses       Money     `json:"impairment_losses"`
+	ImpairmentReversals    Money     `json:"impairment_reversals"`
 	RetirementsAccumulated Money     `json:"retirements_accumulated"`
 	TransfersAccumulated   Money     `json:"transfers_accumulated"`
 	ClosingAccumulated     Money     `json:"closing_accumulated"`
@@ -9155,6 +9182,16 @@ func (s *AssetHistorySheetRow) GetOpeningAccumulated() Money {
 // GetDepreciation returns the value of Depreciation.
 func (s *AssetHistorySheetRow) GetDepreciation() Money {
 	return s.Depreciation
+}
+
+// GetImpairmentLosses returns the value of ImpairmentLosses.
+func (s *AssetHistorySheetRow) GetImpairmentLosses() Money {
+	return s.ImpairmentLosses
+}
+
+// GetImpairmentReversals returns the value of ImpairmentReversals.
+func (s *AssetHistorySheetRow) GetImpairmentReversals() Money {
+	return s.ImpairmentReversals
 }
 
 // GetRetirementsAccumulated returns the value of RetirementsAccumulated.
@@ -9247,6 +9284,16 @@ func (s *AssetHistorySheetRow) SetDepreciation(val Money) {
 	s.Depreciation = val
 }
 
+// SetImpairmentLosses sets the value of ImpairmentLosses.
+func (s *AssetHistorySheetRow) SetImpairmentLosses(val Money) {
+	s.ImpairmentLosses = val
+}
+
+// SetImpairmentReversals sets the value of ImpairmentReversals.
+func (s *AssetHistorySheetRow) SetImpairmentReversals(val Money) {
+	s.ImpairmentReversals = val
+}
+
 // SetRetirementsAccumulated sets the value of RetirementsAccumulated.
 func (s *AssetHistorySheetRow) SetRetirementsAccumulated(val Money) {
 	s.RetirementsAccumulated = val
@@ -9274,10 +9321,12 @@ func (s *AssetHistorySheetRow) SetClosingNetBookValue(val Money) {
 
 // The history sheet's columns summed over every row the filters select: opening cost, acquisitions
 // (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing
-// cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated
+// cost; opening accumulated depreciation (negative), the year's depreciation, the impairment losses
+// recognised (negative) and reversed (positive) in the year (IAS 16.73(e)(v), (vi)), the accumulated
 // depreciation retirements took (positive) and transfers moved, closing accumulated depreciation;
-// opening and closing net book value. They reconcile as each row does: a closing value is its opening
-// value plus the year's columns, and a net book value is its cost plus its accumulated depreciation.
+// accumulated depreciation holds accumulated impairment with it (IAS 16.73(d): aggregated); opening
+// and closing net book value. They reconcile as each row does: a closing value is its opening value
+// plus the year's columns, and a net book value is its cost plus its accumulated depreciation.
 // Ref: #/components/schemas/AssetHistorySheetValues
 type AssetHistorySheetValues struct {
 	OpeningCost            Money `json:"opening_cost"`
@@ -9287,6 +9336,8 @@ type AssetHistorySheetValues struct {
 	ClosingCost            Money `json:"closing_cost"`
 	OpeningAccumulated     Money `json:"opening_accumulated"`
 	Depreciation           Money `json:"depreciation"`
+	ImpairmentLosses       Money `json:"impairment_losses"`
+	ImpairmentReversals    Money `json:"impairment_reversals"`
 	RetirementsAccumulated Money `json:"retirements_accumulated"`
 	TransfersAccumulated   Money `json:"transfers_accumulated"`
 	ClosingAccumulated     Money `json:"closing_accumulated"`
@@ -9327,6 +9378,16 @@ func (s *AssetHistorySheetValues) GetOpeningAccumulated() Money {
 // GetDepreciation returns the value of Depreciation.
 func (s *AssetHistorySheetValues) GetDepreciation() Money {
 	return s.Depreciation
+}
+
+// GetImpairmentLosses returns the value of ImpairmentLosses.
+func (s *AssetHistorySheetValues) GetImpairmentLosses() Money {
+	return s.ImpairmentLosses
+}
+
+// GetImpairmentReversals returns the value of ImpairmentReversals.
+func (s *AssetHistorySheetValues) GetImpairmentReversals() Money {
+	return s.ImpairmentReversals
 }
 
 // GetRetirementsAccumulated returns the value of RetirementsAccumulated.
@@ -9389,6 +9450,16 @@ func (s *AssetHistorySheetValues) SetDepreciation(val Money) {
 	s.Depreciation = val
 }
 
+// SetImpairmentLosses sets the value of ImpairmentLosses.
+func (s *AssetHistorySheetValues) SetImpairmentLosses(val Money) {
+	s.ImpairmentLosses = val
+}
+
+// SetImpairmentReversals sets the value of ImpairmentReversals.
+func (s *AssetHistorySheetValues) SetImpairmentReversals(val Money) {
+	s.ImpairmentReversals = val
+}
+
 // SetRetirementsAccumulated sets the value of RetirementsAccumulated.
 func (s *AssetHistorySheetValues) SetRetirementsAccumulated(val Money) {
 	s.RetirementsAccumulated = val
@@ -9413,6 +9484,448 @@ func (s *AssetHistorySheetValues) SetOpeningNetBookValue(val Money) {
 func (s *AssetHistorySheetValues) SetClosingNetBookValue(val Money) {
 	s.ClosingNetBookValue = val
 }
+
+// An impairment loss recognised on an asset, or the reversal of earlier ones, in one ledger (ADR-0057
+// As built, impairment; IAS 36.59-63, 36.114-119), with the carrying amounts it was measured against
+// and its journal entry. Never changed: a loss is undone by a reversal. Amounts in local currency are
+// in the company's currency (`amount.currency`), `amount_gc` in the tenant's group currency.
+// Ref: #/components/schemas/AssetImpairment
+type AssetImpairment struct {
+	// The impairment.
+	ID uuid.UUID `json:"id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The asset (`GET /v1/assets/{id}`).
+	AssetID uuid.UUID `json:"asset_id"`
+	// The asset's number in its company.
+	AssetNumber string `json:"asset_number"`
+	// The asset's description.
+	AssetDescription string `json:"asset_description"`
+	// The ledger it was posted to.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// `loss` or `reversal`. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Kind string `json:"kind"`
+	// The date the carrying amount was measured at; the impairment took effect at the end of its period.
+	ValueDate time.Time `json:"value_date"`
+	// The posting date of its entry.
+	PostingDate time.Time `json:"posting_date"`
+	// The posting date's fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The posting date's regular period.
+	Period int32 `json:"period"`
+	// The loss or the reversal, positive, in local currency.
+	Amount Money `json:"amount"`
+	// The same in group currency, at the posting date's rate.
+	AmountGc Money `json:"amount_gc"`
+	// The asset's net book value in the ledger at the end of the value date's period as its schedule
+	// planned it before this impairment, in local currency.
+	CarryingAmount Money `json:"carrying_amount"`
+	// The carrying amount after it: less the loss, or plus the reversal.
+	CarryingAmountAfter Money `json:"carrying_amount_after"`
+	// The carrying amount the asset would have had there without any impairment, net of the depreciation
+	// since (IAS 36.117): a reversal restores at most this less `carrying_amount`.
+	UnimpairedAmount Money `json:"unimpaired_amount"`
+	// The impairment's text.
+	Text OptString `json:"text"`
+	// Its journal entry in the ledger.
+	Entries []AssetDocumentEntry `json:"entries"`
+	// When it was posted.
+	CreatedAt time.Time `json:"created_at"`
+	// Who posted it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *AssetImpairment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetImpairment) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetImpairment) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetAssetID returns the value of AssetID.
+func (s *AssetImpairment) GetAssetID() uuid.UUID {
+	return s.AssetID
+}
+
+// GetAssetNumber returns the value of AssetNumber.
+func (s *AssetImpairment) GetAssetNumber() string {
+	return s.AssetNumber
+}
+
+// GetAssetDescription returns the value of AssetDescription.
+func (s *AssetImpairment) GetAssetDescription() string {
+	return s.AssetDescription
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetImpairment) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *AssetImpairment) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *AssetImpairment) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetImpairment) GetKind() string {
+	return s.Kind
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetImpairment) GetValueDate() time.Time {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetImpairment) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetImpairment) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *AssetImpairment) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetImpairment) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *AssetImpairment) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetCarryingAmount returns the value of CarryingAmount.
+func (s *AssetImpairment) GetCarryingAmount() Money {
+	return s.CarryingAmount
+}
+
+// GetCarryingAmountAfter returns the value of CarryingAmountAfter.
+func (s *AssetImpairment) GetCarryingAmountAfter() Money {
+	return s.CarryingAmountAfter
+}
+
+// GetUnimpairedAmount returns the value of UnimpairedAmount.
+func (s *AssetImpairment) GetUnimpairedAmount() Money {
+	return s.UnimpairedAmount
+}
+
+// GetText returns the value of Text.
+func (s *AssetImpairment) GetText() OptString {
+	return s.Text
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetImpairment) GetEntries() []AssetDocumentEntry {
+	return s.Entries
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssetImpairment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AssetImpairment) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *AssetImpairment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetImpairment) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetImpairment) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetAssetID sets the value of AssetID.
+func (s *AssetImpairment) SetAssetID(val uuid.UUID) {
+	s.AssetID = val
+}
+
+// SetAssetNumber sets the value of AssetNumber.
+func (s *AssetImpairment) SetAssetNumber(val string) {
+	s.AssetNumber = val
+}
+
+// SetAssetDescription sets the value of AssetDescription.
+func (s *AssetImpairment) SetAssetDescription(val string) {
+	s.AssetDescription = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetImpairment) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *AssetImpairment) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *AssetImpairment) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetImpairment) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetImpairment) SetValueDate(val time.Time) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetImpairment) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetImpairment) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *AssetImpairment) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetImpairment) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *AssetImpairment) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetCarryingAmount sets the value of CarryingAmount.
+func (s *AssetImpairment) SetCarryingAmount(val Money) {
+	s.CarryingAmount = val
+}
+
+// SetCarryingAmountAfter sets the value of CarryingAmountAfter.
+func (s *AssetImpairment) SetCarryingAmountAfter(val Money) {
+	s.CarryingAmountAfter = val
+}
+
+// SetUnimpairedAmount sets the value of UnimpairedAmount.
+func (s *AssetImpairment) SetUnimpairedAmount(val Money) {
+	s.UnimpairedAmount = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetImpairment) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetImpairment) SetEntries(val []AssetDocumentEntry) {
+	s.Entries = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssetImpairment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AssetImpairment) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+func (*AssetImpairment) getAssetImpairmentRes() {}
+
+// An impairment loss on an asset, or the reversal of earlier ones, in one ledger (ADR-0057 As built,
+// impairment).
+// Ref: #/components/schemas/AssetImpairmentCreate
+type AssetImpairmentCreate struct {
+	// The ledger (a depreciation area) it is posted to; default the leading ledger.
+	LedgerID OptUUID `json:"ledger_id"`
+	// `loss`, an impairment loss recognised (IAS 36.59), or `reversal`, earlier losses reversed (IAS
+	// 36.114). Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Kind string `json:"kind"`
+	// The loss, or the reversal, above zero, in the company's local currency: the carrying amount less the
+	// recoverable amount measured outside the system.
+	Amount Money `json:"amount"`
+	// The date the carrying amount is measured at: the impairment takes effect at the end of its period,
+	// after that period's depreciation; default the posting date. In the posting date's period, on or
+	// before the posting date.
+	ValueDate OptDate `json:"value_date"`
+	// The impairment's posting date; default the company's date today.
+	PostingDate OptDate `json:"posting_date"`
+	// A text for the impairment and its entry.
+	Text OptString `json:"text"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *AssetImpairmentCreate) GetLedgerID() OptUUID {
+	return s.LedgerID
+}
+
+// GetKind returns the value of Kind.
+func (s *AssetImpairmentCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetAmount returns the value of Amount.
+func (s *AssetImpairmentCreate) GetAmount() Money {
+	return s.Amount
+}
+
+// GetValueDate returns the value of ValueDate.
+func (s *AssetImpairmentCreate) GetValueDate() OptDate {
+	return s.ValueDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AssetImpairmentCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetText returns the value of Text.
+func (s *AssetImpairmentCreate) GetText() OptString {
+	return s.Text
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *AssetImpairmentCreate) SetLedgerID(val OptUUID) {
+	s.LedgerID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AssetImpairmentCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AssetImpairmentCreate) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetValueDate sets the value of ValueDate.
+func (s *AssetImpairmentCreate) SetValueDate(val OptDate) {
+	s.ValueDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AssetImpairmentCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetText sets the value of Text.
+func (s *AssetImpairmentCreate) SetText(val OptString) {
+	s.Text = val
+}
+
+// AssetImpairmentHeaders wraps AssetImpairment with response headers.
+type AssetImpairmentHeaders struct {
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AssetImpairment
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AssetImpairmentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AssetImpairmentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AssetImpairmentHeaders) GetResponse() AssetImpairment {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AssetImpairmentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AssetImpairmentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AssetImpairmentHeaders) SetResponse(val AssetImpairment) {
+	s.Response = val
+}
+
+func (*AssetImpairmentHeaders) impairAssetRes() {}
+
+// One page of asset impairments.
+// Ref: #/components/schemas/AssetImpairmentPage
+type AssetImpairmentPage struct {
+	// The impairments on this page.
+	Items []AssetImpairment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *AssetImpairmentPage) GetItems() []AssetImpairment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetImpairmentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *AssetImpairmentPage) SetItems(val []AssetImpairment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetImpairmentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetImpairmentPage) listAssetImpairmentsRes() {}
 
 // An asset's values in one ledger (ADR-0057 §5): its acquisition cost, accumulated depreciation
 // (negative, the credit it is) and net book value, in the company's local currency and in group
@@ -9540,7 +10053,8 @@ type AssetMovement struct {
 	// What it is. Open enumeration: clients must accept and preserve values not listed here; values may be
 	// added within /v1.
 	Kind string `json:"kind"`
-	// The value date; the schedule applies the movement from its period.
+	// The value date; the schedule applies the movement from its period, an impairment or its reversal
+	// from the end of its period.
 	ValueDate time.Time `json:"value_date"`
 	// The posting date.
 	PostingDate time.Time `json:"posting_date"`
@@ -9561,7 +10075,7 @@ type AssetMovement struct {
 	DocumentKind string `json:"document_kind"`
 	// The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a retirement:
 	// `GET /v1/asset-retirements/{id}`; a transfer: `GET /v1/asset-transfers/{id}`; a depreciation run:
-	// `GET /v1/depreciation-runs/{id}`).
+	// `GET /v1/depreciation-runs/{id}`; an impairment: `GET /v1/asset-impairments/{id}`).
 	DocumentID uuid.UUID `json:"document_id"`
 	// That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -28999,6 +29513,7 @@ func (*ConflictHeaders) getVarianceCommentRes()                          {}
 func (*ConflictHeaders) getYearCloseRes()                                {}
 func (*ConflictHeaders) grantRolePermissionRes()                         {}
 func (*ConflictHeaders) holdSupplierInvoiceRes()                         {}
+func (*ConflictHeaders) impairAssetRes()                                 {}
 func (*ConflictHeaders) importBankStatementsRes()                        {}
 func (*ConflictHeaders) linkEInvoiceRes()                                {}
 func (*ConflictHeaders) listAccrualProposalsRes()                        {}
@@ -52030,6 +52545,18 @@ type GetAssetHistorySheetUnprocessableEntity Problem
 
 func (*GetAssetHistorySheetUnprocessableEntity) getAssetHistorySheetRes() {}
 
+type GetAssetImpairmentBadRequest Problem
+
+func (*GetAssetImpairmentBadRequest) getAssetImpairmentRes() {}
+
+type GetAssetImpairmentForbidden Problem
+
+func (*GetAssetImpairmentForbidden) getAssetImpairmentRes() {}
+
+type GetAssetImpairmentNotFound Problem
+
+func (*GetAssetImpairmentNotFound) getAssetImpairmentRes() {}
+
 type GetAssetNotFound Problem
 
 func (*GetAssetNotFound) getAssetRes() {}
@@ -59278,6 +59805,30 @@ func (s *HouseBankPage) SetNextPageToken(val OptString) {
 }
 
 func (*HouseBankPage) listHouseBanksRes() {}
+
+type ImpairAssetBadRequest Problem
+
+func (*ImpairAssetBadRequest) impairAssetRes() {}
+
+type ImpairAssetForbidden Problem
+
+func (*ImpairAssetForbidden) impairAssetRes() {}
+
+type ImpairAssetNotFound Problem
+
+func (*ImpairAssetNotFound) impairAssetRes() {}
+
+type ImpairAssetPreconditionFailed Problem
+
+func (*ImpairAssetPreconditionFailed) impairAssetRes() {}
+
+type ImpairAssetPreconditionRequired Problem
+
+func (*ImpairAssetPreconditionRequired) impairAssetRes() {}
+
+type ImpairAssetUnprocessableEntity Problem
+
+func (*ImpairAssetUnprocessableEntity) impairAssetRes() {}
 
 type ImportBankStatementsBadRequest Problem
 
@@ -69714,6 +70265,14 @@ func (*ListAssetClearingItemsBadRequest) listAssetClearingItemsRes() {}
 type ListAssetClearingItemsForbidden Problem
 
 func (*ListAssetClearingItemsForbidden) listAssetClearingItemsRes() {}
+
+type ListAssetImpairmentsBadRequest Problem
+
+func (*ListAssetImpairmentsBadRequest) listAssetImpairmentsRes() {}
+
+type ListAssetImpairmentsForbidden Problem
+
+func (*ListAssetImpairmentsForbidden) listAssetImpairmentsRes() {}
 
 type ListAssetMovementsBadRequest Problem
 
@@ -118220,6 +118779,7 @@ func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*ServiceUnavailableHeaders) getUploadRes()                             {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()                   {}
+func (*ServiceUnavailableHeaders) impairAssetRes()                           {}
 func (*ServiceUnavailableHeaders) importBankStatementsRes()                  {}
 func (*ServiceUnavailableHeaders) linkEInvoiceRes()                          {}
 func (*ServiceUnavailableHeaders) lockCostCenterRes()                        {}
@@ -125934,6 +126494,7 @@ func (*TooManyRequestsHeaders) getArchivingRunFileRes()                         
 func (*TooManyRequestsHeaders) getArchivingRunRes()                             {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                         {}
 func (*TooManyRequestsHeaders) getAssetHistorySheetRes()                        {}
+func (*TooManyRequestsHeaders) getAssetImpairmentRes()                          {}
 func (*TooManyRequestsHeaders) getAssetOrderExpensesRes()                       {}
 func (*TooManyRequestsHeaders) getAssetRes()                                    {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()                          {}
@@ -126088,6 +126649,7 @@ func (*TooManyRequestsHeaders) getWebhookSubscriptionRes()                      
 func (*TooManyRequestsHeaders) getYearCloseRes()                                {}
 func (*TooManyRequestsHeaders) grantRolePermissionRes()                         {}
 func (*TooManyRequestsHeaders) holdSupplierInvoiceRes()                         {}
+func (*TooManyRequestsHeaders) impairAssetRes()                                 {}
 func (*TooManyRequestsHeaders) importBankStatementsRes()                        {}
 func (*TooManyRequestsHeaders) linkEInvoiceRes()                                {}
 func (*TooManyRequestsHeaders) listAccountsRes()                                {}
@@ -126101,6 +126663,7 @@ func (*TooManyRequestsHeaders) listArchivingRunsRes()                           
 func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()                       {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                            {}
 func (*TooManyRequestsHeaders) listAssetClearingItemsRes()                      {}
+func (*TooManyRequestsHeaders) listAssetImpairmentsRes()                        {}
 func (*TooManyRequestsHeaders) listAssetMovementsRes()                          {}
 func (*TooManyRequestsHeaders) listAssetRetirementsRes()                        {}
 func (*TooManyRequestsHeaders) listAssetTransfersRes()                          {}
@@ -126933,6 +127496,7 @@ func (*UnauthorizedHeaders) getArchivingRunFileRes()                         {}
 func (*UnauthorizedHeaders) getArchivingRunRes()                             {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                         {}
 func (*UnauthorizedHeaders) getAssetHistorySheetRes()                        {}
+func (*UnauthorizedHeaders) getAssetImpairmentRes()                          {}
 func (*UnauthorizedHeaders) getAssetOrderExpensesRes()                       {}
 func (*UnauthorizedHeaders) getAssetRes()                                    {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()                          {}
@@ -127087,6 +127651,7 @@ func (*UnauthorizedHeaders) getWebhookSubscriptionRes()                      {}
 func (*UnauthorizedHeaders) getYearCloseRes()                                {}
 func (*UnauthorizedHeaders) grantRolePermissionRes()                         {}
 func (*UnauthorizedHeaders) holdSupplierInvoiceRes()                         {}
+func (*UnauthorizedHeaders) impairAssetRes()                                 {}
 func (*UnauthorizedHeaders) importBankStatementsRes()                        {}
 func (*UnauthorizedHeaders) linkEInvoiceRes()                                {}
 func (*UnauthorizedHeaders) listAccountsRes()                                {}
@@ -127100,6 +127665,7 @@ func (*UnauthorizedHeaders) listArchivingRunsRes()                           {}
 func (*UnauthorizedHeaders) listAssetAcquisitionsRes()                       {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                            {}
 func (*UnauthorizedHeaders) listAssetClearingItemsRes()                      {}
+func (*UnauthorizedHeaders) listAssetImpairmentsRes()                        {}
 func (*UnauthorizedHeaders) listAssetMovementsRes()                          {}
 func (*UnauthorizedHeaders) listAssetRetirementsRes()                        {}
 func (*UnauthorizedHeaders) listAssetTransfersRes()                          {}

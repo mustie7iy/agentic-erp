@@ -785,6 +785,10 @@ type GetAssetHistorySheetRes interface {
 	getAssetHistorySheetRes()
 }
 
+type GetAssetImpairmentRes interface {
+	getAssetImpairmentRes()
+}
+
 type GetAssetOrderExpensesRes interface {
 	getAssetOrderExpensesRes()
 }
@@ -1401,6 +1405,10 @@ type HoldSupplierInvoiceRes interface {
 	holdSupplierInvoiceRes()
 }
 
+type ImpairAssetRes interface {
+	impairAssetRes()
+}
+
 type ImportBankStatementsRes interface {
 	importBankStatementsRes()
 }
@@ -1451,6 +1459,10 @@ type ListAssetClassesRes interface {
 
 type ListAssetClearingItemsRes interface {
 	listAssetClearingItemsRes()
+}
+
+type ListAssetImpairmentsRes interface {
+	listAssetImpairmentsRes()
 }
 
 type ListAssetMovementsRes interface {

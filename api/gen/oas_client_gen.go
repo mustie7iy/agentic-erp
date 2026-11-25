@@ -1258,15 +1258,16 @@ type Invoker interface {
 	// `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422
 	// `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
 	// valued in a later period nor depreciation booked through a later period in any ledger, a
-	// depreciation run of a later period included, even one that posted nothing for it (409
-	// `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it
-	// first catches up the depreciation through the period before the posting period: the planned
-	// depreciation through that period less what is booked, negative when the posting period's run already
-	// posted (its depreciation is posted back: the share retired depreciates for none of its period); the
-	// asset is then booked through that period, unless it is already booked through the posting period. It
-	// then takes the share of the asset's balances in that ledger as posted so far, the catch-up included:
-	// the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them
-	// for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
+	// depreciation run of a later period included, even one that posted nothing for it, nor an impairment
+	// or its reversal valued in its own period (409 `assets.later_value_date`; it is then valued in the
+	// next period). Per ledger the company keeps (the leading ledger first, then by code) it first catches
+	// up the depreciation through the period before the posting period: the planned depreciation through
+	// that period less what is booked, negative when the posting period's run already posted (its
+	// depreciation is posted back: the share retired depreciates for none of its period); the asset is
+	// then booked through that period, unless it is already booked through the posting period. It then
+	// takes the share of the asset's balances in that ledger as posted so far, the catch-up included: the
+	// cost, accumulated depreciation and residual value, each rounded half away from zero, all of them for
+	// a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
 	// accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA,
 	// source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other
 	// way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for
@@ -1325,7 +1326,8 @@ type Invoker interface {
 	// remaining life. A planned receiver becomes active with the transfer's value date as its
 	// capitalisation date; a full transfer retires the asset. For either kind, the asset (and the
 	// receiver) may have no movement or center assignment valued in a later period nor depreciation booked
-	// through a later period in any ledger (409 `assets.later_value_date`); a planned asset is 422
+	// through a later period in any ledger, nor an impairment or its reversal valued in the transfer's
+	// period (409 `assets.later_value_date`; it is then valued in the next period); a planned asset is 422
 	// `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422
 	// `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company
 	// keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A
@@ -3787,6 +3789,14 @@ type Invoker interface {
 	//
 	// GET /v1/asset-history-sheet
 	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
+	// GetAssetImpairment invokes getAssetImpairment operation.
+	//
+	// One impairment loss or reversal with its asset, ledger, the carrying amounts it was measured against
+	// and its journal entry (ADR-0057 As built, impairment). One of a legal entity the caller cannot act
+	// in is not found. An impairment is never changed, so it has no version.
+	//
+	// GET /v1/asset-impairments/{id}
+	GetAssetImpairment(ctx context.Context, params GetAssetImpairmentParams) (GetAssetImpairmentRes, error)
 	// GetAssetOrderExpenses invokes getAssetOrderExpenses operation.
 	//
 	// The materiality report of a company and fiscal year on asset purchases through purchase orders
@@ -5677,6 +5687,44 @@ type Invoker interface {
 	//
 	// POST /v1/supplier-invoices/{id}:hold
 	HoldSupplierInvoice(ctx context.Context, request *ReasonInput, params HoldSupplierInvoiceParams) (HoldSupplierInvoiceRes, error)
+	// ImpairAsset invokes impairAsset operation.
+	//
+	// Recognises an impairment loss on an active asset (`kind` `loss`), or reverses earlier ones (`kind`
+	// `reversal`), in one ledger the company keeps (`ledger_id`, default the leading ledger; 422
+	// `ledger.ledger_not_kept` for another), for the amount a person gives in the company's local
+	// currency, above zero (IAS 36.59-60, 36.114-119; po:2026-11-09, B14; ADR-0057 As built, impairment).
+	// Testing for impairment and measuring the recoverable amount happen outside the system. The posting
+	// date defaults to the company's date today and the value date to the posting date; an impairment is
+	// not backdated: its value date lies in its posting date's period, on or before the posting date (422
+	// `assets.value_date_outside_period`), on or after the asset's capitalisation date (422
+	// `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
+	// valued in a later period nor depreciation booked through a later period in any ledger (409
+	// `assets.later_value_date`); a change in estimate from a later period is allowed. The impairment
+	// takes effect at the end of its value date's period, after that period's depreciation: the carrying
+	// amount it is measured against is the asset's net book value in that ledger at the end of the period
+	// as its schedule plans it (`carrying_amount`), and every later period depreciates the carrying amount
+	// then over the useful life left (IAS 36.63), so the next depreciation run posts the difference. A
+	// loss takes at most the carrying amount (422 `assets.impairment_exceeds_carrying_amount`). A reversal
+	// restores at most the carrying amount the asset would have had without any impairment, net of the
+	// depreciation since (`unimpaired_amount`), less the carrying amount (IAS 36.117; 422
+	// `assets.reversal_exceeds_impairment`); once a retirement or asset transfer has taken a share of the
+	// asset in that ledger after its first impairment there, a reversal is refused (409
+	// `assets.impairment_reversal_after_retirement`), since what was taken is not split between
+	// depreciation and impairment. It posts one entry to that ledger alone (document type AA, source
+	// context `assets`): a loss Dr the class's impairment loss account (on the asset's cost center and
+	// profit center) / Cr accumulated depreciation (on its profit center), which holds accumulated
+	// impairment with it (IAS 16.73(d)); a reversal Dr accumulated depreciation / Cr the class's
+	// impairment reversal account (on its profit center); in group currency at the posting date's rate
+	// (422 `ledger.no_exchange_rate` without one). The company's accounts of the asset's class must name
+	// the account (`companies[].asset_accounts[].impairment_loss`, `impairment_reversal`; 422
+	// `assets.impairment_account_missing`). The If-Match is the asset's ETag (`GET /v1/assets/{id}`): its
+	// version moves with its values. A planned asset is 422 `assets.asset_not_capitalised`; a retired or
+	// cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; one without terms in the
+	// ledger 422 `assets.ledger_terms_missing`; an asset the caller cannot act in is 404. Audited, and
+	// published as AssetMovementPosted. Human-only.
+	//
+	// POST /v1/assets/{id}:impair
+	ImpairAsset(ctx context.Context, request *AssetImpairmentCreate, params ImpairAssetParams) (ImpairAssetRes, error)
 	// ImportBankStatements invokes importBankStatements operation.
 	//
 	// Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
@@ -5847,6 +5895,14 @@ type Invoker interface {
 	//
 	// GET /v1/asset-clearing-items
 	ListAssetClearingItems(ctx context.Context, params ListAssetClearingItemsParams) (ListAssetClearingItemsRes, error)
+	// ListAssetImpairments invokes listAssetImpairments operation.
+	//
+	// The impairment losses and their reversals of the legal entities the caller may act in (ADR-0057 As
+	// built, impairment), each with its asset, ledger, carrying amounts and journal entry. Filters:
+	// company, asset, ledger, kind and posting dates. Sortable by: `posting_date` (default), `created_at`.
+	//
+	// GET /v1/asset-impairments
+	ListAssetImpairments(ctx context.Context, params ListAssetImpairmentsParams) (ListAssetImpairmentsRes, error)
 	// ListAssetMovements invokes listAssetMovements operation.
 	//
 	// The asset's movements, its subledger (ADR-0057 §5, T57e): one per ledger and effect of each
@@ -9247,15 +9303,17 @@ type Invoker interface {
 	// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
 	// reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
 	// `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse`
-	// (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
-	// `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
-	// with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
-	// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an
-	// inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
-	// document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
-	// entry, and a price change's (document type `PR`) is not reversed but corrected by another price
-	// change: the detail names the material by its number, whose plant's valuation
-	// (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price
+	// (a depreciation run's entries never one by one; an impairment's entry is not reversed: a reversal of
+	// its loss is posted with `POST /v1/assets/{id}:impair`, kind `reversal`); an accounts receivable
+	// entry (`receivables`) is 409 `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo
+	// or debit memo is reversed with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice
+	// is corrected by a credit memo, an incoming payment's application is undone with
+	// `POST /v1/incoming-payments/{id}:reset`; an inventory entry (`inventory`) is 409
+	// `ledger.entry_owned_elsewhere` naming its path: a material document's entry is reversed with
+	// `POST /v1/material-documents/{id}:reverse`, which posts its own entry, and a price change's
+	// (document type `PR`) is not reversed but corrected by another price change: the detail names the
+	// material by its number, whose plant's valuation (`GET /v1/materials?number=`,
+	// `GET /v1/material-valuations?material_id=`) takes the new price
 	// (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
 	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
 	// entry. Human-only.
@@ -21990,15 +22048,16 @@ func (c *Client) sendCreateAssetAcquisition(ctx context.Context, request *AssetA
 // `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422
 // `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
 // valued in a later period nor depreciation booked through a later period in any ledger, a
-// depreciation run of a later period included, even one that posted nothing for it (409
-// `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it
-// first catches up the depreciation through the period before the posting period: the planned
-// depreciation through that period less what is booked, negative when the posting period's run already
-// posted (its depreciation is posted back: the share retired depreciates for none of its period); the
-// asset is then booked through that period, unless it is already booked through the posting period. It
-// then takes the share of the asset's balances in that ledger as posted so far, the catch-up included:
-// the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them
-// for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
+// depreciation run of a later period included, even one that posted nothing for it, nor an impairment
+// or its reversal valued in its own period (409 `assets.later_value_date`; it is then valued in the
+// next period). Per ledger the company keeps (the leading ledger first, then by code) it first catches
+// up the depreciation through the period before the posting period: the planned depreciation through
+// that period less what is booked, negative when the posting period's run already posted (its
+// depreciation is posted back: the share retired depreciates for none of its period); the asset is
+// then booked through that period, unless it is already booked through the posting period. It then
+// takes the share of the asset's balances in that ledger as posted so far, the catch-up included: the
+// cost, accumulated depreciation and residual value, each rounded half away from zero, all of them for
+// a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
 // accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA,
 // source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other
 // way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for
@@ -22181,7 +22240,8 @@ func (c *Client) sendCreateAssetRetirement(ctx context.Context, request *AssetRe
 // remaining life. A planned receiver becomes active with the transfer's value date as its
 // capitalisation date; a full transfer retires the asset. For either kind, the asset (and the
 // receiver) may have no movement or center assignment valued in a later period nor depreciation booked
-// through a later period in any ledger (409 `assets.later_value_date`); a planned asset is 422
+// through a later period in any ledger, nor an impairment or its reversal valued in the transfer's
+// period (409 `assets.later_value_date`; it is then valued in the next period); a planned asset is 422
 // `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422
 // `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company
 // keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A
@@ -41535,6 +41595,139 @@ func (c *Client) sendGetAssetHistorySheet(ctx context.Context, params GetAssetHi
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAssetHistorySheetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAssetImpairment invokes getAssetImpairment operation.
+//
+// One impairment loss or reversal with its asset, ledger, the carrying amounts it was measured against
+// and its journal entry (ADR-0057 As built, impairment). One of a legal entity the caller cannot act
+// in is not found. An impairment is never changed, so it has no version.
+//
+// GET /v1/asset-impairments/{id}
+func (c *Client) GetAssetImpairment(ctx context.Context, params GetAssetImpairmentParams) (GetAssetImpairmentRes, error) {
+	res, err := c.sendGetAssetImpairment(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssetImpairment(ctx context.Context, params GetAssetImpairmentParams) (res GetAssetImpairmentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetImpairment"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-impairments/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetImpairmentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/asset-impairments/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetImpairmentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetImpairmentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -64224,6 +64417,198 @@ func (c *Client) sendHoldSupplierInvoice(ctx context.Context, request *ReasonInp
 	return result, nil
 }
 
+// ImpairAsset invokes impairAsset operation.
+//
+// Recognises an impairment loss on an active asset (`kind` `loss`), or reverses earlier ones (`kind`
+// `reversal`), in one ledger the company keeps (`ledger_id`, default the leading ledger; 422
+// `ledger.ledger_not_kept` for another), for the amount a person gives in the company's local
+// currency, above zero (IAS 36.59-60, 36.114-119; po:2026-11-09, B14; ADR-0057 As built, impairment).
+// Testing for impairment and measuring the recoverable amount happen outside the system. The posting
+// date defaults to the company's date today and the value date to the posting date; an impairment is
+// not backdated: its value date lies in its posting date's period, on or before the posting date (422
+// `assets.value_date_outside_period`), on or after the asset's capitalisation date (422
+// `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
+// valued in a later period nor depreciation booked through a later period in any ledger (409
+// `assets.later_value_date`); a change in estimate from a later period is allowed. The impairment
+// takes effect at the end of its value date's period, after that period's depreciation: the carrying
+// amount it is measured against is the asset's net book value in that ledger at the end of the period
+// as its schedule plans it (`carrying_amount`), and every later period depreciates the carrying amount
+// then over the useful life left (IAS 36.63), so the next depreciation run posts the difference. A
+// loss takes at most the carrying amount (422 `assets.impairment_exceeds_carrying_amount`). A reversal
+// restores at most the carrying amount the asset would have had without any impairment, net of the
+// depreciation since (`unimpaired_amount`), less the carrying amount (IAS 36.117; 422
+// `assets.reversal_exceeds_impairment`); once a retirement or asset transfer has taken a share of the
+// asset in that ledger after its first impairment there, a reversal is refused (409
+// `assets.impairment_reversal_after_retirement`), since what was taken is not split between
+// depreciation and impairment. It posts one entry to that ledger alone (document type AA, source
+// context `assets`): a loss Dr the class's impairment loss account (on the asset's cost center and
+// profit center) / Cr accumulated depreciation (on its profit center), which holds accumulated
+// impairment with it (IAS 16.73(d)); a reversal Dr accumulated depreciation / Cr the class's
+// impairment reversal account (on its profit center); in group currency at the posting date's rate
+// (422 `ledger.no_exchange_rate` without one). The company's accounts of the asset's class must name
+// the account (`companies[].asset_accounts[].impairment_loss`, `impairment_reversal`; 422
+// `assets.impairment_account_missing`). The If-Match is the asset's ETag (`GET /v1/assets/{id}`): its
+// version moves with its values. A planned asset is 422 `assets.asset_not_capitalised`; a retired or
+// cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; one without terms in the
+// ledger 422 `assets.ledger_terms_missing`; an asset the caller cannot act in is 404. Audited, and
+// published as AssetMovementPosted. Human-only.
+//
+// POST /v1/assets/{id}:impair
+func (c *Client) ImpairAsset(ctx context.Context, request *AssetImpairmentCreate, params ImpairAssetParams) (ImpairAssetRes, error) {
+	res, err := c.sendImpairAsset(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendImpairAsset(ctx context.Context, request *AssetImpairmentCreate, params ImpairAssetParams) (res ImpairAssetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("impairAsset"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/assets/{id}:impair"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ImpairAssetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/assets/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":impair"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeImpairAssetRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ImpairAssetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeImpairAssetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ImportBankStatements invokes importBankStatements operation.
 //
 // Imports the statements of a bank's file (ADR-0047) for one house bank: camt.053 (.001.02 or .001.08)
@@ -67157,6 +67542,278 @@ func (c *Client) sendListAssetClearingItems(ctx context.Context, params ListAsse
 
 	stage = "DecodeResponse"
 	result, err := decodeListAssetClearingItemsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAssetImpairments invokes listAssetImpairments operation.
+//
+// The impairment losses and their reversals of the legal entities the caller may act in (ADR-0057 As
+// built, impairment), each with its asset, ledger, carrying amounts and journal entry. Filters:
+// company, asset, ledger, kind and posting dates. Sortable by: `posting_date` (default), `created_at`.
+//
+// GET /v1/asset-impairments
+func (c *Client) ListAssetImpairments(ctx context.Context, params ListAssetImpairmentsParams) (ListAssetImpairmentsRes, error) {
+	res, err := c.sendListAssetImpairments(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAssetImpairments(ctx context.Context, params ListAssetImpairmentsParams) (res ListAssetImpairmentsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssetImpairments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-impairments"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAssetImpairmentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-impairments"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "asset_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "asset_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AssetID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "posting_date_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "posting_date_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PostingDateFrom.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "posting_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "posting_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PostingDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAssetImpairmentsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAssetImpairmentsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -122352,15 +123009,17 @@ func (c *Client) sendReverseInternalOrderSettlement(ctx context.Context, params 
 // (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
 // reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
 // `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse`
-// (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
-// `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
-// with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
-// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an
-// inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
-// document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
-// entry, and a price change's (document type `PR`) is not reversed but corrected by another price
-// change: the detail names the material by its number, whose plant's valuation
-// (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price
+// (a depreciation run's entries never one by one; an impairment's entry is not reversed: a reversal of
+// its loss is posted with `POST /v1/assets/{id}:impair`, kind `reversal`); an accounts receivable
+// entry (`receivables`) is 409 `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo
+// or debit memo is reversed with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice
+// is corrected by a credit memo, an incoming payment's application is undone with
+// `POST /v1/incoming-payments/{id}:reset`; an inventory entry (`inventory`) is 409
+// `ledger.entry_owned_elsewhere` naming its path: a material document's entry is reversed with
+// `POST /v1/material-documents/{id}:reverse`, which posts its own entry, and a price change's
+// (document type `PR`) is not reversed but corrected by another price change: the detail names the
+// material by its number, whose plant's valuation (`GET /v1/materials?number=`,
+// `GET /v1/material-valuations?material_id=`) takes the new price
 // (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
 // `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
 // entry. Human-only.

@@ -21,10 +21,13 @@ import (
 // sheetValues are a history sheet row's sums (ADR-0057 §9): the opening
 // cost and accumulated depreciation, the year's columns, and whether
 // anything was posted in the year. Accumulated depreciation is negative,
-// as the movements record it.
+// as the movements record it, and holds accumulated impairment
+// (IAS 16.73(d)): impairment losses add to it (negative), their reversals
+// take from it (positive; As built, impairment).
 type sheetValues struct {
 	OpeningCost, Acquisitions, Retirements, Transfers                              money.Minor
 	OpeningAccumulated, Depreciation, RetirementsAccumulated, TransfersAccumulated money.Minor
+	ImpairmentLosses, ImpairmentReversals                                          money.Minor
 	Moved                                                                          bool
 }
 
@@ -33,7 +36,7 @@ func (v sheetValues) closingCost() money.Minor {
 }
 
 func (v sheetValues) closingAccumulated() money.Minor {
-	return v.OpeningAccumulated + v.Depreciation + v.RetirementsAccumulated + v.TransfersAccumulated
+	return v.OpeningAccumulated + v.Depreciation + v.ImpairmentLosses + v.ImpairmentReversals + v.RetirementsAccumulated + v.TransfersAccumulated
 }
 
 // shown says whether the row is on the sheet: something was posted in the
@@ -44,7 +47,8 @@ func (v sheetValues) plus(o sheetValues) sheetValues {
 	return sheetValues{OpeningCost: v.OpeningCost + o.OpeningCost, Acquisitions: v.Acquisitions + o.Acquisitions,
 		Retirements: v.Retirements + o.Retirements, Transfers: v.Transfers + o.Transfers, OpeningAccumulated: v.OpeningAccumulated + o.OpeningAccumulated,
 		Depreciation: v.Depreciation + o.Depreciation, RetirementsAccumulated: v.RetirementsAccumulated + o.RetirementsAccumulated,
-		TransfersAccumulated: v.TransfersAccumulated + o.TransfersAccumulated, Moved: v.Moved || o.Moved}
+		TransfersAccumulated: v.TransfersAccumulated + o.TransfersAccumulated, ImpairmentLosses: v.ImpairmentLosses + o.ImpairmentLosses,
+		ImpairmentReversals: v.ImpairmentReversals + o.ImpairmentReversals, Moved: v.Moved || o.Moved}
 }
 
 // sheetSums reads a totals table's rows up to the year $3 as a row's
@@ -54,8 +58,11 @@ const sheetSums = `coalesce(sum(acquisitions + retired_cost + transferred_cost) 
 		coalesce(sum(acquisitions) FILTER (WHERE fiscal_year = $3), 0) AS acquisitions,
 		coalesce(sum(retired_cost) FILTER (WHERE fiscal_year = $3), 0) AS retirements,
 		coalesce(sum(transferred_cost) FILTER (WHERE fiscal_year = $3), 0) AS transfers,
-		coalesce(sum(depreciation + retired_accumulated + transferred_accumulated) FILTER (WHERE fiscal_year < $3), 0) AS opening_accumulated,
+		coalesce(sum(depreciation + retired_accumulated + transferred_accumulated + impairment_losses + impairment_reversals)
+			FILTER (WHERE fiscal_year < $3), 0) AS opening_accumulated,
 		coalesce(sum(depreciation) FILTER (WHERE fiscal_year = $3), 0) AS depreciation,
+		coalesce(sum(impairment_losses) FILTER (WHERE fiscal_year = $3), 0) AS impairment_losses,
+		coalesce(sum(impairment_reversals) FILTER (WHERE fiscal_year = $3), 0) AS impairment_reversals,
 		coalesce(sum(retired_accumulated) FILTER (WHERE fiscal_year = $3), 0) AS retirements_accumulated,
 		coalesce(sum(transferred_accumulated) FILTER (WHERE fiscal_year = $3), 0) AS transfers_accumulated,
 		coalesce(bool_or(fiscal_year = $3), false) AS moved`
@@ -212,8 +219,8 @@ func assetSums(ctx context.Context, tx pgx.Tx, s sheetTarget, after *previewKey,
 
 // sums are the row's sums as sheetSums reads them.
 func (v *sheetRow) sums() []any {
-	return []any{&v.OpeningCost, &v.Acquisitions, &v.Retirements, &v.Transfers, &v.OpeningAccumulated, &v.Depreciation, &v.RetirementsAccumulated,
-		&v.TransfersAccumulated, &v.Moved}
+	return []any{&v.OpeningCost, &v.Acquisitions, &v.Retirements, &v.Transfers, &v.OpeningAccumulated, &v.Depreciation, &v.ImpairmentLosses,
+		&v.ImpairmentReversals, &v.RetirementsAccumulated, &v.TransfersAccumulated, &v.Moved}
 }
 
 func (s sheetTarget) year() int16 { return s.periods[0].FiscalYear }
@@ -243,7 +250,8 @@ func (s sheetTarget) rowsOf(doc *config.Config, rows []sheetRow, exp int, keep f
 		v := s.valuesOf(r.sheetValues, exp)
 		row := gen.AssetHistorySheetRow{ClassCode: r.Class, OpeningCost: v.OpeningCost, Acquisitions: v.Acquisitions, Retirements: v.Retirements,
 			Transfers: v.Transfers, ClosingCost: v.ClosingCost, OpeningAccumulated: v.OpeningAccumulated, Depreciation: v.Depreciation,
-			RetirementsAccumulated: v.RetirementsAccumulated, TransfersAccumulated: v.TransfersAccumulated, ClosingAccumulated: v.ClosingAccumulated,
+			ImpairmentLosses: v.ImpairmentLosses, ImpairmentReversals: v.ImpairmentReversals, RetirementsAccumulated: v.RetirementsAccumulated,
+			TransfersAccumulated: v.TransfersAccumulated, ClosingAccumulated: v.ClosingAccumulated,
 			OpeningNetBookValue: v.OpeningNetBookValue, ClosingNetBookValue: v.ClosingNetBookValue}
 		if c := doc.AssetClass(r.Class); c != nil {
 			row.ClassName = gen.NewOptString(c.Name)
@@ -263,6 +271,7 @@ func (s sheetTarget) valuesOf(v sheetValues, exp int) gen.AssetHistorySheetValue
 	m := func(a money.Minor) gen.Money { return apitypes.Money(a, s.co.Currency, exp) }
 	return gen.AssetHistorySheetValues{OpeningCost: m(v.OpeningCost), Acquisitions: m(v.Acquisitions), Retirements: m(v.Retirements),
 		Transfers: m(v.Transfers), ClosingCost: m(v.closingCost()), OpeningAccumulated: m(v.OpeningAccumulated), Depreciation: m(v.Depreciation),
-		RetirementsAccumulated: m(v.RetirementsAccumulated), TransfersAccumulated: m(v.TransfersAccumulated), ClosingAccumulated: m(v.closingAccumulated()),
+		ImpairmentLosses: m(v.ImpairmentLosses), ImpairmentReversals: m(v.ImpairmentReversals), RetirementsAccumulated: m(v.RetirementsAccumulated),
+		TransfersAccumulated: m(v.TransfersAccumulated), ClosingAccumulated: m(v.closingAccumulated()),
 		OpeningNetBookValue: m(v.OpeningCost + v.OpeningAccumulated), ClosingNetBookValue: m(v.closingCost() + v.closingAccumulated())}
 }

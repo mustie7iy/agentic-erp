@@ -116,23 +116,27 @@ func (e *Endpoints) reversible(ctx context.Context, tx pgx.Tx, asset Asset, q Ac
 }
 
 // laterMovements refuses while a retirement or transfer of any kind
-// posted on the asset after seq is not reversed (409
-// assets.later_movements): a retirement's or transfer's share was taken
-// of the values this posting set, and a center transfer moved its cost to
-// another profit center. Each retirement and transfer writes movements on
-// every asset it touches, a center transfer its catch-up's, so its
-// movements show it.
+// posted on the asset after seq is not reversed, or an impairment was
+// posted after it (409 assets.later_movements): a retirement's or
+// transfer's share was taken of the values this posting set, a center
+// transfer moved its cost to another profit center, and an impairment was
+// measured against the carrying amount it gave, which taking the cost
+// off would leave below zero (an impairment is never reversed as a
+// document; As built, impairment). Each retirement, transfer and
+// impairment writes movements on every asset it touches, a center
+// transfer its catch-up's, so its movements show it.
 func laterMovements(ctx context.Context, tx pgx.Tx, asset Asset, seq int32) error {
 	var later bool
 	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM assets.movement m WHERE m.asset_id = $1 AND m.seq > $2
-			AND m.document_kind IN ('retirement', 'transfer') AND m.reverses_id IS NULL
+			AND m.document_kind IN ('retirement', 'transfer', 'impairment') AND m.reverses_id IS NULL
 			AND NOT EXISTS (SELECT FROM assets.movement r WHERE r.tenant_id = m.tenant_id AND r.reverses_id = m.id))`, asset.ID, seq).Scan(&later)
 	if err != nil {
 		return fmt.Errorf("assets: later movements of asset %s: %w", asset.Number, err)
 	}
 	if later {
-		return problem.Conflict("assets.later_movements", fmt.Sprintf("A retirement or transfer was posted on asset %s after this acquisition; it is "+
-			"reversed first.", asset.Number))
+		return problem.Conflict("assets.later_movements", fmt.Sprintf("A retirement, transfer or impairment was posted on asset %s after this "+
+			"acquisition; a retirement or transfer is reversed first, and an impairment stands, measured on the cost the acquisition brought.",
+			asset.Number))
 	}
 	return nil
 }
