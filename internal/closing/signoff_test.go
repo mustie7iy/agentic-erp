@@ -195,6 +195,9 @@ func TestSignOff(t *testing.T) {
 	if audited != 1 {
 		t.Errorf("audited sign-offs: got %d, want 1", audited)
 	}
+	if got := separation(t, e, "closing.period_close.sign_off"); got != "false" {
+		t.Errorf("the audit record's sign_off_separation: got %q, want false, the company running as the pilot does", got)
+	}
 }
 
 // idOf is the field of a sign-off's i-th ledger.

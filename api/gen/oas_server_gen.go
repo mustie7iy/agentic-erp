@@ -2806,41 +2806,42 @@ type Handler interface {
 	// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
 	// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
 	// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
-	// contract of the company the run reads the recognition schedule to the period's last day
-	// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
-	// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
-	// order item's posted billing to that day (the net amounts of the billing documents posted on or
-	// before it, without tax). Billing credited each item's revenue account with what was billed; per
-	// obligation the run's entry moves that account by the revenue recognized to the period's end less the
-	// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
-	// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
-	// its obligations' recognized less billed amounts: the entry takes the position the last run left off
-	// its account and puts the new one on the company's contract asset account
-	// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
-	// on its contract liability account (`account_determination.contract_liability`) when revenue billed
-	// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
-	// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
-	// amounts are cumulative, so a delivery or a billing document dated into a period already run is
-	// caught up by the next run, and a contract whose figures did not move since its last posting posts
-	// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
-	// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
-	// to every ledger the company keeps. One run per company and period: a second is refused (409
-	// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
-	// the first answered it. A company's first run is for any open period; each later run is for a later
-	// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
-	// in the first version. `legal_entity_id` is a company the caller may act in (422
-	// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
-	// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
-	// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
-	// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
-	// nothing is to post; the company has at most 2,000 active contracts (422
-	// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
-	// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
-	// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
-	// run (for example an obligation's revenue account that is no longer postable). The answer is the run
-	// with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings,
-	// one per contract that moved, each naming its journal entry. Audited, and published as
-	// RevenueRecognized. Human-only (`x-agent: false`).
+	// contract of the company whose revenue can still move (one that has not ended, and an ended one until
+	// a run took its contract asset or liability off; one ended with nothing posted is not read) the run
+	// reads the recognition schedule to the period's last day (`getRevenueSchedule`: a point-in-time
+	// obligation by its order item's delivery confirmations or the day named on it, an over-time
+	// obligation on a straight line by days, whole fiscal periods) and the order item's posted billing to
+	// that day (the net amounts of the billing documents posted on or before it, without tax). Billing
+	// credited each item's revenue account with what was billed; per obligation the run's entry moves that
+	// account by the revenue recognized to the period's end less the revenue billed to it, less what
+	// earlier runs posted for the obligation: a credit when more is recognized than billed and posted so
+	// far, a debit when less. The contract's position is the sum of its obligations' recognized less
+	// billed amounts: the entry takes the position the last run left off its account and puts the new one
+	// on the company's contract asset account (`account_determination.contract_asset`) when revenue
+	// recognized exceeds revenue billed, a debit, or on its contract liability account
+	// (`account_determination.contract_liability`) when revenue billed exceeds revenue recognized, a
+	// credit, so a contract shows one of the two and never both; the posted invoice stays the receivable,
+	// and output tax is not touched: it is reported at the invoice date. The amounts are cumulative, so a
+	// delivery or a billing document dated into a period already run is caught up by the next run, and a
+	// contract whose figures did not move since its last posting posts nothing. Each contract that moved
+	// posts one balanced journal entry (document type `SA`, `source_context` `revenue`, dated the period's
+	// last day, the sales order's number as its reference) to every ledger the company keeps. One run per
+	// company and period: a second is refused (409 `revenue.recognition_run_exists`), and a retry with the
+	// same `Idempotency-Key` answers the run as the first answered it. A company's first run is for any
+	// open period; each later run is for a later period than its last (409
+	// `revenue.recognition_period_not_later`): a run is not reversed or repeated in the first version.
+	// `legal_entity_id` is a company the caller may act in (422 `request.reference_not_found`);
+	// `fiscal_period` is a regular posting period of `fiscal_year` in the company's calendar (422
+	// `ledger.no_fiscal_period` for a year that is not set up, 422 `revenue.period_not_regular`); the
+	// company has both accounts (422 `revenue.no_contract_accounts`); the period is open in every ledger
+	// the company keeps (409 `ledger.period_not_open`), also when nothing is to post; the company has at
+	// most 2,000 active contracts (422 `revenue.recognition_run_too_large`: larger runs are not supported
+	// yet). A day a contract's schedule needs a fiscal period for that lies in no fiscal year set up is
+	// refused naming the contract's order and the obligation (422 `revenue.no_fiscal_period`). What the
+	// ledger refuses of an entry refuses the run (for example an obligation's revenue account that is no
+	// longer postable). The answer is the run with its totals, what its entries moved revenue by on
+	// balance (`revenue_amount`) and its postings, one per contract that moved, each naming its journal
+	// entry. Audited, and published as RevenueRecognized. Human-only (`x-agent: false`).
 	//
 	// POST /v1/revenue-recognition-runs
 	CreateRevenueRecognitionRun(ctx context.Context, req *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (CreateRevenueRecognitionRunRes, error)
@@ -9514,24 +9515,29 @@ type Handler interface {
 	//
 	// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
 	// §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409
-	// `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the
-	// sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each
-	// failing task with what its check found) and nothing is kept (`:check` records a result); when all
-	// pass each result is recorded on its task. Each covered ledger's period must then be `closed` or
-	// `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off
-	// after its period stopped taking postings, and a sign-off never closes a period. Each `closed`
-	// covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and
-	// PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a
-	// period already locked is left as it is, and a period changed by someone else between its read and
-	// its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who
-	// signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it,
-	// and the close is `signed_off`. A close already signed off whose covered periods are all locked is
-	// refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved
-	// `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the
-	// close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides
-	// `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and
-	// `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403
-	// `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff.
+	// `closing.tasks_open`, naming them); where the close's company separates sign-off from preparation
+	// (`companies[].close.sign_off_separation`, on unless the company sets it false; ADR-0058 As built
+	// T64o), a caller who completed one of the close's tasks as they stand, a manual task by `:complete`
+	// or a check by its first passing run, is refused before the checks run (409
+	// `closing.signer_is_preparer`, naming those tasks): another person signs it off; then every check
+	// task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
+	// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept
+	// (`:check` records a result); when all pass each result is recorded on its task. Each covered
+	// ledger's period must then be `closed` or `locked` (409 `closing.period_not_closed`, naming the
+	// ledgers still open): a close is signed off after its period stopped taking postings, and a sign-off
+	// never closes a period. Each `closed` covered period is locked as `lockFiscalPeriod` locks it (the
+	// ledger's audit record and PeriodLocked), the leading ledger first, then by ledger code, the order
+	// postings lock periods in; a period already locked is left as it is, and a period changed by someone
+	// else between its read and its lock refuses the sign-off (412 `request.version_mismatch`). The
+	// sign-off is recorded with who signed off, when, the note and, per covered ledger, its period and
+	// whether this sign-off locked it, and the close is `signed_off`. A close already signed off whose
+	// covered periods are all locked is refused (409 `closing.close_signed_off`); after a covered period
+	// was unlocked (an approved `unlockFiscalPeriod` request) it is signed off again, adding a second
+	// sign-off. `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag.
+	// People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
+	// periods, and `ledger.entry.read`, since its refusal names what the checks found
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+	// PeriodCloseSignedOff.
 	//
 	// POST /v1/period-closes/{id}:signOff
 	SignOffPeriodClose(ctx context.Context, req OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (SignOffPeriodCloseRes, error)
@@ -9543,21 +9549,26 @@ type Handler interface {
 	// in one statement, by period, then the leading ledger first, then by ledger code (the order postings
 	// lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close
 	// already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then
-	// refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's
-	// check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
-	// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept;
-	// when all pass each result is recorded on its task. Every regular period of each covered ledger must
-	// be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked:
-	// the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed`
-	// or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a
-	// sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod`
-	// locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is
-	// left as it is. After it every period of the year is locked in the covered ledgers, and a posting
-	// into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and
-	// their name, when, the note and, per covered ledger, its special periods and whether this sign-off
-	// locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved
-	// `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No
-	// separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060
+	// refused while a manual task is open (409 `closing.tasks_open`, naming them); where the close's
+	// company separates sign-off from preparation (`companies[].close.sign_off_separation`, on unless the
+	// company sets it false; ADR-0058 As built T64o), a caller who completed one of the close's tasks as
+	// they stand, a manual task by `:complete` or a check by its first passing run, is refused before the
+	// checks run (409 `closing.signer_is_preparer`, naming those tasks): another person signs it off;
+	// every check task's check runs again, and if any fails the sign-off is refused (409
+	// `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its
+	// check found) and nothing is kept; when all pass each result is recorded on its task. Every regular
+	// period of each covered ledger must be `locked` (409 `closing.year_periods_not_locked`, naming each
+	// ledger with its periods not locked: the period closes' sign-offs, or `lockFiscalPeriod`, lock them),
+	// and every special period `closed` or `locked` (409 `closing.period_not_closed`, naming each period
+	// with the ledgers it is open in): a sign-off never closes a period. Each `closed` special period is
+	// then locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), in the
+	// order read; a period already locked is left as it is. After it every period of the year is locked in
+	// the covered ledgers, and a posting into one is refused (409 `ledger.period_not_open`). The sign-off
+	// is recorded with who signed off and their name, when, the note and, per covered ledger, its special
+	// periods and whether this sign-off locked each, and the close is `signed_off`. After a period of the
+	// year was unlocked (an approved `unlockFiscalPeriod` request) the year close is signed off again,
+	// adding a second sign-off. Who signed is recorded; a company running without separation of duties, as
+	// the pilot may until go-live, sets `sign_off_separation` false (product owner 2026-11-04, ADR-0060
 	// §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People
 	// only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
 	// periods, and `ledger.entry.read`, since its refusal names what the checks found

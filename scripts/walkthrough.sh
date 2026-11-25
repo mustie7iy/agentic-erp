@@ -6276,12 +6276,15 @@ year_end_checks() {
 }
 
 # year_end_sign_off is T64m6's part (ADR-0060 §8): Carla completes the
-# equity review and signs the year close off. It is refused while PREV's
-# regular periods are only closed: a year is signed off once every period
-# close has locked its period. She locks them (lockFiscalPeriod) and signs
-# off: the checks run again and pass, and each special period, closed, is
-# locked through the period lock; every period of PREV then reads locked,
-# and a posting into period 13 is refused.
+# equity review. She prepared the year close, so Fiona, who completed none
+# of its tasks, signs it off (T64o: Maple separates sign-off from
+# preparation, the default; step_close shows a preparer refused). It is
+# refused while PREV's regular periods are only closed: a year is signed
+# off once every period close has locked its period. Carla locks them
+# (lockFiscalPeriod) and Fiona signs off: the checks run again and pass,
+# and each special period, closed, is locked through the period lock;
+# every period of PREV then reads locked, and a posting into period 13 is
+# refused.
 year_end_sign_off() {
   as carla
   local close tag p
@@ -6292,9 +6295,14 @@ year_end_sign_off() {
   api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.note)"' completeYearCloseTask -p "id=$close" -p code=EQUITY_REVIEW -if-match "$tag" \
     -body '{"note": "Retained earnings agree with the result carried forward"}'
   tag=$ETAG
-  say "She signs off the year close. It is refused: $PREV's regular periods are closed, not locked. A year is signed"
-  say "off after each period's close has locked its period; the year's sign-off locks only the special periods."
+  say "Carla prepared the year close, so another person signs it off: Maple separates sign-off from preparation, a"
+  say "company's default (T64o; the final step shows a preparer's own sign-off refused). Fiona Finance Director, who"
+  say "completed none of its tasks, signs off the year close. It is refused: $PREV's regular periods are closed, not"
+  say "locked. A year is signed off after each period's close has locked its period; the year's sign-off locks only"
+  say "the special periods."
+  as fiona
   refused 409 closing.year_periods_not_locked signOffYearClose -p "id=$close" -if-match "$tag" -body '{}'
+  as carla
   say "No period close of $PREV was opened in the ERP, so nothing has locked its regular periods: Carla locks each"
   say "regular period of $PREV in each ledger herself (lockFiscalPeriod)."
   QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
@@ -6304,13 +6312,14 @@ year_end_sign_off() {
   api 200 '"  regular periods of '"$PREV"' locked: \([.items[] | select(.period <= 12 and .status == "locked")] | length) of \([.items[] | select(.period <= 12)] | length)"' \
     listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
   expect "the regular periods locked" "$(field '[.items[] | select(.period <= 12) | .status] | unique | join(" ")')" locked
-  say "and signs off: every check runs again and passes, and each special period, closed, is locked through the"
-  say "period lock, by period, the leading ledger first."
+  say "and Fiona signs off: every check runs again and passes, and each special period, closed, is locked through"
+  say "the period lock, by period, the leading ledger first."
+  as fiona
   api 200 '"signed off by \(.signed_by_name) at \(.signed_at): \(.note)", (.ledgers[] | "  \(.ledger_code) \(.ledger_name): \([.periods[] | "\(.period) \(if .locked then "locked by the sign-off" else "locked already" end)"] | join(", "))")' \
     signOffYearClose -p "id=$close" -if-match "$tag" -body '{"note": "The year closed; the auditors'"'"' adjustments are in period 13 and the year is carried forward"}'
   expect "the special periods locked by the sign-off" "$(field '[.ledgers[] | "\(.ledger_code) \([.periods[] | "\(.period)=\(.locked)"] | join(" "))"] | join(", ")')" \
     "0L 13=true 14=true 15=true 16=true, 2L 13=true 14=true 15=true 16=true"
-  expect "the signer" "$(field .signed_by_name)" "Carla Controller"
+  expect "the signer" "$(field .signed_by_name)" "Fiona Finance Director"
   api 200 '"\(.company_code) \(.fiscal_year): \(.status), by \(.signed_off_by_name)", (.ledgers[] | "  \(.ledger_code): \([.periods[].status] | unique | join(", "))")' \
     getYearClose -p "id=$close"
   expect "the year close" "$(field '"\(.status) \(.sign_offs | length)"')" "signed_off 1"
@@ -18431,9 +18440,12 @@ close_variance_agent() {
   expect "every task done" "$(field '.tasks_done == .tasks_total')" true
 }
 
-# close_sign_off is T64d's part of step_close, its end (ADR-0058 §7): the
-# sign-off is refused while the period is open; Carla closes it in each
-# covered ledger and signs off, which runs the checks again and locks each
+# close_sign_off is T64d's part of step_close, its end (ADR-0058 §7), with
+# T64o's separation of duties: Carla, who completed the close's tasks, is
+# refused its sign-off, since Maple separates sign-off from preparation (a
+# company's default); Fiona, who completed none, signs off. Her sign-off
+# is refused while the period is open; Carla closes it in each covered
+# ledger and Fiona signs off, which runs the checks again and locks each
 # period through the period lock (T32), the leading ledger first; a manual
 # entry dated in the period is then refused.
 close_sign_off() {
@@ -18444,22 +18456,35 @@ close_sign_off() {
   close=$(field ".items[] | select(.fiscal_period == $period) | .id")
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
   tag=$ETAG
-  say "Every task is done. Carla signs off the close; it is refused while the period still takes postings: a close"
-  say "is signed off after the period is closed, and a sign-off never closes a period itself."
+  local prepared
+  prepared=$(field '[.tasks[] | select(.completed_by_name == "Carla Controller") | .code] | join(", ")')
+  say "Every task is done. Carla signs off the close; it is refused: she completed its tasks, and Maple separates"
+  say "sign-off from preparation (companies[].close.sign_off_separation, on for a company unless its configuration"
+  say "sets it false, as a pilot running without separation of duties may until go-live; product owner 2026-11-04)."
+  say "The refusal names the tasks she completed:"
+  refused 409 closing.signer_is_preparer signOffPeriodClose -p "id=$close" -if-match "$tag" -body '{}'
+  expect "the tasks she completed, named" "$(field '.detail | capture("^You completed task (?<t>[^;]*) of this close;").t')" "$prepared"
+  case "$prepared" in "CUTOFF_NOTICE, AP_CUTOFF, TB_REVIEW"*) ;; *) fail "the tasks Carla completed: got '$prepared', want her manual tasks first" ;; esac
+  as fiona
+  say "Fiona Finance Director completed none of its tasks. She signs off; it is refused while the period still takes"
+  say "postings: a close is signed off after the period is closed, and a sign-off never closes a period itself."
   refused 409 closing.period_not_closed signOffPeriodClose -p "id=$close" -if-match "$tag" -body '{}'
-  say "She closes the period in each ledger the close covers (closeFiscalPeriod):"
+  as carla
+  say "Carla closes the period in each ledger the close covers (closeFiscalPeriod):"
   QUIET=1 api 200 '' getPeriodClose -p "id=$close"
   for p in $(field '.ledgers[] | "\(.ledger_code)=\(.fiscal_period_id)"'); do
     QUIET=1 api 200 '' getFiscalPeriod -p "id=${p#*=}"
     api 200 '"  '"${p%%=*}"' period \(.fiscal_year)/\(.period): \(.status)"' closeFiscalPeriod -p "id=${p#*=}" -if-match "$ETAG"
   done
-  say "and signs off. The checks run again (the parked-entries check passes and is recorded), and each covered period"
-  say "is locked through the period lock, the leading ledger first: it no longer reopens with :open, only through an"
-  say "approved unlock request."
+  as fiona
+  say "and Fiona signs off. The checks run again (the parked-entries check passes and is recorded), and each covered"
+  say "period is locked through the period lock, the leading ledger first: it no longer reopens with :open, only"
+  say "through an approved unlock request."
   api 200 '"signed off by \(.signed_by_name) at \(.signed_at): \(.note)", (.ledgers[] | "  \(.ledger_code) \(.ledger_name): period \(if .locked then "locked by the sign-off" else "locked already" end)")' \
     signOffPeriodClose -p "id=$close" -if-match "$tag" -body '{"note": "Period closed; every task done and every check passing"}'
   expect "every covered period locked by the sign-off" "$(field '[.ledgers[].locked] | all')" true
   expect "the leading ledger first" "$(field '.ledgers[0].is_leading')" true
+  expect "the signer" "$(field .signed_by_name)" "Fiona Finance Director"
   api 200 '"\(.company_code) \(.fiscal_year)/\(.fiscal_period): \(.status), by \(.signed_off_by_name)",
     (.ledgers[] | "  \(.ledger_code): \(.period_status)")' getPeriodClose -p "id=$close"
   expect "the close" "$(field .status)" signed_off

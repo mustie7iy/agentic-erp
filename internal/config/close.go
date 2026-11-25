@@ -297,11 +297,23 @@ func reaches(byCode map[string]*CloseTask, from []string, target string, seen ma
 
 // CompanyClose is how a company's period close works (ADR-0058 §3): the
 // account its accruals are credited to (T64e; empty: none, so no accrual
-// is proposed) and the variance report's settings (T64h; nil Variance, no
-// basis configured).
+// is proposed), the variance report's settings (T64h; nil Variance, no
+// basis configured) and whether its closes' signer must differ from their
+// preparers (T64o; SignOffSeparation, read through SeparatesSignOff).
 type CompanyClose struct {
-	AccrualAccount string         `yaml:"accrual_account,omitempty" json:"accrual_account,omitempty"`
-	Variance       *CloseVariance `yaml:"variance,omitempty" json:"variance,omitempty"`
+	AccrualAccount    string         `yaml:"accrual_account,omitempty" json:"accrual_account,omitempty"`
+	Variance          *CloseVariance `yaml:"variance,omitempty" json:"variance,omitempty"`
+	SignOffSeparation *bool          `yaml:"sign_off_separation,omitempty" json:"sign_off_separation,omitempty"`
+}
+
+// SeparatesSignOff tells whether a close of the company, period or year,
+// is signed off only by someone who completed none of its tasks (ADR-0058
+// As built T64o): on unless the company sets sign_off_separation false,
+// so a company added to a configuration has it, and the pilot, which runs
+// without separation of duties on sign-off until go-live (product owner
+// 2026-11-04), sets it off.
+func (c CompanyClose) SeparatesSignOff() bool {
+	return c.SignOffSeparation == nil || *c.SignOffSeparation
 }
 
 // CloseVariance is a company's variance report (ADR-0058 §9): the bases it

@@ -7087,7 +7087,7 @@ components:
         fiscal_year: {type: integer, description: The fiscal year run.}
         fiscal_period: {type: integer, description: The fiscal period run.}
         posting_date: {$ref: '#/components/schemas/Date', description: "The period's last day: the day revenue was recognized to and the entries are dated."}
-        contract_count: {type: integer, description: The active revenue contracts of the company the run read.}
+        contract_count: {type: integer, description: "The active revenue contracts of the company the run read: those whose revenue can still move, an ended one until a run took its position off."}
         posting_count: {type: integer, description: 'The contracts that moved: the journal entries the run posted, one each.'}
         recognized_amount: {$ref: '#/components/schemas/Money', description: "The revenue recognized to the posting date of the contracts read, in the company's local currency."}
         billed_amount: {$ref: '#/components/schemas/Money', description: 'The revenue billed to the posting date of the contracts read, without tax.'}
