@@ -52,56 +52,71 @@ type DeliveryItem struct {
 // §8). No is its number within the order. A confirmation by a person
 // moves no stock and posts nothing; one an outbound delivery's goods issue
 // wrote (ADR-0083 §5) names the delivery and its material document, nil
-// otherwise.
+// otherwise. Once that goods issue is reversed (S2b3), the reversal's
+// day and material document (602) are named too, nil before.
 type Delivery struct {
-	ID                     uuid.UUID
-	No                     int32
-	OrderID                uuid.UUID
-	OrderNumber            string
-	Date                   time.Time
-	OutboundDeliveryID     *uuid.UUID
-	OutboundDeliveryNumber *string
-	MaterialDocumentID     *uuid.UUID
-	MaterialDocumentNumber *string
-	Items                  []DeliveryItem
-	CreatedAt              time.Time
-	CreatedBy              uuid.UUID
+	ID                             uuid.UUID
+	No                             int32
+	OrderID                        uuid.UUID
+	OrderNumber                    string
+	Date                           time.Time
+	OutboundDeliveryID             *uuid.UUID
+	OutboundDeliveryNumber         *string
+	MaterialDocumentID             *uuid.UUID
+	MaterialDocumentNumber         *string
+	ReversalDate                   *time.Time
+	ReversalMaterialDocumentID     *uuid.UUID
+	ReversalMaterialDocumentNumber *string
+	Items                          []DeliveryItem
+	CreatedAt                      time.Time
+	CreatedBy                      uuid.UUID
 }
 
 // ItemDelivery is one delivery of an order item as Orders gives it: the
-// day and the quantity, a decimal string in the item's unit. Revenue
-// recognition reads it (T81c).
+// day and the quantity, a decimal string in the item's unit. A goods
+// issue's delivery reversed since (S2b3) is given again on the
+// reversal's day with its quantity negated, so what is delivered up to a
+// day adds up. Revenue recognition reads it (T81c).
 type ItemDelivery struct {
 	Date     time.Time `json:"date"`
 	Quantity string    `json:"quantity"`
 }
 
 // itemDeliveries is the key an order item's deliveries are read under,
-// for itemsJSON: by date, then in the order they were confirmed. The date
-// is written as an instant at midnight UTC, which is what a date is
+// for itemsJSON: by date, then in the order they were confirmed, a
+// delivery before its reversal (dated on or after it). The date is
+// written as an instant at midnight UTC, which is what a date is
 // everywhere in the context.
-const itemDeliveries = `, 'deliveries', coalesce((SELECT json_agg(json_build_object('date', to_char(d.delivery_date, 'YYYY-MM-DD"T00:00:00Z"'),
-		'quantity', trim_scale(i.quantity)::text) ORDER BY d.delivery_date, d.delivery_no)
-	FROM sales.delivery_item i JOIN sales.delivery d ON d.tenant_id = i.tenant_id AND d.id = i.delivery_id
-	WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no), '[]')`
+const itemDeliveries = `, 'deliveries', coalesce((SELECT json_agg(json_build_object('date', to_char(x.day, 'YYYY-MM-DD"T00:00:00Z"'),
+		'quantity', trim_scale(x.quantity)::text) ORDER BY x.day, x.no, x.reversal)
+	FROM (SELECT d.delivery_date AS day, d.delivery_no AS no, false AS reversal, i.quantity
+		FROM sales.delivery_item i JOIN sales.delivery d ON d.tenant_id = i.tenant_id AND d.id = i.delivery_id
+		WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no
+		UNION ALL
+		SELECT r.reversal_date, d.delivery_no, true, -i.quantity
+		FROM sales.delivery_item i JOIN sales.delivery d ON d.tenant_id = i.tenant_id AND d.id = i.delivery_id
+		JOIN sales.delivery_reversal r ON r.tenant_id = d.tenant_id AND r.delivery_id = d.id
+		WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no) x), '[]')`
 
 // deliverySelect names the order by a subquery, not a join, for the
-// reason orderSelect names the quotation by one.
+// reason orderSelect names the quotation by one; the reversal, which has
+// no id, is joined.
 const deliverySelect = `SELECT d.id, d.delivery_no, d.sales_order_id,
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = d.tenant_id AND o.id = d.sales_order_id), d.delivery_date,
 		d.outbound_delivery_id, d.outbound_delivery_number, d.material_document_id, d.material_document_number,
+		r.reversal_date, r.material_document_id, r.material_document_number,
 		(SELECT json_agg(json_build_object('item_no', i.order_item_no, 'item_key', t.item_key, 'description', t.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'cost_amount', i.cost_amount, 'cost_currency', i.cost_currency,
 			'cost_exponent', (SELECT c.exponent FROM ref.currency c WHERE c.code = i.cost_currency)) ORDER BY i.order_item_no)
 		 FROM sales.delivery_item i JOIN sales.sales_order_item t ON t.tenant_id = i.tenant_id AND t.sales_order_id = i.sales_order_id
 			AND t.item_no = i.order_item_no
 		 WHERE i.tenant_id = d.tenant_id AND i.delivery_id = d.id), d.created_at, d.created_by
-	FROM sales.delivery d`
+	FROM sales.delivery d LEFT JOIN sales.delivery_reversal r ON r.tenant_id = d.tenant_id AND r.delivery_id = d.id`
 
 func scanDelivery(row pgx.Row) (Delivery, error) {
 	var d Delivery
 	err := row.Scan(&d.ID, &d.No, &d.OrderID, &d.OrderNumber, &d.Date, &d.OutboundDeliveryID, &d.OutboundDeliveryNumber, &d.MaterialDocumentID,
-		&d.MaterialDocumentNumber, &d.Items, &d.CreatedAt, &d.CreatedBy)
+		&d.MaterialDocumentNumber, &d.ReversalDate, &d.ReversalMaterialDocumentID, &d.ReversalMaterialDocumentNumber, &d.Items, &d.CreatedAt, &d.CreatedBy)
 	return d, errs.Wrapf(err, "scan delivery")
 }
 

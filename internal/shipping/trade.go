@@ -85,7 +85,8 @@ func tradeHeld(d Delivery) error {
 // RecordScreening records a trade compliance service's answer for a
 // delivery (S2s): the delivery read under its row lock (ADR-0008), of a
 // company the caller may act in, while its goods issue is not posted (409
-// shipping.goods_issued: what is issued is no longer held); the answer
+// shipping.goods_issued: what is issued is no longer held, or
+// shipping.goods_issue_reversed); the answer
 // released or blocked, its reason code at most 40 characters (422
 // shipping.invalid_screening), naming when the service screened it (422
 // shipping.invalid_screening without, or more than screenedAhead past the
@@ -151,7 +152,7 @@ func superseded(d Delivery, at time.Time) error {
 // ReleaseTradeComplianceBlock releases a delivery's trade compliance by
 // hand (S2s): the delivery read under its row lock at the version the
 // caller read, while its goods issue is not posted (409
-// shipping.goods_issued), pending or blocked (409
+// shipping.goods_issued, or shipping.goods_issue_reversed), pending or blocked (409
 // shipping.not_trade_compliance_blocked otherwise); it is released,
 // naming the caller and when, the service's reason code and time kept.
 // Its goods issue may then be posted; a later answer of the service still

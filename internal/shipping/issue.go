@@ -17,7 +17,8 @@ import (
 
 // PostGoodsIssue posts a delivery's goods issue (ADR-0083 §5), once: the
 // delivery read under its row lock (ADR-0008) at the version the caller
-// read, while it is created (409 shipping.goods_issued), its trade
+// read, while it is created (409 shipping.goods_issued, or
+// shipping.goods_issue_reversed once reversed, S2b3), its trade
 // compliance released when it is screened (409
 // shipping.trade_compliance_block: pending or blocked, S2s), with
 // something picked (409 shipping.nothing_picked). Inventory posts each item's

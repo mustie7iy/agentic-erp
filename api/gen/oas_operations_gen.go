@@ -628,6 +628,7 @@ const (
 	ReverseInternalOrderSettlementOperation              OperationName = "ReverseInternalOrderSettlement"
 	ReverseJournalEntryOperation                         OperationName = "ReverseJournalEntry"
 	ReverseMaterialDocumentOperation                     OperationName = "ReverseMaterialDocument"
+	ReverseOutboundDeliveryGoodsIssueOperation           OperationName = "ReverseOutboundDeliveryGoodsIssue"
 	ReverseSupplierInvoiceOperation                      OperationName = "ReverseSupplierInvoice"
 	RotateWebhookSubscriptionSecretOperation             OperationName = "RotateWebhookSubscriptionSecret"
 	RunAllocationCycleOperation                          OperationName = "RunAllocationCycle"

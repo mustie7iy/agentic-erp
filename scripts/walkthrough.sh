@@ -15322,9 +15322,10 @@ step_outbound_delivery() {
 # from the stock account 1416 to the cost of goods sold 5016; the order
 # has its 6 boxes delivered, by the goods issue, with their cost. It posts
 # once. Sally confirms the installation by hand, which a stock item is
-# not, and bills the order: both items, the brackets as issued. Last,
-# S2b2: cost of sales and margin by profitability segment
-# (goods_issue_margin).
+# not, and bills the order: both items, the brackets as issued. Then
+# S2b3: a goods issue reversed (goods_issue_reversal). Last, S2b2: cost of
+# sales and margin by profitability segment (goods_issue_margin), where
+# the reversed goods issue's cost nets out.
 step_goods_issue() {
   heading "Step 143 — Goods issue: the picked delivery's 601 takes the stock at the moving price and posts its value to the cost of goods sold; the order delivered by it and billed; once only; a stock item not confirmed by hand; cost of sales and margin by profitability segment"
   local before after doc cost day
@@ -15369,8 +15370,74 @@ step_goods_issue() {
     createBillingDocument -body "{\"sales_order_id\": \"$ORDER_SHIPPED\"}"
   expect "the items billed" "$(field '[.items[] | "\(.order_item_no) \(.quantity.value) \(.quantity.unit)"] | join(", ")')" "1 6 BOX, 2 1 EA"
   ISSUED_COST=$(jq -rn --arg a "${ISSUED_COST:-0}" --arg c "$cost" '(($a | tonumber) * 100 + ($c | tonumber) * 100) | round / 100')
+  goods_issue_reversal
   goods_issue_margin
   passed
+}
+
+# goods_issue_reversal is S2b3's part of step_goods_issue (ADR-0083 As
+# built S2b3; SAP VL09): the billed delivery's goods issue is not
+# reversed until its billing document is cancelled. Sally sells
+# Northwind one more bracket, which Wade delivers and issues, and then
+# reverses: a 602 naming the 601 gives the bracket back to the main store
+# at the value it took, its WA entry credits the cost of goods sold 5016
+# and debits the stock 1416, and the valuation is as before the issue;
+# the order's bracket is no longer delivered and the delivery changes no
+# more. Sally then cancels the order, which nothing holds or delivers.
+goods_issue_reversal() {
+  local order delivery tag before cost doc sales
+  as wade
+  say "Step 142's delivery is billed: its goods issue is not reversed until the billing document is cancelled (S2b3):"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$DELIVERY"
+  refused 409 sales.delivery_billed reverseOutboundDeliveryGoodsIssue -p "id=$DELIVERY" -if-match "$ETAG"
+  as sally
+  sales=$(account 4000)
+  say "Sally sells Northwind one more bracket from the Toronto plant, priced by hand (the price record is by the box);"
+  say "Wade delivers, picks and issues it:"
+  QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\",
+    \"items\": [{\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"},
+    \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as ruth
+    QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  before=$(valuation "$MATERIAL")
+  as wade
+  QUIET=1 api 201 '' createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  delivery=$(field .id)
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$delivery" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
+  api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number), cost \(.cost_of_goods_sold.amount) \(.cost_of_goods_sold.currency)"' \
+    postOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$ETAG"
+  cost=$(field .cost_of_goods_sold.amount)
+  say "Northwind refuses the bracket at the door; Wade reverses the goods issue (SAP VL09): a 602 gives it back to the"
+  say "main store at the value it took, and the order's bracket is no longer delivered:"
+  api 200 '"outbound delivery \(.number): \(.status) on \(.goods_issue_reversal_date), reversal \(.reversal_material_document_number) of \(.material_document_number)"' \
+    reverseOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$ETAG"
+  expect "the delivery's status" "$(field .status)" goods_issue_reversed
+  tag=$ETAG
+  doc=$(field .reversal_material_document_id)
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)) of \(.reversal_of_number), reference \(.reference): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) worth \(.lines[0].amount.amount)"' \
+    getMaterialDocument -p "id=$doc"
+  expect "the movement type" "$(field .movement_type)" 602
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the cost of goods sold, 5016, credited" "$(field "[.lines[] | select(.account_id == \"$(account 5016)\") | .amount.amount] | join(\" \")")" "-$cost"
+  expect "the stock, 1416, debited" "$(field "[.lines[] | select(.account_id == \"$(account 1416)\") | .amount.amount] | join(\" \")")" "$cost"
+  expect "the bracket's valuation, as before the goods issue" "$(valuation "$MATERIAL")" "$before"
+  say "  the bracket's valuation: $before, as before the goods issue"
+  say "A goods issue is reversed once:"
+  refused 409 shipping.goods_issue_reversed reverseOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$tag"
+  as sally
+  api 200 '.items[] | "  delivery \(.delivery_no) on \(.delivery_date) by goods issue of \(.outbound_delivery_number)\(if .reversal_date then ", reversed on \(.reversal_date) by \(.reversal_material_document_number)" else "" end)"' \
+    listSalesDeliveries -p "id=$order"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "the order's bracket" "$(field '.items[0] | "\(.delivered_quantity.value) delivered, \(.in_delivery_quantity.value) in delivery"')" "0 delivered, 0 in delivery"
+  say "Northwind does not want the bracket after all; Sally cancels the order, which nothing delivers any more:"
+  api 200 '"sales order \(.document_number): \(.status), \(.cancellation_reason)"' cancelSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body '{"reason": "Refused at delivery; the goods issue is reversed"}'
+  expect "the order" "$(field .status)" cancelled
 }
 
 # goods_issue_margin is S2b2's part of step_goods_issue (ADR-0083 §6):

@@ -541,6 +541,55 @@ period.
   cost; rows and totals add up.
 - **As built** (2026-11-19): ADR-0083 As built S2b2, walkthrough step 143.
 
+#### S2b3 Goods issue reversal of a delivery not billed (602)
+
+The first item of the leaf "later: goods issue variants" (lane
+gireverse, 2026-11-24); what is left of it stays a leaf: partial goods
+issue, picking by wave or bin.
+
+**Capability.** A warehouse clerk reverses the goods issue of an
+outbound delivery whose quantities are not billed (SAP VL09, from
+memory): its stock comes back to the storage location at the value the
+goods issue took, the cost of goods sold is taken back, and the sales
+order's items are no longer delivered by it, open again for another
+delivery.
+
+- **Adds:** `POST /v1/outbound-deliveries/{id}:reverseGoodsIssue`
+  (`If-Match`, human-only); inventory's
+  `Endpoints.ReverseForDelivery`, which posts the 601's reversal, a 602
+  naming it, through the reversal inventory already has (its lines
+  negated, each at what its 601 line took); sales'
+  `Endpoints.ReverseIssue`, which records the reversal of the goods
+  issue's sales delivery (`sales.delivery_reversal`) under the order's
+  row lock and the availability check's locks of its materials at the
+  plant (`database.LockTenant` `sales.availability`, the leaf
+  src review:batch86), so a check never counts the stock given back
+  against the demand before it; the delivery's status
+  `goods_issue_reversed`, naming the 602; the event
+  SalesOrderDeliveryReversed.
+- **Decided by default (ADR-0083 As built S2b3):** the delivery ends
+  reversed and changes no more, its quantities open again on the order
+  for a new delivery (SAP takes the delivery back to before its goods
+  issue, from memory; this version has no deletion of a delivery, so a
+  delivery taken back could hold its quantities for good); the reversal
+  posts on the company's date today; a delivery is billed when reversing
+  it would leave an order item billed beyond what stays delivered (409
+  `sales.delivery_billed`: the billing document is cancelled first);
+  the reversal needs the goods issue's permission; trade compliance is
+  not asked again. The reversal counts in the period of its date:
+  cost of sales by profitability segment falls by its cost there, and a
+  point-in-time revenue obligation scheduled by deliveries by its share.
+- **Walkthrough:** `step_goods_issue`: step 143's billed delivery is
+  refused; a further delivery of one bracket is issued and reversed: the
+  stock and its value come back, the cost of goods sold is credited, the
+  order's item is open again and the order is cancelled.
+- **Acceptance:** the reversal posts once, at the issue's value; the
+  stock, the valuation and the cost of goods sold are as before the
+  issue; a billed delivery is refused; the order item's delivered
+  quantity falls by what was issued.
+- **As built** (2026-11-24): ADR-0083 As built S2b3, migrations 000453
+  and 000454, walkthrough step 143 (`goods_issue_reversal`).
+
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
 delivery notes, returns deliveries (stock posting of T85b's returns),

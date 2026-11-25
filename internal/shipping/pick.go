@@ -59,7 +59,8 @@ func (e *Endpoints) Pick(ctx context.Context, id uuid.UUID, ifMatch func(int32) 
 
 // open reads a delivery of a company the caller may act in under its row
 // lock at the version the caller read, refusing one whose goods issue is
-// posted (409 shipping.goods_issued).
+// posted (409 shipping.goods_issued) or reversed
+// (shipping.goods_issue_reversed).
 func open(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32) error) (Delivery, error) {
 	d, err := accessible(ctx, tx, id, true)
 	if err != nil {
@@ -68,9 +69,12 @@ func open(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32) erro
 	if err := ifMatch(d.Version); err != nil {
 		return Delivery{}, err
 	}
-	if d.Status != Created {
+	switch d.Status {
+	case GoodsIssued:
 		return Delivery{}, problem.Conflict("shipping.goods_issued", "Outbound delivery "+d.Number+"'s goods issue is posted ("+
 			*d.MaterialDocumentNumber+"); it changes no more.")
+	case GoodsIssueReversed:
+		return Delivery{}, reversedAlready(d)
 	}
 	return d, nil
 }

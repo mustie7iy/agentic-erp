@@ -58,12 +58,13 @@ var Reads = []string{"listStock", "listMaterials", "getMaterial", "listMaterialD
 // document created, counted or its differences posted, and every goods
 // movement: a material document posted or reversed, and the postings of
 // other contexts that post one (a purchase order's goods receipt and its
-// reversal, an outbound delivery's goods issue, a stock transport order's
-// issue and receipt, an intercompany order's goods issue, S2i1). Its
-// tools hold none of them: they are reads and createRecommendation.
+// reversal, an outbound delivery's goods issue and its reversal, S2b3, a
+// stock transport order's issue and receipt, an intercompany order's
+// goods issue, S2i1). Its tools hold none of them: they are reads and
+// createRecommendation.
 var Never = []string{"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences", "createMaterialDocument",
 	"reverseMaterialDocument", "postGoodsReceipt", "postOutboundDeliveryGoodsIssue", "postStockTransportGoodsIssue",
-	"postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue", "reverseGoodsReceipt"}
+	"postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue", "reverseGoodsReceipt", "reverseOutboundDeliveryGoodsIssue"}
 
 const system = `You propose the materials of a plant to count this period, for an inventory controller to decide (cycle counting).
 

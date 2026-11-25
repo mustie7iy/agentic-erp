@@ -2489,6 +2489,10 @@ type ReverseMaterialDocumentRes interface {
 	reverseMaterialDocumentRes()
 }
 
+type ReverseOutboundDeliveryGoodsIssueRes interface {
+	reverseOutboundDeliveryGoodsIssueRes()
+}
+
 type ReverseSupplierInvoiceRes interface {
 	reverseSupplierInvoiceRes()
 }

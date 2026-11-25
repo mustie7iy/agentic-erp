@@ -27,7 +27,8 @@ type SegmentQuery struct {
 // query's currency: the gross value billed, the discounts taken off it,
 // the credit memos posted against it and Net, the first less the other
 // two; Cost, the cost of goods sold its goods issues posted (ADR-0083
-// §6), and Margin, Net less Cost. ItemKey is nil for the customer's items
+// §6) less what their reversals took back on their days (S2b3), and
+// Margin, Net less Cost. ItemKey is nil for the customer's items
 // without a key.
 type Segment struct {
 	CustomerID                     uuid.UUID
@@ -95,6 +96,13 @@ const segmentsSQL = `WITH parts AS (
 	JOIN sales.sales_order_item oi ON oi.tenant_id = i.tenant_id AND oi.sales_order_id = i.sales_order_id AND oi.item_no = i.order_item_no
 	WHERE o.legal_entity_id = $1 AND d.outbound_delivery_id IS NOT NULL AND d.delivery_date BETWEEN $2 AND $3 AND o.currency = $4
 		AND ($5::uuid IS NULL OR o.customer_id = $5)
+	UNION ALL
+	SELECT o.customer_id, oi.item_key, -i.cost_amount
+	FROM sales.delivery_reversal r
+	JOIN sales.sales_order o ON o.tenant_id = r.tenant_id AND o.id = r.sales_order_id
+	JOIN sales.delivery_item i ON i.tenant_id = r.tenant_id AND i.delivery_id = r.delivery_id
+	JOIN sales.sales_order_item oi ON oi.tenant_id = i.tenant_id AND oi.sales_order_id = i.sales_order_id AND oi.item_no = i.order_item_no
+	WHERE o.legal_entity_id = $1 AND r.reversal_date BETWEEN $2 AND $3 AND o.currency = $4 AND ($5::uuid IS NULL OR o.customer_id = $5)
 )
 SELECT customer_id, item_key, sum(gross)::bigint, sum(discount)::bigint, sum(credit)::bigint, (sum(gross) - sum(discount) - sum(credit))::bigint,
 	sum(cost)::bigint, (sum(gross) - sum(discount) - sum(credit) - sum(cost))::bigint
@@ -105,8 +113,8 @@ GROUP BY customer_id, item_key
 ORDER BY customer_id, item_key NULLS FIRST`
 
 // foreignSQL counts the posted billing documents, their cancellations
-// with a credit memo, the credit memo requests and the goods issues of
-// orders the query selects but for their currency.
+// with a credit memo, the credit memo requests and the goods issues and
+// their reversals of orders the query selects but for their currency.
 const foreignSQL = `SELECT
 	(SELECT count(*) FROM sales.billing_document b
 		WHERE b.legal_entity_id = $1 AND b.posting_date BETWEEN $2 AND $3 AND b.currency <> $4
@@ -119,7 +127,9 @@ const foreignSQL = `SELECT
 			AND ($5::uuid IS NULL OR r.customer_id = $5))
 	+ (SELECT count(*) FROM sales.delivery d JOIN sales.sales_order o ON o.tenant_id = d.tenant_id AND o.id = d.sales_order_id
 		WHERE o.legal_entity_id = $1 AND d.outbound_delivery_id IS NOT NULL AND d.delivery_date BETWEEN $2 AND $3 AND o.currency <> $4
-			AND ($5::uuid IS NULL OR o.customer_id = $5))`
+			AND ($5::uuid IS NULL OR o.customer_id = $5))
+	+ (SELECT count(*) FROM sales.delivery_reversal r JOIN sales.sales_order o ON o.tenant_id = r.tenant_id AND o.id = r.sales_order_id
+		WHERE o.legal_entity_id = $1 AND r.reversal_date BETWEEN $2 AND $3 AND o.currency <> $4 AND ($5::uuid IS NULL OR o.customer_id = $5))`
 
 // Segments are the company's figures by profitability segment, a
 // customer and an item key (ADR-0075 §6, T92a), from the billing

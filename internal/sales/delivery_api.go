@@ -17,7 +17,8 @@ func deliveryAPI(d Delivery) gen.SalesDelivery {
 	out := gen.SalesDelivery{ID: d.ID, DeliveryNo: d.No, SalesOrderID: d.OrderID, SalesOrderNumber: d.OrderNumber, DeliveryDate: d.Date,
 		OutboundDeliveryID: apitypes.OptUUID(d.OutboundDeliveryID), OutboundDeliveryNumber: apitypes.OptString(d.OutboundDeliveryNumber),
 		MaterialDocumentID: apitypes.OptUUID(d.MaterialDocumentID), MaterialDocumentNumber: apitypes.OptString(d.MaterialDocumentNumber),
-		Items: make([]gen.SalesDeliveryItem, len(d.Items)), CreatedAt: d.CreatedAt, CreatedBy: d.CreatedBy}
+		ReversalDate: apitypes.OptDate(d.ReversalDate), ReversalMaterialDocumentID: apitypes.OptUUID(d.ReversalMaterialDocumentID),
+		ReversalMaterialDocumentNumber: apitypes.OptString(d.ReversalMaterialDocumentNumber), Items: make([]gen.SalesDeliveryItem, len(d.Items)), CreatedAt: d.CreatedAt, CreatedBy: d.CreatedBy}
 	for i, it := range d.Items {
 		out.Items[i] = gen.SalesDeliveryItem{ItemNo: it.ItemNo, ItemKey: apitypes.OptString(it.ItemKey), Description: it.Description,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}}

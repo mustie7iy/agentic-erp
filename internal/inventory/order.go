@@ -103,13 +103,9 @@ func (e *Endpoints) ReverseForOrder(ctx context.Context, id uuid.UUID, day time.
 	if err != nil {
 		return Document{}, err
 	}
-	// As Reverse: documents are insert-only, so reversals of one serialize
-	// on a lock named after it. procurement's own lock on the goods
+	// As Reverse (original); procurement's own lock on the goods
 	// movement is taken first, so none waits here in practice.
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('inventory.material_document:' || $1::text, 0))`, id); err != nil {
-		return Document{}, fmt.Errorf("inventory: reverse goods receipt document %s: lock: %w", id, err)
-	}
-	orig, err := load(ctx, tx, id)
+	orig, err := original(ctx, tx, id)
 	if err != nil {
 		return Document{}, err
 	}

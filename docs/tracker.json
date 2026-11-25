@@ -5888,9 +5888,16 @@
      },
      {
       "s": "T",
-      "t": "later: goods issue variants: goods issue reversal with billing cancelled, partial goods issue, picking by wave or bin (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: goods issue variants: partial goods issue, picking by wave or bin (after the plan's slices; product owner 2026-11-17; the goods issue reversal split off as S2b3)",
       "r": "docs/design/plan-supply-chain.md §S2b, Later",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Reversing the goods issue of an outbound delivery whose quantities are not billed posts a 602 at the value its 601 took, giving the stock and its value back and taking back the cost of goods sold; the sales order's items are no longer delivered by it and are open again; a billed delivery is refused until its billing document is cancelled",
+      "r": "S2b3 · docs/design/plan-supply-chain.md §S2b3 · ADR-0083 As built S2b3 · db/migrations/000453, 000454 · reverseOutboundDeliveryGoodsIssue · inventory.Endpoints.ReverseForDelivery · sales.Endpoints.ReverseIssue · sales.delivery_reversal · SalesOrderDeliveryReversed · sales.delivery_billed · shipping.goods_issue_reversed · TestGoodsIssueReversal · walkthrough step_goods_issue (goods_issue_reversal, step 143)",
+      "src": "po:2026-11-17 · adr:ADR-0083",
       "c": []
      }
     ]
@@ -5929,9 +5936,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: a goods issue reversal (602), once built, takes the availability check's lock of its materials at the plant (database.LockTenant sales.availability) or counts its stock before the demand, since it lowers a delivered quantity, which the check's read of the demand before the stock assumes only rises",
-      "r": "internal/sales/availability.go lockMaterials · ADR-0082 As built S2j (Two orders racing) · ADR-0083 (goods issue)",
+      "r": "internal/sales/availability.go lockMaterials · ADR-0082 As built S2j (Two orders racing) · ADR-0083 (goods issue) · S2b3: sales.Endpoints.ReverseIssue takes them after the order's lock · ADR-0083 As built S2b3 (Locks) · TestReversalTakesTheAvailabilityLock",
       "src": "review:batch86",
       "c": []
      },
