@@ -93,7 +93,7 @@ take-over of existing assets at cutover and the SAP migration of fixed
 assets; depreciation areas that post to no ledger (tax depreciation such as
 Canada's CCA); assets under construction with their own settlement rules;
 units-of-production and other methods; revaluation and impairment of
-assets; insurance and leasing data; a group-currency depreciation and
+assets (impairment built since, As built, impairment); insurance and leasing data; a group-currency depreciation and
 history sheet of their own (depreciation's group amount is its local amount
 translated at the run's posting date, §5, §7); screens in the web workspace
 (headless first, ADR-0053); an agent (the roadmap names none).
@@ -2769,7 +2769,7 @@ carrying amount; impairment and the consolidated sheet later.
   for the line).
 - **Not built, a tracker leaf each (po:2026-11-09), both before the
   pilot's first year end:** impairment postings (losses recognised and
-  reversed) with their sheet lines; a consolidated sheet in the group's
+  reversed) with their sheet lines (built since: As built, impairment); a consolidated sheet in the group's
   presentation currency with net exchange differences on translation.
 - **The business combination line is left out** while the pilot
   customer's planning default D11 holds (the subsidiaries incorporated by
@@ -2778,6 +2778,77 @@ carrying amount; impairment and the consolidated sheet later.
 - **IAS 16.73(a)-(c)** (measurement basis, methods, useful lives or rates
   per class, usually notes text) stays an open tracker leaf: the decision
   on B14 does not name it.
+
+**Impairment (losses recognised and reversed, and their history sheet
+lines; po:2026-11-09, B14; IAS 36.59-63, 36.114-119, IAS 16.73(d), (e);
+migrations 000469-000472).** The B14 leaf. `POST /v1/assets/{id}:impair`
+(If-Match the asset's ETag, Idempotency-Key, `assets.asset.post`, agents
+refused) posts a loss (`kind` `loss`) or a reversal of earlier losses
+(`reversal`) of an active asset in one ledger (`ledger_id`, default the
+leading), for an amount a person gives in local currency: testing for
+impairment and the recoverable amount stay outside the system.
+`GET /v1/asset-impairments` and `/{id}` read them. It writes an
+`assets.impairment` row (insert-only), one `impairment` or
+`impairment_reversal` movement changing accumulated depreciation alone,
+its `document_entry`, the asset's next `seq` (so a retirement's or
+transfer's reversal, refused while anything was posted after it, and an
+acquisition's, now refused after an impairment too, keep their order),
+the year totals' new columns, an audit record (its text not recorded,
+ADR-0079) and AssetMovementPosted (`document_kind` `impairment`, with
+`impairment_kind`). The history sheet gains `impairment_losses`
+(negative) and `impairment_reversals` (positive) per row and in
+`totals`, in the reconciliation of accumulated depreciation; additive.
+Decided by default (ADR-0053 d), for the product owner to overrule:
+- **Account determination keys:** two optional entries of a class's
+  accounts per company, `impairment_loss` (an expense, on the asset's
+  cost and profit center, as depreciation) and `impairment_reversal` (a
+  revenue, on its profit center); a class without the one a kind needs is
+  refused (422 `assets.impairment_account_missing`), rather than falling
+  back to `loss` or `gain`, so impairment is a P&L line of its own (IAS
+  36.126(a), from memory). The other line is the class's accumulated
+  depreciation account: accumulated depreciation is shown aggregated with
+  accumulated impairment, as IAS 16.73(d) allows (from memory). SAP keeps
+  separate accounts for unplanned depreciation and write-ups (AO90, from
+  memory). Alternative: a separate accumulated impairment account and a
+  split of the sheet's accumulated column (needs the impairment part of
+  every retirement's and transfer's share recorded).
+- **When it takes effect:** at the end of the value date's period, after
+  that period's depreciation (`Move.Impairment`): the carrying amount a
+  person measures at a reporting date is the one after that period's
+  depreciation, and the periods after depreciate the carrying amount then
+  over the remaining life on the terms in force, straight-line or
+  declining balance (IAS 36.63, from memory: yes). No catch-up is posted:
+  the next run posts planned less booked as ever. The moves are read with
+  their kind from a new covering index (000471, 000472), so the run, the
+  preview and a catch-up stay index-only.
+- **Limits:** a loss at most the carrying amount (the schedule's net book
+  value at the end of the period, 422
+  `assets.impairment_exceeds_carrying_amount`); a reversal at most the
+  carrying amount the asset would have had without any impairment, net of
+  the depreciation it would have taken, less the carrying amount (the
+  same walk without the impairment moves; IAS 36.117, from memory; 422
+  `assets.reversal_exceeds_impairment`). Both amounts are kept on the
+  document. A reversal is refused once a retirement or asset transfer took
+  a share after the asset's first impairment in that ledger (409
+  `assets.impairment_reversal_after_retirement`): the share's accumulated
+  depreciation held part of the impairment, which is not recorded apart,
+  so the ceiling cannot be told (a known limit; the alternative above
+  lifts it).
+- **Dates and periods:** as a retirement: valued in its posting period on
+  or before its posting date, not before the capitalisation date, posted
+  in a period open in its ledger, and refused while the asset has anything
+  valued or booked in a later period (`assets.later_value_date`); a
+  change in estimate from a later period does not bind it, since an
+  impairment leaves the residual value as it is (`laterValues`).
+- **No document reversal:** an impairment entered in error is undone by a
+  reversal of the loss, within the ceiling; the ledger names that path
+  (`ledger.entry_owned_elsewhere`).
+- **Per ledger:** each ledger is a depreciation area with its own
+  principle (ADR-0045), so a loss under IFRS need not be one under local
+  GAAP; a person posts it in each ledger it applies to.
+Not built (out of the leaf): the consolidated sheet in presentation
+currency, IAS 16.73(a)-(c) notes text, goodwill impairment, testing for
+impairment, IFRS 5.15's measurement of an asset held for sale.
 
 **B10, step 1 (the order item and the tax borne recorded on price
 difference lines, po:2026-11-10; migration 000263).** The specialist's

@@ -132,8 +132,9 @@ func classToAPI(doc *config.Config, cls config.AssetClass, companies []gen.Asset
 	return out
 }
 
-// accountsToAPI is the company's accounts of a class by number and name;
-// validation keeps each in the company's chart.
+// accountsToAPI is the company's accounts of a class by number and name,
+// the impairment accounts when it names them; validation keeps each in
+// the company's chart.
 func accountsToAPI(co *config.Company, a *config.AssetAccounts) gen.AssetClassAccounts {
 	names := map[string]string{}
 	for _, acc := range co.ChartOfAccounts {
@@ -142,6 +143,13 @@ func accountsToAPI(co *config.Company, a *config.AssetAccounts) gen.AssetClassAc
 	ref := func(number string) gen.AssetAccountRef {
 		return gen.AssetAccountRef{Number: number, Name: names[number]}
 	}
+	optional := func(number string) gen.OptAssetAccountRef {
+		if number == "" {
+			return gen.OptAssetAccountRef{}
+		}
+		return gen.NewOptAssetAccountRef(ref(number))
+	}
 	return gen.AssetClassAccounts{AcquisitionCost: ref(a.AcquisitionCost), AccumulatedDepreciation: ref(a.AccumulatedDepreciation),
-		Depreciation: ref(a.Depreciation), Clearing: ref(a.Clearing), Gain: ref(a.Gain), Loss: ref(a.Loss), SaleClearing: ref(a.SaleClearing)}
+		Depreciation: ref(a.Depreciation), Clearing: ref(a.Clearing), Gain: ref(a.Gain), Loss: ref(a.Loss), SaleClearing: ref(a.SaleClearing),
+		ImpairmentLoss: optional(a.ImpairmentLoss), ImpairmentReversal: optional(a.ImpairmentReversal)}
 }

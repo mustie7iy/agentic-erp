@@ -2226,6 +2226,20 @@ func encodeHoldSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeImpairAssetRequest(
+	req *AssetImpairmentCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeImportBankStatementsRequest(
 	req *BankStatementUploadMultipart,
 	r *http.Request,

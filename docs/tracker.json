@@ -1520,8 +1520,8 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Impairment of assets and its history sheet lines, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): postings of impairment losses recognised and reversed on an asset per ledger, and the sheet's lines for them, accumulated depreciation shown with accumulated impairment. Not built: the assets context posts no impairment today (ADR-0057 §1)",
+        "s": "D",
+        "t": "Impairment of assets and its history sheet lines, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): postings of impairment losses recognised and reversed on an asset per ledger, and the sheet's lines for them, accumulated depreciation shown with accumulated impairment. Built: POST /v1/assets/{id}:impair (loss or reversal, per ledger, IAS 36.117 ceiling), GET /v1/asset-impairments, the sheet's impairment_losses and impairment_reversals (ADR-0057 As built, impairment; migrations 000469-000472)",
         "r": "ADR-0057 §1, §9, As built (B14) · GET /v1/asset-history-sheet",
         "src": "po:2026-11-09",
         "pilot": "po:2026-11-09 · adr:ADR-0057",
