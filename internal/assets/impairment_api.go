@@ -19,6 +19,10 @@ import (
 
 // ImpairAsset implements POST /v1/assets/{id}:impair.
 func (e *Endpoints) ImpairAsset(ctx context.Context, req *gen.AssetImpairmentCreate, params gen.ImpairAssetParams) (gen.ImpairAssetRes, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if req.Kind != ImpairmentLoss && req.Kind != ImpairmentReversal {
 		return nil, validation("kind", "loss or reversal")
 	}
@@ -31,11 +35,11 @@ func (e *Endpoints) ImpairAsset(ctx context.Context, req *gen.AssetImpairmentCre
 	}
 	in := NewImpairment{LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), Kind: req.Kind, Amount: amount, Currency: req.Amount.Currency,
 		ValueDate: apitypes.Ptr[time.Time](req.ValueDate), PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Text: apitypes.Ptr[string](req.Text)}
-	q, err := e.impairAsset(ctx, params.ID, etag.IfMatch(params.IfMatch), in)
+	q, err := e.impairAsset(ctx, tx, p, params.ID, etag.IfMatch(params.IfMatch), in)
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.impairmentShown(ctx, q)
+	out, err := e.impairmentShown(ctx, tx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -52,19 +56,16 @@ func (e *Endpoints) GetAssetImpairment(ctx context.Context, params gen.GetAssetI
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.impairmentShown(ctx, q)
+	out, err := e.impairmentShown(ctx, tx, q)
 	if err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-// impairmentShown shows one impairment.
-func (e *Endpoints) impairmentShown(ctx context.Context, q Impairment) (gen.AssetImpairment, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return gen.AssetImpairment{}, err
-	}
+// impairmentShown shows one impairment, read in the request's
+// transaction.
+func (e *Endpoints) impairmentShown(ctx context.Context, tx pgx.Tx, q Impairment) (gen.AssetImpairment, error) {
 	v, err := e.impairmentView(ctx, tx, []Impairment{q})
 	if err != nil {
 		return gen.AssetImpairment{}, err

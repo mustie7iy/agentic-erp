@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -135,6 +136,14 @@ func TestImpairment(t *testing.T) {
 	mv := m["items"].([]any)[0].(map[string]any)
 	want(t, "the reversal's movement", fmt.Sprint(mv["document_kind"], " ", amount(mv["accumulated"]), " ", mv["document_number"] != nil),
 		"impairment 297.48 true")
+	cls, _ := e.Must(200, "GET", "/v1/asset-classes?legal_entity_id="+e.DE.String(), "", "")
+	var accounts []string
+	for _, c := range cls["items"].([]any) {
+		a := c.(map[string]any)["companies"].([]any)[0].(map[string]any)["accounts"].(map[string]any)
+		accounts = append(accounts, fmt.Sprint(c.(map[string]any)["code"], " ", a["impairment_loss"], " ", a["impairment_reversal"]))
+	}
+	want(t, "the classes' impairment accounts", strings.Join(accounts, "; "),
+		"LAND <nil> <nil>; MACHINES map[name:Impairment of machinery number:695000] map[name:Reversal of impairments number:495000]")
 }
 
 // TestImpairmentRefused: what an impairment refuses before it posts.
@@ -270,6 +279,7 @@ func TestListAssetImpairments(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) { want(t, name, ids(cs.query), cs.want) })
 	}
+	e.Problem(400, "request.invalid_page_token", "GET", "/v1/asset-impairments?page_token=nonsense", "", "")
 	first, _ := e.Must(200, "GET", "/v1/asset-impairments?page_size=2", "", "")
 	next, _ := e.Must(200, "GET", "/v1/asset-impairments?page_size=2&page_token="+first["next_page_token"].(string), "", "")
 	want(t, "the second page", next["items"].([]any)[0].(map[string]any)["id"], c["id"])
@@ -311,6 +321,13 @@ func TestImpairmentFailures(t *testing.T) {
 		return err
 	})
 	pgtest.WantErr(t, err, "assets.ledger_terms_missing")
+	lost := app.Assets(app.Config{Now: func() time.Time { return assetDay }})
+	lost.Settings = classesLost{configuration.Settings{}}
+	err = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := lost.ImpairAsset(ctx, &gen.AssetImpairmentCreate{Kind: "loss", Amount: eur("1.00")}, gen.ImpairAssetParams{ID: asset, IfMatch: "*"})
+		return err
+	})
+	pgtest.WantErr(t, err, "assets.class_not_in_company")
 
 	for name, fn := range map[string]func(ctx context.Context) error{
 		"a loss": func(ctx context.Context) error {

@@ -58,11 +58,7 @@ type impairing struct {
 // schedule at the end of the value date's period, one ledger-specific
 // entry, the asset's movement, its next seq and its year totals, audited
 // and published.
-func (e *Endpoints) impairAsset(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, in NewImpairment) (Impairment, error) {
-	tx, p, err := reqctx.Request(ctx)
-	if err != nil {
-		return Impairment{}, err
-	}
+func (e *Endpoints) impairAsset(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, ifMatch func(int32) error, in NewImpairment) (Impairment, error) {
 	r, err := e.prepareImpairment(ctx, tx, id, ifMatch, in)
 	if err != nil {
 		return Impairment{}, err
