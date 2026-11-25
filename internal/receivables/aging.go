@@ -59,6 +59,9 @@ type OpenItems interface {
 	// Closed names the lines no longer open, without a lock (T75g: a
 	// payment's credit on account).
 	Closed(ctx context.Context, refs []ledger.ItemRef) (map[ledger.ItemRef]bool, error)
+	// ClearedApart names the ledger's clearings of a line of the entry or
+	// of the lines against an item that is neither (relievedclearing.go).
+	ClearedApart(ctx context.Context, entryYear int16, entryID uuid.UUID, lines []ledger.ItemRef) ([]ledger.ClearingRef, error)
 }
 
 // agingSum is the items of a bucket, a customer or the report: how many,

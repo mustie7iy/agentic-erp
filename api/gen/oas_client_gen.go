@@ -1407,8 +1407,12 @@ type Invoker interface {
 	// write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming
 	// `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a
 	// payment applied in another currency is refused too (422
-	// `receivables.relieved_invoice_other_currency`). When the customer pays later, the payment charges
-	// the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`).
+	// `receivables.relieved_invoice_other_currency`). One whose items or write-off credits a ledger
+	// clearing (`createClearing`) settled against an item that is none of them, such as a credit posted
+	// straight to the customer, is refused too (422 `receivables.relieved_invoice_clearing` naming
+	// `customer_invoice_id`, its detail naming the clearing): what it settled is not counted as paid. When
+	// the customer pays later, the payment charges the tax again (`createIncomingPayment`,
+	// `bad_debt_recharges`). Human-only (`x-agent: false`).
 	//
 	// POST /v1/bad-debt-reliefs
 	CreateBadDebtRelief(ctx context.Context, request *BadDebtReliefCreate, params CreateBadDebtReliefParams) (CreateBadDebtReliefRes, error)
@@ -1516,7 +1520,14 @@ type Invoker interface {
 	// was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date).
 	// A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its
 	// payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run
-	// settles or frees it.
+	// settles or frees it. A clearing of a relieved customer invoice's items (`createBadDebtRelief`), of
+	// the residual items its incoming payments left or of its write-offs' credits against an item that is
+	// not that invoice's, such as a credit posted straight to the customer or another relieved invoice's
+	// line, is refused (422 `receivables.relieved_invoice_clearing` naming that item in `items`): what the
+	// customer pays of a relieved invoice is applied with an incoming payment (`createIncomingPayment`),
+	// which charges the relieved tax again (ADR-0049 As built batch 94). One invoice's such items cleared
+	// with each other alone, such as its item with a relieved write-off's credit, settle nothing paid and
+	// are cleared.
 	//
 	// POST /v1/clearings
 	CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error)
@@ -22427,8 +22438,12 @@ func (c *Client) sendCreateAuditEvidenceExport(ctx context.Context, request *Aud
 // write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming
 // `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a
 // payment applied in another currency is refused too (422
-// `receivables.relieved_invoice_other_currency`). When the customer pays later, the payment charges
-// the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`).
+// `receivables.relieved_invoice_other_currency`). One whose items or write-off credits a ledger
+// clearing (`createClearing`) settled against an item that is none of them, such as a credit posted
+// straight to the customer, is refused too (422 `receivables.relieved_invoice_clearing` naming
+// `customer_invoice_id`, its detail naming the clearing): what it settled is not counted as paid. When
+// the customer pays later, the payment charges the tax again (`createIncomingPayment`,
+// `bad_debt_recharges`). Human-only (`x-agent: false`).
 //
 // POST /v1/bad-debt-reliefs
 func (c *Client) CreateBadDebtRelief(ctx context.Context, request *BadDebtReliefCreate, params CreateBadDebtReliefParams) (CreateBadDebtReliefRes, error) {
@@ -23423,7 +23438,14 @@ func (c *Client) sendCreateChangeRequest(ctx context.Context, request *ChangeReq
 // was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date).
 // A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its
 // payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run
-// settles or frees it.
+// settles or frees it. A clearing of a relieved customer invoice's items (`createBadDebtRelief`), of
+// the residual items its incoming payments left or of its write-offs' credits against an item that is
+// not that invoice's, such as a credit posted straight to the customer or another relieved invoice's
+// line, is refused (422 `receivables.relieved_invoice_clearing` naming that item in `items`): what the
+// customer pays of a relieved invoice is applied with an incoming payment (`createIncomingPayment`),
+// which charges the relieved tax again (ADR-0049 As built batch 94). One invoice's such items cleared
+// with each other alone, such as its item with a relieved write-off's credit, settle nothing paid and
+// are cleared.
 //
 // POST /v1/clearings
 func (c *Client) CreateClearing(ctx context.Context, request *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error) {
