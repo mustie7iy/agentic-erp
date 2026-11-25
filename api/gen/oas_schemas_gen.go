@@ -73098,8 +73098,15 @@ type Material struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// That company's code.
 	CompanyCode string `json:"company_code"`
-	// What the material is.
+	// What the material is, in the `language` the read asked for where the material has a description in
+	// it, else its default description (S1a2).
 	Description string `json:"description"`
+	// The language `description` is in.
+	DescriptionLanguage string `json:"description_language"`
+	// The language of the material's default description; it does not change.
+	DefaultLanguage string `json:"default_language"`
+	// Its descriptions in every language it has: the default first, then the others by language.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The base unit of measure.
 	BaseUnit string `json:"base_unit"`
 	// The base unit's name.
@@ -73177,6 +73184,21 @@ func (s *Material) GetCompanyCode() string {
 // GetDescription returns the value of Description.
 func (s *Material) GetDescription() string {
 	return s.Description
+}
+
+// GetDescriptionLanguage returns the value of DescriptionLanguage.
+func (s *Material) GetDescriptionLanguage() string {
+	return s.DescriptionLanguage
+}
+
+// GetDefaultLanguage returns the value of DefaultLanguage.
+func (s *Material) GetDefaultLanguage() string {
+	return s.DefaultLanguage
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *Material) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetBaseUnit returns the value of BaseUnit.
@@ -73284,6 +73306,21 @@ func (s *Material) SetDescription(val string) {
 	s.Description = val
 }
 
+// SetDescriptionLanguage sets the value of DescriptionLanguage.
+func (s *Material) SetDescriptionLanguage(val string) {
+	s.DescriptionLanguage = val
+}
+
+// SetDefaultLanguage sets the value of DefaultLanguage.
+func (s *Material) SetDefaultLanguage(val string) {
+	s.DefaultLanguage = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *Material) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
+}
+
 // SetBaseUnit sets the value of BaseUnit.
 func (s *Material) SetBaseUnit(val string) {
 	s.BaseUnit = val
@@ -73364,7 +73401,7 @@ type MaterialChange struct {
 	MaterialID uuid.UUID `json:"material_id"`
 	// The material's number.
 	MaterialNumber string `json:"material_number"`
-	// The material's description, as it is now.
+	// The material's default description, as it is now.
 	MaterialDescription string `json:"material_description"`
 	// `pending`: waiting for its approval. `applied`: written to the material. `rejected`: refused by its
 	// approver. `cancelled`: withdrawn by its requester. Open enumeration: clients must accept and
@@ -73693,8 +73730,13 @@ func (s *MaterialChangePlant) SetStorageLocations(val []MaterialStorageLocation)
 // requester could act in.
 // Ref: #/components/schemas/MaterialChangeRequested
 type MaterialChangeRequested struct {
-	// The description.
+	// The default description.
 	Description OptString `json:"description"`
+	// The default description's language (a create's only).
+	DescriptionLanguage OptString `json:"description_language"`
+	// The further descriptions, by language, replacing the material's: unlike `Material.descriptions`, the
+	// default description is not among them; it is `description`.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The base unit (a create's only).
 	BaseUnit OptString `json:"base_unit"`
 	// The material type (a create's only).
@@ -73718,6 +73760,16 @@ type MaterialChangeRequested struct {
 // GetDescription returns the value of Description.
 func (s *MaterialChangeRequested) GetDescription() OptString {
 	return s.Description
+}
+
+// GetDescriptionLanguage returns the value of DescriptionLanguage.
+func (s *MaterialChangeRequested) GetDescriptionLanguage() OptString {
+	return s.DescriptionLanguage
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *MaterialChangeRequested) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetBaseUnit returns the value of BaseUnit.
@@ -73763,6 +73815,16 @@ func (s *MaterialChangeRequested) GetAlternativeUnits() []MaterialUnitInput {
 // SetDescription sets the value of Description.
 func (s *MaterialChangeRequested) SetDescription(val OptString) {
 	s.Description = val
+}
+
+// SetDescriptionLanguage sets the value of DescriptionLanguage.
+func (s *MaterialChangeRequested) SetDescriptionLanguage(val OptString) {
+	s.DescriptionLanguage = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *MaterialChangeRequested) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
 }
 
 // SetBaseUnit sets the value of BaseUnit.
@@ -73811,8 +73873,14 @@ type MaterialCreate struct {
 	// The company whose `material` number range numbers the material, one the caller may act in. The
 	// material itself is the tenant's.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// What the material is, as people find it.
+	// What the material is, as people find it: its default description, in `description_language`.
 	Description string `json:"description"`
+	// The default description's language, a BCP 47 tag (ADR-0082 As built S1a2): a language with an
+	// optional script and region, in their canonical form, its subtags known. It does not change.
+	DescriptionLanguage OptString `json:"description_language"`
+	// Its further descriptions, one per language, none in the default's language (SAP's MAKT texts); none
+	// when absent.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The unit stock and quantities of the material are kept in; it does not change.
 	BaseUnit string `json:"base_unit"`
 	// What kind of material it is (SAP's standard material types ROH, HALB, FERT, HAWA, NLAG and DIEN); it
@@ -73850,6 +73918,16 @@ func (s *MaterialCreate) GetLegalEntityID() uuid.UUID {
 // GetDescription returns the value of Description.
 func (s *MaterialCreate) GetDescription() string {
 	return s.Description
+}
+
+// GetDescriptionLanguage returns the value of DescriptionLanguage.
+func (s *MaterialCreate) GetDescriptionLanguage() OptString {
+	return s.DescriptionLanguage
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *MaterialCreate) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetBaseUnit returns the value of BaseUnit.
@@ -73907,6 +73985,16 @@ func (s *MaterialCreate) SetDescription(val string) {
 	s.Description = val
 }
 
+// SetDescriptionLanguage sets the value of DescriptionLanguage.
+func (s *MaterialCreate) SetDescriptionLanguage(val OptString) {
+	s.DescriptionLanguage = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *MaterialCreate) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
+}
+
 // SetBaseUnit sets the value of BaseUnit.
 func (s *MaterialCreate) SetBaseUnit(val string) {
 	s.BaseUnit = val
@@ -73950,6 +74038,37 @@ func (s *MaterialCreate) SetBatchManaged(val OptBool) {
 // SetSerialManaged sets the value of SerialManaged.
 func (s *MaterialCreate) SetSerialManaged(val OptBool) {
 	s.SerialManaged = val
+}
+
+// A material's description in a language (ADR-0082 As built S1a2; SAP MAKT, from memory), stored and
+// answered as given.
+// Ref: #/components/schemas/MaterialDescription
+type MaterialDescription struct {
+	// The language, a BCP 47 tag: a language with an optional script and region, in their canonical form,
+	// its subtags known.
+	Language string `json:"language"`
+	// What the material is, in that language.
+	Description string `json:"description"`
+}
+
+// GetLanguage returns the value of Language.
+func (s *MaterialDescription) GetLanguage() string {
+	return s.Language
+}
+
+// GetDescription returns the value of Description.
+func (s *MaterialDescription) GetDescription() string {
+	return s.Description
+}
+
+// SetLanguage sets the value of Language.
+func (s *MaterialDescription) SetLanguage(val string) {
+	s.Language = val
+}
+
+// SetDescription sets the value of Description.
+func (s *MaterialDescription) SetDescription(val string) {
+	s.Description = val
 }
 
 // A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted
@@ -74889,7 +75008,7 @@ type MaterialPlan struct {
 	MaterialID uuid.UUID `json:"material_id"`
 	// The material's number.
 	MaterialNumber string `json:"material_number"`
-	// The material's description, as it is now.
+	// The material's default description, as it is now.
 	MaterialDescription string `json:"material_description"`
 	// `reorder_point` or `no_planning`. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
@@ -75534,12 +75653,15 @@ func (s *MaterialUnitInput) SetDenominator(val int32) {
 	s.Denominator = val
 }
 
-// Merge patch of a material: its description, material group, status, plants or alternative units. The
-// number, the base unit and the material type do not change.
+// Merge patch of a material: its description, further descriptions, material group, status, plants or
+// alternative units. The number, the base unit and the material type do not change.
 // Ref: #/components/schemas/MaterialUpdate
 type MaterialUpdate struct {
-	// What the material is.
+	// What the material is: its default description, in its default language.
 	Description OptString `json:"description"`
+	// The material's further descriptions, one per language, none in its default language, replacing those
+	// it has; an empty list removes them.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The material group.
 	MaterialGroup OptString `json:"material_group"`
 	// `active` or `blocked`. Open enumeration: values may be added within /v1.
@@ -75556,6 +75678,11 @@ type MaterialUpdate struct {
 // GetDescription returns the value of Description.
 func (s *MaterialUpdate) GetDescription() OptString {
 	return s.Description
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *MaterialUpdate) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetMaterialGroup returns the value of MaterialGroup.
@@ -75586,6 +75713,11 @@ func (s *MaterialUpdate) GetReason() OptString {
 // SetDescription sets the value of Description.
 func (s *MaterialUpdate) SetDescription(val OptString) {
 	s.Description = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *MaterialUpdate) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
 }
 
 // SetMaterialGroup sets the value of MaterialGroup.
@@ -75632,7 +75764,7 @@ type MaterialValuation struct {
 	MaterialID uuid.UUID `json:"material_id"`
 	// The material's number.
 	MaterialNumber string `json:"material_number"`
-	// The material's description, as it is now.
+	// The material's default description, as it is now.
 	MaterialDescription string `json:"material_description"`
 	// The plant.
 	PlantID uuid.UUID `json:"plant_id"`

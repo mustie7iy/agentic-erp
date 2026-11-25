@@ -1293,6 +1293,10 @@ migrated_materials() {
     "Hex bolt M8: trading_good PC active 3200/0001+0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
   local steel
   steel=$(field '.items[] | select(.description == "Steel sheet 2 mm") | .id')
+  say "Each of a material's MAKT texts came over in its language (S1a2): the steel sheet's English one is its default,"
+  say "its German one a further description:"
+  expect "the steel sheet's descriptions" "$(field '.items[] | select(.description == "Steel sheet 2 mm") | [.descriptions[] | "\(.language) \(.description)"] | join("; ")')" \
+    "en Steel sheet 2 mm; de Stahlblech 2 mm"
   say "Each one's creation is a material change the run applied, with no approval request of its own; its reason names"
   say "SAP's material number, which the run keeps as the material's external reference:"
   api 200 '.items[] | "material change \(.number) \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
@@ -13746,10 +13750,15 @@ material_request() {
 # pending until Priya, the process owner, approves its create change
 # (S1b). Mira's change of its description and storage locations waits for
 # Priya's approval in turn; her earlier version is stale then; she blocks
-# the bracket, which applies at once.
+# the bracket, which applies at once. Descriptions by language (S1a2): the
+# bracket is described in Arabic too, the UAE pilot's second language, and
+# read in Arabic, in ar-AE and in French (its English default answered);
+# the zinc-plated change carries the new Arabic text and a French one; a
+# further description in the default's language is refused.
 step_material() {
-  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, active once the process owner approves it; the base unit as an alternative unit and another plant's storage location refused; a change approved, a stale version refused; blocked at once"
+  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; blocked at once"
   local plant main spares other far material number
+  local arabic="دعامة مشغولة M10" zinc="دعامة مشغولة M10، مطلية بالزنك"
   as ada
   say "Ada adds Mira, the master data specialist, to the team:"
   person mira "Mira Materials" finance_staff
@@ -13774,9 +13783,11 @@ step_material() {
   QUIET=1 api 200 '' activateOrgUnit -p "id=$far" -if-match "$ETAG"
   as mira
   say "Mira creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
-  say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b):"
-  api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status), change \(.pending_change_number)", (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
-    createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\",
+  say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b). It is described in English by"
+  say "default and in Arabic too, for the UAE pilot's people (S1a2):"
+  api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status), change \(.pending_change_number)", (.descriptions[] | "  described in \(.language): \(.description)"), (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
+    createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10\", \"description_language\": \"en\", \"descriptions\": [{\"language\": \"ar\", \"description\": \"$arabic\"}],
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\",
       \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\"]}], \"alternative_units\": [{\"unit\": \"BOX\", \"numerator\": 20, \"denominator\": 1}],
       \"reason\": \"New bracket for the Northwind range\"}"
   material=$(field .id)
@@ -13789,6 +13800,14 @@ step_material() {
   as mira
   api 200 '"material \(.number): \(.status), version \(.version)"' getMaterial -p "id=$material"
   expect "the approved material" "$(field '"\(.status) \(.version)"')" "active 2"
+  say "A reader names the language it wants: Arabic answers the Arabic text as given, ar-AE finds it by its language,"
+  say "and French, which the bracket has not, answers the English default, saying so:"
+  api 200 '"in \(.description_language): \(.description)"' getMaterial -p "id=$material" -p language=ar
+  expect "the bracket in Arabic" "$(field '"\(.description_language) \(.description)"')" "ar $arabic"
+  QUIET=1 api 200 '' getMaterial -p "id=$material" -p language=ar-AE
+  expect "the bracket in ar-AE" "$(field .description)" "$arabic"
+  api 200 '"in \(.description_language) (default \(.default_language)): \(.description)"' getMaterial -p "id=$material" -p language=fr
+  expect "the bracket in French" "$(field '"\(.description_language) \(.description)"')" "en Machined bracket M10"
   say "The base unit converts to itself, so it is no alternative unit; Montreal's store is not Toronto's:"
   refused 422 materials.base_unit_conversion createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"alternative_units\": [{\"unit\": \"EA\", \"numerator\": 1, \"denominator\": 1}]}"
@@ -13796,16 +13815,25 @@ step_material() {
   refused 422 materials.storage_location_invalid createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$far\"]}]}"
   expect "the refused storage location's field" "$(field '.errors[0].field')" "plants[0].storage_location_ids[0]"
-  say "Mira names the bracket's finish and keeps it in the spare parts store too, at the version she read; the"
-  say "change waits for Priya:"
+  say "A further description in English, the default's language, is refused: the default description is description:"
+  refused 422 materials.duplicate_language createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"descriptions\": [{\"language\": \"en\", \"description\": \"Bracket M12\"}]}"
+  expect "the refused description's field" "$(field '.errors[0].field')" "descriptions[0].language"
+  say "Mira names the bracket's finish, in Arabic too and now in French, and keeps it in the spare parts store too, at"
+  say "the version she read; the change waits for Priya:"
   QUIET=1 api 200 '' getMaterial -p "id=$material"
   api 200 '"material \(.number) \(.description): version \(.version), change \(.pending_change_number) pending"' updateMaterial -p "id=$material" -if-match "$ETAG" \
-    -body "{\"description\": \"Machined bracket M10, zinc plated\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\", \"$spares\"]}], \"reason\": \"Zinc plated from now on\"}"
+    -body "{\"description\": \"Machined bracket M10, zinc plated\", \"descriptions\": [{\"language\": \"ar\", \"description\": \"$zinc\"}, {\"language\": \"fr\", \"description\": \"Équerre usinée M10, zinguée\"}],
+      \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\", \"$spares\"]}], \"reason\": \"Zinc plated from now on\"}"
   expect "the material while its change waits" "$(field '"\(.version) \(.description)"')" "2 Machined bracket M10"
   approve priya "$(material_request "$material")" "Agreed with purchasing."
   as mira
   api 200 '"material \(.number) \(.description): version \(.version)", (.plants[] | "  plant \(.plant_code): \([.storage_locations[] | .code] | join(", "))")' getMaterial -p "id=$material"
   expect "the changed material" "$(field '"\(.version) \(.description) \([.plants[0].storage_locations[] | .code] | join(","))"')" "3 Machined bracket M10, zinc plated SL01,SL02"
+  expect "the changed descriptions" "$(field '[.descriptions[] | "\(.language) \(.description)"] | join("; ")')" \
+    "en Machined bracket M10, zinc plated; ar $zinc; fr Équerre usinée M10, zinguée"
+  QUIET=1 api 200 '' getMaterial -p "id=$material" -p language=fr-CA
+  expect "the bracket in fr-CA" "$(field '"\(.description_language) \(.description)"')" "fr Équerre usinée M10, zinguée"
   say "Her first version is stale now:"
   refused 412 request.version_mismatch updateMaterial -p "id=$material" -if-match '"1"' -body '{"material_group": "FASTENERS"}'
   say "A batch of brackets is found faulty; Mira blocks the bracket, which needs no approval and applies at once, at"

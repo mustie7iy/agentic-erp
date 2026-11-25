@@ -2287,17 +2287,21 @@ type Invoker interface {
 	// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
 	// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
 	// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
-	// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
-	// the material type do not change afterwards. Created `pending` with a material change of kind
-	// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
-	// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
-	// it stays `pending` and is used nowhere. The change lists the existing materials with the same
-	// description, white space and case aside, whatever their status, a pending one whose create change
-	// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
-	// refused (409 `materials.duplicate_description`, naming them) unless the request sets
-	// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
-	// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
-	// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
+	// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Its `description`
+	// is its default one, in `description_language` (`en` when absent); `descriptions` gives it further
+	// ones (S1a2), each in a BCP 47 language with known subtags in their canonical form (422
+	// `materials.unknown_language`), each language once and none in the default's (422
+	// `materials.duplicate_language`). The base unit, the material type and the default's language do not
+	// change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`;
+	// ADR-0082 §9, S1b), whose approval request the role `process_owner` decides
+	// (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays
+	// `pending` and is used nowhere. The change lists the existing materials with the same description,
+	// white space and case aside, whatever their status, a pending one whose create change was rejected or
+	// withdrawn aside (`possible_duplicates`); a material with such a description is refused (409
+	// `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two
+	// requests with one description wait for one another, so the second finds the first. Audited, and
+	// published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key`
+	// answers the material created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/materials
 	CreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error)
@@ -4896,7 +4900,9 @@ type Invoker interface {
 	//
 	// One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
 	// base unit, type, group and status, its plants and their storage locations in the companies the
-	// caller may act in, each with its code and name, and its alternative units with their conversions.
+	// caller may act in, each with its code and name, and its alternative units with their conversions;
+	// its descriptions in every language it has, and its `description` in the `language` asked for, else
+	// its default (S1a2).
 	//
 	// GET /v1/materials/{id}
 	GetMaterial(ctx context.Context, params GetMaterialParams) (GetMaterialRes, error)
@@ -6852,7 +6858,8 @@ type Invoker interface {
 	// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
 	// base unit, type, group and status, its plants and storage locations in the companies the caller may
 	// act in, and its alternative units. Filtered by number, plant, status, material type and material
-	// group. Sortable by: `number`.
+	// group; each `description` in the `language` asked for where the material has one, else its default
+	// (S1a2). Sortable by: `number`.
 	//
 	// GET /v1/materials
 	ListMaterials(ctx context.Context, params ListMaterialsParams) (ListMaterialsRes, error)
@@ -10172,25 +10179,27 @@ type Invoker interface {
 	UpdateLegalEntity(ctx context.Context, request *LegalEntityUpdate, params UpdateLegalEntityParams) (UpdateLegalEntityRes, error)
 	// UpdateMaterial invokes updateMaterial operation.
 	//
-	// Requests a change of a material's description, material group, status, plants or alternative units
-	// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
-	// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
-	// number, the base unit and the material type do not change. `status` moves between `active` and
-	// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
-	// plants in the companies the caller may act in, each with its storage locations, and leaves those of
-	// other companies as they are; `alternative_units` replaces its alternative units, an empty list
-	// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
-	// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
-	// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
-	// block. A change that only blocks the material is applied at once, a pending change or not (the
-	// material answered blocked, with a material change of kind `block`, applied, read with
-	// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
-	// pending update approved later leaves the block in place. Any other opens a pending material change
-	// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
-	// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
-	// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
-	// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
-	// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
+	// Requests a change of a material's description, further descriptions, material group, status, plants
+	// or alternative units with the caller's version of it (`If-Match`; 412 when another change came
+	// first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is
+	// kept on the change. The number, the base unit and the material type do not change. `status` moves
+	// between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces
+	// the material's plants in the companies the caller may act in, each with its storage locations, and
+	// leaves those of other companies as they are; `alternative_units` replaces its alternative units, an
+	// empty list removing them; `descriptions` replaces its further descriptions, an empty list removing
+	// them (S1a2), and `description` sets its default one; each is checked as `createMaterial` checks it.
+	// A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as
+	// is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change
+	// (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at
+	// once, a pending change or not (the material answered blocked, with a material change of kind
+	// `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the
+	// fields it changes, so a pending update approved later leaves the block in place. Any other opens a
+	// pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise;
+	// the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
+	// applied to the material as it is then when its approval request is approved by the role
+	// `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values
+	// before and after, and published as MaterialChangeChanged, and MaterialChanged when the material
+	// changes. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/materials/{id}
 	UpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)
@@ -28504,17 +28513,21 @@ func (c *Client) sendCreateLegalEntity(ctx context.Context, request *LegalEntity
 // `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
 // is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
 // `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
-// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
-// the material type do not change afterwards. Created `pending` with a material change of kind
-// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
-// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
-// it stays `pending` and is used nowhere. The change lists the existing materials with the same
-// description, white space and case aside, whatever their status, a pending one whose create change
-// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
-// refused (409 `materials.duplicate_description`, naming them) unless the request sets
-// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
-// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
-// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
+// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Its `description`
+// is its default one, in `description_language` (`en` when absent); `descriptions` gives it further
+// ones (S1a2), each in a BCP 47 language with known subtags in their canonical form (422
+// `materials.unknown_language`), each language once and none in the default's (422
+// `materials.duplicate_language`). The base unit, the material type and the default's language do not
+// change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`;
+// ADR-0082 §9, S1b), whose approval request the role `process_owner` decides
+// (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays
+// `pending` and is used nowhere. The change lists the existing materials with the same description,
+// white space and case aside, whatever their status, a pending one whose create change was rejected or
+// withdrawn aside (`possible_duplicates`); a material with such a description is refused (409
+// `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two
+// requests with one description wait for one another, so the second finds the first. Audited, and
+// published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key`
+// answers the material created. Human-only (`x-agent: false`).
 //
 // POST /v1/materials
 func (c *Client) CreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error) {
@@ -53677,7 +53690,9 @@ func (c *Client) sendGetMatchResult(ctx context.Context, params GetMatchResultPa
 //
 // One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
 // base unit, type, group and status, its plants and their storage locations in the companies the
-// caller may act in, each with its code and name, and its alternative units with their conversions.
+// caller may act in, each with its code and name, and its alternative units with their conversions;
+// its descriptions in every language it has, and its `description` in the `language` asked for, else
+// its default (S1a2).
 //
 // GET /v1/materials/{id}
 func (c *Client) GetMaterial(ctx context.Context, params GetMaterialParams) (GetMaterialRes, error) {
@@ -53743,6 +53758,27 @@ func (c *Client) sendGetMaterial(ctx context.Context, params GetMaterialParams) 
 		pathParts[1] = encoded
 	}
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "language" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "language",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Language.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)
@@ -89685,7 +89721,8 @@ func (c *Client) sendListMaterialValuations(ctx context.Context, params ListMate
 // The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
 // base unit, type, group and status, its plants and storage locations in the companies the caller may
 // act in, and its alternative units. Filtered by number, plant, status, material type and material
-// group. Sortable by: `number`.
+// group; each `description` in the `language` asked for where the material has one, else its default
+// (S1a2). Sortable by: `number`.
 //
 // GET /v1/materials
 func (c *Client) ListMaterials(ctx context.Context, params ListMaterialsParams) (ListMaterialsRes, error) {
@@ -89814,6 +89851,23 @@ func (c *Client) sendListMaterials(ctx context.Context, params ListMaterialsPara
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.MaterialGroup.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "language" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "language",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Language.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
@@ -131607,25 +131661,27 @@ func (c *Client) sendUpdateLegalEntity(ctx context.Context, request *LegalEntity
 
 // UpdateMaterial invokes updateMaterial operation.
 //
-// Requests a change of a material's description, material group, status, plants or alternative units
-// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
-// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
-// number, the base unit and the material type do not change. `status` moves between `active` and
-// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
-// plants in the companies the caller may act in, each with its storage locations, and leaves those of
-// other companies as they are; `alternative_units` replaces its alternative units, an empty list
-// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
-// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
-// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
-// block. A change that only blocks the material is applied at once, a pending change or not (the
-// material answered blocked, with a material change of kind `block`, applied, read with
-// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
-// pending update approved later leaves the block in place. Any other opens a pending material change
-// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
-// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
-// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
-// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
-// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
+// Requests a change of a material's description, further descriptions, material group, status, plants
+// or alternative units with the caller's version of it (`If-Match`; 412 when another change came
+// first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is
+// kept on the change. The number, the base unit and the material type do not change. `status` moves
+// between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces
+// the material's plants in the companies the caller may act in, each with its storage locations, and
+// leaves those of other companies as they are; `alternative_units` replaces its alternative units, an
+// empty list removing them; `descriptions` replaces its further descriptions, an empty list removing
+// them (S1a2), and `description` sets its default one; each is checked as `createMaterial` checks it.
+// A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as
+// is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change
+// (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at
+// once, a pending change or not (the material answered blocked, with a material change of kind
+// `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the
+// fields it changes, so a pending update approved later leaves the block in place. Any other opens a
+// pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise;
+// the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
+// applied to the material as it is then when its approval request is approved by the role
+// `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values
+// before and after, and published as MaterialChangeChanged, and MaterialChanged when the material
+// changes. Human-only (`x-agent: false`).
 //
 // PATCH /v1/materials/{id}
 func (c *Client) UpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error) {

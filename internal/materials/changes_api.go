@@ -93,6 +93,10 @@ func changeAPI(c MaterialChange, refs changeRefs) gen.MaterialChange {
 			req.AlternativeUnits[i] = gen.MaterialUnitInput{Unit: u.Code, Numerator: u.Numerator, Denominator: u.Denominator}
 		}
 	}
+	req.DescriptionLanguage = apitypes.OptString(r.DescriptionLanguage)
+	if r.Descriptions != nil {
+		req.Descriptions = descriptionsAPI(*r.Descriptions)
+	}
 	if r.BatchManaged != nil {
 		req.BatchManaged = gen.NewOptBool(*r.BatchManaged)
 	}
