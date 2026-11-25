@@ -322,7 +322,7 @@ func TestBatchDatabaseFailures(t *testing.T) {
 	id, m := uuid.MustParse(e.l1), uuid.MustParse(e.sealant)
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
-			_, err := h.CreateBatch(ctx, &gen.BatchCreate{MaterialID: m, Number: "L" + strings.ToUpper(uuid.NewString()[:8]), ManufactureDate: time.Now()},
+			_, err := h.CreateBatch(ctx, &gen.BatchCreate{MaterialID: m, Number: "L" + strings.ToUpper(uuid.NewString()[:8]), ManufactureDate: time.Now().UTC()},
 				gen.CreateBatchParams{})
 			return err
 		},
