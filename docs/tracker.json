@@ -2133,15 +2133,22 @@
      {
       "s": "D",
       "t": "Accrual proposals by agent",
-      "r": "T64 · ADR-0058 §8, §12 · T64e, T64f, T64g · done by T64e (accrual proposals parked for a person to post), T64f (deciding them) and T64g (the close agent proposing them through its tools, evals/close replayed against the model stand-in) under Financial close designed, and by accrualagent (batch 96): the close agent's never list (closeagent.Never, TestNever: every other write of closing, every journal entry and fiscal period write, the period-end runs and clearings that post and every approval decision; every write of closing but the two proposals x-agent: false), step_close showing the agent's own rejection and sign-off refused · ADR-0058 As built (accrual proposals by agent) · its live evaluation and certification is the leaf below",
+      "r": "T64 · ADR-0058 §8, §12 · T64e, T64f, T64g · done by T64e (accrual proposals parked for a person to post), T64f (deciding them) and T64g (the close agent proposing them through its tools, evals/close replayed against the model stand-in) under Financial close designed, and by accrualagent (batch 96): the close agent's never list (closeagent.Never, TestNever: every other write of closing, every journal entry and fiscal period write, the postings of the documents it reads, the period-end runs that post, the clearings and every approval decision; every write of closing but the two proposals x-agent: false), step_close showing the agent's own rejection and sign-off refused · ADR-0058 As built (accrual proposals by agent) · its live evaluation and the agent's own parked entries are the leaves below",
       "src": "baseline",
       "c": []
      },
      {
-      "s": "T",
-      "t": "The close agent evaluated against the live Claude API and its type close certified on the model erp-close routes to (ADR-0039), its accrual and variance cases as one suite (ADR-0058 decision 14), before it runs above level 0 in a tenant's cell; until then it runs only against the model stand-in in replay; waits for the live-evaluation key (pre-pilot)",
-      "r": "evals/close/suite.yaml (replayed in CI by TestEvalSuites only) · internal/closeagent · erp-server certify · ADR-0058 §12, As built (accrual proposals by agent) · ADR-0039",
+      "s": "P",
+      "t": "Evaluation against the live Claude API: the close agent (type close, its accrual and variance cases as one suite, ADR-0058 decision 14) certified on the model erp-close routes to before it runs above level 0 in a tenant's cell; until then evals/close is replayed against the model stand-in only",
+      "r": "T43 (waits on: the user: a live Claude API key and spend) · evals/close/suite.yaml (TestEvalSuites, replay) · erp-server certify · ADR-0058 §12, As built (accrual proposals by agent) · ADR-0039",
       "src": "adr:ADR-0058 · adr:ADR-0039",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "An agent can change or cancel the parked entry of its own accrual proposal: parkJournalEntry, updateParkedJournalEntry and cancelParkedJournalEntry are x-autonomy: propose and the ledger's owner rule lets the agent that parked an entry no person has taken on change or cancel it, so a level-1 close agent holding ledger.entry.park (which proposeAccrual needs) makes its proposal read modified or rejected without a person's decision, though ADR-0058 §12 says the API refuses it whatever its level; decide whether the ledger refuses an agent's change or cancel of a parked entry a closing proposal references (through a published port) or record the behaviour as accepted",
+      "r": "internal/ledger parked.go ownerAfter, takenOn · api/openapi.yaml updateParkedJournalEntry, cancelParkedJournalEntry · internal/closeagent Never (its tools keep it away today) · ADR-0058 §12, As built (accrual proposals by agent)",
+      "src": "review:batch96",
       "c": []
      },
      {

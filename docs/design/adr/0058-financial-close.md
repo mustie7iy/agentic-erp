@@ -1864,7 +1864,7 @@ product owner to overrule:
 **Accrual proposals by agent (batch 96, accrualagent).** The tracker leaf
 "Accrual proposals by agent" (T64, §8 and §12) was built by T64e, T64f
 and T64g; this step checked what they built against both sections and
-closed the one gap the later agents' convention (ADR-0072's never lists)
+closed the gap the later agents' convention (ADR-0072's never lists)
 shows: the close agent's never list was only the prose of §12 and its
 tool lists. `closeagent.Never` now names the operations it never calls,
 and `closeagent.TestNever` holds them to the contract. Decided by
@@ -1874,24 +1874,45 @@ default, for the product owner to overrule:
   check, sign-off, `rejectAccrualProposal`, writing, accepting and
   rejecting a variance comment, and the year close's, ADR-0060); every
   write of a journal entry, parked or posted, `parkJournalEntry`,
-  `updateParkedJournalEntry` and `cancelParkedJournalEntry` included,
-  though agents may call them: the agent proposes an accrual through
-  `proposeAccrual` alone, whose evidence and duplicate rules a bare
-  parking would skip; every fiscal period action (`openFiscalPeriod` and
-  `closeFiscalPeriod` are open to agents at level 2); the period-end runs
-  and clearings that post (carry-forward, revaluation, depreciation,
-  clearing, GR/IR clearing); and every decision of an approval request.
-  The alternative, listing only §12's words, would leave a level-2 close
-  agent able to close a period or park an unchecked entry if its tools
-  ever grew.
+  `updateParkedJournalEntry` and `cancelParkedJournalEntry` included: the
+  agent proposes an accrual through `proposeAccrual` alone, whose
+  evidence and duplicate rules a bare parking would skip; every fiscal
+  period action; the postings of the documents it reads
+  (`postSupplierInvoice`, `clearSupplierInvoiceDownPayments`,
+  `postGoodsReceipt`); the period-end runs that post (carry-forward,
+  revaluation, depreciation, allocation and its reversal, order
+  settlement and its reversal, leases, revenue recognition,
+  consolidation) and the clearings (`createClearing`,
+  `createGrIrClearing`); and every decision of an approval request. The
+  alternative, listing only §12's words, would leave unnamed the writes a
+  close agent's tools must never grow into.
+- **What the API refuses, as built.** §12's "the API refuses it whatever
+  its level" holds for every write of `closing` but the proposals
+  (`x-agent: false`), for posting (`postJournalEntry`, refused to agents in
+  the ledger's code; `postParkedJournalEntry`) and reversing
+  (`reverseJournalEntry`), for the period lock and unlock, and for the
+  runs above that are `x-agent: false`. It does not hold for the rest:
+  `openFiscalPeriod`, `closeFiscalPeriod`, `postSupplierInvoice`,
+  `clearSupplierInvoiceDownPayments`, `postGoodsReceipt` and
+  `createClearing` are open to an agent at level 2 holding their
+  permissions (the close agent is level 1, and its walkthrough role holds
+  none of them); and `parkJournalEntry`, `updateParkedJournalEntry` and
+  `cancelParkedJournalEntry` are `x-autonomy: propose`, so a level-1
+  agent holding `ledger.entry.park`, which `proposeAccrual` needs, can
+  change or cancel the parked entry of its own accrual proposal, which
+  no person has taken on (T35's owner rule, `internal/ledger` parked.go
+  `takenOn`): the proposal then reads `modified` or `rejected` without a
+  person's decision. Only its tools keep the close agent from those three;
+  the gap is a tracker leaf (src review:batch96), not changed here, since
+  closing it changes the ledger's owner rule for every agent.
 - **What the test checks.** Each of the agent's tools is a read or one of
   its two proposals (`x-autonomy: propose`); every write of `closing`'s
   paths, and every write whose operation names a journal entry, a fiscal
   period or an approval request, is on the list; no listed operation is a
   tool and each is in the contract; and every write of `closing` but the
-  proposals is `x-agent: false`, the API's own refusal behind §12's
-  "whatever its level". A new write of any of those kinds fails the test
-  until it is listed.
+  proposals is `x-agent: false`. A new write of any of those kinds fails
+  the test until it is listed; the documents' postings and the runs are
+  listed by name.
 - **Walkthrough.** `close_accrual_decisions` (step_close) has the agent,
   after proposing its second accrual, refused rejecting it and signing
   the close off (403 `identity.agent_not_allowed`); Carla then rejects it
