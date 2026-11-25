@@ -25,17 +25,20 @@ type source struct {
 	from, to                        string
 }
 
-// review is what one run's check knows: the run's day, and what the run
-// read of the proposals, their sources and their suppliers.
+// review is what one run's check knows: the run's day and plant, and
+// what the run read of the proposals, their sources, their suppliers and
+// the suppliers' deliveries at the plant.
 type review struct {
-	runDate   string
-	proposals map[string]proposal // requisition id to the proposal
-	sources   map[string]source   // "contract <id> item <n>", "catalog item <id>", "purchase order <id>" to the source
-	suppliers map[string]bool     // business partners read: id to whether it is an active supplier
+	runDate, plant string
+	proposals      map[string]proposal          // requisition id to the proposal
+	sources        map[string]source            // "contract <id> item <n>", "catalog item <id>", "purchase order <id>" to the source
+	suppliers      map[string]bool              // business partners read: id to whether it is an active supplier
+	measures       map[string]map[string]string // material id to its suppliers' measures at the plant: supplier id to the line naming them
 }
 
-func newReview(runDate string) *review {
-	return &review{runDate: runDate, proposals: map[string]proposal{}, sources: map[string]source{}, suppliers: map[string]bool{}}
+func newReview(runDate, plant string) *review {
+	return &review{runDate: runDate, plant: plant, proposals: map[string]proposal{}, sources: map[string]source{}, suppliers: map[string]bool{},
+		measures: map[string]map[string]string{}}
 }
 
 // quantity is a Quantity as an answer gives it.
@@ -161,6 +164,53 @@ func (rv *review) supplierRead(resp apitools.Response) {
 	rv.suppliers[bp.ID] = bp.Status == "active" && slices.Contains(bp.Roles, "supplier")
 }
 
+// delivery is a supplier's row of getSupplierDeliveryPerformance.
+type delivery struct {
+	SupplierID       string `json:"supplier_id"`
+	Receipts         int    `json:"receipts"`
+	DatedReceipts    int    `json:"dated_receipts"`
+	OnTimeReceipts   int    `json:"on_time_receipts"`
+	OnTimePercent    *int   `json:"on_time_percent"`
+	PlannedLeadDays  *int   `json:"planned_lead_days"`
+	ObservedLeadDays int    `json:"observed_lead_days"`
+	History          string `json:"history"`
+}
+
+// performanceRead keeps the measures of a material's suppliers at the
+// run's plant, as the line an order names them in; a read of another
+// plant is no measure of this run's, and a later read of the material
+// replaces an earlier one (another window).
+func (rv *review) performanceRead(resp apitools.Response) {
+	var read struct {
+		PlantID    string     `json:"plant_id"`
+		MaterialID string     `json:"material_id"`
+		Suppliers  []delivery `json:"suppliers"`
+	}
+	if resp.Decode(&read) != nil || read.PlantID != rv.plant {
+		return // a refused read, or another plant's, shows nothing
+	}
+	lines := map[string]string{}
+	for _, d := range read.Suppliers {
+		lines[d.SupplierID] = measured(d)
+	}
+	rv.measures[read.MaterialID] = lines
+}
+
+// measured is the line naming a supplier's measures (S2l1): its
+// receipts and their history, its observed lead time, against its
+// planned one when the read gives it, and its on-time share when it gives
+// one.
+func measured(d delivery) string {
+	m := fmt.Sprintf("Measures: %d receipts (%s), lead time %d days", d.Receipts, d.History, d.ObservedLeadDays)
+	if d.PlannedLeadDays != nil {
+		m += fmt.Sprintf(" against %d planned", *d.PlannedLeadDays)
+	}
+	if d.OnTimePercent != nil {
+		m += fmt.Sprintf(", on time %d of %d (%d%%)", d.OnTimeReceipts, d.DatedReceipts, *d.OnTimePercent)
+	}
+	return m
+}
+
 // open are the statuses of a requisition still to be ordered.
 var open = []string{"draft", "pending_approval", "approved"}
 
@@ -193,7 +243,31 @@ func (rv *review) check(r recommend.Proposed, f *recommend.Figures) error {
 	if m == nil || !reasoned(lines[1:]) {
 		return fmt.Errorf("%w: not %q", ErrForm, first)
 	}
-	return rv.ordered(p, m[1], m[2], m[3], m[4], m[5])
+	if err := rv.ordered(p, m[1], m[2], m[3], m[4], m[5]); err != nil {
+		return err
+	}
+	return rv.measuresNamed(p, m[3], lines[1:])
+}
+
+// measuresNamed checks that an order names its supplier's measures as the
+// run read them for the proposal's material at the run's plant (S2l1),
+// "no receipts" for a supplier the read has no row of; the refusal tells
+// the line wanted, which holds only what the run read.
+func (rv *review) measuresNamed(p proposal, supplier string, lines []string) error {
+	read, ok := rv.measures[p.material]
+	if !ok {
+		return fmt.Errorf("%w: the run has not read getSupplierDeliveryPerformance of material %s at its plant", ErrMeasures, p.material)
+	}
+	want, ok := read[supplier]
+	if !ok {
+		want = "Measures: no receipts"
+	}
+	for _, l := range lines {
+		if strings.TrimSpace(l) == want {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: want %q", ErrMeasures, want)
 }
 
 // sourceNeeded checks a source_needed: it orders nothing, writes only

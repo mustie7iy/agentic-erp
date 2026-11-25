@@ -16401,10 +16401,18 @@ step_mrp() {
 # refused by the run; it recommends ordering the 30 from Tyrell's catalog
 # item by the day the proposal is needed. Changing the proposal itself is
 # refused (403: its role holds no permission that writes a requisition);
-# Ben accepts and names Tyrell on the proposal himself.
+# Ben accepts and names Tyrell on the proposal himself. S2l1 (ADR-0082 As
+# built S2l1): Alex sets up Bolt Hardware Supply, whose hinges Priya loads
+# at 1.00 CAD, below Tyrell's; Ben has ordered three hinges from each and
+# receives them today: Tyrell's ordered 5 days ago and due today, on time;
+# Bolt's ordered 9 days ago and due 3 days ago, late. The suppliers'
+# delivery performance at Toronto shows both, measured from the orders and
+# receipts; the agent's order without the measures is refused by the run,
+# and it recommends Tyrell's catalog item naming Tyrell's measures, though
+# Bolt's is cheaper.
 step_replenishment_agent() {
-  heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts"
-  local role item plan run proposal number day got session rec version want
+  heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts; the supplier chosen by its lead time and on-time share at the plant, named in the order"
+  local role item plan run proposal number day got session rec version want bolt ap po supplier ordered due lines measures
   [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
   as ada
   say "Ada sets up the replenishment agent (ADR-0072): an agent principal of type replenishment at autonomy level 1 on"
@@ -16424,6 +16432,48 @@ step_replenishment_agent() {
     createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"material_id\": \"$HINGE\", \"unit\": \"EA\",
       \"unit_price\": {\"amount\": \"1.10\", \"currency\": \"CAD\"}}"
   item=$(field .id) number=$(field .item_key)
+  as alex
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  ap=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  say "Alex sets up Bolt Hardware Supply as a second supplier of hinges; Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Bolt Hardware Supply\", \"country_code\": \"CA\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ap\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Second source of hinges\"}"
+  bolt=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$bolt" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Supplier confirmed by call-back"
+  as priya
+  say "Priya loads Bolt's H30 hinges at 1.00 CAD each, below Tyrell's 1.10:"
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit)"' \
+    createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$bolt\", \"material_id\": \"$HINGE\", \"unit\": \"EA\",
+      \"unit_price\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  as ben
+  say "Ben has ordered three hinges from each, received at Toronto today: Tyrell's ordered 5 days ago and due today;"
+  say "Bolt's ordered 9 days ago and due 3 days ago:"
+  for supplier in "$SUPPLIER:5:0" "$bolt:9:3"; do
+    IFS=: read -r supplier ordered due <<<"$supplier"
+    lines=$(jq -nc --arg m "$HINGE" --arg a "$(account 6000)" --arg d "$(date_add "$TODAY" "-$due")" \
+      '[range(3) | {material_id: $m, description: "Hinge H30", quantity: {value: "1", unit: "EA"}, unit_price: {amount: "1.10", currency: "CAD"}, account_id: $a, delivery_date: $d}]')
+    QUIET=1 api 201 '' createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$supplier\", \"currency\": \"CAD\",
+      \"order_date\": \"$(date_add "$TODAY" "-$ordered")\", \"items\": $lines}"
+    po=$(field .id)
+    api 200 '"purchase order \(.document_number) of \(.order_date): \(.status)\(if .release_request_id then ", release request" else "" end)"' \
+      releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+    if [ "$(field .status)" = pending_approval ]; then
+      approve priya "$(field .release_request_id)" "Hinges for Toronto"
+      as ben
+      QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+    fi
+    expect "the hinges' order" "$(field .status)" released
+    lines=$(jq -nc --arg po "$po" '[range(1; 4) | {purchase_order_id: $po, po_item_no: ., quantity: {value: "1", unit: "EA"}}]')
+    api 201 '"  goods receipt \(.document_number) of \(.posting_date) at Toronto, \(.items | length) items"' postGoodsReceipt -body "{\"legal_entity_id\": \"$LE\",
+      \"plant_id\": \"$PLANT\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": $lines}"
+  done
+  say "Their delivery performance for the hinge at Toronto over the year to today, measured from the orders and receipts"
+  say "(ADR-0082 As built S2l1):"
+  api 200 '"from \(.from) to \(.to), measured from \(.min_receipts) receipts", (.suppliers[] | "  \(.supplier_number) \(.supplier_name): \(.receipts) receipts (\(.history)), lead time \(.observed_lead_days) days against \(.planned_lead_days) planned, on time \(.on_time_receipts) of \(.dated_receipts) (\(.on_time_percent)%)")' \
+    getSupplierDeliveryPerformance -p "plant_id=$PLANT" -p "material_id=$HINGE"
+  expect "the suppliers' measures" "$(field '[.suppliers[] | "\(.supplier_id == "'"$bolt"'") \(.receipts) \(.observed_lead_days) \(.planned_lead_days) \(.on_time_receipts) \(.on_time_percent)"] | sort | join(", ")')" \
+    "false 3 5 5 3 100, true 3 9 6 0 0"
   as mira
   say "Mira raises the hinge's reorder point at Toronto to 60:"
   QUIET=1 api 200 '' listMaterialPlans -p "plant_id=$PLANT" -p "material_id=$HINGE"
@@ -16444,8 +16494,12 @@ step_replenishment_agent() {
   proposal=$(field '.lines[] | select(.material_id == "'"$HINGE"'") | .requisition_id')
   QUIET=1 api 200 '' getRequisition -p "id=$proposal"
   day=$(field .needed_by) version=$(field .version)
-  jq -n --arg run "$run" --arg req "$proposal" --arg le "$LE" --arg hinge "$HINGE" --arg number "$number" --arg s "$SUPPLIER" --arg item "$item" --arg day "$day" '
+  measures="Measures: 3 receipts (measured), lead time 5 days against 5 planned, on time 3 of 3 (100%)"
+  jq -n --arg run "$run" --arg req "$proposal" --arg le "$LE" --arg hinge "$HINGE" --arg number "$number" --arg s "$SUPPLIER" --arg item "$item" --arg day "$day" \
+    --arg plant "$PLANT" --arg bolt "$bolt" --arg measures "$measures" '
     {session_id: "{{session}}", object_type: "requisition", object_id: $req, kind: "order"} as $on |
+    "Order 30 EA from supplier \($s) by \($day): catalog item \($item)" as $first |
+    "\nWhy: Tyrell delivered 3 of 3 hinges on time in 5 days; Bolt Hardware Supply is cheaper at 1.00 CAD but delivered 0 of 3 on time in 9 days. The run'"'"'s shortage of the hinge is 30 EA." as $why |
     {vars: {session: "session id is ([0-9a-f-]{36})"},
      turns: [
       {tool: "getMrpRun", input: {id: $run}},
@@ -16454,24 +16508,30 @@ step_replenishment_agent() {
       {tool: "listContracts", input: {legal_entity_id: $le, material_id: $hinge, status: "active"}},
       {tool: "listPurchaseOrders", input: {legal_entity_id: $le, material_id: $hinge}},
       {tool: "getBusinessPartner", input: {id: $s}},
-      {tool: "createRecommendation", input: {body: ($on + {content: "Order 40 EA from supplier \($s) by \($day): catalog item \($item)\nWhy: round it up."})}},
-      {tool: "createRecommendation", input: {body: ($on + {content: "Order 30 EA from supplier \($s) by \($day): catalog item \($item)\nWhy: the run'"'"'s shortage of the hinge is 30 EA; Tyrell offers it in the company'"'"'s catalog at 1.10 CAD, and no contract or purchase order of it exists."})}},
-      {final: "Recommended ordering the hinge'"'"'s proposal from Tyrell'"'"'s catalog item; the buyer decides."}]}' >"$WORK/model-script.json"
+      {tool: "getBusinessPartner", input: {id: $bolt}},
+      {tool: "getSupplierDeliveryPerformance", input: {plant_id: $plant, material_id: $hinge}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Order 40 EA from supplier \($s) by \($day): catalog item \($item)\n\($measures)\nWhy: round it up."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($first + $why)})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($first + "\n" + $measures + $why)})}},
+      {final: "Recommended ordering the hinge'"'"'s proposal from Tyrell'"'"'s catalog item, on time, over Bolt'"'"'s, cheaper and late; the buyer decides."}]}' >"$WORK/model-script.json"
   say "Ben runs the agent: erp agent replenish reads the run before its session, then, through the stand-in's script"
-  say "(its suite's replay, evals/replenishment), reads the proposal and the hinge's sources, asks for 40 (refused by the"
-  say "run: an order is of the proposal's quantity) and recommends the 30 from Tyrell's catalog item."
+  say "(its suite's replay, evals/replenishment), reads the proposal, the hinge's sources and its suppliers' delivery"
+  say "performance at Toronto, asks for 40 (refused by the run: an order is of the proposal's quantity), orders the 30"
+  say "without the supplier's measures (refused: an order names them as read) and recommends the 30 from Tyrell's catalog"
+  say "item, on time, over Bolt's, cheaper and late."
   show ERP_AGENT_TOKEN=… erp agent replenish -run "$run"
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/replenishment-agent") "$ERP" agent replenish -run "$run" 2>"$WORK/stderr") ||
     { rm -f "$WORK/model-script.json"; fail "erp agent replenish failed ($(cat "$WORK/stderr"))"; }
   rm -f "$WORK/model-script.json"
   printf '%s\n' "$got" | sed 's/^/     /'
   session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
-  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 2."
   rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): order on requisition $proposal .*/\\1/p")
   [ -n "$rec" ] || fail "erp agent replenish printed no order on the proposal"
   api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
   want="Order 30 EA from supplier $SUPPLIER by $day: catalog item $item"
   expect "the order's first line" "$(field '.content | split("\n")[0]')" "$want"
+  expect "the supplier's measures" "$(field '.content | split("\n")[1]')" "$measures"
   expect "made in its session" "$(field .session_id)" "$session"
   as replenishment-agent
   api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"

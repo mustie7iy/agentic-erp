@@ -12384,6 +12384,65 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/supplier-delivery-performance:
+    get:
+      operationId: getSupplierDeliveryPerformance
+      tags:
+        - procurement
+      summary: Get suppliers' delivery performance for a material at a plant
+      description: "How the suppliers of a material delivered it to a plant over a window of goods receipt posting dates (ADR-0082 As built S2l1), measured from posted documents at the moment of the read: per supplier, the receipts (goods receipt items, movement 101, not reversed, on purchase order items of the material whose plant, or else whose receipt's plant, is the plant), the planned lead time (the order item's delivery date less the order date, the average over the receipts whose item has a delivery date, in whole days rounded half away from zero), the observed lead time (the receipt's posting date less the order date, averaged the same way), the on-time share (receipts posted on or before their item's delivery date, of those whose item has one) and whether the supplier's history in the window is `measured` (at least `min_receipts` receipts) or `thin`. Returns to the supplier (122) are not deliveries and are not counted. A supplier with no receipt in the window has no row: no history. Rows are in the order of `supplier_number`, then `supplier_id`; `totals` sum every row. A report, not paged: one row per supplier that delivered the material to the plant in the window. The replenishment agent reads it to suggest a supplier (ADR-0072 As built S2l1). The window defaults to the 365 days ending on the plant's company's date; one that ends before it starts, or is longer than 1,096 days, is 400 `request.invalid_parameter`. A plant that does not exist, or of a company the caller cannot act in, is 422 `request.reference_not_found`. Reads only; every agent autonomy level may call it."
+      x-permission: procurement.order.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - name: plant_id
+          in: query
+          required: true
+          description: "The plant (an org unit of kind `plant`, `GET /v1/org-units/{id}`) the material was delivered to (required)."
+          schema:
+            type: string
+            format: uuid
+        - name: material_id
+          in: query
+          required: true
+          description: "The material (`GET /v1/materials/{id}`) delivered (required)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/SupplierId"
+        - name: from
+          in: query
+          required: false
+          description: "Receipts posted on or after this date; default 364 days before `to`."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: "Receipts posted on or before this date; default the plant's company's date (its time zone)."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: The suppliers' delivery performance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierDeliveryPerformance"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/catalog-items:
     get:
       operationId: listCatalogItems
@@ -55754,6 +55813,75 @@ components:
         material_description: {type: string, description: "Its description; absent for `no_material`.", readOnly: true}
         reason: {type: string, description: "Why the key's items were not mapped, for `not_mappable`: the material's status, or the units its items are ordered in that are none of the material's.", readOnly: true}
         items: {type: integer, format: int32, minimum: 1, description: "The key's catalog items: those mapped, or those left without a material.", readOnly: true}
+    SupplierDeliveryPerformance:
+      type: object
+      description: "How the suppliers of a material delivered it to a plant over a window (procurement, ADR-0082 As built S2l1), measured from posted purchase orders and goods receipts."
+      required: [plant_id, plant_code, plant_name, legal_entity_id, material_id, from, to, min_receipts, suppliers, totals]
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        plant_name: {type: string, description: "The plant's name.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
+        from: {type: string, format: date, description: "The window's first posting date.", readOnly: true}
+        to: {type: string, format: date, description: "The window's last posting date.", readOnly: true}
+        min_receipts: {type: integer, format: int32, minimum: 1, description: "The receipts a supplier needs in the window for its history to be `measured`; with fewer it is `thin`.", readOnly: true}
+        suppliers:
+          type: array
+          items: {$ref: "#/components/schemas/SupplierDelivery"}
+          description: "One row per supplier with a receipt in the window, in the order of `supplier_number`, then `supplier_id`."
+        totals: {$ref: "#/components/schemas/SupplierDeliveryTotals"}
+      examples:
+        - plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          from: "2025-11-25"
+          to: "2026-11-24"
+          min_receipts: 3
+          suppliers:
+            - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+              supplier_number: BP100057
+              supplier_name: Tyrell Office Supply
+              receipts: 4
+              dated_receipts: 4
+              on_time_receipts: 3
+              on_time_percent: 75
+              planned_lead_days: 5
+              observed_lead_days: 6
+              last_receipt_date: "2026-11-20"
+              history: measured
+          totals: {receipts: 4, dated_receipts: 4, on_time_receipts: 3, on_time_percent: 75}
+    SupplierDelivery:
+      type: object
+      description: "One supplier's deliveries of the material to the plant in the window."
+      required: [supplier_id, supplier_number, supplier_name, receipts, dated_receipts, on_time_receipts, observed_lead_days, last_receipt_date, history]
+      properties:
+        supplier_id: {type: string, format: uuid, description: "The supplier (`GET /v1/business-partners/{id}`).", readOnly: true}
+        supplier_number: {type: string, description: "The supplier's business partner number.", readOnly: true}
+        supplier_name: {type: string, description: "The supplier's name, as it is now.", readOnly: true}
+        receipts: {type: integer, format: int32, minimum: 1, description: "Goods receipt items posted in the window, not reversed.", readOnly: true}
+        dated_receipts: {type: integer, format: int32, minimum: 0, description: "Of `receipts`, those whose order item has a delivery date: the ones on time or late.", readOnly: true}
+        on_time_receipts: {type: integer, format: int32, minimum: 0, description: "Of `dated_receipts`, those posted on or before their order item's delivery date.", readOnly: true}
+        on_time_percent: {type: integer, format: int32, minimum: 0, maximum: 100, description: "`on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no receipt is dated.", readOnly: true}
+        planned_lead_days: {type: integer, format: int32, description: "The order items' delivery date less the order date, the average over `dated_receipts` in whole days rounded half away from zero; absent when no receipt is dated.", readOnly: true}
+        observed_lead_days: {type: integer, format: int32, description: "The receipts' posting date less their order's date, the average in whole days rounded half away from zero.", readOnly: true}
+        last_receipt_date: {type: string, format: date, description: "The latest receipt's posting date.", readOnly: true}
+        history:
+          type: string
+          x-extensible-enum: [measured, thin]
+          description: "`measured`: at least `min_receipts` receipts in the window; `thin`: fewer, so the measures say little. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+    SupplierDeliveryTotals:
+      type: object
+      description: "Every row's receipts summed, and their on-time share."
+      required: [receipts, dated_receipts, on_time_receipts]
+      properties:
+        receipts: {type: integer, format: int32, minimum: 0, description: "Goods receipt items of every row.", readOnly: true}
+        dated_receipts: {type: integer, format: int32, minimum: 0, description: "Of them, those whose order item has a delivery date.", readOnly: true}
+        on_time_receipts: {type: integer, format: int32, minimum: 0, description: "Of them, those posted on or before it.", readOnly: true}
+        on_time_percent: {type: integer, format: int32, minimum: 0, maximum: 100, description: "`on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no receipt is dated.", readOnly: true}
     CatalogItem:
       description: "A catalog item (procurement, ADR-0071): a supplier's item in a company's catalog, with one price."
       allOf:

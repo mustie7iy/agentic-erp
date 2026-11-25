@@ -35,7 +35,7 @@ func TestAgentReplenish(t *testing.T) {
 	args := []string{"agent", "replenish", "-run", run}
 	order := "Order 30 EA from supplier " + supplier + " by 2026-11-21: catalog item " + item
 	fails(t, "404", args...)
-	completed := `{"id": "` + run + `", "plant_code": "P100", "status": "completed", "run_date": "2026-11-21", "lines": [`
+	completed := `{"id": "` + run + `", "plant_id": "p100", "plant_code": "P100", "status": "completed", "run_date": "2026-11-21", "lines": [`
 	fakeAPI(t, routes{"GET /v1/mrp-runs/" + run: {ok(completed + `{"material_number": "MA1"}]}`)}})
 	if got, want := must(t, args...), "Planning run "+run+" of plant P100 proposed nothing: no recommendation.\n"; got != want {
 		t.Errorf("nothing proposed: got %q, want %q", got, want)
@@ -46,12 +46,14 @@ func TestAgentReplenish(t *testing.T) {
 		"GET /v1/catalog-items": {ok(`{"items": [{"id": "` + item + `", "legal_entity_id": "le", "supplier_id": "` + supplier + `", "material_id": "` + material +
 			`", "status": "active", "unit_price": {"amount": "1.10", "currency": "CAD"}}]}`)},
 		"GET /v1/business-partners/" + supplier: {ok(`{"id": "` + supplier + `", "status": "active", "roles": ["supplier"]}`)},
+		"GET /v1/supplier-delivery-performance": {ok(`{"plant_id": "p100", "material_id": "` + material + `", "suppliers": []}`)},
 		"POST /v1/recommendations":              {reply{201, `{"id": "r1", "object_type": "requisition", "object_id": "` + req + `", "kind": "order", "content": "` + order + `\nWhy: 1.10 CAD."}`}}}))
 	model(t, llmtest.Tool("getRequisition", map[string]any{"id": req}),
 		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": "le", "text": "MA1"}),
 		llmtest.Tool("getBusinessPartner", map[string]any{"id": supplier}),
+		llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": "p100", "material_id": material}),
 		llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "requisition",
-			"object_id": req, "kind": "order", "content": order + "\nWhy: the catalog's price is 1.10 CAD."}}),
+			"object_id": req, "kind": "order", "content": order + "\nMeasures: no receipts\nWhy: the catalog's price is 1.10 CAD."}}),
 		llmtest.Final("Recommended an order; the buyer decides."))
 	got := must(t, args...)
 	if want := "Session " + agentSession + ": recommendations made 1, refused 0.\n  recommendation r1: order on requisition " + req +

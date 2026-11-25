@@ -1,6 +1,7 @@
 package replenishmentagent_test
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 const (
 	session = "01a1aa00-0000-7000-8000-000000000a01"
 	run     = "01a1aa00-0000-7000-8000-000000000a02"
+	plant   = "01a1aa00-0000-7000-8000-000000000a03" // the run's plant
 	le      = "01a1aa00-0000-7000-8000-000000000b01"
 	otherLE = "01a1aa00-0000-7000-8000-000000000b02"
 	hinge   = "01a1aa00-0000-7000-8000-000000000c01" // proposed at the run's day, with sources
@@ -52,7 +54,7 @@ const (
 
 // the answers of the fake API.
 var answers = map[string]string{
-	"/v1/mrp-runs/" + run: `{"id": "` + run + `", "plant_code": "P100", "plant_name": "Toronto plant", "legal_entity_id": "` + le + `", "company_code": "3000",
+	"/v1/mrp-runs/" + run: `{"id": "` + run + `", "plant_id": "` + plant + `", "plant_code": "P100", "plant_name": "Toronto plant", "legal_entity_id": "` + le + `", "company_code": "3000",
 		"status": "completed", "run_date": "2026-11-20", "lines": [
 		{"material_number": "MA-HINGE", "shortage": {"value": "30", "unit": "EA"}, "requisition_id": "` + ra + `", "requisition_number": "PR1"},
 		{"material_number": "MA-GASKET", "shortage": {"value": "2.5", "unit": "KG"}, "requisition_id": "` + rb + `", "requisition_number": "PR2"},
@@ -72,11 +74,12 @@ var answers = map[string]string{
 	"/v1/contracts/" + con1: contract(con1, "active", "2026-01-01", "2026-12-31"),
 	"/v1/purchase-orders": `{"items": [` + order(po2, s1, "draft", hinge) + `, ` + order(po3, s1, "closed", hinge, hinge) + `, ` +
 		order("01a1aa00-0000-7000-8000-000000000f24", s1, "released", "") + `]}`,
-	"/v1/purchase-orders/" + po1:  order(po1, s3, "released", hinge),
-	"/v1/business-partners/" + s1: partner(s1, "active", "supplier"),
-	"/v1/business-partners/" + s2: partner(s2, "active", "supplier"),
-	"/v1/business-partners/" + s3: partner(s3, "blocked", "supplier"),
-	"/v1/business-partners/" + s5: partner(s5, "active", "customer"),
+	"/v1/purchase-orders/" + po1:        order(po1, s3, "released", hinge),
+	"/v1/supplier-delivery-performance": performance(plant),
+	"/v1/business-partners/" + s1:       partner(s1, "active", "supplier"),
+	"/v1/business-partners/" + s2:       partner(s2, "active", "supplier"),
+	"/v1/business-partners/" + s3:       partner(s3, "blocked", "supplier"),
+	"/v1/business-partners/" + s5:       partner(s5, "active", "customer"),
 }
 
 func requisition(id, status, day, material, value, unit string) string {
@@ -103,6 +106,20 @@ func order(id, supplier, status string, materials ...string) string {
 	return fmt.Sprintf(`{"id": %q, "legal_entity_id": %q, "supplier_id": %q, "status": %q, "items": [%s]}`, id, le, supplier, status, strings.Join(items, ", "))
 }
 
+// performance is the hinge's delivery performance at the plant: the
+// contract's supplier s2 measured, the blocked s3 thin and undated, the
+// catalog's s1 with no receipt.
+func performance(at string) string {
+	return fmt.Sprintf(`{"plant_id": %q, "material_id": %q, "from": "2025-11-21", "to": "2026-11-20", "min_receipts": 3, "suppliers": [
+		{"supplier_id": %q, "receipts": 4, "dated_receipts": 4, "on_time_receipts": 3, "on_time_percent": 75, "planned_lead_days": 5, "observed_lead_days": 6,
+		 "history": "measured"},
+		{"supplier_id": %q, "receipts": 1, "dated_receipts": 0, "on_time_receipts": 0, "observed_lead_days": 9, "history": "thin"}],
+		"totals": {"receipts": 5, "dated_receipts": 4, "on_time_receipts": 3, "on_time_percent": 75}}`, at, hinge, s2, s3)
+}
+
+// measures are s2's measures as an order names them.
+const measures = "Measures: 4 receipts (measured), lead time 6 days against 5 planned, on time 3 of 4 (75%)"
+
 func partner(id, status, role string) string {
 	return fmt.Sprintf(`{"id": %q, "number": "BP1", "status": %q, "roles": [%q]}`, id, status, role)
 }
@@ -114,6 +131,8 @@ type fakeAPI struct {
 	mu     sync.Mutex
 	calls  []string
 	runs   string // the run's answer instead of answers'
+	perf   string // the delivery performance's answer instead of answers'
+	perfAt int    // its status; 0: 200
 	status int    // every read's but the run's; 0: 200
 	made   int
 }
@@ -132,6 +151,8 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch body, known := answers[path]; {
 	case path == "/v1/mrp-runs/"+run && a.runs != "":
 		answer(200, a.runs)
+	case path == "/v1/supplier-delivery-performance" && a.perf != "":
+		answer(cmp.Or(a.perfAt, 200), a.perf)
 	case path == "/v1/agent-sessions":
 		answer(201, `{"id": "`+session+`", "autonomy_level": 1}`)
 	case strings.HasPrefix(path, "/v1/agent-sessions/"):
@@ -204,6 +225,7 @@ var reads = []llmtest.Step{
 	llmtest.Tool("getBusinessPartner", map[string]any{"id": s2}),
 	llmtest.Tool("getBusinessPartner", map[string]any{"id": s3}),
 	llmtest.Tool("getBusinessPartner", map[string]any{"id": s5}),
+	llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge}),
 }
 
 // ordered is an order of the hinge's proposal: its first line, then its
@@ -218,8 +240,9 @@ func ordered(qty, unit, supplier, by, source string) string {
 // stands, or whose source, supplier or figures the run did not read;
 // nothing refused reaches the API.
 func TestReview(t *testing.T) {
-	good := "Order 30 EA from supplier " + s2 + " by 2026-11-21: contract " + con1 + " item 1\nWhy: contract item 1 prices the hinge at 1.05 CAD, " +
-		"below the catalog's 1.10 CAD; the run's shortage is 30 EA."
+	first := "Order 30 EA from supplier " + s2 + " by 2026-11-21: contract " + con1 + " item 1"
+	why := "\nWhy: s2 delivered 3 of 4 receipts on time; contract item 1 prices the hinge at 1.05 CAD, below the catalog's 1.10 CAD; the run's shortage is 30 EA."
+	good := first + "\n" + measures + why
 	none := "No catalog item, contract or purchase order of the gasket was found in the company: source it by a request for quotation."
 	refusals := []struct {
 		on, kind, content string
@@ -248,6 +271,9 @@ func TestReview(t *testing.T) {
 		{rb, "order", ordered("2.5", "KG", s2, "2026-11-20", "contract "+con4+" item 1"), replenishmentagent.ErrSource},
 		{rc, "order", ordered("30", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrProposal},
 		{rd, "source_needed", none, replenishmentagent.ErrProposal},
+		{ra, "order", first + why, replenishmentagent.ErrMeasures},
+		{ra, "order", first + "\nMeasures: no receipts" + why, replenishmentagent.ErrMeasures},
+		{ra, "order", first + "\nMeasures: 1 receipts (thin), lead time 9 days" + why, replenishmentagent.ErrMeasures},
 	}
 	steps := slices.Clone(reads)
 	for _, r := range refusals {
@@ -399,12 +425,14 @@ func TestNever(t *testing.T) {
 
 // TestReviewFromHistory: the supplier last ordered from is a source of
 // the material: an order from a closed purchase order with two items of
-// it is recommended.
+// it is recommended, naming that the supplier has delivered nothing to
+// the plant in the window.
 func TestReviewFromHistory(t *testing.T) {
 	model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": ra}),
 		llmtest.Tool("listPurchaseOrders", map[string]any{"legal_entity_id": le, "material_id": hinge}),
 		llmtest.Tool("getBusinessPartner", map[string]any{"id": s1}),
-		rec(ra, "order", "Order 30 EA from supplier "+s1+" by 2026-11-21: purchase order "+po3+"\nWhy: last ordered from it at 1.15 CAD."),
+		llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge}),
+		rec(ra, "order", "Order 30 EA from supplier "+s1+" by 2026-11-21: purchase order "+po3+"\nMeasures: no receipts\nWhy: last ordered from it at 1.15 CAD."),
 		llmtest.Final("Recommended ordering the hinge from the supplier last ordered from."))
 	res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, &fakeAPI{})}).Review(context.Background(), run)
 	if err != nil {
@@ -412,5 +440,44 @@ func TestReviewFromHistory(t *testing.T) {
 	}
 	if want := []recommend.Made{{ID: "r1", ObjectType: "requisition", ObjectID: ra, Kind: "order"}}; !slices.Equal(res.Recommendations, want) || res.Refused != 0 {
 		t.Errorf("got %v, refused %d, want %v and none refused", res.Recommendations, res.Refused, want)
+	}
+}
+
+// TestReviewMeasures: an order needs the run to have read the delivery
+// performance of the proposal's material at the run's plant: before any
+// read, after a read the API refused and after a read of another plant
+// it is refused, and nothing reaches the API.
+func TestReviewMeasures(t *testing.T) {
+	order := rec(ra, "order", "Order 30 EA from supplier "+s1+" by 2026-11-21: catalog item "+cat1+"\nMeasures: no receipts\nWhy: the catalog's 1.10 CAD.")
+	before := []llmtest.Step{llmtest.Tool("getRequisition", map[string]any{"id": ra}),
+		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}), llmtest.Tool("getBusinessPartner", map[string]any{"id": s1})}
+	read := llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge})
+	for name, c := range map[string]struct {
+		perf   string
+		status int
+		steps  []llmtest.Step
+	}{
+		"not read":        {"", 0, append(slices.Clone(before), order)},
+		"read refused":    {performance(plant), 403, append(slices.Clone(before), read, order)},
+		"another plant's": {performance(otherLE), 0, append(slices.Clone(before), read, order)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := &fakeAPI{perf: c.perf, perfAt: c.status}
+			model := llmtest.New(t, append(c.steps, llmtest.Final("Nothing recommended."))...)
+			res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res.Recommendations) != 0 || res.Refused != 1 {
+				t.Errorf("got %v, refused %d, want none made and one refused", res.Recommendations, res.Refused)
+			}
+			told, _ := json.Marshal(replenishmentagent.ErrMeasures.Error())
+			if last := model.Requests[len(model.Requests)-1]; !strings.Contains(last, strings.Trim(string(told), `"`)) {
+				t.Errorf("the refusal: got %s, want %v", last, replenishmentagent.ErrMeasures)
+			}
+			if got := len(a.sent("recommendations")); got != 0 {
+				t.Errorf("recommendations sent: got %d, want none", got)
+			}
+		})
 	}
 }

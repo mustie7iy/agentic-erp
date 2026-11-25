@@ -5992,9 +5992,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The replenishment agent suggests a supplier by its lead time and on-time share at the plant, measured in SQL from posted purchase orders and goods receipts over a stated window (GET /v1/supplier-delivery-performance, procurement's published read), and names the measures it used; it still only proposes",
-      "r": "S2l1 · docs/design/plan-supply-chain.md §S2l (S2l1) · ADR-0082 As built S2l1 · ADR-0072 As built S2l1 · internal/procurement/delivery_performance.go · internal/replenishmentagent · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
+      "r": "S2l1 · docs/design/plan-supply-chain.md §S2l (S2l1) · ADR-0082 As built S2l1 · ADR-0072 As built S2l1 · migrations 000469-000470 · internal/procurement/delivery_performance.go · internal/replenishmentagent · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
       "src": "po:2026-11-17 · adr:ADR-0072 · adr:ADR-0082",
       "c": []
      },

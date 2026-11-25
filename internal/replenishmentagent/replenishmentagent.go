@@ -9,8 +9,12 @@
 // suppliers they name, through API tools (04-api-design §4.13). It leaves
 // one recommendation on each proposal for a buyer: order (what to order,
 // the proposal's quantity in its unit, from which supplier, by which
-// day, and the source it is ordered from) or source_needed, when nothing
-// the run read is a source of the material. The buyer who accepts acts
+// day, the source it is ordered from and the supplier's delivery
+// performance at the run's plant, S2l1) or source_needed, when nothing
+// the run read is a source of the material. The performance (lead time
+// and on-time share, ADR-0082 As built S2l1) is measured by procurement
+// in SQL from posted orders and receipts and read
+// (getSupplierDeliveryPerformance), never computed by the model. The buyer who accepts acts
 // through the normal operations (names the supplier or contract on the
 // requisition, submits it, orders it); nothing happens on acceptance.
 //
@@ -20,8 +24,9 @@
 // the day it is needed by (or the run's day, when it names none: lead
 // times are Later); a source of the proposal's material in its company
 // that the run read, an active catalog item, an active contract item
-// valid on that day or a released or closed order's item; and that
-// source's supplier, read as an active supplier. source_needed is refused
+// valid on that day or a released or closed order's item; that source's
+// supplier, read as an active supplier; and the supplier's measures as
+// the run read them for the proposal's material at the run's plant. source_needed is refused
 // once the run read a source of the material whose supplier it has not
 // read as inactive. Every number the content writes is one the run read
 // (recommend.Figures). It never creates, changes, submits, cancels or
@@ -58,7 +63,7 @@ const (
 
 // Reads are the operations the agent reads with (ADR-0072, S2l).
 var Reads = []string{"getMrpRun", "getRequisition", "getMaterial", "listCatalogItems", "getCatalogItem", "listContracts", "getContract",
-	"listPurchaseOrders", "getPurchaseOrder", "getBusinessPartner"}
+	"listPurchaseOrders", "getPurchaseOrder", "getBusinessPartner", "getSupplierDeliveryPerformance"}
 
 // Never are the operations the agent never calls (ADR-0072): every write
 // of requisitions and purchase orders (their changes included, an
@@ -86,8 +91,14 @@ material (listCatalogItems with the legal entity and the material's number as te
 supplier), the contracts with an item of the material (listContracts with the legal entity, the material_id and status
 active: an outline agreement or scheduling agreement, valid from and to) and the purchase orders with an item of it
 (listPurchaseOrders with the legal entity and the material_id: the purchasing history), and each supplier you would name
-(getBusinessPartner: its status). A contract valid on the day is the source to prefer, then an active catalog item, then the
-supplier last ordered from; a supplier that is not active is no source.
+(getBusinessPartner: its status), and how the material's suppliers delivered it to the run's plant
+(getSupplierDeliveryPerformance with the run's plant_id and the material_id; by default over the 365 days ending on the
+company's date, or a window you give as from and to): per supplier its receipts, its observed lead time (receipt less order
+date, in days), its planned one and its receipts on time of those with a delivery date, and whether its history is measured
+(at least min_receipts receipts) or thin. A supplier that is not active is no source. Among the sources, prefer the supplier
+whose history is measured, then the higher on-time share, then the shorter observed lead time; a supplier with thin history
+or none (no row) comes after every measured one. When the measures tie, a contract valid on the day comes before an active
+catalog item before the supplier last ordered from, and then the lower price.
 
 Then recommend once on each proposal still to be ordered (draft, pending approval or approved). order, when a source exists:
 the content's first line is exactly
@@ -95,9 +106,14 @@ Order <quantity> <unit> from supplier <supplier_id> by <YYYY-MM-DD>: <source>
 with the proposal's quantity and unit as the requisition gives them, the supplier's id, the day the requisition is needed by
 (the run's day when it names none), and the source as one of "contract <contract_id> item <item_no>", "catalog item
 <catalog_item_id>" or "purchase order <purchase_order_id>", ids as the tools returned them; then a line of its own
+Measures: <the supplier's measures>
+exactly as "<receipts> receipts (<history>), lead time <observed_lead_days> days", then " against <planned_lead_days> planned"
+when the read gives a planned lead time, then ", on time <on_time_receipts> of <dated_receipts> (<on_time_percent>%)" when it
+gives an on-time share; or "no receipts" for a supplier the read has no row of. Then a line of its own
 Why: <reasons>
-saying why this supplier and source, citing what you read (the source's price, the last order, the supplier's number and
-name), each figure as a tool returned it; a quantity with a fraction stands only in the first line. source_needed, when nothing you read is a source of the material: say what you looked for, so
+saying why this supplier and source, citing what you read (its measures against the other suppliers', the source's price,
+the last order, the supplier's number and name), each figure as a tool returned it; a quantity with a fraction stands only in
+the first line. source_needed, when nothing you read is a source of the material: say what you looked for, so
 that the buyer can source it (for example by a request for quotation). A proposal that is no longer to be ordered gets no
 recommendation: say so in your answer.`
 
@@ -141,6 +157,12 @@ var (
 	// ErrHasSource refuses a source_needed for a material the run read a
 	// source of.
 	ErrHasSource = errors.New("replenishmentagent: the run read a source of the proposal's material: recommend an order from it")
+	// ErrMeasures refuses an order before the run read the delivery
+	// performance of the proposal's material at the run's plant, or
+	// without the supplier's measures as it read them.
+	ErrMeasures = errors.New(`replenishmentagent: an order names its supplier's measures as getSupplierDeliveryPerformance gave them for the proposal's ` +
+		`material at the run's plant, in a line "Measures: <receipts> receipts (<history>), lead time <observed_lead_days> days[ against ` +
+		`<planned_lead_days> planned][, on time <on_time_receipts> of <dated_receipts> (<on_time_percent>%)]" or "Measures: no receipts"`)
 	// ErrUnread refuses a content writing a number the run did not read.
 	ErrUnread = errors.New("replenishmentagent: every number in the content is one a tool returned or the run was given, written as returned; a count of your own is written in words")
 )
@@ -149,6 +171,7 @@ var (
 // session.
 type planningRun struct {
 	ID            string `json:"id"`
+	PlantID       string `json:"plant_id"`
 	PlantCode     string `json:"plant_code"`
 	PlantName     string `json:"plant_name"`
 	LegalEntityID string `json:"legal_entity_id"`
@@ -185,7 +208,7 @@ func (a *Agent) Review(ctx context.Context, runID string) (recommend.Result, err
 	if len(objects) == 0 {
 		return recommend.Result{Reply: fmt.Sprintf("Planning run %s of plant %s proposed nothing: no recommendation.", r.ID, r.PlantCode)}, nil
 	}
-	rv := newReview(r.RunDate)
+	rv := newReview(r.RunDate, r.PlantID)
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Recommend what to order for planning run %s of plant %s", r.ID, r.PlantCode),
 		Prompt: fmt.Sprintf("Planning run %s of plant %s, %s, in company %s (legal entity %s), planned on %s. Recommend, for each requisition it "+
@@ -193,7 +216,8 @@ func (a *Agent) Review(ctx context.Context, runID string) (recommend.Result, err
 		Objects: objects,
 		Observe: map[string]func(apitools.Response){"getRequisition": rv.requisitionRead, "listCatalogItems": rv.catalogRead,
 			"getCatalogItem": one(rv.catalogRead), "listContracts": rv.contractsRead, "getContract": one(rv.contractsRead),
-			"listPurchaseOrders": rv.ordersRead, "getPurchaseOrder": one(rv.ordersRead), "getBusinessPartner": rv.supplierRead},
+			"listPurchaseOrders": rv.ordersRead, "getPurchaseOrder": one(rv.ordersRead), "getBusinessPartner": rv.supplierRead,
+			"getSupplierDeliveryPerformance": rv.performanceRead},
 		Check: rv.check,
 	}
 	res, err := agent(a.MaxIterations).Run(ctx, a.LLM, a.API, task)

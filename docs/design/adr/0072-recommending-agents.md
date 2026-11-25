@@ -216,7 +216,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `control_monitoring` | `internal/controlagent`, `erp agent control-monitor [-process TEXT]` | `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listSodRules`, `listRoleAssignments`, `listApprovalRequests` | on `control`: `exception_found`, `no_exception` | `createControl`, `updateControl`, `retireControl`, `createControlTest`, `createControlLink`, `removeControlLink` |
 | `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
-| `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner` | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan`, and of stock transport orders (`createStockTransportOrder`, `cancelStockTransportOrder`; review:batch92) |
+| `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner`, `getSupplierDeliveryPerformance` (S2l1) | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan`, and of stock transport orders (`createStockTransportOrder`, `cancelStockTransportOrder`; review:batch92) |
 | `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
 | `demand_forecast` | `internal/demandagent`, `erp agent demand-forecast -company CODE -material NUMBER` (S2m) | `getMaterial`, `listMaterials`, `listMaterialDocuments`, `getMaterialDocument`, `listSalesOrders`, `getSalesOrder` | on `material`: `demand_forecast` | every goods movement and count (`createMaterialDocument`, `reverseMaterialDocument` and the postings that post one), every write of sales and returns orders and their deliveries, the replenishment agent's never list of requisitions and purchase orders (schedule lines and their call-off included), `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 
@@ -1582,6 +1582,52 @@ A later slice adds its row here and its section under "As built".
   nothing, and names Tyrell on the proposal himself.
 - No migration, no new operation, permission, event or problem code.
 
+### S2l1, the replenishment agent's supplier by lead time and on-time share (plan-supply-chain.md §S2l, 2026-11-24)
+
+- The agent reads `getSupplierDeliveryPerformance` (ADR-0082 As built
+  S2l1: per supplier of a material at a plant, measured in SQL from
+  posted orders and receipts, its receipts, planned and observed lead
+  time, on-time share and whether its history is `measured` or `thin`)
+  for each proposal's material at the run's plant (`getMrpRun`'s
+  `plant_id`); the model computes no measure.
+- **Which supplier** (the prompt, decided by default): among the sources
+  the run read, the supplier whose history is measured comes first, then
+  the higher on-time share, then the shorter observed lead time; a
+  supplier with thin history or none comes after every measured one, so
+  a supplier never seen deliver is not preferred over one with history.
+  On a tie of the measures the source order S2l had decides (a valid
+  contract, an active catalog item, the supplier last ordered from), then
+  the lower price. The check holds to the measures, not to the choice:
+  which supplier to order from stays the buyer's to judge, as S2l left
+  it, and an order from a supplier the prompt would not prefer is
+  admitted when it names that supplier's measures.
+- **The check** (`ErrMeasures`): an order is refused until the run has
+  read the delivery performance of the proposal's material at the run's
+  plant (a read of another plant, or one the API refused, is none), and
+  unless a line of its content is exactly the supplier's measures as read:
+  `Measures: <receipts> receipts (<history>), lead time
+  <observed_lead_days> days`, then ` against <planned_lead_days>
+  planned` when the read gives one, then `, on time <on_time_receipts>
+  of <dated_receipts> (<on_time_percent>%)` when it gives a share; or
+  `Measures: no receipts` for a supplier the read has no row of. The
+  refusal names the line wanted, which holds only what the run read.
+  Every number in it is one the read returned (§4). A later read of the
+  material (another window) replaces an earlier one.
+- It still only proposes: its never list is unchanged (`TestNever`), and
+  the new read is `x-autonomy`-free, as every read is.
+- `evals/replenishment`, version 2: the S2l cases name their measures
+  (no receipts), and three cases join them: the faster, reliable
+  supplier preferred over a cheaper, late one; a supplier with no
+  history not preferred over one with history; a tie of the measures
+  decided by the price. Each case's orders and receipts are dated in
+  2026 and read over the year 2026 (`from`, `to`), so the replay does not
+  age.
+- Walkthrough `step_replenishment_agent` (step 153): before the run, Ben
+  orders hinges from Tyrell and from a second supplier, received on the
+  company's date: Tyrell on time, the other late; the read shows both,
+  and the agent recommends Tyrell's catalog item naming its measures,
+  though the other's is cheaper.
+
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
 
 - `internal/demandagent`; agent type `demand_forecast` (in
@@ -1866,9 +1912,9 @@ A later slice adds its row here and its section under "As built".
     completed run, as a `requisition`: `order` (the proposal's quantity,
     by the day it is needed, from a source the run read: a catalog item,
     a valid contract item or the purchasing history, and that source's
-    active supplier) or `source_needed`; lot sizes, lead times and a
-    supplier's reliability are Later (ADR-0084 §6, the tracker's
-    replenishment variants). `listPurchaseOrders` and `listContracts`
+    active supplier) or `source_needed`; lot sizes are Later (ADR-0084
+    §6), and a supplier's lead time and on-time share are read from
+    procurement and named in the order (S2l1, ADR-0082 As built S2l1). `listPurchaseOrders` and `listContracts`
     filter by `material_id`, so the agent reads a material's orders and
     contracts without paging the company's.
 33. (S2e) The count planning agent recommends on the plant (an org unit,

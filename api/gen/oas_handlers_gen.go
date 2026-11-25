@@ -70042,6 +70042,225 @@ func (s *Server) handleGetStockTransportOrderRequest(args [1]string, argsEscaped
 	}
 }
 
+// handleGetSupplierDeliveryPerformanceRequest handles getSupplierDeliveryPerformance operation.
+//
+// How the suppliers of a material delivered it to a plant over a window of goods receipt posting dates
+// (ADR-0082 As built S2l1), measured from posted documents at the moment of the read: per supplier,
+// the receipts (goods receipt items, movement 101, not reversed, on purchase order items of the
+// material whose plant, or else whose receipt's plant, is the plant), the planned lead time (the order
+// item's delivery date less the order date, the average over the receipts whose item has a delivery
+// date, in whole days rounded half away from zero), the observed lead time (the receipt's posting date
+// less the order date, averaged the same way), the on-time share (receipts posted on or before their
+// item's delivery date, of those whose item has one) and whether the supplier's history in the window
+// is `measured` (at least `min_receipts` receipts) or `thin`. Returns to the supplier (122) are not
+// deliveries and are not counted. A supplier with no receipt in the window has no row: no history.
+// Rows are in the order of `supplier_number`, then `supplier_id`; `totals` sum every row. A report,
+// not paged: one row per supplier that delivered the material to the plant in the window. The
+// replenishment agent reads it to suggest a supplier (ADR-0072 As built S2l1). The window defaults to
+// the 365 days ending on the plant's company's date; one that ends before it starts, or is longer than
+// 1,096 days, is 400 `request.invalid_parameter`. A plant that does not exist, or of a company the
+// caller cannot act in, is 422 `request.reference_not_found`. Reads only; every agent autonomy level
+// may call it.
+//
+// GET /v1/supplier-delivery-performance
+func (s *Server) handleGetSupplierDeliveryPerformanceRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSupplierDeliveryPerformance"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/supplier-delivery-performance"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetSupplierDeliveryPerformanceOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetSupplierDeliveryPerformanceOperation,
+			ID:   "getSupplierDeliveryPerformance",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetSupplierDeliveryPerformanceOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetSupplierDeliveryPerformanceParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetSupplierDeliveryPerformanceRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetSupplierDeliveryPerformanceOperation,
+			OperationSummary: "Get suppliers' delivery performance for a material at a plant",
+			OperationID:      "getSupplierDeliveryPerformance",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "plant_id",
+					In:   "query",
+				}: params.PlantID,
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
+				{
+					Name: "supplier_id",
+					In:   "query",
+				}: params.SupplierID,
+				{
+					Name: "from",
+					In:   "query",
+				}: params.From,
+				{
+					Name: "to",
+					In:   "query",
+				}: params.To,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetSupplierDeliveryPerformanceParams
+			Response = GetSupplierDeliveryPerformanceRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetSupplierDeliveryPerformanceParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetSupplierDeliveryPerformance(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetSupplierDeliveryPerformance(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetSupplierDeliveryPerformanceResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetSupplierInvoiceRequest handles getSupplierInvoice operation.
 //
 // Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).

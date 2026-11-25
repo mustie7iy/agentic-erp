@@ -28991,6 +28991,7 @@ func (*ConflictHeaders) getRetentionStatusRes()                          {}
 func (*ConflictHeaders) getRevenueScheduleRes()                          {}
 func (*ConflictHeaders) getRfqComparisonRes()                            {}
 func (*ConflictHeaders) getSalesPriceRes()                               {}
+func (*ConflictHeaders) getSupplierDeliveryPerformanceRes()              {}
 func (*ConflictHeaders) getSupplierInvoiceDocumentRes()                  {}
 func (*ConflictHeaders) getSupplierInvoiceRes()                          {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                           {}
@@ -56056,6 +56057,18 @@ func (s *GetStockTransportOrderOKHeaders) SetResponse(val StockTransportOrder) {
 }
 
 func (*GetStockTransportOrderOKHeaders) getStockTransportOrderRes() {}
+
+type GetSupplierDeliveryPerformanceBadRequest Problem
+
+func (*GetSupplierDeliveryPerformanceBadRequest) getSupplierDeliveryPerformanceRes() {}
+
+type GetSupplierDeliveryPerformanceForbidden Problem
+
+func (*GetSupplierDeliveryPerformanceForbidden) getSupplierDeliveryPerformanceRes() {}
+
+type GetSupplierDeliveryPerformanceUnprocessableEntity Problem
+
+func (*GetSupplierDeliveryPerformanceUnprocessableEntity) getSupplierDeliveryPerformanceRes() {}
 
 type GetSupplierInvoiceBadRequest Problem
 
@@ -121567,6 +121580,331 @@ func (s *SupplierCreditReason) SetText(val OptString) {
 	s.Text = val
 }
 
+// One supplier's deliveries of the material to the plant in the window.
+// Ref: #/components/schemas/SupplierDelivery
+type SupplierDelivery struct {
+	// The supplier (`GET /v1/business-partners/{id}`).
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's business partner number.
+	SupplierNumber string `json:"supplier_number"`
+	// The supplier's name, as it is now.
+	SupplierName string `json:"supplier_name"`
+	// Goods receipt items posted in the window, not reversed.
+	Receipts int32 `json:"receipts"`
+	// Of `receipts`, those whose order item has a delivery date: the ones on time or late.
+	DatedReceipts int32 `json:"dated_receipts"`
+	// Of `dated_receipts`, those posted on or before their order item's delivery date.
+	OnTimeReceipts int32 `json:"on_time_receipts"`
+	// `on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no
+	// receipt is dated.
+	OnTimePercent OptInt32 `json:"on_time_percent"`
+	// The order items' delivery date less the order date, the average over `dated_receipts` in whole days
+	// rounded half away from zero; absent when no receipt is dated.
+	PlannedLeadDays OptInt32 `json:"planned_lead_days"`
+	// The receipts' posting date less their order's date, the average in whole days rounded half away from
+	// zero.
+	ObservedLeadDays int32 `json:"observed_lead_days"`
+	// The latest receipt's posting date.
+	LastReceiptDate time.Time `json:"last_receipt_date"`
+	// `measured`: at least `min_receipts` receipts in the window; `thin`: fewer, so the measures say
+	// little. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	History string `json:"history"`
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *SupplierDelivery) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *SupplierDelivery) GetSupplierNumber() string {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *SupplierDelivery) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// GetReceipts returns the value of Receipts.
+func (s *SupplierDelivery) GetReceipts() int32 {
+	return s.Receipts
+}
+
+// GetDatedReceipts returns the value of DatedReceipts.
+func (s *SupplierDelivery) GetDatedReceipts() int32 {
+	return s.DatedReceipts
+}
+
+// GetOnTimeReceipts returns the value of OnTimeReceipts.
+func (s *SupplierDelivery) GetOnTimeReceipts() int32 {
+	return s.OnTimeReceipts
+}
+
+// GetOnTimePercent returns the value of OnTimePercent.
+func (s *SupplierDelivery) GetOnTimePercent() OptInt32 {
+	return s.OnTimePercent
+}
+
+// GetPlannedLeadDays returns the value of PlannedLeadDays.
+func (s *SupplierDelivery) GetPlannedLeadDays() OptInt32 {
+	return s.PlannedLeadDays
+}
+
+// GetObservedLeadDays returns the value of ObservedLeadDays.
+func (s *SupplierDelivery) GetObservedLeadDays() int32 {
+	return s.ObservedLeadDays
+}
+
+// GetLastReceiptDate returns the value of LastReceiptDate.
+func (s *SupplierDelivery) GetLastReceiptDate() time.Time {
+	return s.LastReceiptDate
+}
+
+// GetHistory returns the value of History.
+func (s *SupplierDelivery) GetHistory() string {
+	return s.History
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *SupplierDelivery) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *SupplierDelivery) SetSupplierNumber(val string) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *SupplierDelivery) SetSupplierName(val string) {
+	s.SupplierName = val
+}
+
+// SetReceipts sets the value of Receipts.
+func (s *SupplierDelivery) SetReceipts(val int32) {
+	s.Receipts = val
+}
+
+// SetDatedReceipts sets the value of DatedReceipts.
+func (s *SupplierDelivery) SetDatedReceipts(val int32) {
+	s.DatedReceipts = val
+}
+
+// SetOnTimeReceipts sets the value of OnTimeReceipts.
+func (s *SupplierDelivery) SetOnTimeReceipts(val int32) {
+	s.OnTimeReceipts = val
+}
+
+// SetOnTimePercent sets the value of OnTimePercent.
+func (s *SupplierDelivery) SetOnTimePercent(val OptInt32) {
+	s.OnTimePercent = val
+}
+
+// SetPlannedLeadDays sets the value of PlannedLeadDays.
+func (s *SupplierDelivery) SetPlannedLeadDays(val OptInt32) {
+	s.PlannedLeadDays = val
+}
+
+// SetObservedLeadDays sets the value of ObservedLeadDays.
+func (s *SupplierDelivery) SetObservedLeadDays(val int32) {
+	s.ObservedLeadDays = val
+}
+
+// SetLastReceiptDate sets the value of LastReceiptDate.
+func (s *SupplierDelivery) SetLastReceiptDate(val time.Time) {
+	s.LastReceiptDate = val
+}
+
+// SetHistory sets the value of History.
+func (s *SupplierDelivery) SetHistory(val string) {
+	s.History = val
+}
+
+// How the suppliers of a material delivered it to a plant over a window (procurement, ADR-0082 As
+// built S2l1), measured from posted purchase orders and goods receipts.
+// Ref: #/components/schemas/SupplierDeliveryPerformance
+type SupplierDeliveryPerformance struct {
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name.
+	PlantName string `json:"plant_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The material.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The window's first posting date.
+	From time.Time `json:"from"`
+	// The window's last posting date.
+	To time.Time `json:"to"`
+	// The receipts a supplier needs in the window for its history to be `measured`; with fewer it is
+	// `thin`.
+	MinReceipts int32 `json:"min_receipts"`
+	// One row per supplier with a receipt in the window, in the order of `supplier_number`, then
+	// `supplier_id`.
+	Suppliers []SupplierDelivery     `json:"suppliers"`
+	Totals    SupplierDeliveryTotals `json:"totals"`
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SupplierDeliveryPerformance) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *SupplierDeliveryPerformance) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *SupplierDeliveryPerformance) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SupplierDeliveryPerformance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *SupplierDeliveryPerformance) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetFrom returns the value of From.
+func (s *SupplierDeliveryPerformance) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *SupplierDeliveryPerformance) GetTo() time.Time {
+	return s.To
+}
+
+// GetMinReceipts returns the value of MinReceipts.
+func (s *SupplierDeliveryPerformance) GetMinReceipts() int32 {
+	return s.MinReceipts
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *SupplierDeliveryPerformance) GetSuppliers() []SupplierDelivery {
+	return s.Suppliers
+}
+
+// GetTotals returns the value of Totals.
+func (s *SupplierDeliveryPerformance) GetTotals() SupplierDeliveryTotals {
+	return s.Totals
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SupplierDeliveryPerformance) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *SupplierDeliveryPerformance) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *SupplierDeliveryPerformance) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SupplierDeliveryPerformance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *SupplierDeliveryPerformance) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetFrom sets the value of From.
+func (s *SupplierDeliveryPerformance) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *SupplierDeliveryPerformance) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetMinReceipts sets the value of MinReceipts.
+func (s *SupplierDeliveryPerformance) SetMinReceipts(val int32) {
+	s.MinReceipts = val
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *SupplierDeliveryPerformance) SetSuppliers(val []SupplierDelivery) {
+	s.Suppliers = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *SupplierDeliveryPerformance) SetTotals(val SupplierDeliveryTotals) {
+	s.Totals = val
+}
+
+func (*SupplierDeliveryPerformance) getSupplierDeliveryPerformanceRes() {}
+
+// Every row's receipts summed, and their on-time share.
+// Ref: #/components/schemas/SupplierDeliveryTotals
+type SupplierDeliveryTotals struct {
+	// Goods receipt items of every row.
+	Receipts int32 `json:"receipts"`
+	// Of them, those whose order item has a delivery date.
+	DatedReceipts int32 `json:"dated_receipts"`
+	// Of them, those posted on or before it.
+	OnTimeReceipts int32 `json:"on_time_receipts"`
+	// `on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no
+	// receipt is dated.
+	OnTimePercent OptInt32 `json:"on_time_percent"`
+}
+
+// GetReceipts returns the value of Receipts.
+func (s *SupplierDeliveryTotals) GetReceipts() int32 {
+	return s.Receipts
+}
+
+// GetDatedReceipts returns the value of DatedReceipts.
+func (s *SupplierDeliveryTotals) GetDatedReceipts() int32 {
+	return s.DatedReceipts
+}
+
+// GetOnTimeReceipts returns the value of OnTimeReceipts.
+func (s *SupplierDeliveryTotals) GetOnTimeReceipts() int32 {
+	return s.OnTimeReceipts
+}
+
+// GetOnTimePercent returns the value of OnTimePercent.
+func (s *SupplierDeliveryTotals) GetOnTimePercent() OptInt32 {
+	return s.OnTimePercent
+}
+
+// SetReceipts sets the value of Receipts.
+func (s *SupplierDeliveryTotals) SetReceipts(val int32) {
+	s.Receipts = val
+}
+
+// SetDatedReceipts sets the value of DatedReceipts.
+func (s *SupplierDeliveryTotals) SetDatedReceipts(val int32) {
+	s.DatedReceipts = val
+}
+
+// SetOnTimeReceipts sets the value of OnTimeReceipts.
+func (s *SupplierDeliveryTotals) SetOnTimeReceipts(val int32) {
+	s.OnTimeReceipts = val
+}
+
+// SetOnTimePercent sets the value of OnTimePercent.
+func (s *SupplierDeliveryTotals) SetOnTimePercent(val OptInt32) {
+	s.OnTimePercent = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/SupplierInvoice
 type SupplierInvoice struct {
@@ -125775,6 +126113,7 @@ func (*TooManyRequestsHeaders) getSodRuleRes()                                  
 func (*TooManyRequestsHeaders) getSopPlanRes()                                  {}
 func (*TooManyRequestsHeaders) getStatisticalKeyFigureRes()                     {}
 func (*TooManyRequestsHeaders) getStockTransportOrderRes()                      {}
+func (*TooManyRequestsHeaders) getSupplierDeliveryPerformanceRes()              {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()                  {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()                          {}
 func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                           {}
@@ -126771,6 +127110,7 @@ func (*UnauthorizedHeaders) getSodRuleRes()                                  {}
 func (*UnauthorizedHeaders) getSopPlanRes()                                  {}
 func (*UnauthorizedHeaders) getStatisticalKeyFigureRes()                     {}
 func (*UnauthorizedHeaders) getStockTransportOrderRes()                      {}
+func (*UnauthorizedHeaders) getSupplierDeliveryPerformanceRes()              {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()                  {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()                          {}
 func (*UnauthorizedHeaders) getTaxReturnDraftRes()                           {}

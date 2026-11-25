@@ -2357,3 +2357,72 @@ parties' names and addresses and the materials' classifications in the
 request; screening of sales orders, purchase orders and business
 partners; a delivery sent again by hand; customs declarations,
 preference calculation and licences.
+
+### S2l1: suppliers' delivery performance (2026-11-24)
+
+The replenishment agent's supplier choice by lead time and reliability
+(plan-supply-chain.md §S2l, S2l1; the agent is ADR-0072 As built S2l1)
+reads the suppliers' delivery performance from procurement, which
+measures it in SQL from posted documents at the moment of the read,
+never by a model: `GET /v1/supplier-delivery-performance`
+(`getSupplierDeliveryPerformance`, `procurement.order.read`, published
+in Go as `procurement.Endpoints.DeliveryPerformance`). It adds no
+direction to §3: procurement reads its own orders and receipts, tenancy's
+plant and partner's names, as it did. Decided by default (SAP's vendor
+evaluation scores on-time delivery from the goods receipt's date against
+the schedule line's delivery date, EKET-EINDT, per receipt, from memory;
+the specialist list):
+
+- **A delivery** is a goods receipt item (101) of a released or closed
+  order's item of the material that no reversal (102) names, at the plant
+  the order item names, or else the one the receipt's header names (an
+  item without a storage location names none). A return (122) is no
+  delivery and is not netted; a reversed receipt is left out whole, as
+  its reversal is of the whole receipt. Each item of a receipt counts
+  once: an order item delivered in two receipts is two deliveries, as
+  SAP's per-receipt score counts it (from memory).
+- **On time** is the receipt's posting date on or before the order
+  item's delivery date (`delivery_date`, as it is at the read; a change
+  of the date by an order change moves it), as the brief states it. A
+  receipt whose item has no delivery date is neither on time nor late:
+  `dated_receipts` counts those that have one, and the on-time share is
+  of them (absent when none is).
+- **Lead times** are calendar days: the planned one the item's delivery
+  date less the order date, the observed one the receipt's posting date
+  less the order date; each the average over the supplier's receipts (the
+  planned over the dated ones), rounded half away from zero to a whole
+  day by numeric's `round`, never through a float. The on-time share is a
+  whole percent, rounded the same way.
+- **The window** is a range of posting dates, both ends counted, by
+  default the 365 days ending on the plant's company's date (its time
+  zone, T72n): long enough to hold a year's seasons, short enough that an
+  old supplier's record does not hide a recent change. A window that ends
+  before it starts, or is longer than 1,096 days (three years, a leap day
+  among them), is 400 `request.invalid_parameter`, so a read stays
+  bounded.
+- **Thin history.** A supplier with fewer than `min_receipts` (3)
+  receipts in the window is `thin`; with 3 or more `measured`; with none
+  it has no row. The agent prefers a measured supplier over a thin one or
+  one with none (ADR-0072 As built S2l1): three receipts are the fewest
+  from which an on-time share is more than one or two events. The
+  threshold is a constant of the read, stated in every answer, so a
+  consumer need not know it.
+- **Answer.** Per supplier its number and name (partner's `Names`, the
+  name masked as everywhere for a blocked person), in the order of the
+  supplier number, then the id; `totals` sum every row (ROLLUP in the
+  same statement, so the totals and the rows are one snapshot). A
+  report, not paged: one row per supplier that delivered the material to
+  the plant in the window; `supplier_id` narrows it to one. A plant that
+  does not exist, an org unit that is no plant, or a plant of a company
+  the caller cannot act in is 422 `request.reference_not_found`, as a
+  legal entity is (`tenancy.Accessible`).
+- **Indexes.** Migration 000469 indexes order items by material
+  (`purchase_order_item_by_material`, which listPurchaseOrders'
+  `material_id` filter uses too) and 000470 goods movements by the one
+  they reverse (`goods_movement_by_reversal`, which a receipt's
+  `reversed_by` uses too), both partial and built concurrently.
+
+**Later** (the tracker's replenishment agent variants): a planned
+delivery time kept as master data (SAP's info record or the material's
+plant data, from memory) and the order dated back from the need by it;
+a weighted supplier score with price, quantity reliability and quality.
