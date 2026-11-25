@@ -196,8 +196,8 @@ its description in that language, or the default one when it has none.
   approval as the material's other fields do and is audited with the
   texts before and after; materials created before keep their
   description as their default, in `en`.
-- **As built** (2026-11-24): ADR-0082 As built S1a2, migrations 000469
-  and 000470, walkthrough step 122.
+- **As built** (2026-11-24): ADR-0082 As built S1a2, migrations 000480
+  and 000481, walkthrough step 122.
 
 **Later for Material master:** changing a material's default language,
 documents and outputs taking the material's description in their

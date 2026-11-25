@@ -2485,11 +2485,11 @@ The first item of "later: material master variants" (plan-supply-chain.md
 may have one further description per other language (SAP MAKT, one text
 per material and language, from memory), Arabic for the UAE pilot.
 
-- **Data (migrations 000469, 000470).** `materials.material` gains
+- **Data (migrations 000480, 000481).** `materials.material` gains
   `description_language`, added with the constant default `en` (no
   rewrite; every material created before was described in English, and
   the previous version's inserts, naming none, take it) and its check
-  NOT VALID, validated by 000470 (06 §6.4); it does not change
+  NOT VALID, validated by 000481 (06 §6.4); it does not change
   (`material_language_fixed`, a trigger of its own, so `material_fixed`
   stays as 000435 left it). `materials.material_description` holds the
   further descriptions, removed by their mark and given back as a unit is

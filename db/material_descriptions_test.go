@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestMaterialDescriptionRules (S1a2, migrations 000469 and 000470;
+// TestMaterialDescriptionRules (S1a2, migrations 000480 and 000481;
 // ADR-0082 As built S1a2): a material's default description is in a
 // language of the stored form (a language, an optional script and an
 // optional region, in canonical case), 'en' when the insert names none,
@@ -104,7 +104,7 @@ func TestMaterialDescriptionRules(t *testing.T) {
 	})
 }
 
-// TestMaterialDescriptionTriggersAsOwner (S1a2, migration 000469): past
+// TestMaterialDescriptionTriggersAsOwner (S1a2, migration 000480): past
 // the grants, as the owner, a material's default description language
 // stays as created and a further description is never in it, even one
 // removed or given back by clearing its mark.
@@ -133,12 +133,12 @@ func TestMaterialDescriptionTriggersAsOwner(t *testing.T) {
 	}
 }
 
-// TestMaterialDescriptionLanguageBackfilled: 000469 gives every material
-// created before it the default description language en, and 000470
+// TestMaterialDescriptionLanguageBackfilled: 000480 gives every material
+// created before it the default description language en, and 000481
 // validates its check.
 func TestMaterialDescriptionLanguageBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, "000469_material_descriptions")
+	migrateBefore(t, conn, "000480_material_descriptions")
 	tenant, material := id(), id()
 	inTenant(t, conn, tenant, func(tx pgx.Tx) error {
 		return all(tx, step(`INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type,
@@ -158,6 +158,6 @@ func TestMaterialDescriptionLanguageBackfilled(t *testing.T) {
 		t.Errorf("language: got %q, want en", language)
 	}
 	if !validated {
-		t.Error("the check: got not validated, want 000470 to validate it")
+		t.Error("the check: got not validated, want 000481 to validate it")
 	}
 }

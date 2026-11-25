@@ -8,7 +8,7 @@
 -- Expand only (06 §6.4): the column comes with the constant default 'en'
 -- (no table rewrite), the language every material created before was
 -- described in, and which the previous version's inserts, naming no
--- language, take; its check is added NOT VALID and validated by 000470.
+-- language, take; its check is added NOT VALID and validated by 000481.
 -- The previous version neither reads nor writes the new table. Nothing is
 -- contracted: description stays the default description's text.
 ALTER TABLE materials.material

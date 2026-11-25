@@ -6763,7 +6763,7 @@ erDiagram
   `blocked` (`material_status_check`) and the version at least 1
   (`material_version_check`). The number, company, base unit and type do
   not change (`material_fixed`, a trigger). The description is the
-  default one (S1a2, migrations 000469 and 000470), in
+  default one (S1a2, migrations 000480 and 000481), in
   `description_language`, a BCP 47 tag of a language with an optional
   script and region in canonical case
   (`material_description_language_check`), `en` when an insert names none
@@ -6790,7 +6790,7 @@ erDiagram
   1,000,000 (`unit_conversion_numerator_check`,
   `unit_conversion_denominator_check`). The application updates the
   factors and the removal mark (`unit_conversion_removed_check`) alone.
-- `materials.material_description` (S1a2, migration 000469): a further
+- `materials.material_description` (S1a2, migration 000480): a further
   description (SAP MAKT) of a material that exists
   (`material_description_material_fkey`), once per language
   (`material_description_pkey`), in a tag of the default's form

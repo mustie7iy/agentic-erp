@@ -1,5 +1,5 @@
 -- A validated constraint cannot be marked unvalidated again; the down
--- restores 000469's state by adding it back NOT VALID.
+-- restores 000480's state by adding it back NOT VALID.
 ALTER TABLE materials.material
   DROP CONSTRAINT material_description_language_check,
   ADD CONSTRAINT material_description_language_check

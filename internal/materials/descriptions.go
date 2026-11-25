@@ -22,7 +22,7 @@ import (
 
 // DefaultLanguage is the default description's language when a request
 // names none, and the one materials created before S1a2 were described
-// in (000469).
+// in (000480).
 const DefaultLanguage = "en"
 
 // Description is a material's description in a language, kept as given.
