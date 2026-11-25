@@ -22,8 +22,10 @@
 # cell has carried it out. A second supplier, Bolt Hardware Supply, is
 # approved too. Version 2 (S2l1): an order names its supplier's measures;
 # three cases choose between Tyrell and Bolt by them, each from orders of
-# the hinge and their receipts at P100 posted in March 2026 and read over
-# 2026 (from, to), so the replay does not age: Tyrell's three items
+# the hinge and their receipts at P100 posted in March 2026 and read from
+# 2025 to 2027 (from, to), a window holding the year to any run day of
+# 2026 as the check requires, so the replay does not age within the
+# suite's 2026 number ranges: Tyrell's three items
 # ordered on 2 March, due the 6th and received the 5th (3 days, all on
 # time); Bolt's received on the 12th (10 days, none on time) or, in the
 # tie, on the 5th.
@@ -139,7 +141,7 @@ cases:
       - {tool: listContracts, input: {legal_entity_id: "{{ca}}", material_id: "{{hinge}}", status: active}}
       - {tool: listPurchaseOrders, input: {legal_entity_id: "{{ca}}", material_id: "{{hinge}}"}}
       - {tool: getBusinessPartner, input: {id: "{{tyrell}}"}}
-      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2026-01-01", to: "2026-12-31"}}
+      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2025-01-01", to: "2027-12-31"}}
       - tool: createRecommendation
         input: {body: {session_id: "{{session}}", object_type: requisition, object_id: "{{proposal}}", kind: order,
           content: "Order 10 EA from supplier {{tyrell}} by {{day}}: catalog item {{item}}\nMeasures: no receipts\nWhy: the run's shortage of the
@@ -189,7 +191,7 @@ cases:
       - {tool: getRequisition, input: {id: "{{proposal}}"}}
       - {tool: listCatalogItems, input: {legal_entity_id: "{{ca}}", text: "{{hinge_number}}"}}
       - {tool: getBusinessPartner, input: {id: "{{tyrell}}"}}
-      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2026-01-01", to: "2026-12-31"}}
+      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2025-01-01", to: "2027-12-31"}}
       - tool: createRecommendation
         input: {body: {session_id: "{{session}}", object_type: requisition, object_id: "{{proposal}}", kind: order,
           content: "Order 10 EA from supplier {{tyrell}} by {{day}}: catalog item {{item}}\nMeasures: no receipts\nWhy: the run's shortage is 10 EA and Tyrell's catalog item
@@ -251,7 +253,7 @@ cases:
       - {tool: listPurchaseOrders, input: {legal_entity_id: "{{ca}}", material_id: "{{hinge}}"}}
       - {tool: getBusinessPartner, input: {id: "{{tyrell}}"}}
       - {tool: getBusinessPartner, input: {id: "{{bolt}}"}}
-      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2026-01-01", to: "2026-12-31"}}
+      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2025-01-01", to: "2027-12-31"}}
       - tool: createRecommendation
         input: {body: {session_id: "{{session}}", object_type: requisition, object_id: "{{proposal}}", kind: order,
           content: "Order 10 EA from supplier {{tyrell}} by {{day}}: catalog item {{item}}\nMeasures: 3 receipts (measured), lead time 3 days against 4 planned, on time 3 of 3 (100%)\nWhy: Tyrell delivered 3 of 3 receipts on time in 3 days; Bolt Hardware Supply is cheaper at 1.00 CAD against Tyrell's 1.10 CAD but delivered 0 of 3 on time in 10 days."}}
@@ -299,7 +301,7 @@ cases:
       - {tool: listPurchaseOrders, input: {legal_entity_id: "{{ca}}", material_id: "{{hinge}}"}}
       - {tool: getBusinessPartner, input: {id: "{{tyrell}}"}}
       - {tool: getBusinessPartner, input: {id: "{{bolt}}"}}
-      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2026-01-01", to: "2026-12-31"}}
+      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2025-01-01", to: "2027-12-31"}}
       - tool: createRecommendation
         input: {body: {session_id: "{{session}}", object_type: requisition, object_id: "{{proposal}}", kind: order,
           content: "Order 10 EA from supplier {{tyrell}} by {{day}}: catalog item {{item}}\nMeasures: 3 receipts (measured), lead time 3 days against 4 planned, on time 3 of 3 (100%)\nWhy: Tyrell delivered 3 of 3 receipts on time in 3 days; Bolt Hardware Supply is cheaper at 1.00 CAD but has delivered nothing to the plant this year, so its lead time and reliability are unknown."}}
@@ -361,7 +363,7 @@ cases:
       - {tool: listPurchaseOrders, input: {legal_entity_id: "{{ca}}", material_id: "{{hinge}}"}}
       - {tool: getBusinessPartner, input: {id: "{{tyrell}}"}}
       - {tool: getBusinessPartner, input: {id: "{{bolt}}"}}
-      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2026-01-01", to: "2026-12-31"}}
+      - {tool: getSupplierDeliveryPerformance, input: {plant_id: "{{plant}}", material_id: "{{hinge}}", from: "2025-01-01", to: "2027-12-31"}}
       - tool: createRecommendation
         input: {body: {session_id: "{{session}}", object_type: requisition, object_id: "{{proposal}}", kind: order,
           content: "Order 10 EA from supplier {{bolt}} by {{day}}: catalog item {{item}}\nMeasures: 3 receipts (measured), lead time 3 days against 4 planned, on time 3 of 3 (100%)\nWhy: Tyrell and Bolt Hardware Supply both delivered 3 of 3 receipts on time in 3 days, a tie; both are catalog items, and Bolt's 1.00 CAD is below Tyrell's 1.10 CAD."}}

@@ -1627,8 +1627,9 @@ A later slice adds its row here and its section under "As built".
   supplier preferred over a cheaper, late one; a supplier with no
   history not preferred over one with history; a tie of the measures
   decided by the price. Each case's orders and receipts are dated in
-  2026 and read over the year 2026 (`from`, `to`), so the replay does not
-  age.
+  March 2026 and read from 2025 to 2027 (`from`, `to`, 1,095 days), a
+  window holding the year to any run day of 2026, the year the suite's
+  number ranges are of.
 - Walkthrough `step_replenishment_agent` (step 153): before the run, Ben
   orders hinges from Tyrell and from a second supplier, received on the
   company's date: Tyrell on time, the other late; the read shows both,

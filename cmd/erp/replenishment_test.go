@@ -46,7 +46,7 @@ func TestAgentReplenish(t *testing.T) {
 		"GET /v1/catalog-items": {ok(`{"items": [{"id": "` + item + `", "legal_entity_id": "le", "supplier_id": "` + supplier + `", "material_id": "` + material +
 			`", "status": "active", "unit_price": {"amount": "1.10", "currency": "CAD"}}]}`)},
 		"GET /v1/business-partners/" + supplier: {ok(`{"id": "` + supplier + `", "status": "active", "roles": ["supplier"]}`)},
-		"GET /v1/supplier-delivery-performance": {ok(`{"plant_id": "p100", "material_id": "` + material + `", "suppliers": []}`)},
+		"GET /v1/supplier-delivery-performance": {ok(`{"plant_id": "p100", "material_id": "` + material + `", "from": "2025-11-22", "to": "2026-11-21", "suppliers": []}`)},
 		"POST /v1/recommendations":              {reply{201, `{"id": "r1", "object_type": "requisition", "object_id": "` + req + `", "kind": "order", "content": "` + order + `\nWhy: 1.10 CAD."}`}}}))
 	model(t, llmtest.Tool("getRequisition", map[string]any{"id": req}),
 		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": "le", "text": "MA1"}),
