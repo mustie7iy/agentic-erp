@@ -198383,9 +198383,15 @@ func (s *MaterialPlan) encodeFields(e *jx.Encoder) {
 		e.FieldStart("account_number")
 		e.Str(s.AccountNumber)
 	}
+	{
+		if s.ReplenishmentLeadTimeDays.Set {
+			e.FieldStart("replenishment_lead_time_days")
+			s.ReplenishmentLeadTimeDays.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlan = [18]string{
+var jsonFieldsNameOfMaterialPlan = [19]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -198404,6 +198410,7 @@ var jsonFieldsNameOfMaterialPlan = [18]string{
 	15: "reorder_point",
 	16: "account_id",
 	17: "account_number",
+	18: "replenishment_lead_time_days",
 }
 
 // Decode decodes MaterialPlan from json.
@@ -198627,6 +198634,16 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_number\"")
 			}
+		case "replenishment_lead_time_days":
+			if err := func() error {
+				s.ReplenishmentLeadTimeDays.Reset()
+				if err := s.ReplenishmentLeadTimeDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"replenishment_lead_time_days\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -198714,14 +198731,21 @@ func (s *MaterialPlanCreate) encodeFields(e *jx.Encoder) {
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
 	}
+	{
+		if s.ReplenishmentLeadTimeDays.Set {
+			e.FieldStart("replenishment_lead_time_days")
+			s.ReplenishmentLeadTimeDays.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanCreate = [5]string{
+var jsonFieldsNameOfMaterialPlanCreate = [6]string{
 	0: "plant_id",
 	1: "material_id",
 	2: "mrp_type",
 	3: "reorder_point",
 	4: "account_id",
+	5: "replenishment_lead_time_days",
 }
 
 // Decode decodes MaterialPlanCreate from json.
@@ -198792,6 +198816,16 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
+			}
+		case "replenishment_lead_time_days":
+			if err := func() error {
+				s.ReplenishmentLeadTimeDays.Reset()
+				if err := s.ReplenishmentLeadTimeDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"replenishment_lead_time_days\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -198999,12 +199033,19 @@ func (s *MaterialPlanUpdate) encodeFields(e *jx.Encoder) {
 			s.AccountID.Encode(e)
 		}
 	}
+	{
+		if s.ReplenishmentLeadTimeDays.Set {
+			e.FieldStart("replenishment_lead_time_days")
+			s.ReplenishmentLeadTimeDays.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanUpdate = [3]string{
+var jsonFieldsNameOfMaterialPlanUpdate = [4]string{
 	0: "mrp_type",
 	1: "reorder_point",
 	2: "account_id",
+	3: "replenishment_lead_time_days",
 }
 
 // Decode decodes MaterialPlanUpdate from json.
@@ -199046,6 +199087,16 @@ func (s *MaterialPlanUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
+			}
+		case "replenishment_lead_time_days":
+			if err := func() error {
+				s.ReplenishmentLeadTimeDays.Reset()
+				if err := s.ReplenishmentLeadTimeDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"replenishment_lead_time_days\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -287570,6 +287621,18 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.LeadTimeQuantity.Set {
+			e.FieldStart("lead_time_quantity")
+			s.LeadTimeQuantity.Encode(e)
+		}
+	}
+	{
+		if s.LeadTimeDate.Set {
+			e.FieldStart("lead_time_date")
+			s.LeadTimeDate.Encode(e, json.EncodeDate)
+		}
+	}
+	{
 		e.FieldStart("billed_quantity")
 		s.BilledQuantity.Encode(e)
 	}
@@ -287585,7 +287648,7 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrderItem = [21]string{
+var jsonFieldsNameOfSalesOrderItem = [23]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "material_id",
@@ -287604,9 +287667,11 @@ var jsonFieldsNameOfSalesOrderItem = [21]string{
 	15: "delivered_quantity",
 	16: "in_delivery_quantity",
 	17: "confirmed_quantity",
-	18: "billed_quantity",
-	19: "returned_quantity",
-	20: "removed_in_change",
+	18: "lead_time_quantity",
+	19: "lead_time_date",
+	20: "billed_quantity",
+	21: "returned_quantity",
+	22: "removed_in_change",
 }
 
 // Decode decodes SalesOrderItem from json.
@@ -287820,8 +287885,28 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"confirmed_quantity\"")
 			}
+		case "lead_time_quantity":
+			if err := func() error {
+				s.LeadTimeQuantity.Reset()
+				if err := s.LeadTimeQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lead_time_quantity\"")
+			}
+		case "lead_time_date":
+			if err := func() error {
+				s.LeadTimeDate.Reset()
+				if err := s.LeadTimeDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lead_time_date\"")
+			}
 		case "billed_quantity":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				if err := s.BilledQuantity.Decode(d); err != nil {
 					return err
@@ -287831,7 +287916,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"billed_quantity\"")
 			}
 		case "returned_quantity":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				if err := s.ReturnedQuantity.Decode(d); err != nil {
 					return err
@@ -287862,7 +287947,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111001,
 		0b10011111,
-		0b00001101,
+		0b00110001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -198,7 +198,9 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	var promises []promise
 	if o.Status == Confirmed {
-		if promises, err = e.availability(ctx, tx, o, c.items, quantityChanged(c.changes)); err != nil {
+		changed := o
+		changed.DeliveryDate = c.delivery // the check is for the date the change asks for
+		if promises, err = e.availability(ctx, tx, changed, le, c.items, quantityChanged(c.changes)); err != nil {
 			return Order{}, err
 		}
 	}

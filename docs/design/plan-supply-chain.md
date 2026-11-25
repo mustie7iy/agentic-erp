@@ -1008,6 +1008,9 @@ says which part rests on it.
   lead time's end), a recheck when only the requested date changes, the
   lead time from the planned delivery and goods receipt processing times
   (SAP PLIFZ and WEBAZ, from memory), working-day calendars.
+- **As built** (2026-11-25): ADR-0082 As built S2j2, ADR-0084 As built
+  (replenishment lead time), migrations 000476 and 000477, walkthrough
+  step 150.
 
 ### S2k MRP net requirements
 

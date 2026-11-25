@@ -16250,12 +16250,14 @@ step_batches() {
 # a shortage refuses nothing. Wade's delivery of the second takes its 40
 # confirmed hinges; more is refused naming what is confirmed, and so is a
 # delivery from the Montreal plant. Wade enters 50 more; Sally raises the
-# third order to 6, and its change confirms all 6. An order of the hinges
+# third order to 6, and its change confirms all 6. A door latch with a
+# replenishment lead time is confirmed beyond its stock for an order asked
+# for after the lead time (lead_time_check, S2j2). An order of the hinges
 # that names no plant, of Maple, which has two, is not confirmed (product
 # owner 2026-11-21); a UAE order of step 148's chair naming none delivers
 # from that company's only plant.
 step_available_to_promise() {
-  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives; an order of stock items without a plant refused on confirm, the company's only plant defaulted"
+  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives; an order asked for beyond a material's replenishment lead time confirmed in full, the rest on the lead time; an order of stock items without a plant refused on confirm, the company's only plant defaulted"
   local hinge sales montreal store first second third plantless ae desert
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
@@ -16331,6 +16333,7 @@ step_available_to_promise() {
   api 200 '"sales order \(.document_number): \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) confirmed"' \
     changeSalesOrder -p "id=$third" -if-match "$ETAG" -body '{"reason": "Northwind takes 6", "items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
   expect "the third order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 6
+  lead_time_check
   say "An order of hinges that names no plant delivers from none: Maple has two plants. Confirming it is refused, as"
   say "its availability cannot be checked:"
   api 201 '"sales order \(.document_number): plant \(.plant_code // "none")"' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\",
@@ -16353,6 +16356,54 @@ step_available_to_promise() {
       \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"AED\"}, \"account_id\": \"$sales\", \"tax_code\": \"S5\"}]}"
   expect "the order's plant" "$(field '"\(.plant_code) \(.items[0].tax_jurisdiction)"')" "P300 AE-SH"
   passed
+}
+
+# lead_time_check is S2j2 (ADR-0082 As built S2j2), part of step
+# 150: Mira creates a door latch kept in Toronto's main store, of which
+# Wade enters 20, and plans it at Toronto with a replenishment lead time
+# of 10 days. Sally's order of 50 asked for in two weeks is confirmed in
+# full: the 20 in stock and the other 30 on the lead time, until the day
+# it ends; her order of 5 asked for in three days is confirmed only what
+# the stock has left, none, since the first order's promise counts.
+lead_time_check() {
+  local latch order
+  as mira
+  say "Mira creates a door latch kept in Toronto's main store; Priya approves it, Ines values it and Wade enters 20:"
+  api 201 '"material \(.number) \(.description)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Door latch L10\",
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"LATCHES\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  latch=$(field .id)
+  approve priya "$(material_request "$latch")" "Latches for the cabinet line."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$latch\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"2.40\", \"currency\": \"CAD\"}}"
+  as wade
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$latch\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  as mira
+  say "Mira gives the latch a replenishment lead time of 10 days at Toronto (SAP's check with the replenishment lead time,"
+  say "MARC-WZEIT); planning runs leave it out (no_planning):"
+  api 201 '"\(.material_number) at \(.plant_code): \(.mrp_type), replenishment lead time \(.replenishment_lead_time_days) days"' \
+    createMaterialPlan -body "{\"plant_id\": \"$PLANT\", \"material_id\": \"$latch\", \"mrp_type\": \"no_planning\", \"reorder_point\": \"0\",
+      \"account_id\": \"$(account 6000)\", \"replenishment_lead_time_days\": 10}"
+  as sally
+  latch_order() { # quantity, requested delivery date: a draft order of Northwind's for latches from Toronto, confirmed
+    QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\",
+        \"requested_delivery_date\": \"$2\", \"items\": [{\"material_id\": \"$latch\", \"quantity\": {\"value\": \"$1\", \"unit\": \"EA\"},
+        \"unit_price\": {\"amount\": \"6.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+    order=$(field .id)
+    hinge_confirm "$order"
+    QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+    say "  asked for $2: $(field '"\(.items[0].confirmed_quantity.value) confirmed, \(.items[0].lead_time_quantity.value // 0) of it on the lead time until \(.items[0].lead_time_date // "-")"')"
+  }
+  say "Sally's order of 50 latches asked for in two weeks is in time for Toronto to replenish: all 50 are confirmed, the"
+  say "20 in stock and 30 on the lead time, until the day it ends:"
+  latch_order 50 "$(date_add "$TODAY" 14)"
+  expect "the order on the lead time" "$(field '"\(.items[0].confirmed_quantity.value) \(.items[0].lead_time_quantity.value) \(.items[0].lead_time_date)"')" \
+    "50 30 $(date_add "$TODAY" 10)"
+  say "An order of 5 asked for in three days is too soon to replenish: it has only what the stock has left, none:"
+  latch_order 5 "$(date_add "$TODAY" 3)"
+  expect "the order too soon" "$(field '"\(.items[0].confirmed_quantity.value) \(.items[0].lead_time_quantity.value // "none")"')" "0 none"
 }
 
 # step_serial_numbers is S2g (ADR-0082 As built S2g, plan-supply-chain.md):
