@@ -180,10 +180,10 @@ alone (`TestListReadsOnlyItsLedgersPage`). **Decided by default** (for the
 product owner's review): no extended statistics object. The planner's
 misestimate of the ledger's selectivity (across every tenant's ledgers)
 is harmless once the ledger is a column of the index the page follows,
-and an extended statistics object on the partitioned journal would not
-inform the per-partition scans nor a cached statement's generic plan,
-whose ledger is a parameter (PostgreSQL's planner, from memory); the
-test runs each list six times so the generic plan is the one measured.
+and a cached statement's generic plan, the one a list ends up with,
+compares the ledger with a parameter, whose selectivity no statistics
+object can give; the tests measure that plan (each list run six times
+first, and `TestJournalEntryLedgerPageIndexes` forcing it).
 The ledger-less page indexes stay for reads across ledgers; dropping them
 is a contract step for when none uses them. Nothing
 is backfilled: a company is assigned its ledgers by the next activation, so

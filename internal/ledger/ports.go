@@ -591,8 +591,9 @@ var determinationFallbacks = map[string]string{
 // the transaction (determinationLock, review:batch93, ADR-0008), so an
 // activation changing a key waits for the posting that read it, and a
 // posting for an activation under way, which it then reads as changed:
-// no posting goes to an account its activation has just replaced, and
-// the activation's own checks (applyDetermination) see the posting.
+// no posting that determines its accounts here goes to an account an
+// activation has just replaced, and the activation's own checks
+// (applyDetermination) see the posting.
 func (Accounts) Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

@@ -1319,6 +1319,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: two reads of account determination rows bypass Accounts.Determination and so the tenant's determination lock (GRIROrder's price_difference read in internal/ledger/ports.go, the gr_ir join in internal/ledger/pricedifference.go): a posting driven by them while an activation changes the key can still post to the account it replaced; read them through the lock",
+      "r": "internal/ledger/ports.go GRIROrder · internal/ledger/pricedifference.go · ADR-0048 As built finfix · ADR-0008",
+      "src": "review:batch95",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "A cash discount a UAE customer takes reduces the output tax (product owner 2026-11-21, as T36d's correction reduces input tax on the supplier side): a payment within the discount period of an invoice whose codes levy VAT corrects the output tax per tax item in proportion, with the item's jurisdiction (emirate), so the VAT 201 reports the reduced tax; today receivables writes what the customer took off as a payment difference without a tax code (ADR-0063 T75f, Not built). A Canadian cash discount keeps making no GST/HST adjustment (ETA s.161, Musto 2026-11-21)",
       "r": "ADR-0049 As built batch 88 · ADR-0063 T75f, As built cash discount granted (migration 000445) · TestUAECashDiscount · TestCanadianCashDiscount · walkthrough step 156",

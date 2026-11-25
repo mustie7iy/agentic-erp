@@ -162,8 +162,13 @@ func TestReadDaysOfOneLookup(t *testing.T) {
 		got[id] = d.Date.Format(time.DateOnly) + " " + d.Zone
 	}
 	want := map[uuid.UUID]string{berlin: "2026-04-18 Europe/Berlin", toronto: "2026-04-17 America/Toronto"}
-	if len(got) != len(want) || got[berlin] != want[berlin] || got[toronto] != want[toronto] {
-		t.Errorf("dates read: got %v, want %v", got, want)
+	if len(got) != len(want) {
+		t.Errorf("legal entities dated: got %v, want %v", got, want)
+	}
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("legal entity %s's date: got %q, want %q", id, got[id], w)
+		}
 	}
 	e.LegalEntities = countingEntities{err: errors.New("down"), byCode: &byCode, listed: &listed}
 	if _, err := e.readDaysOf(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "cash: legal entities of the zoned companies: down") {

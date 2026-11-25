@@ -538,12 +538,25 @@ settings cannot simply overwrite their document.
   short; every posting of the tenant waits for one under way. Per legal
   entity would let other companies post meanwhile, at the price of an
   ordering rule for a posting reading two companies' keys; reverse by
-  passing the legal entity as the lock's part in both places. Left as it
-  was: an activation raising a number range (`applyRanges`, before any
-  section) while a posting that already read a key draws from that range
-  waits in a cycle PostgreSQL breaks (40P01, nothing written); a posting
-  draws its numbers before or after its keys depending on its path, so no
-  order of the two locks avoids it.
+  passing the legal entity as the lock's part in both places. An activation's
+  number ranges (`configuration.applyRanges`, before any section) lock
+  only the ranges it inserts or raises: an `INSERT ... ON CONFLICT DO
+  UPDATE ... WHERE` locked every existing range the document lists, so a
+  posting that had read a key and then drew its number waited on any
+  activation as the activation waited for it (found in review); now a new
+  range is inserted `ON CONFLICT DO NOTHING` and a raised one updated where
+  its last number differs (`TestApplyRangesLocksOnlyChanged`). Left as it
+  is: an activation raising a range while a posting that already read a
+  key draws from that very range waits in a cycle PostgreSQL breaks
+  (40P01, nothing written); a posting draws its numbers before or after
+  its keys depending on its path, so no order of the two locks avoids it.
+  And while an activation waits for the lock, PostgreSQL queues the
+  postings that ask for it after, so one long transaction holding it
+  shared (a revenue run, a payment proposal) holds the tenant's postings
+  until it ends or their lock timeout, an activation being rare. Reads of
+  determination rows outside `Accounts.Determination` (GR/IR order reads,
+  the price difference join) take no lock; they are listed for a later
+  fix.
 - **As built (SAP T030 SKT and BO1, batch 93; the acctkeys backlog).**
   `erp config generate` (internal/delivery/sapconfig) takes a company's
   T030 SKT row as `cash_discount_granted` and its BO1 row as

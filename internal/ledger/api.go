@@ -313,8 +313,11 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 		return nil, err
 	}
 	ledgerID, found, err := ledgerOrLeading(ctx, tx, apitypes.Ptr[uuid.UUID](params.LedgerID))
-	if err != nil || !found { // a ledger the tenant does not have holds no entries
-		return &gen.JournalEntryPage{Items: []gen.JournalEntry{}}, err
+	if err != nil {
+		return nil, err
+	}
+	if !found { // a ledger the tenant does not have holds no entries
+		return &gen.JournalEntryPage{Items: []gen.JournalEntry{}}, nil
 	}
 	where, args := entryFilter(params, ledgerID)
 	q, args := ks.SQL(entrySelect+` WHERE ($1 OR e.legal_entity_id = ANY($2))`+where, append([]any{access.All, access.IDs}, args...))
