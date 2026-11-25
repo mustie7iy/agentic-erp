@@ -34,7 +34,8 @@ func asMigrator(tx pgx.Tx) error {
 // the tenant (rather than dropping them, 06 §6.4): as a migrating role
 // held to row-level security its guard fails on that security, not on
 // seeing no rows, and as the owner it refuses naming want. Nothing is
-// kept: the transaction is rolled back.
+// kept: the transaction is rolled back. Down tests written before it
+// (000471, 000473, 000475) keep their own steps.
 func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want string) {
 	t.Helper()
 	ctx := context.Background()
@@ -55,4 +56,51 @@ func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want 
 		t.Fatal(err)
 	}
 	failsWith(t, exec(tx, down), want)
+}
+
+// TestDownsRevert (batch 95S): on a database holding nothing the guards
+// refuse, the downs of 000482 (lot sizing) and of 000481 and 000480
+// (material descriptions) drop what their ups added, so that each up
+// applies again after its down (06 §6.4: a down reverts its up, and
+// TestMigrationsRevertCleanly, reverting the whole chain, would not see
+// one that left its columns behind).
+func TestDownsRevert(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	if _, err := Migrate(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		names         []string // the migrations reverted, latest first
+		table, column string   // a column the first up added
+	}{
+		{[]string{"000482_mrp_lot_sizing"}, "material_plan", "lot_size"},
+		{[]string{"000481_validate_material_descriptions", "000480_material_descriptions"}, "material", "description_language"},
+	} {
+		t.Run(c.names[len(c.names)-1], func(t *testing.T) {
+			tx, err := conn.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			for _, name := range c.names {
+				if err := exec(tx, migrationNamed(t, name).Down); err != nil {
+					t.Fatalf("the down of %s: got %v, want it to pass", name, err)
+				}
+			}
+			var left bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = $1 AND column_name = $2)`,
+				c.table, c.column).Scan(&left); err != nil {
+				t.Fatal(err)
+			}
+			if left {
+				t.Errorf("%s.%s: got still there, want the down to drop it", c.table, c.column)
+			}
+			for i := len(c.names) - 1; i >= 0; i-- {
+				if err := exec(tx, migrationNamed(t, c.names[i]).Up); err != nil {
+					t.Errorf("the up of %s again: got %v, want it to apply", c.names[i], err)
+				}
+			}
+		})
+	}
 }

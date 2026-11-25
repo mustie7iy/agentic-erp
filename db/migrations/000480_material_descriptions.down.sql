@@ -1,6 +1,6 @@
 -- Further descriptions and defaults in another language than English,
--- which the previous version cannot hold, are refused rather than dropped
--- (06 §6.4: a down migration loses no data).
+-- which the previous version cannot hold, are refused (06 §6.4: a down
+-- migration loses no data); otherwise the down drops what 000480 added.
 SET LOCAL row_security = off; -- the guard reads every tenant's rows: a role held to row-level security fails here, not on zero rows (06 §6.4)
 DO $$
 BEGIN
@@ -9,3 +9,8 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 END $$;
+DROP TABLE materials.material_description;
+DROP FUNCTION materials.material_description_not_default();
+DROP TRIGGER material_language_fixed ON materials.material;
+DROP FUNCTION materials.material_language_fixed();
+ALTER TABLE materials.material DROP COLUMN description_language;

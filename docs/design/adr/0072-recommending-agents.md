@@ -1547,11 +1547,12 @@ A later slice adds its row here and its section under "As built".
   and unit are the proposal's (`ErrQuantity`); a proposal of several
   lots (ADR-0084 As built S2k2) is refused (`ErrProposal`) and left to
   the buyer, as the prompt says, before the check reads any supplier's
-  measures (batch 95S, `TestReviewLotsBeforeMeasures`); the day is the one the proposal is needed by, the run's
-  day when it names none (`ErrWhen`: lead times are Later); the source is
-  one the run read of the proposal's material in its company, an `active`
-  catalog item, an `active` contract's item valid on that day, or a
-  `released` or `closed` order's item, and the supplier is the source's
+  measures (batch 95S, `TestReviewLotsBeforeMeasures`); the day is the
+  one the proposal is needed by, the run's day when it names none
+  (`ErrWhen`: lead times are Later); the source is one the run read of
+  the proposal's material in its company, an `active` catalog item, an
+  `active` contract's item valid on that day, or a `released` or
+  `closed` order's item, and the supplier is the source's
   (`ErrSource`); the supplier is one the run read (`getBusinessPartner`)
   as `active` with the supplier role (`ErrSupplier`). Every number but
   the first line's, which the check holds whole, is one the run read
