@@ -23,15 +23,13 @@ func TestEInvoiceFetchKind(t *testing.T) {
 	}
 }
 
-// TestEnteredFrom (T65f): a supplier invoice of the kind each kind of
-// e-invoice is entered as is entered from that kind, and one of a kind
-// none is entered as (a subsequent debit or credit) from none, so a link
-// compares kinds through one mapping (enteredAs).
-func TestEnteredFrom(t *testing.T) {
-	for kind, want := range map[string]string{payables.KindInvoice: einvoicing.KindTaxInvoice, payables.KindCreditMemo: einvoicing.KindTaxCreditNote,
-		payables.KindSubsequentDebit: "", payables.KindSubsequentCredit: ""} {
+// TestEnteredAs (T65f): a tax invoice is entered as an invoice and a tax
+// credit note as a credit memo, the one mapping entering writes and a
+// link compares (enteredAs).
+func TestEnteredAs(t *testing.T) {
+	for kind, want := range map[string]string{einvoicing.KindTaxInvoice: payables.KindInvoice, einvoicing.KindTaxCreditNote: payables.KindCreditMemo} {
 		t.Run(kind, func(t *testing.T) {
-			if got := enteredFrom(kind); got != want {
+			if got := (einvoicePayables{}).EnteredAs(kind); got != want {
 				t.Errorf("got %q, want %q", got, want)
 			}
 		})

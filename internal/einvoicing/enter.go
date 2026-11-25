@@ -56,6 +56,11 @@ type Payables interface {
 	// document to (T65f), of a company the caller may act in; found false
 	// for none.
 	Linkable(ctx context.Context, id uuid.UUID) (LinkTarget, bool, error)
+	// EnteredAs is the kind of supplier invoice a document of the kind
+	// is entered as (ADR-0061 §6: a tax invoice an invoice, a tax credit
+	// note a credit memo), the one mapping entering writes and a link
+	// compares (T65f).
+	EnteredAs(kind string) string
 	// HoldsTaxNumber says whether the supplier holds the TRN as a tax
 	// identifier, compared by its keyed fingerprint without opening one.
 	HoldsTaxNumber(ctx context.Context, supplier uuid.UUID, trn string) (bool, error)

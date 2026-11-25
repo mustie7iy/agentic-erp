@@ -54,15 +54,13 @@ const (
 )
 
 // LinkTarget is a supplier invoice as a link checks it: its company, its
-// supplier and reference, how it was entered, its status, its kind and
-// the kind of e-invoice one of that kind is entered from ("" for none,
-// the caller's mapping, so that entering and a link share it), its
+// supplier and reference, how it was entered, its status and kind, its
 // invoice date, currency, gross and tax amounts, and whether it has a
 // document of its own.
 type LinkTarget struct {
 	LegalEntityID, SupplierID         uuid.UUID
 	SupplierReference, Source, Status string
-	Kind, EnteredFrom, Currency       string
+	Kind, Currency                    string
 	InvoiceDate                       time.Time
 	Gross, Tax                        money.Minor
 	HasDocument                       bool
@@ -343,8 +341,8 @@ func (e *Endpoints) statedDifferences(ctx context.Context, read Document, target
 	if !holds {
 		out = append(out, "its supplier does not hold the seller's TRN (IBT-031) ending "+read.Seller.TRN[max(0, len(read.Seller.TRN)-4):])
 	}
-	if target.EnteredFrom != read.Kind {
-		out = append(out, "its kind "+target.Kind+" is not the kind the e-invoice's "+read.Kind+" (IBT-003) is entered as")
+	if want := e.Payables.EnteredAs(read.Kind); target.Kind != want {
+		out = append(out, "its kind "+target.Kind+" is not "+want+", the kind the e-invoice's "+read.Kind+" (IBT-003) is entered as")
 	}
 	if day := read.IssueDate.Format(time.DateOnly); target.InvoiceDate.Format(time.DateOnly) != day {
 		out = append(out, "its invoice date "+target.InvoiceDate.Format(time.DateOnly)+" is not the e-invoice's issue date "+day+" (IBT-002)")

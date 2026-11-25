@@ -44,17 +44,6 @@ type einvoicePayables struct{ e *payables.Endpoints }
 // credit memo. Entering writes it; a link compares it (T65f).
 var enteredAs = map[string]string{einvoicing.KindTaxInvoice: payables.KindInvoice, einvoicing.KindTaxCreditNote: payables.KindCreditMemo}
 
-// enteredFrom is the kind of e-invoice a supplier invoice of the kind is
-// entered from; "" for a kind none is entered as.
-func enteredFrom(kind string) string {
-	for doc, k := range enteredAs {
-		if k == kind {
-			return doc
-		}
-	}
-	return ""
-}
-
 func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvoicing.Entered, error) {
 	d := in.Document
 	lines := make([]payables.EInvoiceLine, len(d.Lines))
@@ -109,8 +98,10 @@ func (a einvoicePayables) Invoices(ctx context.Context, ids []uuid.UUID) (map[uu
 func (einvoicePayables) Linkable(ctx context.Context, id uuid.UUID) (einvoicing.LinkTarget, bool, error) {
 	a, ok, err := payables.Invoices{}.Attachable(ctx, id)
 	return einvoicing.LinkTarget{LegalEntityID: a.LegalEntityID, SupplierID: a.SupplierID, SupplierReference: a.SupplierReference, Source: a.Source,
-		Status: a.Status, Kind: a.Kind, EnteredFrom: enteredFrom(a.Kind), InvoiceDate: a.InvoiceDate, Currency: a.Currency, Gross: a.Gross, Tax: a.Tax, HasDocument: a.HasDocument}, ok, err
+		Status: a.Status, Kind: a.Kind, InvoiceDate: a.InvoiceDate, Currency: a.Currency, Gross: a.Gross, Tax: a.Tax, HasDocument: a.HasDocument}, ok, err
 }
+
+func (einvoicePayables) EnteredAs(kind string) string { return enteredAs[kind] }
 
 func (a einvoicePayables) HoldsTaxNumber(ctx context.Context, supplier uuid.UUID, trn string) (bool, error) {
 	return a.e.TaxNumbers.HasTaxNumber(ctx, supplier, trn)

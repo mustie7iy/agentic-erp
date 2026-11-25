@@ -233,7 +233,7 @@ func TestLinkEInvoice(t *testing.T) {
 	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'cancelled', version = version + 1 WHERE id = $1`, again)
 	memo := link("GOI-2B", s.manualOf(t, "credit_memo", s.le, "GOI-2", "parked"))
 	check(t, "another kind", words(memo["code"], len(apitest.List(t, memo, "errors"))), "einvoicing.link_mismatch 1")
-	if want := "its kind credit_memo is not the kind the e-invoice's invoice (IBT-003) is entered as"; !strings.Contains(memo["detail"].(string), want) {
+	if want := "its kind credit_memo is not invoice, the kind the e-invoice's invoice (IBT-003) is entered as"; !strings.Contains(memo["detail"].(string), want) {
 		t.Errorf("the detail %q: want it to name %q", memo["detail"], want)
 	}
 	parked := s.manual(t, s.le, "X-1", "parked")
@@ -294,7 +294,7 @@ func TestLinkHeldCreditNote(t *testing.T) {
 	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET `+figures, invoice)
 	code, m := link(invoice)
 	check(t, "an invoice", words(code, m["code"], len(apitest.List(t, m, "errors"))), "422 einvoicing.link_mismatch 1")
-	if want := "its kind invoice is not the kind the e-invoice's credit_note (IBT-003) is entered as"; !strings.Contains(m["detail"].(string), want) {
+	if want := "its kind invoice is not credit_memo, the kind the e-invoice's credit_note (IBT-003) is entered as"; !strings.Contains(m["detail"].(string), want) {
 		t.Errorf("the detail %q: want it to name %q", m["detail"], want)
 	}
 	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'cancelled', version = version + 1 WHERE id = $1`, invoice)
