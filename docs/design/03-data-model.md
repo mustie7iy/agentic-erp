@@ -7055,12 +7055,26 @@ erDiagram
   the line and `movement_serial_counted` on each serial number added to
   one, deferred constraint triggers, as the serial numbers are written
   after their lines; one added to a committed line is refused too).
+- S2c2 (migration 000464): `inventory.cycle_count_indicator` (SAP T159C,
+  from memory): a plant's cycle counting indicator, its company and plant,
+  its `code` one to four capitals or digits
+  (`cycle_count_indicator_code_check`) once per plant
+  (`cycle_count_indicator_code_once`) and its `interval_days`, 1 to 366
+  (`cycle_count_indicator_interval_check`), `version`; the application
+  updates its interval and version alone. `inventory.cycle_count_material`
+  (SAP MARC-ABCIN, from memory): a material's indicator at a plant, once
+  per plant and material (`cycle_count_material_once`), an indicator of
+  that plant (`cycle_count_material_indicator_fkey`, to
+  `cycle_count_indicator_plant`), `version`; the application updates its
+  indicator and version alone. Neither is deleted. The counts due are
+  read, not stored (`GET /v1/cycle-counts-due`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
   `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
   `inventory.count.post` and the approval permission
-  `inventory.difference.approve` (S2d), `inventory.batch.write` (S2f).
+  `inventory.difference.approve` (S2d), `inventory.batch.write` (S2f),
+  `inventory.count_plan.write` (S2c2).
 
 ## 3.36 Shipping (`shipping`)
 

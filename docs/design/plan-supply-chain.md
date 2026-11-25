@@ -702,8 +702,55 @@ last count) for an inventory controller to decide.
   session. Never: every write of count documents and goods movements.
   Suite `evals/count_planning`; walkthrough `step_count_agent`.
 
+### S2c2 Cycle counting indicators (count variants, first slice)
+
+**Capability.** An inventory controller gives a plant its cycle counting
+indicators (A, B, C, D or the tenant's own, each with a count interval in
+days) and a material at the plant its indicator, reads the counts due and
+creates count documents from them.
+
+- **Adds** (lane cyclecount, 2026-11-24; the tracker's "later: count
+  variants" split, its first item; decided by default, ADR-0082 As built
+  S2c2): `inventory.cycle_count_indicator` (SAP T159C, a plant's
+  indicators, from memory): a code of one to four capital letters or
+  digits, unique at the plant, and an interval of 1 to 366 days (a
+  material is counted at least once a year), changed at its version;
+  `inventory.cycle_count_material` (SAP MARC-ABCIN, from memory): a
+  material's indicator at a plant, one per material and plant, of that
+  plant, changed to another of the plant at its version. The material is
+  one a count document takes: the tenant's, not pending, kept in stock,
+  extended to the plant, neither batch- nor serial-managed (counts refuse
+  those, As built S2f, S2g). No indicator is created for a plant by
+  itself: the controller creates the plant's. `POST`, `GET`, `GET /{id}`,
+  `PATCH` of `/v1/cycle-count-indicators` and `/v1/cycle-count-materials`
+  (permission `inventory.count_plan.write`; reads under
+  `inventory.stock.read`), audited, no event; human-only.
+- **The counts due** (`GET /v1/cycle-counts-due?plant_id=`, SAP MICN,
+  from memory): each material with an indicator at the plant, at each
+  storage location of the plant where it has stock now (as `listStock`
+  lists it and the agent reads it), that no open count holds there and that was never counted there
+  (a posted count; a rejected or withdrawn one is none) or whose last
+  posted count there is its indicator's interval or more before the
+  company's date today. Each names its material, storage location,
+  indicator and interval, its last count (document, number, date) and
+  the day it fell due; never counted first, then the longest due.
+  Creating a count is the normal `POST /v1/physical-inventory-documents`
+  with a storage location's materials as listed; they then leave the list
+  until the count is posted, and fall due again an interval after it.
+- **The count planning agent** (S2e) reads the indicators
+  (`listCycleCountMaterials`): a material with one at the plant is due by
+  its interval instead of its class's, and its line names it; the others
+  keep the class computed per run.
+- **Walkthrough:** extends `step_count`. **Acceptance:** a material
+  counted within its interval is not due; one never counted is; a count
+  created from the list takes it off the list.
+- **Later:** an indicator taken off a material, indicators set from the
+  ABC analysis (SAP MIBC), float time and a share of counts per period,
+  counts due per storage location's own indicator, a calendar of planned
+  counts.
+
 **Later for Physical inventory and cycle counting:** cycle counting
-indicators on the plant data, sampling inventory, counts on handling units
+indicators on the plant data (first slice S2c2), sampling inventory, counts on handling units
 or bins (EWM), freeze of the book quantity at a past date.
 
 ### S2f Batches

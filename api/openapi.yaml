@@ -26627,6 +26627,431 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-indicators:
+    get:
+      operationId: listCycleCountIndicators
+      tags:
+        - inventory
+      summary: List cycle counting indicators
+      description: "The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP T159C, from memory), each as `getCycleCountIndicator` gives it, in the order they were created. Filtered by plant and by code. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the indicators of this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: code
+          in: query
+          required: false
+          description: Only the indicators with this code.
+          schema:
+            type: string
+            maxLength: 4
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of cycle counting indicators.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicatorPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCycleCountIndicator
+      tags:
+        - inventory
+      summary: Create a plant's cycle counting indicator
+      description: "Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a code (A, B, C, D or the tenant's own, one to four capital letters or digits) and the interval in days, 1 to 366, between counts of a material that carries it (`createCycleCountMaterial`). The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`); a code is used once at a plant (409 `inventory.cycle_count_indicator_exists`). Audited. A retry with the same `Idempotency-Key` answers the indicator created. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_indicator_exists
+        - inventory.plant_invalid
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The indicator to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CycleCountIndicatorCreate"
+            examples:
+              quarterly:
+                summary: Materials counted every 90 days
+                value:
+                  plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  code: A
+                  interval_days: 90
+      responses:
+        "201":
+          description: "Created; the indicator."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicator"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-indicators/{id}":
+    get:
+      operationId: getCycleCountIndicator
+      tags:
+        - inventory
+      summary: Get a cycle counting indicator
+      description: "A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code and its interval in days. One of a company the caller cannot act in is not found."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicator"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCycleCountIndicator
+      tags:
+        - inventory
+      summary: Change a cycle counting indicator's interval
+      description: "Changes an indicator's interval at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2); an interval it already has is 422 `inventory.nothing_to_change`. Its plant and code do not change. The counts due of the materials that carry it (`listCycleCountsDue`) follow it at once. JSON Merge Patch. Audited with the interval before and after. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_indicator_exists
+        - inventory.nothing_to_change
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CycleCountIndicatorUpdate"
+      responses:
+        "200":
+          description: The changed indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountIndicator"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-materials:
+    get:
+      operationId: listCycleCountMaterials
+      tags:
+        - inventory
+      summary: List materials' cycle counting indicators
+      description: "The cycle counting indicators of materials at the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the materials' indicators at this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: material_id
+          in: query
+          required: false
+          description: "Only this material's indicators (`GET /v1/materials/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - name: indicator_id
+          in: query
+          required: false
+          description: "Only the materials carrying this indicator (`GET /v1/cycle-count-indicators/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of materials' cycle counting indicators.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterialPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCycleCountMaterial
+      tags:
+        - inventory
+      summary: Give a material its cycle counting indicator at a plant
+      description: "Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant falls due once the indicator's interval has passed since its last posted count there (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422 `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`), neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422 `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited. A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.batch_not_supported
+        - inventory.cycle_count_material_exists
+        - inventory.indicator_invalid
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.plant_not_extended
+        - inventory.serial_not_supported
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The material and its indicator.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CycleCountMaterialCreate"
+            examples:
+              bracket:
+                summary: The bracket counted by indicator A
+                value:
+                  material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  indicator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+      responses:
+        "201":
+          description: "Created; the material's indicator."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-materials/{id}":
+    get:
+      operationId: getCycleCountMaterial
+      tags:
+        - inventory
+      summary: Get a material's cycle counting indicator
+      description: "A material's cycle counting indicator at a plant (ADR-0082 As built S2c2): its plant and company by code, its material by number and description, and its indicator by code with its interval. One of a company the caller cannot act in is not found."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The material's indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCycleCountMaterial
+      tags:
+        - inventory
+      summary: Change a material's cycle counting indicator
+      description: "Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge Patch. Audited with the indicator before and after. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_material_exists
+        - inventory.indicator_invalid
+        - inventory.nothing_to_change
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CycleCountMaterialUpdate"
+      responses:
+        "200":
+          description: The changed material's indicator.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-counts-due:
+    get:
+      operationId: listCycleCountsDue
+      tags:
+        - inventory
+      summary: List the cycle counts due at a plant
+      description: "The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from memory): each material with a cycle counting indicator at the plant, at each storage location of the plant where it has stock now (as `listStock` lists it), that no open count document holds there and that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its indicator's interval or more days before today. Each names its material, storage location, indicator and interval, its last count and the day it fell due. Never counted first, then the longest due. A count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is posted, an interval before they fall due again. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.plant_invalid
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: true
+          description: The plant.
+          schema:
+            type: string
+            format: uuid
+        - name: storage_location_id
+          in: query
+          required: false
+          description: Only the counts due at this storage location.
+          schema:
+            type: string
+            format: uuid
+        - name: indicator_id
+          in: query
+          required: false
+          description: "Only the counts due of materials carrying this indicator (`GET /v1/cycle-count-indicators/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the counts due.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountDuePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/stock:
     get:
       operationId: listStock
@@ -67755,6 +68180,151 @@ components:
           type: array
           items: {$ref: "#/components/schemas/PhysicalInventoryDocument"}
           description: The count documents on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountIndicatorCreate:
+      type: object
+      description: "A plant's cycle counting indicator to create."
+      required: [plant_id, code, interval_days]
+      additionalProperties: false
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant (an org unit of kind `plant`)."}
+        code: {type: string, minLength: 1, maxLength: 4, pattern: "^[A-Z0-9]{1,4}$", description: "The indicator's code at the plant: A, B, C, D or the tenant's own, one to four capital letters or digits."}
+        interval_days: {type: integer, format: int32, minimum: 1, maximum: 366, description: "The days between counts of a material that carries it, at most a year."}
+    CycleCountIndicatorUpdate:
+      type: object
+      description: "Merge patch of a cycle counting indicator."
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        interval_days: {type: integer, format: int32, minimum: 1, maximum: 366, description: "The days between counts, at most a year."}
+    CycleCountIndicator:
+      description: "A plant's cycle counting indicator (SAP T159C, from memory; ADR-0082 As built S2c2)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, code, interval_days]
+          properties:
+            plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+            plant_code: {type: string, description: "The plant's code.", readOnly: true}
+            plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            code: {type: string, description: "The indicator's code at the plant.", readOnly: true}
+            interval_days: {type: integer, format: int32, description: "The days between counts of a material that carries it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          version: 1
+          created_at: "2026-11-24T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-24T10:00:01Z"
+          plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          code: A
+          interval_days: 90
+    CycleCountIndicatorPage:
+      type: object
+      description: One page of cycle counting indicators.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountIndicator"}
+          description: The indicators on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountMaterialCreate:
+      type: object
+      description: "A material's cycle counting indicator at the indicator's plant to create."
+      required: [material_id, indicator_id]
+      additionalProperties: false
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`), kept in stock and extended to the indicator's plant."}
+        indicator_id: {type: string, format: uuid, description: "The indicator (`GET /v1/cycle-count-indicators/{id}`), whose plant is the material's plant here."}
+    CycleCountMaterialUpdate:
+      type: object
+      description: "Merge patch of a material's cycle counting indicator."
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        indicator_id: {type: string, format: uuid, description: "Another indicator of the same plant."}
+    CycleCountMaterial:
+      description: "A material's cycle counting indicator at a plant (SAP MARC-ABCIN, from memory; ADR-0082 As built S2c2)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, indicator_id, indicator_code, interval_days]
+          properties:
+            plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+            plant_code: {type: string, description: "The plant's code.", readOnly: true}
+            plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
+            material_number: {type: string, description: "The material's number.", readOnly: true}
+            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            indicator_id: {type: string, format: uuid, description: "The indicator (`GET /v1/cycle-count-indicators/{id}`)."}
+            indicator_code: {type: string, description: "The indicator's code.", readOnly: true}
+            interval_days: {type: integer, format: int32, description: "The indicator's interval in days, as it is now.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dc1"
+          version: 1
+          created_at: "2026-11-24T10:00:02Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-24T10:00:02Z"
+          plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          material_number: MA000001
+          material_description: Bracket B10
+          indicator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
+          indicator_code: A
+          interval_days: 90
+    CycleCountMaterialPage:
+      type: object
+      description: One page of materials' cycle counting indicators.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountMaterial"}
+          description: The materials' indicators on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountDue:
+      type: object
+      description: "A count due: a material with a cycle counting indicator at a storage location of its plant, never counted there or last counted there its indicator's interval or more days ago (ADR-0082 As built S2c2)."
+      required: [legal_entity_id, company_code, plant_id, plant_code, storage_location_id, storage_location_code, storage_location_name, material_id, material_number, material_description, indicator_id, indicator_code, interval_days]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company."}
+        company_code: {type: string, description: "That company's code."}
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        plant_code: {type: string, description: "The plant's code."}
+        storage_location_id: {type: string, format: uuid, description: "The storage location the count is due at, the one a count document of it names."}
+        storage_location_code: {type: string, description: "The storage location's code."}
+        storage_location_name: {type: string, description: "The storage location's name, as it is now."}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`), the one a count document's item names."}
+        material_number: {type: string, description: "The material's number."}
+        material_description: {type: string, description: "The material's description, as it is now."}
+        indicator_id: {type: string, format: uuid, description: "The material's indicator at the plant (`GET /v1/cycle-count-indicators/{id}`)."}
+        indicator_code: {type: string, description: "The indicator's code."}
+        interval_days: {type: integer, format: int32, description: "The indicator's interval in days."}
+        last_count_id: {type: string, format: uuid, description: "The material's last posted count document there (`GET /v1/physical-inventory-documents/{id}`); absent when it was never counted there."}
+        last_count_number: {type: string, description: "That document's number; absent with it."}
+        last_counted_on: {type: string, format: date, description: "That document's date; absent with it."}
+        due_on: {type: string, format: date, description: "The day the count fell due, its last count's date plus the interval; absent when it was never counted there, which is due at once."}
+    CycleCountDuePage:
+      type: object
+      description: One page of the counts due.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountDue"}
+          description: The counts due on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     OutboundDeliveryItemInput:
       type: object

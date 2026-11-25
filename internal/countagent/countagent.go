@@ -8,8 +8,10 @@
 // year to the company's date, a count of its movements there and its
 // last posted count there, read through inventory's and materials'
 // published reads (listStock, listMaterials, listMaterialDocuments,
-// listPhysicalInventoryDocuments); it is due when it was never counted
-// there or not within its class's interval. The due ones are ranked by
+// listPhysicalInventoryDocuments) and its cycle counting indicator at the
+// plant (listCycleCountMaterials, S2c2); it is due when it was never
+// counted there or not within its indicator's interval, or its class's
+// without one. The due ones are ranked by
 // class, then movements, then the last count, each with its line, and the
 // model proposes those it recommends, in that order, with its reasons, in
 // one count_proposal on the plant. The controller who accepts creates the
@@ -52,7 +54,7 @@ const MaxLines = 40
 
 // Reads are the operations the agent reads with (ADR-0072, S2e).
 var Reads = []string{"listStock", "listMaterials", "getMaterial", "listMaterialDocuments", "getMaterialDocument", "listPhysicalInventoryDocuments",
-	"getPhysicalInventoryDocument"}
+	"getPhysicalInventoryDocument", "listCycleCountMaterials"}
 
 // Never are the operations the agent never calls (ADR-0072, S2e): a count
 // document created, counted or its differences posted, and every goods
@@ -60,22 +62,26 @@ var Reads = []string{"listStock", "listMaterials", "getMaterial", "listMaterialD
 // other contexts that post one (a purchase order's goods receipt and its
 // reversal, an outbound delivery's goods issue and its reversal, S2b3, a
 // stock transport order's issue and receipt, an intercompany order's
-// goods issue, S2i1). Its tools hold none of them: they are reads and
-// createRecommendation.
+// goods issue, S2i1), and cycle counting's indicators of plants and
+// materials (S2c2), which the controller keeps. Its tools hold none of
+// them: they are reads and createRecommendation.
 var Never = []string{"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences", "createMaterialDocument",
 	"reverseMaterialDocument", "postGoodsReceipt", "postOutboundDeliveryGoodsIssue", "postStockTransportGoodsIssue",
-	"postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue", "reverseGoodsReceipt", "reverseOutboundDeliveryGoodsIssue"}
+	"postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue", "reverseGoodsReceipt", "reverseOutboundDeliveryGoodsIssue",
+	"createCycleCountIndicator", "updateCycleCountIndicator", "createCycleCountMaterial", "updateCycleCountMaterial"}
 
 const system = `You propose the materials of a plant to count this period, for an inventory controller to decide (cycle counting).
 
 You are given the materials due for a count at the plant, as the run found them before you started, ranked: by ABC class
 (A the materials making up the first 80 percent of the plant's consumption value over the year, B the next 15 percent, C the
 rest and those with no consumption), then by their movements at the storage location over the year, the most first, then by
-their last count there, the oldest first. Each has the line your recommendation names it by.
+their last count there, the oldest first. A material with a cycle counting indicator at the plant is due by its indicator's
+interval, which its line names; the others by their class's. Each has the line your recommendation names it by.
 
 Read further as you need: the stock (listStock), the materials (listMaterials, getMaterial: their descriptions and status),
-the material documents that moved them (listMaterialDocuments, getMaterialDocument) and the count documents of the plant
-(listPhysicalInventoryDocuments, getPhysicalInventoryDocument: what earlier counts found).
+the material documents that moved them (listMaterialDocuments, getMaterialDocument), the count documents of the plant
+(listPhysicalInventoryDocuments, getPhysicalInventoryDocument: what earlier counts found) and the materials' cycle counting
+indicators at the plant (listCycleCountMaterials).
 
 Then recommend once, on the plant, kind count_proposal. The content has one line per material you propose to count, each
 exactly as given for it and in the order given, then your reasons: why these are counted now (their class, their movements,

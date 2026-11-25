@@ -1263,8 +1263,14 @@ A later slice adds its row here and its section under "As built".
   the year: the list is in creation order, and a goods receipt or a
   stock take-over is posted on the day its caller names, review:batch88),
   and count documents
-  (`listPhysicalInventoryDocuments`), all by `plant_id`. Any of them the
-  agent may not read stops it there.
+  (`listPhysicalInventoryDocuments`), all by `plant_id`, and, since S2c2
+  (2026-11-24), the materials' cycle counting indicators at the plant
+  (`listCycleCountMaterials`, also among its reads): a material with one
+  is due by its indicator's interval rather than its class's, and its
+  line adds `, cycle counting indicator <code> every <n> days` after its
+  class (ADR-0082 As built S2c2). Any of them the agent may not read
+  stops it there. Its never list holds the four writes of the indicators
+  too, as does the demand forecasting agent's (S2m).
 - **What is due is computed, not judged** (as T110a's failing objects):
   each material in stock at a storage location of the plant gets its
   class, movements and last count there, and a line, `Count <material

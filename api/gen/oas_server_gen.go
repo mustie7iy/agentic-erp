@@ -1777,6 +1777,34 @@ type Handler interface {
 	//
 	// POST /v1/customer-sales-data
 	CreateCustomerSalesData(ctx context.Context, req *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (CreateCustomerSalesDataRes, error)
+	// CreateCycleCountIndicator implements createCycleCountIndicator operation.
+	//
+	// Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
+	// code (A, B, C, D or the tenant's own, one to four capital letters or digits) and the interval in
+	// days, 1 to 366, between counts of a material that carries it (`createCycleCountMaterial`). The plant
+	// is an active plant of a company the caller may act in (422 `inventory.plant_invalid`); a code is
+	// used once at a plant (409 `inventory.cycle_count_indicator_exists`). Audited. A retry with the same
+	// `Idempotency-Key` answers the indicator created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/cycle-count-indicators
+	CreateCycleCountIndicator(ctx context.Context, req *CycleCountIndicatorCreate, params CreateCycleCountIndicatorParams) (CreateCycleCountIndicatorRes, error)
+	// CreateCycleCountMaterial implements createCycleCountMaterial operation.
+	//
+	// Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP
+	// MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant
+	// falls due once the indicator's interval has passed since its last posted count there
+	// (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422
+	// `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422
+	// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
+	// `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
+	// neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
+	// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
+	// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
+	// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/cycle-count-materials
+	CreateCycleCountMaterial(ctx context.Context, req *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (CreateCycleCountMaterialRes, error)
 	// CreateDisputeCase implements createDisputeCase operation.
 	//
 	// Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more
@@ -4380,6 +4408,21 @@ type Handler interface {
 	//
 	// GET /v1/customer-sales-data/{id}
 	GetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (GetCustomerSalesDataRes, error)
+	// GetCycleCountIndicator implements getCycleCountIndicator operation.
+	//
+	// A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code
+	// and its interval in days. One of a company the caller cannot act in is not found.
+	//
+	// GET /v1/cycle-count-indicators/{id}
+	GetCycleCountIndicator(ctx context.Context, params GetCycleCountIndicatorParams) (GetCycleCountIndicatorRes, error)
+	// GetCycleCountMaterial implements getCycleCountMaterial operation.
+	//
+	// A material's cycle counting indicator at a plant (ADR-0082 As built S2c2): its plant and company by
+	// code, its material by number and description, and its indicator by code with its interval. One of a
+	// company the caller cannot act in is not found.
+	//
+	// GET /v1/cycle-count-materials/{id}
+	GetCycleCountMaterial(ctx context.Context, params GetCycleCountMaterialParams) (GetCycleCountMaterialRes, error)
 	// GetDepreciationRun implements getDepreciationRun operation.
 	//
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -6272,6 +6315,37 @@ type Handler interface {
 	//
 	// GET /v1/customer-sales-data
 	ListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (ListCustomerSalesDataRes, error)
+	// ListCycleCountIndicators implements listCycleCountIndicators operation.
+	//
+	// The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
+	// built S2c2; SAP T159C, from memory), each as `getCycleCountIndicator` gives it, in the order they
+	// were created. Filtered by plant and by code. Sortable by: `created_at`.
+	//
+	// GET /v1/cycle-count-indicators
+	ListCycleCountIndicators(ctx context.Context, params ListCycleCountIndicatorsParams) (ListCycleCountIndicatorsRes, error)
+	// ListCycleCountMaterials implements listCycleCountMaterials operation.
+	//
+	// The cycle counting indicators of materials at the plants of the companies the caller may act in
+	// (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
+	// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+	//
+	// GET /v1/cycle-count-materials
+	ListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (ListCycleCountMaterialsRes, error)
+	// ListCycleCountsDue implements listCycleCountsDue operation.
+	//
+	// The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
+	// memory): each material with a cycle counting indicator at the plant, at each storage location of the
+	// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
+	// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
+	// posted count there is its indicator's interval or more days before today. Each names its material,
+	// storage location, indicator and interval, its last count and the day it fell due. Never counted
+	// first, then the longest due. A count document of a storage location's materials as listed
+	// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
+	// posted, an interval before they fall due again. The plant is an active plant of a company the caller
+	// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+	//
+	// GET /v1/cycle-counts-due
+	ListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (ListCycleCountsDueRes, error)
 	// ListDepreciationRuns implements listDepreciationRuns operation.
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -9987,6 +10061,24 @@ type Handler interface {
 	//
 	// PATCH /v1/customer-sales-data/{id}
 	UpdateCustomerSalesData(ctx context.Context, req *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (UpdateCustomerSalesDataRes, error)
+	// UpdateCycleCountIndicator implements updateCycleCountIndicator operation.
+	//
+	// Changes an indicator's interval at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As
+	// built S2c2); an interval it already has is 422 `inventory.nothing_to_change`. Its plant and code do
+	// not change. The counts due of the materials that carry it (`listCycleCountsDue`) follow it at once.
+	// JSON Merge Patch. Audited with the interval before and after. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/cycle-count-indicators/{id}
+	UpdateCycleCountIndicator(ctx context.Context, req *CycleCountIndicatorUpdate, params UpdateCycleCountIndicatorParams) (UpdateCycleCountIndicatorRes, error)
+	// UpdateCycleCountMaterial implements updateCycleCountMaterial operation.
+	//
+	// Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
+	// ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
+	// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
+	// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/cycle-count-materials/{id}
+	UpdateCycleCountMaterial(ctx context.Context, req *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (UpdateCycleCountMaterialRes, error)
 	// UpdateDisputeCase implements updateDisputeCase operation.
 	//
 	// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
