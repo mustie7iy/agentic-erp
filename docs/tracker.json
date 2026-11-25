@@ -1326,6 +1326,20 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "fix: a configuration activation keeps the row locks of the number ranges it raised while it goes on to apply the rest of the document (applyRanges raises only changed ranges since finfix, but each lock is held to commit), so a posting that draws a number from a range the activation raised can still form a lock cycle with it (40P01; both roll back, nothing written): take the ranges in the same order as a posting does, or raise them last",
+      "r": "internal/configuration/configuration.go applyRanges · internal/platform/numbering · internal/ledger/ports.go Determination (determinationLock, shared) · internal/ledger/setup.go Setup.Apply (exclusive) · ADR-0008 lock order · finfix's review",
+      "src": "review:batch95",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A cash liquidity simulation and a snapshot read still look each company's legal entity up one round trip at a time (LegalEntities.ByCode per company), as readDaysOf did before finfix: read them in one LegalEntities.Entities lookup",
+      "r": "internal/cash/simulation.go (LegalEntities.ByCode per company) · internal/cash/snapshot_read.go (Company per legal entity, ByCode) · internal/cash/readday.go zonedDays (finfix, the one lookup) · ADR-0051 As built",
+      "src": "review:batch95",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "A cash discount a UAE customer takes reduces the output tax (product owner 2026-11-21, as T36d's correction reduces input tax on the supplier side): a payment within the discount period of an invoice whose codes levy VAT corrects the output tax per tax item in proportion, with the item's jurisdiction (emirate), so the VAT 201 reports the reduced tax; today receivables writes what the customer took off as a payment difference without a tax code (ADR-0063 T75f, Not built). A Canadian cash discount keeps making no GST/HST adjustment (ETA s.161, Musto 2026-11-21)",
       "r": "ADR-0049 As built batch 88 · ADR-0063 T75f, As built cash discount granted (migration 000445) · TestUAECashDiscount · TestCanadianCashDiscount · walkthrough step 156",
@@ -1532,6 +1546,20 @@
         "r": "ADR-0057 §1, §9, As built (B14) · GET /v1/asset-history-sheet",
         "src": "po:2026-11-09",
         "pilot": "po:2026-11-09 · adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A separate accumulated impairment account (IAS 16.73(d) allows accumulated impairment aggregated with accumulated depreciation, as built): an asset class may name its own accumulated impairment account, its postings land there, and a retirement or transfer removes its share of accumulated impairment from it apart from accumulated depreciation",
+        "r": "ADR-0057 As built, impairment (accumulated depreciation holds accumulated impairment) · internal/assets impairment.go, retirement.go, transfer · companies[].asset_accounts · IAS 16.73(d) · impair's backlog",
+        "src": "review:batch95",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Measurement of an asset classified as held for sale (IFRS 5.15, 5.20, 5.21): at the lower of its carrying amount and fair value less costs to sell at classification, the write-down an impairment loss and a later gain a reversal up to the losses recognised, posted through the impairment path; the classification itself and the depreciation stop are their own leaf (B11)",
+        "r": "ADR-0057 As built, impairment · internal/assets impairment.go · IFRS 5.15, 5.20, 5.21 (cited from memory, to confirm with the accounting specialist) · impair's backlog",
+        "src": "review:batch95",
         "c": []
        },
        {
@@ -2633,6 +2661,13 @@
         "t": "Tax follow-up: the declared tax base and the jurisdiction on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases and sales by emirate",
         "r": "ADR-0049 §9 · after T61e · api/asyncapi.yaml JournalEntryPostedV1 lines tax_jurisdiction, tax_base_tc, tax_base_lc · ledger.addTax · TestPostedEventTax · analytics/datasets/v1/gl_lines.yaml tax_jurisdiction, tax_base_minor (role measure) · semantic dimension tax_jurisdiction of revenue and income · reader TestTaxColumns · extract TestTaxColumns, TestJournalExtractedAgain (the journal extracted again when its columns change) · store TestParity · ADR-0049 §9 As built batch 95 · ADR-0044 As built batch 95 · walkthrough step 41 (step_uae)",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A governed analytics metric of the declared import bases (the VAT 201's box 6, imports accounted for through the return): the gl_lines dataset carries tax_base_minor and tax_jurisdiction since taxevent, but no semantic metric sums the declared base of import tax codes per period and company, so an analyst rebuilds the box from raw lines",
+        "r": "internal/analytics/semantic.yaml · analytics/datasets/v1/gl_lines.yaml tax_base_minor · ADR-0044 As built taxevent · ADR-0049 §9 · taxevent's backlog",
+        "src": "review:batch95",
         "c": []
        },
        {
