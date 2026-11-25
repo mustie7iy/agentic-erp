@@ -5337,8 +5337,8 @@ uae_return() {
   imported=$(field .id)
   uae_ledger_events "$hook" "$dubai" "$imported"
   as carla
-  say "The analytical store reads the same lines (ADR-0044 As built batch 95): Carla asks revenue by tax jurisdiction, so"
-  say "the quarter's sales come by emirate, the export and the exempt supply under none:"
+  say "Analytics reads the same lines, from the database or the analytical store as fresh as it is (ADR-0044 As built"
+  say "batch 95): Carla asks revenue by tax jurisdiction, the quarter's sales by emirate, the export and exempt supply under none:"
   api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value // "" | if . == "" then "none" else . end): \(.[1].value) \(.[1].currency)")' runAnalyticsQuery \
     -body "{\"measures\": [\"revenue\"], \"by\": [\"tax_jurisdiction\"], \"companies\": [\"$AE\"]}"
   expect "revenue by emirate" "$(field '[.rows[] | "\(.[0].value // "" | if . == "" then "none" else . end) \(.[1].value)"] | sort | join(", ")')" \
