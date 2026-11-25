@@ -1935,9 +1935,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A memo record list finds the legal entities of all zoned companies in one lookup, not one ByCode round trip per company: since T72n7 every new tenant's companies have a zone, so T72n2's saving for a tenant without zones no longer applies",
-      "r": "found in batch 26's integration review (nit) · internal/cash readday.go readDaysOf (LegalEntities.ByCode per company) · ADR-0051 as built (T72n2)",
+      "r": "found in batch 26's integration review (nit) · internal/cash readday.go readDaysOf (LegalEntities.ByCode per company) · ADR-0051 as built (T72n2) · done (finfix): readday.go zonedDays, one LegalEntities.Entities lookup; TestReadDaysOfOneLookup",
       "src": "review:batch26",
       "c": []
      }
