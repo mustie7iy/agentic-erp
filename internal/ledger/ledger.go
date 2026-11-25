@@ -106,6 +106,9 @@ type Endpoints struct {
 	// Releases tells which payment runs are being released, which a period
 	// is not closed or locked under (ADR-0038 As built).
 	Releases PaymentReleases
+	// Clearings holds a clearing of open items to the rules of the
+	// contexts that own them (ClearingGuard): receivables'.
+	Clearings ClearingGuard
 }
 
 // PersonNames is the identity context's names of principals by id; an id

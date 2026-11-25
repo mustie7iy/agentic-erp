@@ -174,6 +174,10 @@ var tierRules = []struct {
 	// The account accruals are credited to decides what the parked entries
 	// of accrual proposals post (ADR-0058 §3): posting-related.
 	{rx(`^companies\[\*\]\.close\.accrual_account$`), TierPostingRelated},
+	// Whether a close's signer must differ from its preparers is a
+	// segregation of duties rule, an authorization: tier 3 (ADR-0058 As
+	// built T64o), as the payment run's dual release limit is.
+	{rx(`^companies\[\*\]\.close\.sign_off_separation$`), TierPostingRelated},
 	{rx(`^close(\.|$)`), TierOperational},
 	// Group reporting (ADR-0059 §3): names are cosmetic; the closing rate's
 	// type and the eliminations' tolerances operational; the eliminations'

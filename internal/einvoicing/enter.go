@@ -52,6 +52,22 @@ type Payables interface {
 	// Invoices names entered invoices by id: their number, the supplier
 	// reference, status and supplier.
 	Invoices(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]EnteredInvoice, error)
+	// Linkable reads, FOR UPDATE, an invoice a person would link a held
+	// document to (T65f), of a company the caller may act in; found false
+	// for none.
+	Linkable(ctx context.Context, id uuid.UUID) (LinkTarget, bool, error)
+	// EnteredAs is the kind of supplier invoice a document of the kind
+	// is entered as (ADR-0061 §6: a tax invoice an invoice, a tax credit
+	// note a credit memo), the one mapping entering writes and a link
+	// compares (T65f).
+	EnteredAs(kind string) string
+	// HoldsTaxNumber says whether the supplier holds the TRN as a tax
+	// identifier, compared by its keyed fingerprint without opening one.
+	HoldsTaxNumber(ctx context.Context, supplier uuid.UUID, trn string) (bool, error)
+	// Attach makes the bytes kept under ref, with their hash, the
+	// document of an invoice entered by hand that has none (T65f),
+	// audited.
+	Attach(ctx context.Context, id uuid.UUID, sha []byte, ref string) error
 }
 
 // Entry is a validated document to enter: the company it is addressed

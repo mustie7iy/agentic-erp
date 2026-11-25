@@ -122,7 +122,8 @@ type item struct {
 // AB, on the clearing date) offsets each item on its account, so each
 // reconciliation account keeps the balance of its open items; its lines are
 // cleared together with the items. It posts to the ledgers every item was
-// posted in (itemLedgers) and clears the items' copies there too.
+// posted in (itemLedgers) and clears the items' copies there too. The
+// items' owners may refuse it first (Clearings, ClearingGuard).
 func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, date time.Time, refs []ItemRef) (Clearing, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -133,6 +134,10 @@ func (e *Endpoints) createClearing(ctx context.Context, legalEntity uuid.UUID, d
 		return Clearing{}, err
 	}
 	if err := requireDistinct(refs); err != nil {
+		return Clearing{}, err
+	}
+	// The guard's locks come before loadItems' (ClearingGuard).
+	if err := e.guardClearing(ctx, tx, le.ID, refs); err != nil {
 		return Clearing{}, err
 	}
 	items, err := loadItems(ctx, tx, refs)

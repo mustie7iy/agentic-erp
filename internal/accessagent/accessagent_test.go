@@ -293,7 +293,7 @@ func TestReviewThroughAnotherContext(t *testing.T) {
 		"- tax.return.prepare: not used: no holder has an audit event in tax (it is needed by prepareTaxReturn, withdrawTaxReturn)",
 		"- cash.forecast.read: use not recorded",
 		"- ledger.entry.read: use not recorded",
-		"- einvoicing.einvoice.manage: not used: no holder has an audit event in einvoicing (it is needed by fetchEInvoices)",
+		"- einvoicing.einvoice.manage: not used: no holder has an audit event in einvoicing (it is needed by dismissEInvoice, fetchEInvoices, linkEInvoice, retryEInvoice)",
 		"For remove_permissions the content starts with the line: " + remove,
 		"The content has the line: " + records,
 	} {

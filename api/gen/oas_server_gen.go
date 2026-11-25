@@ -1386,8 +1386,12 @@ type Handler interface {
 	// write-offs, this one's included, leave owed is refused (422 `receivables.bad_debt_paid` naming
 	// `write_off_journal_entry_id`): what was paid is no bad debt; one whose items or write-off credits a
 	// payment applied in another currency is refused too (422
-	// `receivables.relieved_invoice_other_currency`). When the customer pays later, the payment charges
-	// the tax again (`createIncomingPayment`, `bad_debt_recharges`). Human-only (`x-agent: false`).
+	// `receivables.relieved_invoice_other_currency`). One whose items or write-off credits a ledger
+	// clearing (`createClearing`) settled against an item that is none of them, such as a credit posted
+	// straight to the customer, is refused too (422 `receivables.relieved_invoice_clearing` naming
+	// `customer_invoice_id`, its detail naming the clearing): what it settled is not counted as paid. When
+	// the customer pays later, the payment charges the tax again (`createIncomingPayment`,
+	// `bad_debt_recharges`). Human-only (`x-agent: false`).
 	//
 	// POST /v1/bad-debt-reliefs
 	CreateBadDebtRelief(ctx context.Context, req *BadDebtReliefCreate, params CreateBadDebtReliefParams) (CreateBadDebtReliefRes, error)
@@ -1495,7 +1499,14 @@ type Handler interface {
 	// was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date).
 	// A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its
 	// payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run
-	// settles or frees it.
+	// settles or frees it. A clearing of a relieved customer invoice's items (`createBadDebtRelief`), of
+	// the residual items its incoming payments left or of its write-offs' credits against an item that is
+	// not that invoice's, such as a credit posted straight to the customer or another relieved invoice's
+	// line, is refused (422 `receivables.relieved_invoice_clearing` naming that item in `items`): what the
+	// customer pays of a relieved invoice is applied with an incoming payment (`createIncomingPayment`),
+	// which charges the relieved tax again (ADR-0049 As built batch 94). One invoice's such items cleared
+	// with each other alone, such as its item with a relieved write-off's credit, settle nothing paid and
+	// are cleared.
 	//
 	// POST /v1/clearings
 	CreateClearing(ctx context.Context, req *ClearingCreate, params CreateClearingParams) (CreateClearingRes, error)
@@ -2823,41 +2834,42 @@ type Handler interface {
 	// Runs revenue recognition for a company and one of its regular fiscal periods and posts it (ADR-0068
 	// §9, T81d), in the request's transaction: either the whole run is posted or nothing. The system does
 	// the arithmetic only; every judgement is the person's, on the contract. For each `active` revenue
-	// contract of the company the run reads the recognition schedule to the period's last day
-	// (`getRevenueSchedule`: a point-in-time obligation by its order item's delivery confirmations or the
-	// day named on it, an over-time obligation on a straight line by days, whole fiscal periods) and the
-	// order item's posted billing to that day (the net amounts of the billing documents posted on or
-	// before it, without tax). Billing credited each item's revenue account with what was billed; per
-	// obligation the run's entry moves that account by the revenue recognized to the period's end less the
-	// revenue billed to it, less what earlier runs posted for the obligation: a credit when more is
-	// recognized than billed and posted so far, a debit when less. The contract's position is the sum of
-	// its obligations' recognized less billed amounts: the entry takes the position the last run left off
-	// its account and puts the new one on the company's contract asset account
-	// (`account_determination.contract_asset`) when revenue recognized exceeds revenue billed, a debit, or
-	// on its contract liability account (`account_determination.contract_liability`) when revenue billed
-	// exceeds revenue recognized, a credit, so a contract shows one of the two and never both; the posted
-	// invoice stays the receivable, and output tax is not touched: it is reported at the invoice date. The
-	// amounts are cumulative, so a delivery or a billing document dated into a period already run is
-	// caught up by the next run, and a contract whose figures did not move since its last posting posts
-	// nothing. Each contract that moved posts one balanced journal entry (document type `SA`,
-	// `source_context` `revenue`, dated the period's last day, the sales order's number as its reference)
-	// to every ledger the company keeps. One run per company and period: a second is refused (409
-	// `revenue.recognition_run_exists`), and a retry with the same `Idempotency-Key` answers the run as
-	// the first answered it. A company's first run is for any open period; each later run is for a later
-	// period than its last (409 `revenue.recognition_period_not_later`): a run is not reversed or repeated
-	// in the first version. `legal_entity_id` is a company the caller may act in (422
-	// `request.reference_not_found`); `fiscal_period` is a regular posting period of `fiscal_year` in the
-	// company's calendar (422 `ledger.no_fiscal_period` for a year that is not set up, 422
-	// `revenue.period_not_regular`); the company has both accounts (422 `revenue.no_contract_accounts`);
-	// the period is open in every ledger the company keeps (409 `ledger.period_not_open`), also when
-	// nothing is to post; the company has at most 2,000 active contracts (422
-	// `revenue.recognition_run_too_large`: larger runs are not supported yet). A day a contract's schedule
-	// needs a fiscal period for that lies in no fiscal year set up is refused naming the contract's order
-	// and the obligation (422 `revenue.no_fiscal_period`). What the ledger refuses of an entry refuses the
-	// run (for example an obligation's revenue account that is no longer postable). The answer is the run
-	// with its totals, what its entries moved revenue by on balance (`revenue_amount`) and its postings,
-	// one per contract that moved, each naming its journal entry. Audited, and published as
-	// RevenueRecognized. Human-only (`x-agent: false`).
+	// contract of the company whose revenue can still move (one that has not ended, and an ended one until
+	// a run took its contract asset or liability off; one ended with nothing posted is not read) the run
+	// reads the recognition schedule to the period's last day (`getRevenueSchedule`: a point-in-time
+	// obligation by its order item's delivery confirmations or the day named on it, an over-time
+	// obligation on a straight line by days, whole fiscal periods) and the order item's posted billing to
+	// that day (the net amounts of the billing documents posted on or before it, without tax). Billing
+	// credited each item's revenue account with what was billed; per obligation the run's entry moves that
+	// account by the revenue recognized to the period's end less the revenue billed to it, less what
+	// earlier runs posted for the obligation: a credit when more is recognized than billed and posted so
+	// far, a debit when less. The contract's position is the sum of its obligations' recognized less
+	// billed amounts: the entry takes the position the last run left off its account and puts the new one
+	// on the company's contract asset account (`account_determination.contract_asset`) when revenue
+	// recognized exceeds revenue billed, a debit, or on its contract liability account
+	// (`account_determination.contract_liability`) when revenue billed exceeds revenue recognized, a
+	// credit, so a contract shows one of the two and never both; the posted invoice stays the receivable,
+	// and output tax is not touched: it is reported at the invoice date. The amounts are cumulative, so a
+	// delivery or a billing document dated into a period already run is caught up by the next run, and a
+	// contract whose figures did not move since its last posting posts nothing. Each contract that moved
+	// posts one balanced journal entry (document type `SA`, `source_context` `revenue`, dated the period's
+	// last day, the sales order's number as its reference) to every ledger the company keeps. One run per
+	// company and period: a second is refused (409 `revenue.recognition_run_exists`), and a retry with the
+	// same `Idempotency-Key` answers the run as the first answered it. A company's first run is for any
+	// open period; each later run is for a later period than its last (409
+	// `revenue.recognition_period_not_later`): a run is not reversed or repeated in the first version.
+	// `legal_entity_id` is a company the caller may act in (422 `request.reference_not_found`);
+	// `fiscal_period` is a regular posting period of `fiscal_year` in the company's calendar (422
+	// `ledger.no_fiscal_period` for a year that is not set up, 422 `revenue.period_not_regular`); the
+	// company has both accounts (422 `revenue.no_contract_accounts`); the period is open in every ledger
+	// the company keeps (409 `ledger.period_not_open`), also when nothing is to post; the company has at
+	// most 2,000 active contracts (422 `revenue.recognition_run_too_large`: larger runs are not supported
+	// yet). A day a contract's schedule needs a fiscal period for that lies in no fiscal year set up is
+	// refused naming the contract's order and the obligation (422 `revenue.no_fiscal_period`). What the
+	// ledger refuses of an entry refuses the run (for example an obligation's revenue account that is no
+	// longer postable). The answer is the run with its totals, what its entries moved revenue by on
+	// balance (`revenue_amount`) and its postings, one per contract that moved, each naming its journal
+	// entry. Audited, and published as RevenueRecognized. Human-only (`x-agent: false`).
 	//
 	// POST /v1/revenue-recognition-runs
 	CreateRevenueRecognitionRun(ctx context.Context, req *RevenueRecognitionRunCreate, params CreateRevenueRecognitionRunParams) (CreateRevenueRecognitionRunRes, error)
@@ -3289,6 +3301,19 @@ type Handler interface {
 	//
 	// POST /v1/consolidation-runs/{id}:discard
 	DiscardConsolidationRun(ctx context.Context, params DiscardConsolidationRunParams) (DiscardConsolidationRunRes, error)
+	// DismissEInvoice implements dismissEInvoice operation.
+	//
+	// Closes a held e-invoice that will not be entered (ADR-0061 §7, T65f): sent in error, or replaced by
+	// the supplier. The document becomes `dismissed`, final, keeping the problem it was held with, with
+	// the reason given (`dismissal_reason`), `resolution` `dismissed`; audited
+	// (`einvoicing.einvoice.dismissed`, without the reason's text, ADR-0079) and published
+	// (EInvoiceChanged, status_before `held`). Refused: a document that is not held (409
+	// `einvoicing.einvoice_not_held`); another ETag (412); a reason that is white space alone (422
+	// `request.validation_failed`). Not found (404) for a company the caller may not act in. People only
+	// (`x-agent: false`, ADR-0061 §13).
+	//
+	// POST /v1/e-invoices/{id}:dismiss
+	DismissEInvoice(ctx context.Context, req *EInvoiceDismissal, params DismissEInvoiceParams) (DismissEInvoiceRes, error)
 	// DrillAnalyticsQuery implements drillAnalyticsQuery operation.
 	//
 	// Drill-through (T94b, ADR-0044 As built T94b): the documents that make up one measure of one row of a
@@ -5694,6 +5719,36 @@ type Handler interface {
 	//
 	// POST /v1/bank-statements
 	ImportBankStatements(ctx context.Context, req *BankStatementUploadMultipart, params ImportBankStatementsParams) (ImportBankStatementsRes, error)
+	// LinkEInvoice implements linkEInvoice operation.
+	//
+	// Records that a person entered a held e-invoice by hand (ADR-0061 §7, T65f; SAP Document and
+	// Reporting Compliance's assignment of an inbound e-document to an invoice posted manually): the
+	// document becomes `entered`, naming that supplier invoice and its supplier, `resolution` `linked`,
+	// and the invoice's document becomes the e-invoice's bytes (`getSupplierInvoiceDocument`), whether the
+	// invoice is parked, on hold or posted, as a document never changes what was posted; audited
+	// (`einvoicing.einvoice.linked` and the invoice's `payables.supplier_invoice.document_attached`) and
+	// published (EInvoiceChanged, status_before `held`). The invoice must be one entered by hand (source
+	// `manual`), not rejected, cancelled or reversed, of the document's company, of the supplier holding
+	// the seller's TRN (IBT-031) as a tax identifier, of the kind the document is entered as (IBT-003: a
+	// tax invoice an `invoice`, a tax credit note a `credit_memo`), with the document's issue date
+	// (IBT-002) as its invoice date, in the document's currency (IBT-005) with its total with VAT
+	// (IBT-112) as its gross amount and its VAT total (IBT-110) as its tax amount, compared exactly in
+	// minor units, with the document's number (IBT-001) as its supplier reference, and without a document
+	// of its own; otherwise 422 `einvoicing.link_mismatch`, its detail and field errors naming each that
+	// differs (the TRN by its last four characters only; the amounts with their currency). The invoice is
+	// read under its lock, held until the document is attached, so what is compared is what the document
+	// is attached to. An invoice another e-invoice names already is refused with 409
+	// `einvoicing.invoice_already_linked` naming it (at most one e-invoice names an invoice); one whose
+	// document already is these bytes, 409 `payables.already_captured`. Refused also: a document that is
+	// not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored bytes gone or not
+	// those received (409 `einvoicing.document_changed`); an invoice the tenant has none of, or of a
+	// company the caller may not act in (422 `request.reference_not_found`). Besides
+	// `einvoicing.einvoice.manage` the caller needs `payables.invoice.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Not found (404) for a company the caller may not act in.
+	// 503 while the server has no object storage. People only (`x-agent: false`, ADR-0061 §13).
+	//
+	// POST /v1/e-invoices/{id}:link
+	LinkEInvoice(ctx context.Context, req *EInvoiceLink, params LinkEInvoiceParams) (LinkEInvoiceRes, error)
 	// ListAccounts implements listAccounts operation.
 	//
 	// General ledger accounts. Sortable by: `number`.
@@ -9057,6 +9112,25 @@ type Handler interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// RetryEInvoice implements retryEInvoice operation.
+	//
+	// Enters a held e-invoice again (ADR-0061 §7, T65f), after the cause of its hold was corrected (the
+	// purchase order, the supplier's tax identifiers, the company's account determination): in the
+	// request's transaction, as a fetch enters a valid document (§6) but in the caller's name and company
+	// access, its bytes read again from the store and compared with the hash recorded. The answer is the
+	// document: `entered` naming the supplier invoice it was entered as, or still `held` with the problem
+	// of this attempt (`problem_code`, `problem_detail`), 200 either way: a refusal of the entering is the
+	// document's state, not the request's. A document the rules refuse by now, one not in AED that does
+	// not state each line's VAT in AED, and a tax credit note naming no invoice stay held with that
+	// problem. Either way `resolution` becomes `retried` and `resolved_at` the time, audited
+	// (`einvoicing.einvoice.retried`, with the outcome) and published (EInvoiceChanged, status_before
+	// `held`). Refused: a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag
+	// (412); its stored bytes gone or not those received (409 `einvoicing.document_changed`). Not found
+	// (404) for a company the caller may not act in. 503 while the server has no object storage. People
+	// only (`x-agent: false`): agents read e-invoices and propose; a person acts (ADR-0061 §13).
+	//
+	// POST /v1/e-invoices/{id}:retry
+	RetryEInvoice(ctx context.Context, params RetryEInvoiceParams) (RetryEInvoiceRes, error)
 	// RetryOutgoingEInvoiceTaxData implements retryOutgoingEInvoiceTaxData operation.
 	//
 	// Asks the company's accredited provider to send again a tax data document the authority's corner
@@ -9616,24 +9690,29 @@ type Handler interface {
 	//
 	// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
 	// §7, T64d), in one transaction under a lock on the close: refused while a manual task is open (409
-	// `closing.tasks_open`, naming them); then every check task's check runs again, and if any fails the
-	// sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each
-	// failing task with what its check found) and nothing is kept (`:check` records a result); when all
-	// pass each result is recorded on its task. Each covered ledger's period must then be `closed` or
-	// `locked` (409 `closing.period_not_closed`, naming the ledgers still open): a close is signed off
-	// after its period stopped taking postings, and a sign-off never closes a period. Each `closed`
-	// covered period is locked as `lockFiscalPeriod` locks it (the ledger's audit record and
-	// PeriodLocked), the leading ledger first, then by ledger code, the order postings lock periods in; a
-	// period already locked is left as it is, and a period changed by someone else between its read and
-	// its lock refuses the sign-off (412 `request.version_mismatch`). The sign-off is recorded with who
-	// signed off, when, the note and, per covered ledger, its period and whether this sign-off locked it,
-	// and the close is `signed_off`. A close already signed off whose covered periods are all locked is
-	// refused (409 `closing.close_signed_off`); after a covered period was unlocked (an approved
-	// `unlockFiscalPeriod` request) it is signed off again, adding a second sign-off. `If-Match` is the
-	// close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides
-	// `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and
-	// `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403
-	// `identity.permission_missing` otherwise). Audited, and published as PeriodCloseSignedOff.
+	// `closing.tasks_open`, naming them); where the close's company separates sign-off from preparation
+	// (`companies[].close.sign_off_separation`, on unless the company sets it false; ADR-0058 As built
+	// T64o), a caller who completed one of the close's tasks as they stand, a manual task by `:complete`
+	// or a check by its first passing run, is refused before the checks run (409
+	// `closing.signer_is_preparer`, naming those tasks): another person signs it off; then every check
+	// task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
+	// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept
+	// (`:check` records a result); when all pass each result is recorded on its task. Each covered
+	// ledger's period must then be `closed` or `locked` (409 `closing.period_not_closed`, naming the
+	// ledgers still open): a close is signed off after its period stopped taking postings, and a sign-off
+	// never closes a period. Each `closed` covered period is locked as `lockFiscalPeriod` locks it (the
+	// ledger's audit record and PeriodLocked), the leading ledger first, then by ledger code, the order
+	// postings lock periods in; a period already locked is left as it is, and a period changed by someone
+	// else between its read and its lock refuses the sign-off (412 `request.version_mismatch`). The
+	// sign-off is recorded with who signed off, when, the note and, per covered ledger, its period and
+	// whether this sign-off locked it, and the close is `signed_off`. A close already signed off whose
+	// covered periods are all locked is refused (409 `closing.close_signed_off`); after a covered period
+	// was unlocked (an approved `unlockFiscalPeriod` request) it is signed off again, adding a second
+	// sign-off. `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag.
+	// People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
+	// periods, and `ledger.entry.read`, since its refusal names what the checks found
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+	// PeriodCloseSignedOff.
 	//
 	// POST /v1/period-closes/{id}:signOff
 	SignOffPeriodClose(ctx context.Context, req OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (SignOffPeriodCloseRes, error)
@@ -9645,21 +9724,26 @@ type Handler interface {
 	// in one statement, by period, then the leading ledger first, then by ledger code (the order postings
 	// lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close
 	// already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then
-	// refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's
-	// check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
-	// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept;
-	// when all pass each result is recorded on its task. Every regular period of each covered ledger must
-	// be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked:
-	// the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed`
-	// or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a
-	// sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod`
-	// locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is
-	// left as it is. After it every period of the year is locked in the covered ledgers, and a posting
-	// into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and
-	// their name, when, the note and, per covered ledger, its special periods and whether this sign-off
-	// locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved
-	// `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No
-	// separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060
+	// refused while a manual task is open (409 `closing.tasks_open`, naming them); where the close's
+	// company separates sign-off from preparation (`companies[].close.sign_off_separation`, on unless the
+	// company sets it false; ADR-0058 As built T64o), a caller who completed one of the close's tasks as
+	// they stand, a manual task by `:complete` or a check by its first passing run, is refused before the
+	// checks run (409 `closing.signer_is_preparer`, naming those tasks): another person signs it off;
+	// every check task's check runs again, and if any fails the sign-off is refused (409
+	// `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its
+	// check found) and nothing is kept; when all pass each result is recorded on its task. Every regular
+	// period of each covered ledger must be `locked` (409 `closing.year_periods_not_locked`, naming each
+	// ledger with its periods not locked: the period closes' sign-offs, or `lockFiscalPeriod`, lock them),
+	// and every special period `closed` or `locked` (409 `closing.period_not_closed`, naming each period
+	// with the ledgers it is open in): a sign-off never closes a period. Each `closed` special period is
+	// then locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), in the
+	// order read; a period already locked is left as it is. After it every period of the year is locked in
+	// the covered ledgers, and a posting into one is refused (409 `ledger.period_not_open`). The sign-off
+	// is recorded with who signed off and their name, when, the note and, per covered ledger, its special
+	// periods and whether this sign-off locked each, and the close is `signed_off`. After a period of the
+	// year was unlocked (an approved `unlockFiscalPeriod` request) the year close is signed off again,
+	// adding a second sign-off. Who signed is recorded; a company running without separation of duties, as
+	// the pilot may until go-live, sets `sign_off_separation` false (product owner 2026-11-04, ADR-0060
 	// §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People
 	// only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
 	// periods, and `ledger.entry.read`, since its refusal names what the checks found

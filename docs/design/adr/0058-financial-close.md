@@ -1860,3 +1860,65 @@ product owner to overrule:
   yet, refused as the cut-off reminder's assignee), and
   `TestCloseDatabaseFailures`, which fails the new read in turn (tracker
   T64n).
+
+**T64o (the signer differs from the preparers; product owner 2026-11-04,
+src po:2026-11-04).** Built as the Questions' answer asked, before
+go-live, for both kinds of close (a year close's sign-off is the period
+close's with the year's periods, ADR-0060 §8, so it takes the same rule).
+No migration: the preparers are the tasks' `completed_by`, and the setting
+is configuration.
+- **The preparers** are the people recorded as completing the close's
+  tasks as they stand at the sign-off: a manual task's `:complete`, and a
+  check task's first passing run (`completed_by` keeps the first, T64c).
+  A reopened task's completion is cleared, so its earlier completer no
+  longer counts for it; whoever completes it again does. The person who
+  opened the close, assigned a task or proposed an accrual is not a
+  preparer by this rule (the leaf names the tasks' completers).
+- **The check** (`closing.notPreparer`) runs after `closing.tasks_open`
+  and before the checks run again, so a refusal keeps nothing. A check
+  task that first passes in a sign-off's own run of the checks records the
+  signer as its completer (`recordCheck`); that completion is the
+  sign-off's, not a preparation, so it never refuses that signer, also
+  when the close is signed off again after an unlock (`byASignOff`: a
+  check task completed by the caller at the instant of one of the caller's
+  sign-offs of the close, whose sign-offs are read only when the caller
+  completed a check task; review rounds 1 and 2). A preparer is refused with 409
+  `closing.signer_is_preparer`, its detail naming the tasks the caller
+  completed and the setting; another person with the permissions signs
+  off. The audit records of both sign-offs gain `sign_off_separation`
+  (whether the rule applied then); the `sign_off` rows and the events are
+  unchanged.
+- **A company setting, on by default** (decided by default, for the
+  product owner to overrule): `companies[].close.sign_off_separation`, a
+  boolean read from the active configuration at the sign-off (the control
+  in force when the close is signed, not when it was opened). Left out it
+  is on, so a company added to a configuration has it; a company sets it
+  `false` while it runs without separation of duties, as the pilot does
+  until go-live (product owner 2026-11-04). A company the configuration
+  does not name keeps the default. Switching it is tier 3, an
+  authorization rule, as `release_dual_limit` is (`config.Diff`). The
+  alternatives were a tenant-wide switch (one pilot company would hold
+  every other company of the tenant back) and a sign-off approval request
+  (a second step for every close, which the Questions' recommendation
+  did not ask for).
+- **Tested.** `closing.TestSignOffSeparated` (the preparer refused naming
+  AP_CUTOFF and REVIEW, nothing kept, the check not run; another person
+  signs off, audited with the separation; the period unlocked, the same
+  signer, recorded as NO_PARKED's completer by her sign-off, signs off
+  again; the unlock stood in for by setting the periods closed),
+  `TestSignOffSeparatedDatabaseFailures` (the re-sign-off, which reads the
+  close's sign-offs), `TestYearSignOffSeparated` (a
+  reopened task completed by another no longer counts for the first
+  preparer, a check counts for whoever passed it first, each preparer
+  refused naming their own tasks, a third person signs off),
+  `TestYearSignOffAgainSeparated` (NO_PARKED first passed by the signer's
+  own sign-off; period 13 unlocked, the signer signs off again);
+  `config.TestSignOffSeparation` (left out on, true on, false off) and
+  `TestSignOffSeparationTier`. The other closing tests run as the pilot
+  does (`withTemplate` sets it false).
+- **Walkthrough.** `close_sign_off` in `step_close`: Carla, who completed
+  the close's tasks, is refused (`closing.signer_is_preparer`, the tasks
+  named as the close lists her completions); Fiona Finance Director is
+  refused while the period is open, Carla closes it, Fiona signs off.
+  `year_end_sign_off` in step 42: Fiona signs the year close off, Carla
+  having prepared it.

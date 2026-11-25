@@ -4387,8 +4387,13 @@ components:
         status and publishes nothing; when a fetch enters a valid tax
         invoice as a supplier invoice (T65d: `entered`, status_before
         `received`, with its `supplier_invoice_id`) or holds it on a
-        refusal of the entering (`held`, with its `problem_code`). The
-        later slices add its dismissal (T65f). It
+        refusal of the entering (`held`, with its `problem_code`); and
+        when a person resolves a held document (T65f, status_before
+        `held`, with its `resolution`): retried (`entered`, or `held`
+        with that attempt's `problem_code`), linked (`entered`, its
+        `supplier_invoice_id` the invoice entered by hand) or dismissed
+        (`dismissed`, keeping its `problem_code`; the reason is on the
+        document, not in the event). It
         carries no document content. `GET /v1/e-invoices/{id}` returns the
         document at `version` or later: its acknowledgement to the
         provider, which sets `acknowledged_at`, moves the version without
@@ -6225,7 +6230,8 @@ components:
         message_id: {type: string, description: "The provider's id of the document."}
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company it is addressed to; null when none."}
         legal_entity_code: {type: [string, 'null'], description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; null with it.'}
-        status: {type: string, description: "The document's status after the change. Open enum: received, refused (T65c), entered, held (T65d)."}
+        status: {type: string, description: "The document's status after the change. Open enum: received, refused (T65c), entered, held (T65d), dismissed (T65f)."}
+        resolution: {type: [string, 'null'], description: "A person's last resolution of a held document (T65f): retried, linked or dismissed (an open enumeration); null while none. Added within v1, so not required (ADR-0041); every event carries it."}
         problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`) or held (T65d: the problem its entering met, such as `payables.capture_needs_order`, or `einvoicing.tax_currency_not_entered`; batch 89: `payables.capture_needs_account`, `payables.einvoice_seller_ambiguous` for a volume discount naming no order; T65e: `einvoicing.credit_note_names_no_invoice`, `einvoicing.credit_note_names_several_invoices`); an open enumeration; null unless refused or held. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
         supplier_invoice_id: {type: [string, 'null'], format: uuid, description: "The supplier invoice it was entered as (T65d), a credit memo for a tax credit note (T65e); null unless entered. Added within v1, so not required (ADR-0041); every event carries it."}
         status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
@@ -7160,7 +7166,7 @@ components:
         fiscal_year: {type: integer, description: The fiscal year run.}
         fiscal_period: {type: integer, description: The fiscal period run.}
         posting_date: {$ref: '#/components/schemas/Date', description: "The period's last day: the day revenue was recognized to and the entries are dated."}
-        contract_count: {type: integer, description: The active revenue contracts of the company the run read.}
+        contract_count: {type: integer, description: "The active revenue contracts of the company the run read: those whose revenue can still move, an ended one until a run took its position off."}
         posting_count: {type: integer, description: 'The contracts that moved: the journal entries the run posted, one each.'}
         recognized_amount: {$ref: '#/components/schemas/Money', description: "The revenue recognized to the posting date of the contracts read, in the company's local currency."}
         billed_amount: {$ref: '#/components/schemas/Money', description: 'The revenue billed to the posting date of the contracts read, without tax.'}

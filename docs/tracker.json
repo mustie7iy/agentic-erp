@@ -1949,7 +1949,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Financial close designed (ADR-0058, decided by default under ADR-0053 d): a leaf closing context; the close template and a company weekend in configuration; one close per company and regular period with its checklist, checks run on demand and at sign-off; sign-off locking each covered period through T32; accrual proposals parked for a person to post; the variance report and comments; the close agent proposing only",
       "r": "ADR-0058 · T64 (split T64a-T64n)",
       "c": [
@@ -2045,9 +2045,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Close sign-off: the signer must differ from the preparer before go-live (the pilot runs without separation of duties on sign-off and records who signed; what counts as the preparer, the people who completed the close's tasks, is set when it is built)",
-        "r": "ADR-0058 Questions (segregation of duties on sign-off), As built (product owner 2026-11-04) · T64o",
+        "r": "ADR-0058 Questions (segregation of duties on sign-off), As built (product owner 2026-11-04), As built T64o · ADR-0060 As built T64o · internal/closing signoff.go notPreparer · companies[].close.sign_off_separation · T64o",
         "src": "po:2026-11-04 · adr:ADR-0058",
         "c": []
        },
@@ -2799,10 +2799,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A ledger clearing of a relieved invoice charges its bad debt relief again or is refused: createClearing (POST /v1/clearings) can clear a relieved invoice's item or its write-off's credit against a credit posted straight to the customer's account, which charges none of the relieved tax again and which receivables' paid does not count (money and tax correctness)",
-      "r": "ADR-0049 As built batch 91, Later · internal/receivables/recharge.go paidOf",
+      "r": "ADR-0049 As built batch 91, Later · ADR-0049 As built batch 94 (refused, not charged again) · internal/receivables/relievedclearing.go Clearings.GuardClearing, notClearedApart · ledger.ClearingGuard, ledger.OpenItems.ClearedApart · receivables.relieved_invoice_clearing (createClearing, createBadDebtRelief) · TestRelievedInvoiceClearing, TestReliefOfAnInvoiceClearedApart, TestReliefRacesAClearing · walkthrough step_bad_debt_relief (step 157)",
       "src": "review:batch91",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A credit memo on an invoice with bad debt relief may reduce its output tax twice, once by the relief and once by the memo: whether a credit memo after relief may reduce output tax again, or must be limited to what the relief left (UAE Federal Decree-Law No. 8 of 2017 Art. 64; GST/HST return GST34 line 107 for a Canadian company), is unconfirmed and flagged for the tax specialist before it is built",
+      "r": "ADR-0049 As built batch 94 · internal/receivables relief and credit memos · bdrclear's backlog · specialist (Musto): Art. 64, GST34 lines 104/107",
+      "src": "review:batch94",
       "c": []
      }
     ]
@@ -2902,9 +2909,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Held e-invoices resolved by people: POST /v1/e-invoices/{id}:retry (held to held with the attempt's problem, answering the document), :link (payables.EInvoices.Attach; same company, supplier and reference, no document of its own; at most one e-invoice per invoice by a partial unique index with a schema test, einvoicing.invoice_already_linked; otherwise einvoicing.link_mismatch) and :dismiss with a reason; FOR UPDATE and einvoicing.einvoice_not_held; agents refused; walkthrough: Alex links a hand-entered invoice to the held e-invoice, a second link to it refused, another dismissed, an agent's dismiss refused",
-        "r": "ADR-0061 §7, §13 · T65f",
+        "r": "ADR-0061 §7, §13 · T65f · db/migrations/000469, 000470 · retryEInvoice, linkEInvoice, dismissEInvoice · einvoicing.resolve.go · payables.Invoices.Attachable, Attach · einvoice_invoice_once · TestEInvoiceResolution · TestRetryEInvoice, TestLinkEInvoice, TestDismissEInvoice · walkthrough step_evatra_inbound (evatra_held_resolved) · ADR-0061 As built T65f",
         "src": "adr:ADR-0061",
         "c": []
        },
@@ -2964,9 +2971,9 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "fix: an outgoing e-invoice whose delivery_outcome is corrected names the credit note that corrected it (its id and number), so the correction worklist's consumer finds it without searching the credit notes by reference_invoice_number",
-          "r": "listOutgoingEInvoices delivery_outcome · ADR-0061 As built E4 (The worklist to correct by credit note) · REVIEW.md (an identifier without the name or reference its consumer needs)",
+          "r": "OutgoingEInvoiceTransmission.corrected_by (OutgoingEInvoiceCorrection) · einvoicing.correctingNotes · TestDeliveryStatus · walkthrough step_einvoice_send (einvoice_corrected) · listOutgoingEInvoices delivery_outcome · ADR-0061 As built E4 (The worklist to correct by credit note) · REVIEW.md (an identifier without the name or reference its consumer needs)",
           "src": "review:batch86",
           "c": []
          },
@@ -3087,10 +3094,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The recognition run reads every active contract of the company on each run, ended contracts and contracts whose transaction price is zero included, so the set it reads only grows with the contracts a company ever had and drifts toward revenue.recognition_run_too_large; it should read only the contracts with revenue left to recognize or to reverse, an ended contract until the run that takes its accruals off (found in T81e's review)",
-        "r": "internal/revenue run.go activeContracts · revenue.recognition_run_too_large · ADR-0068",
+        "r": "internal/revenue run.go activeContracts · revenue.recognition_run_too_large · ADR-0068 As built (the run reads the contracts whose revenue can still move)",
         "src": "review:batch79",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The recognition run's read of a company's contracts (activeContracts) filters on legal_entity_id and status and, for an ended contract, looks up its last posting per contract; it wants a partial index (for example on revenue.contract (tenant_id, legal_entity_id, sales_order_number, id) WHERE status = 'active') so that the read does not scan every contract the company ever had (pre-existing; named in closesod's report)",
+        "r": "internal/revenue run.go activeContracts · revenue.contract · ADR-0068 As built (review:batch79) · closesod's backlog",
+        "src": "review:batch94",
         "c": []
        }
       ]
@@ -12539,6 +12553,13 @@
       "t": "suppliers.OrderAddress takes the tenant-wide day, not the company's: the supplier's order desk address in force on a date is chosen on UTC's (database.Today) day where the company's own day decides, the business date class of ADR-0051 (found in batch 75's integration).",
       "r": "internal/suppliers OrderAddress · database.Today · ADR-0051 · ADR-0050 (business dates on the company's day) · done in hdates: partner ports.go Suppliers.OrderAddress takes the caller's day; procurement order_document.go documentOf passes the buyer company's config.CompanyDay · ADR-0051 as built (business dates swept), ADR-0054 §3 · TestOrderDocumentTimeZone · TestOrderDocumentZoneLost · TestOrderAddress",
       "src": "review:batch75",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Pilot onboarding: the pilot's companies set companies[].close.sign_off_separation false until go-live (no separation of duties on close sign-off for the pilot), and set it back to true (or leave it out) at go-live",
+      "r": "ADR-0058 As built T64o · companies[].close.sign_off_separation (on when left out) · po-review-2026-11-27 Batch 94 (stream F) closesod 1",
+      "src": "po:2026-11-04 · adr:ADR-0058",
       "c": []
      }
     ]
