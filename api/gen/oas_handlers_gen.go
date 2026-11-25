@@ -14749,15 +14749,16 @@ func (s *Server) handleCreateAssetAcquisitionRequest(args [0]string, argsEscaped
 // `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422
 // `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment
 // valued in a later period nor depreciation booked through a later period in any ledger, a
-// depreciation run of a later period included, even one that posted nothing for it (409
-// `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it
-// first catches up the depreciation through the period before the posting period: the planned
-// depreciation through that period less what is booked, negative when the posting period's run already
-// posted (its depreciation is posted back: the share retired depreciates for none of its period); the
-// asset is then booked through that period, unless it is already booked through the posting period. It
-// then takes the share of the asset's balances in that ledger as posted so far, the catch-up included:
-// the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them
-// for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
+// depreciation run of a later period included, even one that posted nothing for it, nor an impairment
+// or its reversal valued in its own period (409 `assets.later_value_date`; it is then valued in the
+// next period). Per ledger the company keeps (the leading ledger first, then by code) it first catches
+// up the depreciation through the period before the posting period: the planned depreciation through
+// that period less what is booked, negative when the posting period's run already posted (its
+// depreciation is posted back: the share retired depreciates for none of its period); the asset is
+// then booked through that period, unless it is already booked through the posting period. It then
+// takes the share of the asset's balances in that ledger as posted so far, the catch-up included: the
+// cost, accumulated depreciation and residual value, each rounded half away from zero, all of them for
+// a full share; with no cost left in a ledger (a credit memo took it all) only a full share is
 // accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA,
 // source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other
 // way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for
@@ -15012,7 +15013,8 @@ func (s *Server) handleCreateAssetRetirementRequest(args [0]string, argsEscaped 
 // remaining life. A planned receiver becomes active with the transfer's value date as its
 // capitalisation date; a full transfer retires the asset. For either kind, the asset (and the
 // receiver) may have no movement or center assignment valued in a later period nor depreciation booked
-// through a later period in any ledger (409 `assets.later_value_date`); a planned asset is 422
+// through a later period in any ledger, nor an impairment or its reversal valued in the transfer's
+// period (409 `assets.later_value_date`; it is then valued in the next period); a planned asset is 422
 // `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422
 // `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company
 // keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A

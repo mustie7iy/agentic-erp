@@ -270,10 +270,9 @@ func laterValueDate(ctx context.Context, tx pgx.Tx, a Asset, v Period) error {
 
 // laterValues refuses a document valued in period v while the asset has
 // a movement or an assignment valued after v, is booked through a later
-// period in a ledger, or, when estimates, has a change in estimate from a
-// later period, and, when estimates (a retirement or transfer), a change
-// in estimate from a later period or an impairment or its reversal
-// valued in v (409 assets.later_value_date, ADR-0057 §6): a run of a
+// period in a ledger, or, when estimates (a retirement or transfer), has
+// a change in estimate from a later period or an impairment or its
+// reversal valued in v (409 assets.later_value_date, ADR-0057 §6): a run of a
 // later period, an acquisition valued later, a transfer from a later
 // date. An impairment applies at the end of its period and the share is
 // taken at its start (Move), so a share taken in the same period would
