@@ -71,11 +71,11 @@ func TestDownsRevert(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		names         []string // the migrations reverted, latest first
-		table, column string   // a column the first up added
+		names                 []string // the migrations reverted, latest first
+		schema, table, column string   // a column the first up added
 	}{
-		{[]string{"000482_mrp_lot_sizing"}, "material_plan", "lot_size"},
-		{[]string{"000481_validate_material_descriptions", "000480_material_descriptions"}, "material", "description_language"},
+		{[]string{"000482_mrp_lot_sizing"}, "mrp", "material_plan", "lot_size"},
+		{[]string{"000481_validate_material_descriptions", "000480_material_descriptions"}, "materials", "material", "description_language"},
 	} {
 		t.Run(c.names[len(c.names)-1], func(t *testing.T) {
 			tx, err := conn.Begin(ctx)
@@ -89,8 +89,8 @@ func TestDownsRevert(t *testing.T) {
 				}
 			}
 			var left bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = $1 AND column_name = $2)`,
-				c.table, c.column).Scan(&left); err != nil {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2
+				AND column_name = $3)`, c.schema, c.table, c.column).Scan(&left); err != nil {
 				t.Fatal(err)
 			}
 			if left {
