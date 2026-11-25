@@ -170,24 +170,23 @@ func tracking(m materials.Material) string {
 // request's entry it is: items[j] for an entry j, with its quantity's
 // value and its item number for inventory's quantity and material; a
 // field of an item the request does not name is left out, as the request
-// has none.
+// has none (every field inventory names is of one of its items).
 func (p issuePlan) asRequest(err error) error {
 	return problem.Renamed(err, func(field string) (string, bool) {
 		for k, s := range p.src {
 			rest, ok := strings.CutPrefix(field, fmt.Sprintf("items[%d].", k))
-			switch {
-			case !ok:
+			if !ok || s.entry < 0 {
 				continue
-			case s.entry < 0:
-				return "", false
-			case rest == "quantity":
+			}
+			switch rest {
+			case "quantity":
 				rest = "quantity.value"
-			case rest == "material_id" || rest == "plant_id" || rest == "storage_location_id":
+			case "material_id", "plant_id", "storage_location_id":
 				rest = "item_no"
 			}
 			return fmt.Sprintf("items[%d].%s", s.entry, rest), true
 		}
-		return field, true
+		return "", false
 	})
 }
 

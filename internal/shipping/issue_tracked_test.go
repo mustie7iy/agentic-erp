@@ -77,12 +77,11 @@ func (e env) stockItem(material, qty string, more map[string]any) map[string]any
 }
 
 // part is a goods issue's entry: "item quantity unit", the batch number
-// ("" for none) and the serial numbers.
+// ("" for none) and the serial numbers. The item is the field as given,
+// a number in JSON.
 func part(item, batch string, serials ...string) map[string]any {
 	f := strings.Fields(item)
-	var no int
-	fmt.Sscan(f[0], &no) //nolint:errcheck // the tests' own literal
-	p := map[string]any{"item_no": no, "quantity": map[string]any{"value": f[1], "unit": f[2]}}
+	p := map[string]any{"item_no": json.Number(f[0]), "quantity": map[string]any{"value": f[1], "unit": f[2]}}
 	if batch != "" {
 		p["batch_number"] = batch
 	}
@@ -247,6 +246,8 @@ func TestGoodsIssueTrackedRefusals(t *testing.T) {
 			"items[1].serial_numbers"},
 		{"a serial number twice", issueBody(t, part("1 6 EA", "L1"), part("2 2 EA", "", "G1", "G1")), 422, "inventory.serial_repeated",
 			"items[1].serial_numbers[1]"},
+		{"part of a unit", issueBody(t, part("1 6 EA", "L1"), part("2 1.5 EA", "", "G1"), part("2 0.5 EA", "", "G2")), 422, "inventory.serial_quantity",
+			"items[1].quantity.value"},
 		{"a serial number not in stock", issueBody(t, part("1 6 EA", "L1"), part("2 2 EA", "", "G1", "G9")), 409, "inventory.serial_not_in_stock", nil},
 		{"more than the batch holds", issueBody(t, gauges, part("1 6 EA", "L2")), 409, "inventory.insufficient_stock", nil},
 	} {

@@ -45,8 +45,14 @@ func TestDeliveryBatchRefusals(t *testing.T) {
 				_, err := h.IssueForDelivery(ctx, "OD1", c.items)
 				return err
 			})
-			if !errors.As(err, &p) || p.Code != c.code || len(p.Errors) != 1 || p.Errors[0].Field != c.field {
-				t.Errorf("got %v, want %s naming %s", err, c.code, c.field)
+			if !errors.As(err, &p) {
+				t.Fatalf("got %v, want a problem", err)
+			}
+			if p.Code != c.code {
+				t.Errorf("code: got %s, want %s", p.Code, c.code)
+			}
+			if len(p.Errors) != 1 || p.Errors[0].Field != c.field {
+				t.Errorf("field errors: got %v, want one naming %s", p.Errors, c.field)
 			}
 		})
 	}

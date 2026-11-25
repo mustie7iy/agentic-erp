@@ -130,9 +130,17 @@ func TestMaterialItemTracked(t *testing.T) {
 	q, _ := e.Must(201, "POST", "/v1/quotations", e.body(e.customer, far, e.ofMaterial(batched, "1 EA", priced), e.ofMaterial(serialized, "1 EA", priced)), "")
 	o, _ := e.Must(201, "POST", "/v1/sales-orders", e.direct(e.customer, "", e.ofMaterial(batched, "1 EA", priced), e.ofMaterial(serialized, "1 EA", priced)), "")
 	for name, doc := range map[string]map[string]any{"the quotation": q, "the order": o} {
-		if its := items(t, doc); len(its) != 2 || its[0]["material_id"] != batched.String() || its[1]["material_id"] != serialized.String() {
-			t.Errorf("%s's items: got %v, want the batch-managed and the serial-managed material", name, its)
-		}
+		t.Run(name, func(t *testing.T) {
+			its := items(t, doc)
+			if len(its) != 2 {
+				t.Fatalf("items: got %d, want 2", len(its))
+			}
+			for i, want := range []string{batched.String(), serialized.String()} {
+				if got := its[i]["material_id"]; got != want {
+					t.Errorf("item %d's material: got %v, want %s", i+1, got, want)
+				}
+			}
+		})
 	}
 }
 
