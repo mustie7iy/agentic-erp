@@ -511,8 +511,8 @@ test.
   no document of its own (422 `einvoicing.link_mismatch` naming which
   differs); `EInvoices.Attach` makes the XML its document, whatever its
   status, as a document never changes what was posted (narrowed in As
-  built T65f: the same currency and gross, and not rejected, cancelled or
-  reversed).
+  built T65f: the same kind, date, currency, gross and tax, and not
+  rejected, cancelled or reversed).
 - `POST /v1/e-invoices/{id}:dismiss` (`reason`) closes a held document
   that will not be entered (sent in error, replaced by the supplier).
 - Every write reads the document `FOR UPDATE` and checks its status
@@ -2142,8 +2142,14 @@ port. Decided by default:
   refuses, with the same 422 `einvoicing.link_mismatch` and a reason
   each: another currency than the document's (IBT-005), or in its
   currency another gross amount than its total with VAT (IBT-112, the
-  gross an entered e-invoice takes), compared exactly as `money.Minor`
-  with no tolerance (the amounts in the detail with their currency); and
+  gross an entered e-invoice takes) or another tax amount than its VAT
+  total (IBT-110, the input tax the return claims on its evidence),
+  compared exactly as `money.Minor` with no tolerance (the amounts in the
+  detail with their currency); another kind than the one the document is
+  entered as (IBT-003: a tax invoice an `invoice`, a tax credit note a
+  `credit_memo`), so a credit note's bytes never become an invoice's
+  document; another invoice date than its issue date (IBT-002, which
+  sets the VAT period); and
   an invoice rejected, cancelled or reversed, which does not stand (a
   rejected one is refused with the other two, as it never posts). The
   comparison reads the invoice under `Attachable`'s `FOR UPDATE`, held to

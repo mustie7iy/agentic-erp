@@ -87,12 +87,18 @@ func (s *resolving) path(t *testing.T, message, action string) string {
 // with the reference, in status (posted with its entry), and returns it.
 func (s *resolving) manual(t *testing.T, le uuid.UUID, reference, status string) uuid.UUID {
 	t.Helper()
+	return s.manualOf(t, "invoice", le, reference, status)
+}
+
+// manualOf is manual for an invoice of the kind.
+func (s *resolving) manualOf(t *testing.T, kind string, le uuid.UUID, reference, status string) uuid.UUID {
+	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference, invoice_date,
-			posting_date, currency, gross_amount, tax_amount, status, source, journal_entry_year, journal_entry_id, created_by, updated_by)
+			posting_date, currency, gross_amount, tax_amount, status, source, journal_entry_year, journal_entry_id, created_by, updated_by, kind)
 		SELECT $1, $2, $3, $4, $5, $6, '2026-03-10', CASE WHEN p THEN date '2026-03-10' END, 'AED', 105000, 5000, $7, 'manual',
-			CASE WHEN p THEN 2026 END, CASE WHEN p THEN gen_random_uuid() END, $8, $8 FROM (SELECT $7 = 'posted' AS p) x`,
-		s.f.Tenant.ID, id, "M"+id.String()[24:], le, s.f.Supplier, reference, status, s.f.Tenant.Human.ID)
+			CASE WHEN p THEN 2026 END, CASE WHEN p THEN gen_random_uuid() END, $8, $8, $9 FROM (SELECT $7 = 'posted' AS p) x`,
+		s.f.Tenant.ID, id, "M"+id.String()[24:], le, s.f.Supplier, reference, status, s.f.Tenant.Human.ID, kind)
 	return id
 }
 
@@ -168,9 +174,10 @@ func TestRetryEInvoice(t *testing.T) {
 // supplier, the invoice's document the e-invoice's bytes, audited and
 // published; a second document is refused the invoice (at most one names
 // it), bytes that are another invoice's document already are refused, and
-// an invoice of another kind, company, supplier, currency, gross amount or
-// reference, cancelled, or with a document of its own, is a mismatch
-// naming each difference.
+// an invoice not entered by hand, rejected or cancelled, of another
+// company, supplier, kind, date, currency, gross or tax amount or
+// reference, or with a document of its own, is a mismatch naming each
+// difference.
 func TestLinkEInvoice(t *testing.T) {
 	s := resolvingScene(t)
 	posted := s.manual(t, s.le, "GOI-2", "posted")
@@ -202,11 +209,17 @@ func TestLinkEInvoice(t *testing.T) {
 		version = version + 1 WHERE id = $1`, posted)
 	again := s.manual(t, s.le, "GOI-2", "parked")
 	check(t, "its bytes another invoice's document", link("GOI-2B", again)["code"], "payables.already_captured")
+	// Each case changes one figure of the invoice the e-invoice states otherwise, the others as it states them.
 	for _, c := range []struct{ name, set, want string }{
 		{"another gross amount", "gross_amount = 105001", "its gross amount 1050.01 AED is not the e-invoice's total with VAT 1050.00 AED (IBT-112)"},
-		{"cancelled", "gross_amount = 105000, status = 'cancelled'", "it is cancelled"},
+		{"another tax amount", "tax_amount = 4000", "its tax amount 40.00 AED is not the e-invoice's VAT total 50.00 AED (IBT-110)"},
+		{"another invoice date", "invoice_date = '2026-03-11'", "its invoice date 2026-03-11 is not the e-invoice's issue date 2026-03-10 (IBT-002)"},
+		{"rejected", "status = 'rejected'", "it is rejected"},
+		{"cancelled", "status = 'cancelled'", "it is cancelled"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			pgtest.Exec(t, `UPDATE payables.supplier_invoice SET gross_amount = 105000, tax_amount = 5000, invoice_date = '2026-03-10',
+				status = 'parked', version = version + 1 WHERE id = $1`, again)
 			pgtest.Exec(t, `UPDATE payables.supplier_invoice SET `+c.set+`, version = version + 1 WHERE id = $1`, again)
 			m := link("GOI-2B", again)
 			check(t, "the refusal", words(m["code"], len(apitest.List(t, m, "errors"))), "einvoicing.link_mismatch 1")
@@ -216,6 +229,12 @@ func TestLinkEInvoice(t *testing.T) {
 		})
 	}
 	check(t, "no such invoice", link("GOI-2B", uuid.New())["code"], "request.reference_not_found")
+	// The kind is fixed once entered: a credit memo of its own, once the loop's last case cancelled the invoice above.
+	memo := link("GOI-2B", s.manualOf(t, "credit_memo", s.le, "GOI-2", "parked"))
+	check(t, "another kind", words(memo["code"], len(apitest.List(t, memo, "errors"))), "einvoicing.link_mismatch 1")
+	if want := "its kind credit_memo is not invoice, the kind the e-invoice's invoice (IBT-003) is entered as"; !strings.Contains(memo["detail"].(string), want) {
+		t.Errorf("the detail %q: want it to name %q", memo["detail"], want)
+	}
 	parked := s.manual(t, s.le, "X-1", "parked")
 	captured := s.manual(t, s.le, "GOI-6", "cancelled")
 	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET source = 'capture', capture_sha256 = sha256('captured'::bytea), version = version + 1

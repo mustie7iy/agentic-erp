@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,13 +17,15 @@ import (
 
 // Attachable is a supplier invoice as the einvoicing context checks it
 // before a person links a held e-invoice to it (ADR-0061 §7, T65f): its
-// company, supplier and supplier reference, its source, status, currency
-// and gross amount, and whether it has a document of its own.
+// company, supplier and supplier reference, its source, status and kind,
+// its invoice date, currency, gross and tax amounts, and whether it has a
+// document of its own.
 type Attachable struct {
 	LegalEntityID, SupplierID         uuid.UUID
 	SupplierReference, Source, Status string
-	Currency                          string
-	Gross                             money.Minor
+	Kind, Currency                    string
+	InvoiceDate                       time.Time
+	Gross, Tax                        money.Minor
 	HasDocument                       bool
 }
 
@@ -39,9 +42,10 @@ func (Invoices) Attachable(ctx context.Context, id uuid.UUID) (Attachable, bool,
 		return Attachable{}, false, err
 	}
 	var a Attachable
-	err = tx.QueryRow(ctx, `SELECT legal_entity_id, supplier_id, supplier_reference, source, status, currency, gross_amount, capture_sha256 IS NOT NULL
+	err = tx.QueryRow(ctx, `SELECT legal_entity_id, supplier_id, supplier_reference, source, status, kind, invoice_date, currency, gross_amount, tax_amount,
+			capture_sha256 IS NOT NULL
 		FROM payables.supplier_invoice WHERE id = $1 FOR UPDATE`, id).Scan(&a.LegalEntityID, &a.SupplierID, &a.SupplierReference, &a.Source, &a.Status,
-		&a.Currency, &a.Gross, &a.HasDocument)
+		&a.Kind, &a.InvoiceDate, &a.Currency, &a.Gross, &a.Tax, &a.HasDocument)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Attachable{}, false, nil

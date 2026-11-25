@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -53,15 +54,22 @@ const (
 )
 
 // LinkTarget is a supplier invoice as a link checks it: its company, its
-// supplier and reference, how it was entered, its status, its currency
-// and gross amount, and whether it has a document of its own.
+// supplier and reference, how it was entered, its status and kind, its
+// invoice date, currency, gross and tax amounts, and whether it has a
+// document of its own.
 type LinkTarget struct {
 	LegalEntityID, SupplierID         uuid.UUID
 	SupplierReference, Source, Status string
-	Currency                          string
-	Gross                             money.Minor
+	Kind, Currency                    string
+	InvoiceDate                       time.Time
+	Gross, Tax                        money.Minor
 	HasDocument                       bool
 }
+
+// enteredKind is the kind of supplier invoice each kind of document is
+// entered as (a tax credit note as a credit memo, ADR-0061 §6), the only
+// kind a held document is linked to.
+var enteredKind = map[string]string{KindTaxInvoice: "invoice", KindTaxCreditNote: "credit_memo"}
 
 // sourceManual is the source of an invoice a person entered by hand, the
 // only one a held document is linked to.
@@ -250,8 +258,9 @@ func heldNow(d EInvoice) error {
 // already is 409 einvoicing.invoice_already_linked (read under the
 // invoice's lock, which a concurrent link of it waits for); one not
 // entered by hand, rejected, cancelled or reversed, of another company,
-// supplier (the seller's TRN not its tax identifier), currency, gross
-// amount or reference, or with a document of its own, is 422
+// supplier (the seller's TRN not its tax identifier), kind, date,
+// currency, gross or tax amount or reference, or with a document of its
+// own, is 422
 // einvoicing.link_mismatch naming each that differs. The invoice's lock
 // is held to the attach, so what is compared is what is attached to.
 func (e *Endpoints) linkable(ctx context.Context, tx pgx.Tx, doc EInvoice, invoice uuid.UUID, content []byte) (LinkTarget, error) {
@@ -286,9 +295,9 @@ func (e *Endpoints) linkable(ctx context.Context, tx pgx.Tx, doc EInvoice, invoi
 
 // differences are what makes the invoice another than the document's:
 // not entered by hand, rejected, cancelled or reversed, another company,
-// a supplier not holding the seller's TRN (named by its last four
-// characters only), another currency or gross amount, another supplier
-// reference than the document's number, or a document of its own.
+// what the document states and the invoice does not (statedDifferences),
+// another supplier reference than the document's number, or a document
+// of its own.
 func (e *Endpoints) differences(ctx context.Context, doc EInvoice, target LinkTarget, content []byte) ([]string, error) {
 	var out []string
 	if target.Source != sourceManual {
@@ -321,10 +330,13 @@ func (e *Endpoints) differences(ctx context.Context, doc EInvoice, target LinkTa
 }
 
 // statedDifferences are what the e-invoice states that the invoice does
-// not: a supplier not holding the seller's TRN, another currency (IBT-005)
-// or, in the same currency, another gross amount than the total with VAT
-// (IBT-112, the gross an e-invoice is entered with), compared exactly in
-// minor units.
+// not, each a figure an entered e-invoice takes (ADR-0061 §6): a supplier
+// not holding the seller's TRN; another kind than the document's
+// (IBT-003: a tax invoice is an invoice, a tax credit note a credit
+// memo); another invoice date than its issue date (IBT-002, which sets
+// the VAT period); another currency (IBT-005); in the same currency,
+// another gross amount than its total with VAT (IBT-112) or another tax
+// amount than its VAT total (IBT-110), compared exactly in minor units.
 func (e *Endpoints) statedDifferences(ctx context.Context, read Document, target LinkTarget) ([]string, error) {
 	var out []string
 	holds, err := e.Payables.HoldsTaxNumber(ctx, target.SupplierID, read.Seller.TRN)
@@ -334,12 +346,22 @@ func (e *Endpoints) statedDifferences(ctx context.Context, read Document, target
 	if !holds {
 		out = append(out, "its supplier does not hold the seller's TRN (IBT-031) ending "+read.Seller.TRN[max(0, len(read.Seller.TRN)-4):])
 	}
-	switch {
-	case target.Currency != read.Currency:
-		out = append(out, "its currency "+target.Currency+" is not the e-invoice's "+read.Currency+" (IBT-005)")
-	case target.Gross != read.TaxInclusive:
+	if want := enteredKind[read.Kind]; target.Kind != want {
+		out = append(out, "its kind "+target.Kind+" is not "+want+", the kind the e-invoice's "+read.Kind+" (IBT-003) is entered as")
+	}
+	if day := read.IssueDate.Format(time.DateOnly); target.InvoiceDate.Format(time.DateOnly) != day {
+		out = append(out, "its invoice date "+target.InvoiceDate.Format(time.DateOnly)+" is not the e-invoice's issue date "+day+" (IBT-002)")
+	}
+	if target.Currency != read.Currency {
+		return append(out, "its currency "+target.Currency+" is not the e-invoice's "+read.Currency+" (IBT-005)"), nil
+	}
+	if target.Gross != read.TaxInclusive {
 		out = append(out, "its gross amount "+target.Gross.Plain(read.Exponent)+" "+target.Currency+" is not the e-invoice's total with VAT "+
 			read.TaxInclusive.Plain(read.Exponent)+" "+read.Currency+" (IBT-112)")
+	}
+	if target.Tax != read.Tax {
+		out = append(out, "its tax amount "+target.Tax.Plain(read.Exponent)+" "+target.Currency+" is not the e-invoice's VAT total "+
+			read.Tax.Plain(read.Exponent)+" "+read.Currency+" (IBT-110)")
 	}
 	return out, nil
 }

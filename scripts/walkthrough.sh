@@ -15521,8 +15521,8 @@ evatra_held_resolved() {
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), source \(.source)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-2010\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1312.50\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"62.50\", \"currency\": \"AED\"}, \"items\": [{\"description\": \"Oak desks, bought without an order\", \"quantity\": {\"value\": \"5\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1250.00\", \"currency\": \"AED\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
   invoice=$(field .id)
-  say "Linking the held e-invoice to it is refused: the invoice's gross amount is not the e-invoice's total with VAT, compared"
-  say "exactly in its currency, so the legal document and the booked invoice never disagree:"
+  say "Linking the held e-invoice to it is refused: its gross and tax amounts are not the e-invoice's totals, compared exactly"
+  say "in its currency, as its kind, date and currency are, so the legal document and the booked invoice agree:"
   QUIET=1 api 200 '' getEInvoice -p "id=$first"
   refused 422 einvoicing.link_mismatch linkEInvoice -p "id=$first" -if-match "$ETAG" -body "{\"supplier_invoice_id\": \"$invoice\"}"
   expect "the amount named" "$(field '.detail | contains("gross amount 1312.50 AED is not the e-invoice'"'"'s total with VAT 1050.00 AED")')" "true"
