@@ -206,25 +206,33 @@ func (v *validator) assetAccounts(c *Config, p string, co *Company) {
 				v.err(ap+".class", "class %s has no terms in ledger %s, which the company keeps", aa.Class, l)
 			}
 		}
-		for _, r := range []assetRole{{"acquisition_cost", aa.AcquisitionCost, Asset, true}, {"accumulated_depreciation", aa.AccumulatedDepreciation, Asset, true},
-			{"depreciation", aa.Depreciation, Expense, false}, {"clearing", aa.Clearing, Asset, false}, {"gain", aa.Gain, Revenue, false},
-			{"loss", aa.Loss, Expense, false}, {"sale_clearing", aa.SaleClearing, Asset, false}} {
+		v.classAccounts(ap, co, aa)
+	}
+}
+
+// classAccounts checks one class's accounts at ap: each role's account
+// (the impairment accounts only when named), the reconciliation and the
+// clearing accounts apart, and the clearing accounts without open items or
+// revaluation.
+func (v *validator) classAccounts(ap string, co *Company, aa AssetAccounts) {
+	for _, r := range []assetRole{{"acquisition_cost", aa.AcquisitionCost, Asset, true}, {"accumulated_depreciation", aa.AccumulatedDepreciation, Asset, true},
+		{"depreciation", aa.Depreciation, Expense, false}, {"clearing", aa.Clearing, Asset, false}, {"gain", aa.Gain, Revenue, false},
+		{"loss", aa.Loss, Expense, false}, {"sale_clearing", aa.SaleClearing, Asset, false}} {
+		v.assetAccount(ap+"."+r.field, co, r)
+	}
+	for _, r := range []assetRole{{"impairment_loss", aa.ImpairmentLoss, Expense, false}, {"impairment_reversal", aa.ImpairmentReversal, Revenue, false}} {
+		if r.number != "" { // optional: only a company that impairs the class's assets names them
 			v.assetAccount(ap+"."+r.field, co, r)
 		}
-		for _, r := range []assetRole{{"impairment_loss", aa.ImpairmentLoss, Expense, false}, {"impairment_reversal", aa.ImpairmentReversal, Revenue, false}} {
-			if r.number != "" { // optional: only a company that impairs the class's assets names them
-				v.assetAccount(ap+"."+r.field, co, r)
-			}
-		}
-		if aa.AccumulatedDepreciation != "" && aa.AccumulatedDepreciation == aa.AcquisitionCost {
-			v.err(ap+".accumulated_depreciation", "the accumulated depreciation has an account of its own, not the acquisition cost's")
-		}
-		if aa.SaleClearing != "" && aa.SaleClearing == aa.Clearing {
-			v.err(ap+".sale_clearing", "sales clear an account of their own, not the acquisitions' clearing account")
-		}
-		for _, r := range []assetRole{{field: "clearing", number: aa.Clearing}, {field: "sale_clearing", number: aa.SaleClearing}} {
-			v.notOpenOrRevalued(ap+"."+r.field, ap+"."+r.field, co.Account(r.number))
-		}
+	}
+	if aa.AccumulatedDepreciation != "" && aa.AccumulatedDepreciation == aa.AcquisitionCost {
+		v.err(ap+".accumulated_depreciation", "the accumulated depreciation has an account of its own, not the acquisition cost's")
+	}
+	if aa.SaleClearing != "" && aa.SaleClearing == aa.Clearing {
+		v.err(ap+".sale_clearing", "sales clear an account of their own, not the acquisitions' clearing account")
+	}
+	for _, r := range []assetRole{{field: "clearing", number: aa.Clearing}, {field: "sale_clearing", number: aa.SaleClearing}} {
+		v.notOpenOrRevalued(ap+"."+r.field, ap+"."+r.field, co.Account(r.number))
 	}
 }
 

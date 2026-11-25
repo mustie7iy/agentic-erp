@@ -181,15 +181,7 @@ func inMonthOrder(moves []Move) (starts, ends []Move) {
 // walk visits Walk's steps in order.
 func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
 	starts, ends := inMonthOrder(moves)
-	first := through + 1
-	if p.Start != nil {
-		first = min(first, *p.Start)
-	}
-	for _, ms := range [][]Move{starts, ends} {
-		if len(ms) > 0 {
-			first = min(first, ms[0].Month)
-		}
-	}
+	first := p.firstMonth(starts, ends, through)
 	// taken: accumulated depreciation moves brought (negative) or took
 	// (positive), impairments' included; moved: the residual value they
 	// brought or took.
@@ -200,17 +192,9 @@ func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
 			cost, taken, moved = cost+starts[i].Cost, taken+starts[i].Accumulated, moved+starts[i].Residual
 		}
 		book := cost + taken - depreciation
-		var d money.Minor
-		if p.Start != nil && m >= *p.Start && (p.Stop == nil || m < *p.Stop) {
-			in, residual := p, p.Residual+moved
-			if len(p.Changes) > 0 { // walked for changed terms alone: most assets have none
-				in = p.at(m)
-				residual = in.residual(starts[:i])
-			}
-			var err error
-			if d, err = in.period(int32(m-*p.Start)+1, book, residual); err != nil {
-				return err
-			}
+		d, err := p.depreciationIn(m, book, moved, starts[:i])
+		if err != nil {
+			return err
 		}
 		depreciation += d
 		var impaired money.Minor
@@ -221,6 +205,37 @@ func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
 		visit(Step{Month: m, Depreciation: d, BookValue: book - d + impaired})
 	}
 	return nil
+}
+
+// firstMonth is the month walk starts in: the plan's start or the first
+// move's, whichever is earlier, or the month after through when there is
+// neither.
+func (p Plan) firstMonth(starts, ends []Move, through Month) Month {
+	first := through + 1
+	if p.Start != nil {
+		first = min(first, *p.Start)
+	}
+	for _, ms := range [][]Move{starts, ends} {
+		if len(ms) > 0 {
+			first = min(first, ms[0].Month)
+		}
+	}
+	return first
+}
+
+// depreciationIn is month m's depreciation on book value book, with moved
+// the residual value the moves applied so far (applied) brought or took:
+// none outside the plan's periods, from its start up to its stop.
+func (p Plan) depreciationIn(m Month, book, moved money.Minor, applied []Move) (money.Minor, error) {
+	if p.Start == nil || m < *p.Start || (p.Stop != nil && m >= *p.Stop) {
+		return 0, nil
+	}
+	in, residual := p, p.Residual+moved
+	if len(p.Changes) > 0 { // walked for changed terms alone: most assets have none
+		in = p.at(m)
+		residual = in.residual(applied)
+	}
+	return in.period(int32(m-*p.Start)+1, book, residual)
 }
 
 // Planned is the planned depreciation through a period, Σ d_k for k up to
