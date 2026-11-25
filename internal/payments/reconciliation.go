@@ -157,8 +157,11 @@ func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dat
 // the closing date. Its callers hold the bank's statement lock and have
 // just changed a line of s, or run the rules on it.
 func (e *Endpoints) reconcile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement) error {
+	// OFFSET 0 keeps the NOT EXISTS a subquery run for each imported
+	// statement, not an anti-join the planner may run over every statement's
+	// lines (TestReconcileReadsUnreconciledLines, T49).
 	rows, _ := tx.Query(ctx, statementSelect+` WHERE s.house_bank_id = $1 AND s.status = 'imported' AND NOT EXISTS (SELECT FROM payments.bank_statement_line l
-		WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status NOT IN ('posted', 'excluded')) ORDER BY s.closing_date, s.id`, s.HouseBankID)
+		WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status NOT IN ('posted', 'excluded') OFFSET 0) ORDER BY s.closing_date, s.id`, s.HouseBankID)
 	done, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Statement, error) { return scanStatement(r) })
 	if err != nil {
 		return fmt.Errorf("payments: statements of house bank %s to reconcile: %w", s.HouseBankID, err)

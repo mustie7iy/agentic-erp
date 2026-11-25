@@ -3,8 +3,10 @@ package payments_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -73,6 +75,13 @@ func TestReconcileReadsUnreconciledLines(t *testing.T) {
 			return err
 		}
 		before := pgtest.RowsRead(t, ctx, tx, "payments", "bank\\_statement\\_line")
+		if _, err := h.FiguresOf(ctx, e.bank, []time.Time{date("2026-04-18")}, []money.Minor{6450}); err != nil {
+			return err
+		}
+		if got := pgtest.RowsRead(t, ctx, tx, "payments", "bank\\_statement\\_line") - before; got > 5 {
+			t.Errorf("statement lines the figures on R2's closing date read: got %d, want at most 5 with 900 reconciled before", got)
+		}
+		before = pgtest.RowsRead(t, ctx, tx, "payments", "bank\\_statement\\_line")
 		if _, err := h.ExcludeLine(ctx, uuidOf(r2), 1, func(int32) error { return nil }, "Charged twice."); err != nil {
 			return err
 		}
