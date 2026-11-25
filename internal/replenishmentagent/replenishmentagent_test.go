@@ -454,7 +454,8 @@ func narrowed(from string) string {
 // performance of the proposal's material at the run's plant over a year,
 // of every supplier or of the order's: before any read, after a read the
 // API refused, after a read of another plant, a read over less than a
-// year (which could hold none of a supplier's receipts) and a read
+// year or one ending before the run's day (either could hold none of a
+// supplier's recent receipts) and a read
 // narrowed to another supplier (whose empty answer says nothing of the
 // order's), "no receipts" is refused, and nothing reaches the API. A read
 // narrowed to the order's supplier tells its own.
@@ -474,6 +475,8 @@ func TestReviewMeasures(t *testing.T) {
 		"read refused":     {performance(plant), 403, append(slices.Clone(before), read, order)},
 		"another plant's":  {performance(otherLE), 0, append(slices.Clone(before), read, order)},
 		"less than a year": {strings.Replace(performance(plant), "2025-11-21", "2025-11-22", 1), 0, append(slices.Clone(before), read, order)},
+		"a past year's": {strings.Replace(strings.Replace(performance(plant), "2025-11-21", "2024-11-21", 1), "2026-11-20", "2025-11-20", 1), 0,
+			append(slices.Clone(before), read, order)},
 		"another supplier's": {narrowed("2025-11-21"), 0, append(slices.Clone(before), read,
 			rec(ra, "order", "Order 30 EA from supplier "+s2+" by 2026-11-21: contract "+con1+" item 1\nMeasures: no receipts\nWhy: the contract's 1.05 CAD."))},
 	} {

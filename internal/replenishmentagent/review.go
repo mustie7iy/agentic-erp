@@ -194,7 +194,9 @@ const minWindow = 365
 
 // performanceRead keeps the measures of a material's suppliers at the
 // run's plant, as the line an order names them in. A read of another
-// plant, or over less than a year, is no measure of this run's. A read
+// plant, over less than a year or ending before the run's day is no
+// measure of this run's: its window may hold none of a supplier's recent
+// receipts. A read
 // narrowed to one supplier tells that supplier's measures, or that it has
 // no receipt, and nothing of the others; a read of every supplier tells
 // them all. A later read replaces what an earlier one told of the same
@@ -208,8 +210,8 @@ func (rv *review) performanceRead(resp apitools.Response) {
 		To         string     `json:"to"`
 		Suppliers  []delivery `json:"suppliers"`
 	}
-	if resp.Decode(&read) != nil || read.PlantID != rv.plant || !yearLong(read.From, read.To) {
-		return // a refused read, another plant's or a short window's shows nothing
+	if resp.Decode(&read) != nil || read.PlantID != rv.plant || !yearLong(read.From, read.To) || read.To < rv.runDate {
+		return // a refused read, another plant's, a short window's or a past one's shows nothing (ISO dates compare as text)
 	}
 	m := rv.measures[read.MaterialID]
 	if m == nil {
@@ -305,7 +307,7 @@ func (rv *review) measuresNamed(p proposal, supplier string, lines []string) err
 		}
 	}
 	if !ok {
-		return fmt.Errorf("%w: the run has not read getSupplierDeliveryPerformance of material %s at its plant over a year, of every supplier or of %s",
+		return fmt.Errorf("%w: the run has not read getSupplierDeliveryPerformance of material %s at its plant over a year to its day, of every supplier or of %s",
 			ErrMeasures, p.material, supplier)
 	}
 	for _, l := range lines {
