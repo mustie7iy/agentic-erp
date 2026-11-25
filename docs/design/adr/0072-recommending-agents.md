@@ -1648,10 +1648,9 @@ A later slice adds its row here and its section under "As built".
   brief's acceptance). `TestNever` keeps it whole against the contract's
   writes named `MaterialDocument`, `GoodsReceipt`, `GoodsIssue`,
   `StockTransport`, `PhysicalInventory`, `CycleCount`, `SalesOrder`,
-  `SalesDelivery`,
-  `OutboundDelivery`, `ReturnsOrder`, `ReturnReceipt`, `Requisition`,
-  `PurchaseOrder`, `ScheduleLine`, `GrIrClearing`, `MrpRun` and
-  `MaterialPlan`.
+  `SalesDelivery`, `OutboundDelivery`, `ReturnsOrder`, `ReturnReceipt`,
+  `Requisition`, `PurchaseOrder`, `ScheduleLine`, `GrIrClearing`, `MrpRun`
+  and `MaterialPlan`.
 - `listSalesOrders` gains optional `plant_id` (the orders delivering from
   the plant; an order that names none matches none) and `material_id`
   (the orders with a standing item of the material, each answered whole;

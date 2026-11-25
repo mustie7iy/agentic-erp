@@ -96,12 +96,11 @@ func tradeHeld(d Delivery) error {
 // later block. A newer one replaces the status, reason code and time,
 // and a person's release before it. A delivery created before its plant
 // was screened takes it all the same: a block is honoured whenever it
-// comes. The version moves; the audit
-// record and OutboundDeliveryChanged are written in the caller's
-// transaction. No If-Match: the service's answer is not a change of what
-// its caller read. It is shipping's published write for the exchange with
-// trade compliance services, which the composition root wires; no
-// operation of the API calls it.
+// comes. The version moves; the audit record and OutboundDeliveryChanged
+// are written in the caller's transaction. No If-Match: the service's
+// answer is not a change of what its caller read. It is shipping's
+// published write for the exchange with trade compliance services, which
+// the composition root wires; no operation of the API calls it.
 func (e *Endpoints) RecordScreening(ctx context.Context, id uuid.UUID, in ScreeningInput) (Delivery, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
