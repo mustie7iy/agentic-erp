@@ -72597,7 +72597,8 @@ type MaterialChangeRequested struct {
 	Description OptString `json:"description"`
 	// The default description's language (a create's only).
 	DescriptionLanguage OptString `json:"description_language"`
-	// The further descriptions, by language, replacing the material's.
+	// The further descriptions, by language, replacing the material's: unlike `Material.descriptions`, the
+	// default description is not among them; it is `description`.
 	Descriptions []MaterialDescription `json:"descriptions"`
 	// The base unit (a create's only).
 	BaseUnit OptString `json:"base_unit"`

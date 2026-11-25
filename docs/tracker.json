@@ -5614,9 +5614,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A master data specialist describes a material in further languages beside its default description (Arabic for the UAE pilot), governed as its other fields are; a read asks for a language (language) and gets the description in it, else the default, naming the language answered; the SAP load takes MAKT's other languages",
-      "r": "S1a2 · docs/design/plan-supply-chain.md §S1a2 · ADR-0082 As built S1a2",
+      "r": "S1a2 · docs/design/plan-supply-chain.md §S1a2 · ADR-0082 As built S1a2 · db/migrations/000469, 000470 · materials.material.description_language, materials.material_description · internal/materials/descriptions.go · internal/platform/langtag · GET /v1/materials, GET /v1/materials/{id} language · MaterialCreate.description_language, .descriptions · MaterialUpdate.descriptions · Material.description_language, .default_language, .descriptions · materials.unknown_language, materials.duplicate_language · MaterialChanged.description_language, .descriptions · internal/integration materialDescriptions (MAKT-SPRAS) · walkthrough step_material (step 122), migrated_materials",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },

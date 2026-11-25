@@ -67317,7 +67317,7 @@ components:
         descriptions:
           type: array
           items: {$ref: "#/components/schemas/MaterialDescription"}
-          description: "The further descriptions, by language, replacing the material's."
+          description: "The further descriptions, by language, replacing the material's: unlike `Material.descriptions`, the default description is not among them; it is `description`."
           readOnly: true
         base_unit: {type: string, description: "The base unit (a create's only).", readOnly: true}
         material_type: {type: string, description: "The material type (a create's only).", readOnly: true}

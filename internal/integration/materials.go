@@ -42,7 +42,10 @@ var materialTypes = map[string]string{sap.MaterialTypeRaw: "raw_material", sap.M
 
 // sapLanguages are the language tags (langtag) of SAP's one-character
 // language keys (MAKT-SPRAS, table T002, from memory; ADR-0082 As built
-// S1a2); a key of two letters is taken as its ISO 639-1 code (EN).
+// S1a2); a key of two letters is taken as its ISO 639-1 code (EN). Only
+// keys known with some confidence are listed (the pilot's E and A among
+// them); a text in another key warns and is left out until the specialist
+// confirms its tag (K, L, V, M, B and the rest of T002).
 var sapLanguages = map[string]string{"E": "en", "D": "de", "F": "fr", "S": "es", "I": "it", "P": "pt", "N": "nl", "A": "ar", "R": "ru", "T": "tr",
 	"J": "ja", "1": "zh"}
 

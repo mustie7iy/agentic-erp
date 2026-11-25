@@ -95,8 +95,11 @@ func TestMaterialDescriptionRules(t *testing.T) {
 			}
 			return tx.QueryRow(context.Background(), `SELECT description_language FROM materials.material WHERE id = $1`, s.material).Scan(&got)
 		})
-		if err != nil || got != "en" {
-			t.Errorf("got %q (%v), want en", got, err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "en" {
+			t.Errorf("got %q, want en", got)
 		}
 	})
 }

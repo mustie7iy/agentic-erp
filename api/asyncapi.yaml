@@ -6848,7 +6848,7 @@ components:
         description_language: {type: string, description: "The default description's language, a BCP 47 tag (S1a2); it does not change. Not required (ADR-0041)."}
         descriptions:
           type: array
-          description: 'Its further descriptions, by language, none in `description_language` (S1a2). Not required (ADR-0041).'
+          description: 'Its further descriptions, by language, none in `description_language` (S1a2): unlike `Material.descriptions` of the REST API, the default description is not repeated here, it is `description`. Not required (ADR-0041).'
           items:
             type: object
             required: [language, description]
