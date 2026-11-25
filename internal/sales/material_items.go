@@ -49,11 +49,9 @@ func (e *Endpoints) itemMaterials(ctx context.Context, in []ItemInput) (map[uuid
 // of the tenant (422 request.reference_not_found naming
 // items[i].material_id), active when the item is new (422
 // sales.material_not_usable; an item an order change keeps keeps its
-// material, whatever its status since), not managed in batches when the
-// item is new (422 sales.material_not_usable: a delivery carries no
-// batch yet, ADR-0082 As built S2f), without a serial number profile when
-// the item is new (the same refusal: a delivery carries no serial numbers
-// yet, S2g), the item key its number (422
+// material, whatever its status since; one managed in batches or with a
+// serial number profile too, its delivery's goods issue naming its
+// batches and serial numbers, S2f2, S2g2), the item key its number (422
 // sales.item_key_not_material for another), the description its own when
 // the item gives none, and the quantity in one of its units that
 // converts exactly to its base unit (422 sales.invalid_material_quantity
@@ -66,14 +64,6 @@ func (c itemCheck) material(field string, it ItemInput) (ItemInput, error) {
 	m, ok := c.materials[*it.MaterialID]
 	if !ok {
 		return ItemInput{}, problem.ReferenceNotFound(field+".material_id", "material", "no material with this id")
-	}
-	if m.BatchManaged && !it.Kept {
-		return ItemInput{}, problem.Invalid("sales.material_not_usable", field+".material_id", "Material "+m.Number+
-			" is managed in batches; a delivery carries no batch yet, so it cannot be sold yet.")
-	}
-	if m.SerialManaged && !it.Kept {
-		return ItemInput{}, problem.Invalid("sales.material_not_usable", field+".material_id", "Material "+m.Number+
-			" has a serial number profile; a delivery carries no serial numbers yet, so it cannot be sold yet.")
 	}
 	text, err := m.ForItem(it.ItemKey, it.Description, it.Quantity, it.Unit, !it.Kept)
 	switch {

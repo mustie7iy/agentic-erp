@@ -80,25 +80,18 @@ func TestMaterialItems(t *testing.T) {
 }
 
 // TestMaterialItemRefusals: an item of a material that is unknown, not
-// active, managed in batches or by serial number (on a quotation and on
-// an order), keyed otherwise or in a unit that is none of its own or does
+// active, keyed otherwise or in a unit that is none of its own or does
 // not convert exactly is refused naming its field, and nothing is
 // created; an item without a material still needs its description.
 func TestMaterialItemRefusals(t *testing.T) {
 	e := setup(t)
 	bracket := e.material(t, "100000001", "active")
 	blocked, pending := e.material(t, "100000002", "blocked"), e.material(t, "100000003", "pending")
-	batched := e.material(t, "100000004", "active")
-	pgtest.Unguarded(t, `UPDATE materials.material SET material_type = 'raw_material', batch_managed = true WHERE id = $1`, batched) // fixed once created
-	serialized := e.material(t, "100000005", "active")
-	pgtest.Unguarded(t, `UPDATE materials.material SET material_type = 'raw_material', serial_managed = true WHERE id = $1`, serialized) // fixed once created
 	priced := `, "unit_price": {"amount": "1.00", "currency": "EUR"}`
 	for _, c := range []struct{ name, item, code, field string }{
 		{"an unknown material", e.ofMaterial(uuid.Must(uuid.NewV7()), "1 EA", priced), "request.reference_not_found", "items[0].material_id"},
 		{"a blocked material", e.ofMaterial(blocked, "1 EA", priced), "sales.material_not_usable", "items[0].material_id"},
 		{"a pending material", e.ofMaterial(pending, "1 EA", priced), "sales.material_not_usable", "items[0].material_id"},
-		{"a batch-managed material", e.ofMaterial(batched, "1 EA", priced), "sales.material_not_usable", "items[0].material_id"},
-		{"a serial-managed material", e.ofMaterial(serialized, "1 EA", priced), "sales.material_not_usable", "items[0].material_id"},
 		{"another key", e.ofMaterial(bracket, "1 EA", priced+`, "item_key": "BRACKET-M8"`), "sales.item_key_not_material", "items[0].item_key"},
 		{"a unit not the material's", e.ofMaterial(bracket, "1 M", priced), "sales.invalid_material_quantity", "items[0].quantity.unit"},
 		{"a quantity not exact in the base unit", e.ofMaterial(bracket, "1 KG", priced), "sales.invalid_material_quantity", "items[0].quantity.unit"},
@@ -113,12 +106,6 @@ func TestMaterialItemRefusals(t *testing.T) {
 			}
 		})
 	}
-	t.Run("a serial-managed material on an order", func(t *testing.T) {
-		m := e.Problem(422, "sales.material_not_usable", "POST", "/v1/sales-orders", e.direct(e.customer, "", e.ofMaterial(serialized, "1 EA", priced)), "")
-		if f := field(m); f != "items[0].material_id" {
-			t.Errorf("the field: got %v, want items[0].material_id", f)
-		}
-	})
 	var n int
 	pgtest.Scan(t, `SELECT count(*) FROM sales.quotation WHERE tenant_id = $1`, []any{e.Tenant.ID}, &n)
 	if n != 0 {
@@ -127,6 +114,25 @@ func TestMaterialItemRefusals(t *testing.T) {
 	pgtest.Scan(t, `SELECT count(*) FROM sales.sales_order WHERE tenant_id = $1`, []any{e.Tenant.ID}, &n)
 	if n != 0 {
 		t.Errorf("sales orders: got %d, want none", n)
+	}
+}
+
+// TestMaterialItemTracked (S2f2, S2g2): a material managed in batches or
+// with a serial number profile is quoted and ordered as any, its
+// delivery's goods issue naming its batches and serial numbers.
+func TestMaterialItemTracked(t *testing.T) {
+	e := setup(t)
+	batched := e.material(t, "100000004", "active")
+	pgtest.Unguarded(t, `UPDATE materials.material SET material_type = 'raw_material', batch_managed = true WHERE id = $1`, batched) // fixed once created
+	serialized := e.material(t, "100000005", "active")
+	pgtest.Unguarded(t, `UPDATE materials.material SET material_type = 'raw_material', serial_managed = true WHERE id = $1`, serialized) // fixed once created
+	priced := `, "unit_price": {"amount": "1.00", "currency": "EUR"}`
+	q, _ := e.Must(201, "POST", "/v1/quotations", e.body(e.customer, far, e.ofMaterial(batched, "1 EA", priced), e.ofMaterial(serialized, "1 EA", priced)), "")
+	o, _ := e.Must(201, "POST", "/v1/sales-orders", e.direct(e.customer, "", e.ofMaterial(batched, "1 EA", priced), e.ofMaterial(serialized, "1 EA", priced)), "")
+	for name, doc := range map[string]map[string]any{"the quotation": q, "the order": o} {
+		if its := items(t, doc); len(its) != 2 || its[0]["material_id"] != batched.String() || its[1]["material_id"] != serialized.String() {
+			t.Errorf("%s's items: got %v, want the batch-managed and the serial-managed material", name, its)
+		}
 	}
 }
 

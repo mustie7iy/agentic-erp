@@ -14193,6 +14193,7 @@ stock_receipt_tracked() {
   expect "the oil's stock by batch" "$(field '[.items[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 20"
   api 200 '.items[] | "  \(.number): in stock at \(.plant_code) \(.storage_location_code)"' listSerialNumbers -p "material_id=$wrench"
   expect "the wrenches' serial numbers" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:true TW-5002:true"
+  OIL=$oil WRENCH=$wrench
 }
 
 # step_debit_memo is T75j (ADR-0063 §7 As built): Maple charges Northwind
@@ -15437,11 +15438,12 @@ step_outbound_delivery() {
 # has its 6 boxes delivered, by the goods issue, with their cost. It posts
 # once. Sally confirms the installation by hand, which a stock item is
 # not, and bills the order: both items, the brackets as issued. Then
-# S2b3: a goods issue reversed (goods_issue_reversal). Last, S2b2: cost of
+# S2b3: a goods issue reversed (goods_issue_reversal). Then S2b2: cost of
 # sales and margin by profitability segment (goods_issue_margin), where
-# the reversed goods issue's cost nets out.
+# the reversed goods issue's cost nets out. Last, S2f2 and S2g2: batches
+# and serial numbers issued and reversed (goods_issue_tracked).
 step_goods_issue() {
-  heading "Step 143 — Goods issue: the picked delivery's 601 takes the stock at the moving price and posts its value to the cost of goods sold; the order delivered by it and billed; once only; a stock item not confirmed by hand; cost of sales and margin by profitability segment"
+  heading "Step 143 — Goods issue: the picked delivery's 601 takes the stock at the moving price and posts its value to the cost of goods sold; the order delivered by it and billed; once only; a stock item not confirmed by hand; cost of sales and margin by profitability segment; a batch-managed and a serial-managed material issued naming the batch and the serial number, the latter reversed"
   local before after doc cost day
   [ -n "$DELIVERY" ] || fail "step 142's delivery is not there"
   accounts
@@ -15486,7 +15488,81 @@ step_goods_issue() {
   ISSUED_COST=$(jq -rn --arg a "${ISSUED_COST:-0}" --arg c "$cost" '(($a | tonumber) * 100 + ($c | tonumber) * 100) | round / 100')
   goods_issue_reversal
   goods_issue_margin
+  goods_issue_tracked
   passed
+}
+
+# goods_issue_tracked is S2f2's and S2g2's part of step_goods_issue
+# (ADR-0083 As built S2f2): Sally sells Northwind 3 cans of step 130's
+# cutting oil, managed in batches, and a torque wrench, with a serial
+# number profile; Wade delivers each in a delivery of its own and picks
+# them. The oil's goods issue that names no batch is refused, as is one
+# naming a batch the oil has not; naming lot CO-2611 it posts, the 601's
+# line and the delivery's item naming the batch, which holds 17 cans
+# after. The wrench's names TW-5001, out of stock after. Northwind sends
+# the wrench back: its goods issue is reversed, and the 602 takes TW-5001
+# into the main store again.
+goods_issue_tracked() {
+  local sales order oil wrench tag
+  [ -n "${OIL:-}" ] && [ -n "${WRENCH:-}" ] || fail "step 130's oil and wrenches are not there"
+  as sally
+  sales=$(account 4000)
+  say "Sally sells Northwind 3 cans of the cutting oil, managed in batches, and a torque wrench, with a serial number"
+  say "profile (S2f2, S2g2); both are sold as any material:"
+  api 201 '"sales order \(.document_number)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
+      {\"material_id\": \"$OIL\", \"quantity\": {\"value\": \"3\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"18.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$sales\", \"tax_code\": \"GO5\"},
+      {\"material_id\": \"$WRENCH\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"80.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as ruth
+    QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  as wade
+  say "Wade delivers the oil and the wrench from the main store, each in a delivery of its own, and picks them:"
+  QUIET=1 api 201 '' createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+    \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"3\", \"unit\": \"EA\"}}]}"
+  oil=$(field .id)
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$oil" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "3", "unit": "EA"}}]}'
+  tag=$ETAG
+  say "The oil's goods issue names the batch its 3 cans leave from; without one, or naming a lot the oil has not, it is"
+  say "refused:"
+  refused 422 shipping.tracking_required postOutboundDeliveryGoodsIssue -p "id=$oil" -if-match "$tag"
+  refused 422 inventory.batch_invalid postOutboundDeliveryGoodsIssue -p "id=$oil" -if-match "$tag" \
+    -body '{"items": [{"item_no": 1, "quantity": {"value": "3", "unit": "EA"}, "batch_number": "CO-2612"}]}'
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].batch_number"
+  say "Naming lot CO-2611 it posts: the 601's line and the delivery's item name the batch:"
+  api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number)", (.items[] | "  item \(.item_no) \(.material_number): \([.issue_lines[] | "line \(.line_no) \(.quantity.value) \(.quantity.unit) from batch \(.batch_number)"] | join(", ")), cost \(.cost.amount)")' \
+    postOutboundDeliveryGoodsIssue -p "id=$oil" -if-match "$tag" -body '{"items": [{"item_no": 1, "quantity": {"value": "3", "unit": "EA"}, "batch_number": "CO-2611"}]}'
+  expect "the oil's issue lines" "$(field '[.items[0].issue_lines[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 3"
+  api 200 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) of batch \(.lines[0].batch_number)"' \
+    getMaterialDocument -p "id=$(field .material_document_id)"
+  expect "the 601's batch" "$(field '.lines[0].batch_number')" CO-2611
+  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number): \(.quantity.value) \(.quantity.unit)"' listBatchStock -p "material_id=$OIL"
+  expect "the oil's stock by batch" "$(field '[.items[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 17"
+  QUIET=1 api 201 '' createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+    \"items\": [{\"order_item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  wrench=$(field .id)
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$wrench" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
+  say "The wrench's goods issue names the serial number of the wrench Wade packs, TW-5001, out of stock after it:"
+  api 200 '"outbound delivery \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): serial numbers \([.issue_lines[].serial_numbers[]] | join(", "))")' \
+    postOutboundDeliveryGoodsIssue -p "id=$wrench" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}, "serial_numbers": ["TW-5001"]}]}'
+  expect "the wrench's serial numbers" "$(field '[.items[0].issue_lines[].serial_numbers[]] | join(",")')" TW-5001
+  tag=$ETAG
+  api 200 '.items[] | "  \(.number): \(if .in_stock then "in stock at \(.storage_location_code)" else "not in stock" end)"' listSerialNumbers -p "material_id=$WRENCH"
+  expect "the wrenches in stock" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:false TW-5002:true"
+  say "Northwind sends the wrench back; Wade reverses its goods issue, and the 602 takes TW-5001 into the main store"
+  say "again:"
+  api 200 '"outbound delivery \(.number): \(.status), reversal \(.reversal_material_document_number)"' reverseOutboundDeliveryGoodsIssue -p "id=$wrench" -if-match "$tag"
+  api 200 '"material document \(.number) (\(.movement_type)): serial numbers \(.lines[0].serial_numbers | join(", "))"' \
+    getMaterialDocument -p "id=$(field .reversal_material_document_id)"
+  expect "the 602's serial numbers" "$(field '.lines[0].serial_numbers | join(",")')" TW-5001
+  QUIET=1 api 200 '' listSerialNumbers -p "material_id=$WRENCH"
+  expect "the wrenches in stock" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:true TW-5002:true"
 }
 
 # goods_issue_reversal is S2b3's part of step_goods_issue (ADR-0083 As

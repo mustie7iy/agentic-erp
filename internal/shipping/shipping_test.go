@@ -26,7 +26,7 @@ var perms = []string{"materials.material.read", "materials.material.write", "ten
 	"inventory.valuation.read", "inventory.valuation.write", "ledger.entry.read", "sales.order.read", "sales.order.write", "sales.order.confirm",
 	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "shipping.delivery.read", "shipping.delivery.write", "shipping.goods_issue.post",
 	"inventory.count.write", "shipping.trade_compliance.release", "sales.billing.post",
-	"inventory.count_plan.write"}
+	"inventory.count_plan.write", "inventory.batch.write"}
 
 const deliveries = "/v1/outbound-deliveries"
 

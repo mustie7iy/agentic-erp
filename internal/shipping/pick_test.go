@@ -188,7 +188,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"post the goods issue": func(ctx context.Context) error {
-			_, err := h.PostOutboundDeliveryGoodsIssue(ctx, gen.PostOutboundDeliveryGoodsIssueParams{ID: picked, IfMatch: ptag})
+			_, err := h.PostOutboundDeliveryGoodsIssue(ctx, gen.OptOutboundDeliveryGoodsIssue{}, gen.PostOutboundDeliveryGoodsIssueParams{ID: picked, IfMatch: ptag})
 			return err
 		},
 		"create": func(ctx context.Context) error {

@@ -7056,6 +7056,27 @@ components:
                 oneOf:
                   - $ref: '#/components/schemas/Money'
                   - type: 'null'
+              issue_lines:
+                type: array
+                description: "Once the goods issue is posted, for an item of a batch-managed or serial-managed material (S2f2, S2g2; ADR-0083 As built S2f2): what each of its goods issue's lines issued, by line: `line_no` (the material document's), `quantity` in the item's unit, the batch (`batch_id`, `batch_number`; null for a material without batches) and the units' `serial_numbers` (sorted; null for a material without them). Absent before, on another item and on one picked at nothing."
+                items:
+                  type: object
+                  required: [line_no, quantity, batch_id, batch_number, serial_numbers]
+                  properties:
+                    line_no: {type: integer, description: "The goods issue's material document line."}
+                    quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity it issued, in the item's unit."}
+                    batch_id:
+                      description: '`inventory.batch.id`; null for a material without batches.'
+                      oneOf:
+                        - $ref: '#/components/schemas/Uuid'
+                        - type: 'null'
+                    batch_number: {type: [string, 'null'], description: "That batch's number; null with it."}
+                    serial_numbers:
+                      description: 'The serial numbers of its units, sorted; null for a material without them.'
+                      oneOf:
+                        - type: array
+                          items: {type: string}
+                        - type: 'null'
         shipment:
           description: "The shipment a transport management system planned it in (S2r; ADR-0082 As built S2r), once recorded: its `shipment_number` and `carrier_code` at the transport system, its `freight_cost` and `recorded_at`; null before. Recorded once, also after the goods issue; nothing is posted."
           oneOf:
