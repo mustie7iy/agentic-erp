@@ -106,7 +106,7 @@ func TestPlanningRunLotSizing(t *testing.T) {
 }
 
 // TestRunLinesBeforeLotSizing: a line a server before lot sizing wrote
-// (000469: no proposed quantity, no lots) reads as lot for lot, its
+// (000482: no proposed quantity, no lots) reads as lot for lot, its
 // shortage proposed in one lot.
 func TestRunLinesBeforeLotSizing(t *testing.T) {
 	e := setup(t)

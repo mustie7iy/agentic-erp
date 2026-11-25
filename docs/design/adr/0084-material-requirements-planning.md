@@ -386,7 +386,7 @@ default (SAP's lot sizing procedures, MARC-DISLS EX, FX and HB with
 BSTFE, MABST, BSTMI, BSTMA and BSTRF, **from memory**, for the SAP
 specialist):
 
-- **Planning data** (migration 000469): `lot_size` `lot_for_lot` (EX,
+- **Planning data** (migration 000482): `lot_size` `lot_for_lot` (EX,
   the default, what every run did before), `fixed` (FX, `fixed_lot_size`)
   or `replenish_to_maximum` (HB, `maximum_stock_level`, not below the
   reorder point); `minimum_lot_size`, `maximum_lot_size` and

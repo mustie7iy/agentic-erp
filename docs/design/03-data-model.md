@@ -7252,7 +7252,7 @@ erDiagram
 
 ## 3.37 Material requirements planning (`mrp`)
 
-ADR-0084, S2k (migration 000436; lot sizing, migration 000469). Materials' planning data at plants and
+ADR-0084, S2k (migration 000436; lot sizing, migration 000482). Materials' planning data at plants and
 planning runs per plant: the context reads tenancy's plants, materials,
 the ledger's accounts, sales' demand, inventory's stock and prices and
 procurement's receipts and requisitions through ports, writes
@@ -7300,7 +7300,7 @@ erDiagram
     numeric receipts
     numeric shortage "above 0 exactly with a requisition"
     text lot_size "the plan's procedure"
-    numeric proposed "the shortage or more; null before 000469"
+    numeric proposed "the shortage or more; null before 000482"
     integer lots "with a requisition: its items"
     uuid requisition_id "procurement"
     text requisition_number }
@@ -7345,7 +7345,7 @@ erDiagram
   sizing procedure it sized by (`run_line_lot_size_check`) and what it
   proposed, the shortage or more, above zero exactly with a shortage, in
   one lot or more exactly then (`run_line_lots`); a line written before
-  000469 names neither, read as the shortage in one lot.
+  000482 names neither, read as the shortage in one lot.
   Insert-only (`run_line_immutable`).
 - `mrp.proposal`: a requisition a run proposed (`proposal_run_fkey`), with
   its number (`proposal_requisition_number_check`) and the version it was

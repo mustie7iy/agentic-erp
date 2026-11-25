@@ -145,7 +145,7 @@ func withDetails(ctx context.Context, tx pgx.Tx, runs []Run) error {
 	}
 	rows, _ := tx.Query(ctx, `SELECT run_id, material_id, uom_code, trim_scale(reorder_point)::text, trim_scale(demand)::text, trim_scale(stock)::text,
 			trim_scale(receipts)::text, trim_scale(shortage)::text, requisition_id, requisition_number, lot_size,
-			-- a line of a server before lot sizing proposed its shortage in one lot (000469)
+			-- a line of a server before lot sizing proposed its shortage in one lot (000482)
 			trim_scale(COALESCE(proposed, shortage))::text, CASE WHEN requisition_id IS NOT NULL THEN COALESCE(lots, 1) END
 		FROM mrp.run_line WHERE run_id = ANY($1) ORDER BY run_id, material_id`, ids)
 	var run uuid.UUID

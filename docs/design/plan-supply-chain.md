@@ -1090,7 +1090,7 @@ pack size.
   multiples of the rounding value; all in the base unit. A run sizes each
   shortage by it, an item per lot of the material's one requisition, at
   most 100 lots (409 `mrp.too_many_lots` fails the run); its line names
-  the procedure, what it proposed and in how many lots. Migration 000469;
+  the procedure, what it proposed and in how many lots. Migration 000482;
   `createMaterialPlan`, `updateMaterialPlan` (merge patch, `null` removes
   a quantity), `MrpRunLine` additive.
 - **Walkthrough:** extends `step_mrp` (step 152): a washer planned at

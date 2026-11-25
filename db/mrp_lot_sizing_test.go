@@ -32,7 +32,7 @@ func (s mrpScene) lotLine(shortage string, proposed, lots any, procedure string)
 	return step(mrpLotLine, s.tenant, s.run, s.material, shortage, req, number, procedure, proposed, lots)
 }
 
-// TestMRPLotSizing (migration 000469; ADR-0084 As built, lot sizing): a
+// TestMRPLotSizing (migration 000482; ADR-0084 As built, lot sizing): a
 // plan's lot sizing is a known procedure; its fixed lot size and maximum
 // stock level are given exactly with their procedures, the level not
 // below the reorder point; a fixed lot is not bounded or rounded; every
