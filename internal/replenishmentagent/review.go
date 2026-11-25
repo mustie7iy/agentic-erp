@@ -44,9 +44,9 @@ type review struct {
 // the year ending on the run's day (ADR-0072 As built S2l1).
 const window = 365
 
-// yearTo is the first day of the year ending on a run's day; a run day
-// that is no date has none.
-func yearTo(runDate string) (string, error) {
+// windowFrom is the first day of the year ending on a run's day, the
+// check's window's from; a run day that is no date has none.
+func windowFrom(runDate string) (string, error) {
 	d, err := time.Parse(time.DateOnly, runDate)
 	if err != nil {
 		return "", fmt.Errorf("replenishmentagent: the planning run's day %q: %w", runDate, err)

@@ -167,6 +167,7 @@ type fakeAPI struct {
 	runs    string   // the run's answer instead of answers'
 	perf    string   // the delivery performance's answer instead of deliveries'
 	perfAt  int      // its status; 0: 200
+	fails   int      // the delivery performance reads answered 503 before any is answered
 	status  int      // every read's but the run's; 0: 200
 	made    int
 }
@@ -190,7 +191,11 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		answer(200, a.runs)
 	case path == "/v1/supplier-delivery-performance" && a.perf != "":
 		answer(cmp.Or(a.perfAt, 200), a.perf)
-	case path == "/v1/supplier-delivery-performance" && a.status == 0:
+	case path == "/v1/supplier-delivery-performance" && a.failed():
+		answer(503, `{"code": "platform.unavailable", "status": 503}`)
+	case path == "/v1/supplier-delivery-performance" && a.status != 0:
+		answer(a.status, `{"code": "identity.permission_missing", "status": 403}`)
+	case path == "/v1/supplier-delivery-performance":
 		answer(200, deliveries(r.URL.Query()))
 	case path == "/v1/agent-sessions":
 		answer(201, `{"id": "`+session+`", "autonomy_level": 1}`)
@@ -205,6 +210,18 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		answer(404, `{"code": "request.not_found", "status": 404}`)
 	}
+}
+
+// failed reports whether a delivery performance read is one of the first
+// fails, which are answered 503.
+func (a *fakeAPI) failed() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.fails == 0 {
+		return false
+	}
+	a.fails--
+	return true
 }
 
 // recommended answers a recommendation with its body.
@@ -591,5 +608,24 @@ func TestReviewMeasuresUnread(t *testing.T) {
 				t.Errorf("recommendations sent: got %d, want none", got)
 			}
 		})
+	}
+}
+
+// TestReviewMeasuresRetried: a check read that failed is not kept: the
+// next order reads again and, served, is made.
+func TestReviewMeasuresRetried(t *testing.T) {
+	order := rec(ra, "order", "Order 30 EA from supplier "+s2+" by 2026-11-21: contract "+con1+" item 1\n"+measures+"\nWhy: the contract's 1.05 CAD.")
+	a := &fakeAPI{fails: 1}
+	model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": ra}), llmtest.Tool("getContract", map[string]any{"id": con1}),
+		llmtest.Tool("getBusinessPartner", map[string]any{"id": s2}), order, order, llmtest.Final("Recommended ordering the hinge on its contract."))
+	res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []recommend.Made{{ID: "r1", ObjectType: "requisition", ObjectID: ra, Kind: "order"}}; !slices.Equal(res.Recommendations, want) || res.Refused != 1 {
+		t.Errorf("got %v, refused %d, want %v and the first refused", res.Recommendations, res.Refused, want)
+	}
+	if got := a.queries; !slices.Equal(got, []string{checked, checked}) {
+		t.Errorf("the check's reads: got %v, want two of %s", got, checked)
 	}
 }

@@ -213,7 +213,7 @@ func (a *Agent) Review(ctx context.Context, runID string) (recommend.Result, err
 	if len(objects) == 0 {
 		return recommend.Result{Reply: fmt.Sprintf("Planning run %s of plant %s proposed nothing: no recommendation.", r.ID, r.PlantCode)}, nil
 	}
-	from, err := yearTo(r.RunDate)
+	from, err := windowFrom(r.RunDate)
 	if err != nil {
 		return recommend.Result{}, err
 	}
