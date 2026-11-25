@@ -32,6 +32,7 @@ dimensions:
   - {name: account_name, label: G/L account name}
   - {name: determination, label: Account determination, description: "The account determination keys that name the account for automatic postings in its company, e.g. cash_discount or fx_gain; none for the others"}
   - {name: document_type, label: Document type, description: "SAP document type, e.g. RE invoice, KZ payment, SA general"}
+  - {name: tax_jurisdiction, label: Tax jurisdiction, description: "The country subdivision (ISO 3166-2) a journal line's tax is levied in, where its tax code levies its lines' subdivision, e.g. AE-DU for a sale in Dubai; empty for the other lines"}
   - {name: vendor, label: Vendor}
   - {name: vendor_name, label: Vendor name}
   - {name: invoice_status, label: Invoice status, description: "parked, on_hold, posted, rejected"}
@@ -62,7 +63,7 @@ metrics:
     aggregate: sum
     sign: -1
     filter: {account_type: [revenue], determination: [none]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, tax_jurisdiction]
 
   - name: income
     label: Income
@@ -73,7 +74,7 @@ metrics:
     aggregate: sum
     sign: -1
     filter: {account_type: [revenue]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, determination, document_type]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, determination, document_type, tax_jurisdiction]
 
   - name: expenses
     label: Operating expenses

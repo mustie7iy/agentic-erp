@@ -1252,6 +1252,52 @@ API is T95a). Decisions:
   `TestRerunKeepsTheExchange`; `erp`'s `TestAskContinue`,
   `TestEvalSuites` (analytics); the walkthrough's step 81.
 
+**The journal's tax columns (batch 95, ADR-0049 §9's follow-up; decided
+by default).** Dataset `gl_lines` gains two nullable columns, additive in
+v1: `tax_jurisdiction`, the country subdivision a line's tax is levied in
+(a UAE sale's emirate, ADR-0049 §7), and `tax_base_minor`, the line's
+declared tax base in local currency (an import's from its customs
+declaration, §9), in the line's currency and exponent; both read from the
+line as the journal API shows it (`tax_jurisdiction`, `tax_base_lc`).
+- *Semantic dimension now.* `tax_jurisdiction` is a dimension of
+  `revenue` and `income` ("sales by emirate"), read by the database path
+  from `/v1/journal-entries` and by the store from the column, null and
+  empty alike being no jurisdiction; parity covers it (a Dubai sale in
+  `setupParity`). Not of `expenses`: only output codes levy their lines'
+  subdivision (config's check), so an expense line has none. It needs no
+  permission beyond the journal's: it names no partner or account.
+- *The base is a measure.* A fact has one amount; the contract's new role
+  `measure` is money beside it, in its currency and exponent, that the
+  reader neither sums, filters nor groups by (`resolve` takes dimensions,
+  dates and currency alone; reader `TestTaxColumns` refuses both). A
+  governed metric of declared bases (VAT 201 box 6's values) needs the
+  semantic layer to sum a column other than the amount, on both paths: a
+  step of its own.
+- *Files written before the columns.* `ledger.journal_line` held the
+  jurisdiction (ADR-0049 §7) and the bases (§9) long before the dataset
+  did, and an appended dataset keeps its files: read with the columns
+  null they would put a Dubai sale under none, an answer the database
+  path does not give. So the journal's manifest names the columns its
+  files hold (`columns`, gl_lines alone), and a run that finds others
+  (a manifest written before, naming none) extracts the journal again
+  from the start, below its cutoff, into files of the extractor's
+  columns; the older files leave the manifest and are collected with it
+  (extract `TestJournalExtractedAgain`), and the next run appends again.
+  Until that run, the reader's view does not bind over the older files,
+  so the store answers from the database (the fallback, as T72l's
+  accounts did; reader `TestTaxColumns`); a reader never sees parts of
+  two schemas. The re-extraction is once per contract change and holds
+  one month in memory, as a first run does.
+- *Isolation.* The reader's and parity's isolation tests are unchanged
+  and pass; the reader's view is unchanged.
+- *Walkthrough.* Step 41 (`step_uae`) asks revenue by tax jurisdiction of
+  the UAE company: the Dubai and Abu Dhabi branches' sales under AE-DU and
+  AE-AZ.
+- *Evidence.* extract `TestTaxColumns`, `TestJournalExtractedAgain`;
+  reader `TestTaxColumns`; store `TestParity` (the dimension in
+  every metric's breakdowns, and the Dubai sale's 200.00 under AE-DU);
+  analytics `TestDatasetContractShape` (a measure is a nullable int64).
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the
