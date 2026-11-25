@@ -10,7 +10,7 @@ BEGIN
 END $$;
 DROP TABLE sales.delivery_reversal;
 DROP FUNCTION sales.record_delivery_reversal();
--- 000449's function, which knows no reversal.
+-- 000462's function (tms_connector), which knows no reversal.
 CREATE OR REPLACE FUNCTION shipping.outbound_delivery_open() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   shipment CONSTANT text[] := ARRAY['shipment_number', 'carrier_code', 'freight_amount', 'freight_currency', 'shipment_recorded_at', 'version',

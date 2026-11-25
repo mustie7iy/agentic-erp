@@ -92,11 +92,11 @@ func tradeHeld(d Delivery) error {
 // without, or more than screenedAhead past the ERP's clock). The
 // service's latest answer counts, by that time, not by when it is read:
 // one screened before the answer recorded already is refused (409
-// shipping.screening_superseded),
-// so an answer read late cannot undo a later block. A newer one replaces
-// the status, reason code and time, and a person's release before it. A
-// delivery created before its plant was screened takes it all the same:
-// a block is honoured whenever it comes. The version moves; the audit
+// shipping.screening_superseded), so an answer read late cannot undo a
+// later block. A newer one replaces the status, reason code and time,
+// and a person's release before it. A delivery created before its plant
+// was screened takes it all the same: a block is honoured whenever it
+// comes. The version moves; the audit
 // record and OutboundDeliveryChanged are written in the caller's
 // transaction. No If-Match: the service's answer is not a change of what
 // its caller read. It is shipping's published write for the exchange with

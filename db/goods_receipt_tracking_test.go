@@ -70,7 +70,7 @@ func TestGoodsReceiptTracking(t *testing.T) {
 
 // TestGoodsReceiptTrackingDownRefused: 000473's down migration refuses to
 // drop goods receipt items naming a batch or serial numbers (06 §6.4: a
-// down migration loses no data).
+// down migration loses no data), reading every tenant's rows.
 func TestGoodsReceiptTrackingDownRefused(t *testing.T) {
 	need(t)
 	ctx := context.Background()
@@ -95,10 +95,20 @@ func TestGoodsReceiptTrackingDownRefused(t *testing.T) {
 					posting_date, posted_by) VALUES ($1, $2, 'GR1', $1, '101', '2026-08-05', '2026-08-05', $1)`, tenant, gm),
 				step(`INSERT INTO procurement.goods_movement_item (tenant_id, goods_movement_id, item_no, purchase_order_id, po_item_no, quantity, uom_code,
 					batch_id, batch_number, serial_numbers) VALUES ($1, $2, 1, $1, 1, 1, 'EA', $3, $4, $5)`, tenant, gm, c.batch, c.number, c.serials),
-				step(`SET LOCAL session_replication_role = origin`)); err != nil {
+				step(`SET LOCAL session_replication_role = origin`), step(`SAVEPOINT migrator`)); err != nil {
 				t.Fatal(err)
 			}
-			failsWith(t, exec(tx, migrationNamed(t, "000473_goods_receipt_tracking").Down), "goods receipt items name batches or serial numbers")
+			down := migrationNamed(t, "000473_goods_receipt_tracking").Down
+			// A migrating role held to row-level security fails the guard
+			// rather than finding no rows (row_security = off).
+			if err := asMigrator(tx); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "row-level security")
+			if err := exec(tx, `ROLLBACK TO SAVEPOINT migrator`); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "goods receipt items name batches or serial numbers")
 		})
 	}
 }

@@ -1300,8 +1300,12 @@ A later slice adds its row here and its section under "As built".
   document: `postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`,
   `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`,
   `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`, batch 88;
+  `reverseOutboundDeliveryGoodsIssue`, S2b3; cycle counting's
+  `createCycleCountIndicator`, `updateCycleCountIndicator`,
+  `createCycleCountMaterial`, `updateCycleCountMaterial`, S2c2;
   `TestNever` keeps it whole against the contract's writes named
-  `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt` or `GoodsIssue`),
+  `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt`, `GoodsIssue` or
+  `CycleCount`),
   none among its tools, and each `x-agent: false` but the purchase order
   receipt's two (`postGoodsReceipt`, `reverseGoodsReceipt`, open to
   agents by the contract, not to this one): it never creates a count
@@ -1643,7 +1647,8 @@ A later slice adds its row here and its section under "As built".
   `updateMaterialPlan`): it never changes stock, orders or planning (the
   brief's acceptance). `TestNever` keeps it whole against the contract's
   writes named `MaterialDocument`, `GoodsReceipt`, `GoodsIssue`,
-  `StockTransport`, `PhysicalInventory`, `SalesOrder`, `SalesDelivery`,
+  `StockTransport`, `PhysicalInventory`, `CycleCount`, `SalesOrder`,
+  `SalesDelivery`,
   `OutboundDelivery`, `ReturnsOrder`, `ReturnReceipt`, `Requisition`,
   `PurchaseOrder`, `ScheduleLine`, `GrIrClearing`, `MrpRun` and
   `MaterialPlan`.

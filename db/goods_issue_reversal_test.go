@@ -303,3 +303,47 @@ func TestDeliveryReversalAsOwner(t *testing.T) {
 		})
 	}
 }
+
+// TestGoodsIssueReversalDownRefused (S2b3, migration 000471): the down
+// refuses, rather than drops, a delivery's reversal and a reversed
+// delivery (06 §6.4: a down migration loses no data), reading every
+// tenant's rows: a migrating role held to row-level security fails it
+// rather than finding none.
+func TestGoodsIssueReversalDownRefused(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000471_goods_issue_reversal").Down
+	ctx := context.Background()
+	for name, seed := range map[string]func(tenant uuid.UUID) []stmt{
+		"a delivery's reversal": func(tenant uuid.UUID) []stmt {
+			s := reversalScene{tenant: tenant, order: id(), delivery: id()}
+			return append(s.delivered(false), s.reversal("2026-03-20", "MD2"))
+		},
+		"a reversed delivery": func(tenant uuid.UUID) []stmt {
+			s := shippingScene{tenant: tenant, company: id(), delivery: id(), document: id()}
+			return append(s.issued(), s.reverse("goods_issue_reversed", "2026-11-20", id(), "MD2"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			tenant := id()
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenant.String()); err != nil {
+				t.Fatal(err)
+			}
+			if err := all(tx, append(seed(tenant), step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT migrator`))...); err != nil {
+				t.Fatal(err)
+			}
+			if err := asMigrator(tx); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "row-level security")
+			if err := exec(tx, `ROLLBACK TO SAVEPOINT migrator`); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, exec(tx, down), "reversed goods issues of outbound deliveries exist")
+		})
+	}
+}
