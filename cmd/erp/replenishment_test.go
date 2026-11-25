@@ -51,7 +51,7 @@ func TestAgentReplenish(t *testing.T) {
 	model(t, llmtest.Tool("getRequisition", map[string]any{"id": req}),
 		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": "le", "text": "MA1"}),
 		llmtest.Tool("getBusinessPartner", map[string]any{"id": supplier}),
-		llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": "p100", "material_id": material}),
+		llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": "p100", "material_id": material, "from": "2025-11-22", "to": "2026-11-21"}),
 		llmtest.Tool("createRecommendation", map[string]any{"body": map[string]any{"session_id": agentSession, "object_type": "requisition",
 			"object_id": req, "kind": "order", "content": order + "\nMeasures: no receipts\nWhy: the catalog's price is 1.10 CAD."}}),
 		llmtest.Final("Recommended an order; the buyer decides."))

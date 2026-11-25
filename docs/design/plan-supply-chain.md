@@ -917,8 +917,9 @@ safety stock calculation, MRP areas, planned orders for production (phase
     history is `measured` (at least 3 receipts) or `thin`; the suppliers
     by number with their names, and the totals. The replenishment agent
     reads it for each proposal and names, in its order, the measures of
-    the supplier it suggests (a line `Measures: …`, checked against the
-    read); it prefers the measured supplier with the higher on-time
+    the supplier it suggests (a line `Measures: …`, which its check holds
+    to its own read of that supplier over the year ending on the run's
+    day); it prefers the measured supplier with the higher on-time
     share, then the shorter observed lead time, over one with thin or no
     history, and on a tie keeps the source order it had. It still only
     proposes; its never list is unchanged. A migration indexes order

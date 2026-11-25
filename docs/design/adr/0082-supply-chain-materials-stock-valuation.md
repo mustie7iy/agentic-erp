@@ -2399,7 +2399,10 @@ the specialist list):
   old supplier's record does not hide a recent change. A window that ends
   before it starts, or is longer than 1,096 days (three years, a leap day
   among them), is 400 `request.invalid_parameter`, so a read stays
-  bounded.
+  bounded. The replenishment agent's check asks for the year ending on
+  its run's day (`from`, `to`), not the default, so a run reviewed on a
+  later day is held to the year it was planned in (ADR-0072 As built
+  S2l1).
 - **Thin history.** A supplier with fewer than `min_receipts` (3)
   receipts in the window is `thin`; with 3 or more `measured`; with none
   it has no row. The agent prefers a measured supplier over a thin one or

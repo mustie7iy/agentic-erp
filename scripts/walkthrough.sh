@@ -16409,7 +16409,9 @@ step_mrp() {
 # delivery performance at Toronto shows both, measured from the orders and
 # receipts; the agent's order without the measures is refused by the run,
 # and it recommends Tyrell's catalog item naming Tyrell's measures, though
-# Bolt's is cheaper.
+# Bolt's is cheaper. The run's check reads those measures itself, over the
+# year ending on the run's day (the proposal's day), which the model's read
+# gives as from and to, so a review after midnight names the same ones.
 step_replenishment_agent() {
   heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts; the supplier chosen by its lead time and on-time share at the plant, named in the order"
   local role item plan run proposal number day got session rec version want bolt ap po supplier ordered due lines measures
@@ -16496,7 +16498,7 @@ step_replenishment_agent() {
   day=$(field .needed_by) version=$(field .version)
   measures="Measures: 3 receipts (measured), lead time 5 days against 5 planned, on time 3 of 3 (100%)"
   jq -n --arg run "$run" --arg req "$proposal" --arg le "$LE" --arg hinge "$HINGE" --arg number "$number" --arg s "$SUPPLIER" --arg item "$item" --arg day "$day" \
-    --arg plant "$PLANT" --arg bolt "$bolt" --arg measures "$measures" '
+    --arg plant "$PLANT" --arg bolt "$bolt" --arg measures "$measures" --arg from "$(date_add "$day" -364)" '
     {session_id: "{{session}}", object_type: "requisition", object_id: $req, kind: "order"} as $on |
     "Order 30 EA from supplier \($s) by \($day): catalog item \($item)" as $first |
     "\nWhy: Tyrell delivered 3 of 3 hinges on time in 5 days; Bolt Hardware Supply is cheaper at 1.00 CAD but delivered 0 of 3 on time in 9 days. The run'"'"'s shortage of the hinge is 30 EA." as $why |
@@ -16509,7 +16511,7 @@ step_replenishment_agent() {
       {tool: "listPurchaseOrders", input: {legal_entity_id: $le, material_id: $hinge}},
       {tool: "getBusinessPartner", input: {id: $s}},
       {tool: "getBusinessPartner", input: {id: $bolt}},
-      {tool: "getSupplierDeliveryPerformance", input: {plant_id: $plant, material_id: $hinge}},
+      {tool: "getSupplierDeliveryPerformance", input: {plant_id: $plant, material_id: $hinge, from: $from, to: $day}},
       {tool: "createRecommendation", input: {body: ($on + {content: "Order 40 EA from supplier \($s) by \($day): catalog item \($item)\n\($measures)\nWhy: round it up."})}},
       {tool: "createRecommendation", input: {body: ($on + {content: ($first + $why)})}},
       {tool: "createRecommendation", input: {body: ($on + {content: ($first + "\n" + $measures + $why)})}},

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -74,12 +76,11 @@ var answers = map[string]string{
 	"/v1/contracts/" + con1: contract(con1, "active", "2026-01-01", "2026-12-31"),
 	"/v1/purchase-orders": `{"items": [` + order(po2, s1, "draft", hinge) + `, ` + order(po3, s1, "closed", hinge, hinge) + `, ` +
 		order("01a1aa00-0000-7000-8000-000000000f24", s1, "released", "") + `]}`,
-	"/v1/purchase-orders/" + po1:        order(po1, s3, "released", hinge),
-	"/v1/supplier-delivery-performance": performance(plant),
-	"/v1/business-partners/" + s1:       partner(s1, "active", "supplier"),
-	"/v1/business-partners/" + s2:       partner(s2, "active", "supplier"),
-	"/v1/business-partners/" + s3:       partner(s3, "blocked", "supplier"),
-	"/v1/business-partners/" + s5:       partner(s5, "active", "customer"),
+	"/v1/purchase-orders/" + po1:  order(po1, s3, "released", hinge),
+	"/v1/business-partners/" + s1: partner(s1, "active", "supplier"),
+	"/v1/business-partners/" + s2: partner(s2, "active", "supplier"),
+	"/v1/business-partners/" + s3: partner(s3, "blocked", "supplier"),
+	"/v1/business-partners/" + s5: partner(s5, "active", "customer"),
 }
 
 func requisition(id, status, day, material, value, unit string) string {
@@ -106,19 +107,51 @@ func order(id, supplier, status string, materials ...string) string {
 	return fmt.Sprintf(`{"id": %q, "legal_entity_id": %q, "supplier_id": %q, "status": %q, "items": [%s]}`, id, le, supplier, status, strings.Join(items, ", "))
 }
 
-// performance is the hinge's delivery performance at the plant: the
-// contract's supplier s2 measured, the blocked s3 thin and undated, the
-// catalog's s1 with no receipt.
-func performance(at string) string {
-	return fmt.Sprintf(`{"plant_id": %q, "material_id": %q, "from": "2025-11-21", "to": "2026-11-20", "min_receipts": 3, "suppliers": [
-		{"supplier_id": %q, "receipts": 4, "dated_receipts": 4, "on_time_receipts": 3, "on_time_percent": 75, "planned_lead_days": 5, "observed_lead_days": 6,
-		 "history": "measured"},
-		{"supplier_id": %q, "receipts": 1, "dated_receipts": 0, "on_time_receipts": 0, "observed_lead_days": 9, "history": "thin"}],
-		"totals": {"receipts": 5, "dated_receipts": 4, "on_time_receipts": 3, "on_time_percent": 75}}`, at, hinge, s2, s3)
+// The hinge's deliveries at the plant, as getSupplierDeliveryPerformance
+// rows: over the year ending on the run's day, 2025-11-21 to 2026-11-20,
+// the contract's supplier s2 measured and the blocked s3 thin and
+// undated, the catalog's s1 with no receipt; over any other window, such
+// as the read's default on the day after the run's, s2 with a fifth
+// receipt, a late one, and no other supplier.
+var (
+	year = map[string]string{
+		s2: `{"supplier_id": "` + s2 + `", "receipts": 4, "dated_receipts": 4, "on_time_receipts": 3, "on_time_percent": 75, "planned_lead_days": 5,
+			"observed_lead_days": 6, "history": "measured"}`,
+		s3: `{"supplier_id": "` + s3 + `", "receipts": 1, "dated_receipts": 0, "on_time_receipts": 0, "observed_lead_days": 9, "history": "thin"}`}
+	later = map[string]string{
+		s2: `{"supplier_id": "` + s2 + `", "receipts": 5, "dated_receipts": 5, "on_time_receipts": 3, "on_time_percent": 60, "planned_lead_days": 5,
+			"observed_lead_days": 7, "history": "measured"}`}
+)
+
+// deliveries answers a read of the hinge's delivery performance: the
+// year's rows over the run's year, the later ones over any other window,
+// none at another plant or of another material, of the supplier alone
+// when the read is narrowed to one.
+func deliveries(q url.Values) string {
+	rows := later
+	if q.Get("from") == "2025-11-21" && q.Get("to") == "2026-11-20" {
+		rows = year
+	}
+	var out []string
+	for _, id := range slices.Sorted(maps.Keys(rows)) {
+		if q.Get("plant_id") == plant && q.Get("material_id") == hinge && (q.Get("supplier_id") == "" || q.Get("supplier_id") == id) {
+			out = append(out, rows[id])
+		}
+	}
+	return fmt.Sprintf(`{"plant_id": %q, "material_id": %q, "from": %q, "to": %q, "min_receipts": 3, "suppliers": [%s], "totals": {"receipts": 0}}`,
+		q.Get("plant_id"), q.Get("material_id"), q.Get("from"), q.Get("to"), strings.Join(out, ", "))
 }
 
-// measures are s2's measures as an order names them.
-const measures = "Measures: 4 receipts (measured), lead time 6 days against 5 planned, on time 3 of 4 (75%)"
+// measures are s2's measures over the run's year as an order names them,
+// and laterMeasures over the year to the day after the run's.
+const (
+	measures      = "Measures: 4 receipts (measured), lead time 6 days against 5 planned, on time 3 of 4 (75%)"
+	laterMeasures = "Measures: 5 receipts (measured), lead time 7 days against 5 planned, on time 3 of 5 (60%)"
+)
+
+// checked is the query of the check's own read of s2's measures: the
+// hinge at the run's plant over the year ending on the run's day.
+const checked = "from=2025-11-21&material_id=" + hinge + "&plant_id=" + plant + "&supplier_id=" + s2 + "&to=2026-11-20"
 
 func partner(id, status, role string) string {
 	return fmt.Sprintf(`{"id": %q, "number": "BP1", "status": %q, "roles": [%q]}`, id, status, role)
@@ -128,19 +161,23 @@ func partner(id, status, role string) string {
 // answer, a session and recommendations answered by their bodies; it
 // keeps every request it was sent.
 type fakeAPI struct {
-	mu     sync.Mutex
-	calls  []string
-	runs   string // the run's answer instead of answers'
-	perf   string // the delivery performance's answer instead of answers'
-	perfAt int    // its status; 0: 200
-	status int    // every read's but the run's; 0: 200
-	made   int
+	mu      sync.Mutex
+	calls   []string
+	queries []string // the delivery performance reads' queries
+	runs    string   // the run's answer instead of answers'
+	perf    string   // the delivery performance's answer instead of deliveries'
+	perfAt  int      // its status; 0: 200
+	status  int      // every read's but the run's; 0: 200
+	made    int
 }
 
 func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b, _ := io.ReadAll(r.Body) // a test's own request
 	a.mu.Lock()
 	a.calls = append(a.calls, r.Method+" "+r.URL.Path)
+	if r.URL.Path == "/v1/supplier-delivery-performance" {
+		a.queries = append(a.queries, r.URL.RawQuery)
+	}
 	a.mu.Unlock()
 	answer := func(status int, body string) {
 		w.Header().Set("Content-Type", "application/json")
@@ -153,6 +190,8 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		answer(200, a.runs)
 	case path == "/v1/supplier-delivery-performance" && a.perf != "":
 		answer(cmp.Or(a.perfAt, 200), a.perf)
+	case path == "/v1/supplier-delivery-performance" && a.status == 0:
+		answer(200, deliveries(r.URL.Query()))
 	case path == "/v1/agent-sessions":
 		answer(201, `{"id": "`+session+`", "autonomy_level": 1}`)
 	case strings.HasPrefix(path, "/v1/agent-sessions/"):
@@ -225,7 +264,7 @@ var reads = []llmtest.Step{
 	llmtest.Tool("getBusinessPartner", map[string]any{"id": s2}),
 	llmtest.Tool("getBusinessPartner", map[string]any{"id": s3}),
 	llmtest.Tool("getBusinessPartner", map[string]any{"id": s5}),
-	llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge}),
+	llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge, "from": "2025-11-21", "to": "2026-11-20"}),
 }
 
 // ordered is an order of the hinge's proposal: its first line, then its
@@ -274,6 +313,8 @@ func TestReview(t *testing.T) {
 		{ra, "order", first + why, replenishmentagent.ErrMeasures},
 		{ra, "order", first + "\nMeasures: no receipts" + why, replenishmentagent.ErrMeasures},
 		{ra, "order", first + "\nMeasures: 1 receipts (thin), lead time 9 days" + why, replenishmentagent.ErrMeasures},
+		{ra, "order", first + "\n" + laterMeasures + why, replenishmentagent.ErrMeasures},
+		{ra, "order", first + "\n" + measures + "\n" + laterMeasures + why, replenishmentagent.ErrMeasures},
 	}
 	steps := slices.Clone(reads)
 	for _, r := range refusals {
@@ -297,11 +338,18 @@ func TestReview(t *testing.T) {
 	if got := len(a.sent("recommendations")); got != 2 {
 		t.Errorf("recommendations sent: got %d, want 2: the check keeps the others from the API", got)
 	}
+	if got := a.queries[len(a.queries)-1]; got != checked {
+		t.Errorf("the check's read: got %s, want %s", got, checked)
+	}
+	if got, want := len(a.queries), 2; got != want {
+		t.Errorf("delivery performance reads: got %d, want %d: the model's and the check's, kept for the run", got, want)
+	}
 	if got, want := res.Names[ra], "requisition PR1 of MA-HINGE"; got != want {
 		t.Errorf("the hinge's proposal named: got %q, want %q", got, want)
 	}
 	prompt := "Planning run " + run + " of plant P100, Toronto plant, in company 3000 (legal entity " + le + "), planned on 2026-11-20. " +
-		"Recommend, for each requisition it proposed, what to order, from which supplier and when."
+		"Recommend, for each requisition it proposed, what to order, from which supplier and when. " +
+		"Its suppliers' delivery performance is measured from 2025-11-21 to 2026-11-20."
 	if !strings.Contains(model.Requests[0], prompt) {
 		t.Errorf("prompt: got %s, want %q", model.Requests[0], prompt)
 	}
@@ -345,8 +393,9 @@ func TestReviewWithoutReads(t *testing.T) {
 	}
 }
 
-// TestReviewBefore: a run the agent may not read, one not completed and
-// an API that is gone stop the run before a session starts; a run that
+// TestReviewBefore: a run the agent may not read, one not completed, one
+// whose day is no date (it has no year to measure suppliers over) and an
+// API that is gone stop the run before a session starts; a run that
 // proposed nothing starts none and says so.
 func TestReviewBefore(t *testing.T) {
 	for name, c := range map[string]struct {
@@ -358,6 +407,8 @@ func TestReviewBefore(t *testing.T) {
 		"failed": {`{"id": "` + run + `", "status": "failed", "error": {"code": "config.no_number_range"}, "lines": []}`, run,
 			replenishmentagent.ErrNotCompleted.Error() + ": " + run + " failed with config.no_number_range"},
 		"not its shape": {`{"id": 7}`, run, "decode response body"},
+		"a run day that is no date": {`{"id": "` + run + `", "status": "completed", "run_date": "soon", "lines": [{"requisition_id": "` + ra + `"}]}`, run,
+			`the planning run's day "soon"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := &fakeAPI{runs: c.runs}
@@ -443,49 +494,89 @@ func TestReviewFromHistory(t *testing.T) {
 	}
 }
 
-// narrowed is a read of the hinge's performance at the plant narrowed to
-// s1, which has no receipt, over the window from to 2026-11-20.
-func narrowed(from string) string {
-	return fmt.Sprintf(`{"plant_id": %q, "material_id": %q, "supplier_id": %q, "from": %q, "to": "2026-11-20", "min_receipts": 3, "suppliers": [],
-		"totals": {"receipts": 0, "dated_receipts": 0, "on_time_receipts": 0}}`, plant, hinge, s1, from)
+// TestReviewMeasures: the check reads the order's supplier's measures
+// itself, over the year ending on the run's day, so that no read of the
+// model's makes an order pass or fail. An order naming what a read of
+// another window or supplier told, when it differs, is refused, and the
+// refusal tells the line wanted, whatever the model read: the read's
+// default on the day after the run's (the run reviewed on a later day),
+// a window ending the day before the run's day, a past or a future
+// year's, one narrowed to another supplier. With no read of the model's,
+// or one to the run's day, the year's line is made. The check reads once
+// for the run, over its fixed window.
+func TestReviewMeasures(t *testing.T) {
+	first := "Order 30 EA from supplier " + s2 + " by 2026-11-21: contract " + con1 + " item 1\n"
+	why := "\nWhy: the contract's 1.05 CAD."
+	before := []llmtest.Step{llmtest.Tool("getRequisition", map[string]any{"id": ra}), llmtest.Tool("getContract", map[string]any{"id": con1}),
+		llmtest.Tool("getBusinessPartner", map[string]any{"id": s2})}
+	read := func(in map[string]any) []llmtest.Step {
+		return []llmtest.Step{llmtest.Tool("getSupplierDeliveryPerformance", in)}
+	}
+	window := func(from, to string) map[string]any {
+		return map[string]any{"plant_id": plant, "material_id": hinge, "from": from, "to": to}
+	}
+	for name, c := range map[string]struct {
+		reads []llmtest.Step
+		named string // the measures line of the first order
+	}{
+		"not read":                     {nil, measures},
+		"to the run's day":             {read(window("2025-11-21", "2026-11-20")), measures},
+		"the default on a later day":   {read(map[string]any{"plant_id": plant, "material_id": hinge}), laterMeasures},
+		"ending the day before":        {read(window("2025-11-20", "2026-11-19")), laterMeasures},
+		"a past year's":                {read(window("2024-11-21", "2025-11-20")), laterMeasures},
+		"a future year's":              {read(window("2026-11-21", "2027-11-20")), laterMeasures},
+		"narrowed to another supplier": {read(map[string]any{"plant_id": plant, "material_id": hinge, "supplier_id": s1}), noReceiptsLine},
+	} {
+		t.Run(name, func(t *testing.T) {
+			refused := 0
+			steps := append(slices.Concat(before, c.reads), rec(ra, "order", first+c.named+why))
+			if c.named != measures {
+				refused = 1
+				steps = append(steps, rec(ra, "order", first+measures+why))
+			}
+			a := &fakeAPI{}
+			model := llmtest.New(t, append(steps, llmtest.Final("Recommended ordering the hinge on its contract."))...)
+			res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []recommend.Made{{ID: "r1", ObjectType: "requisition", ObjectID: ra, Kind: "order"}}; !slices.Equal(res.Recommendations, want) {
+				t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
+			}
+			if res.Refused != refused {
+				t.Errorf("refused: got %d, want %d", res.Refused, refused)
+			}
+			told, _ := json.Marshal(fmt.Sprintf("want %q", measures)) // the model reads the refusal as JSON text
+			if want := strings.Trim(string(told), `"`); refused == 1 && !strings.Contains(model.Requests[len(steps)-1], want) {
+				t.Errorf("the refusal: got %s, want it to tell %s", model.Requests[len(steps)-1], want)
+			}
+			if got := slices.DeleteFunc(slices.Clone(a.queries), func(q string) bool { return q != checked }); len(got) != 1 {
+				t.Errorf("the check's reads: got %v of %v, want one of %s", got, a.queries, checked)
+			}
+		})
+	}
 }
 
-// TestReviewMeasures: an order needs the run to have read the delivery
-// performance of the proposal's material at the run's plant over a year,
-// of every supplier or of the order's: before any read, after a read the
-// API refused, after a read of another plant, a read over less than a
-// year, one ending before the run's day and one starting after it (each
-// misses part of the year ending on the run's day, which could hold all
-// of a supplier's recent receipts) and a read
-// narrowed to another supplier (whose empty answer says nothing of the
-// order's), "no receipts" is refused, and nothing reaches the API. A read
-// narrowed to the order's supplier tells its own.
-func TestReviewMeasures(t *testing.T) {
-	order := rec(ra, "order", "Order 30 EA from supplier "+s1+" by 2026-11-21: catalog item "+cat1+"\nMeasures: no receipts\nWhy: the catalog's 1.10 CAD.")
-	before := []llmtest.Step{llmtest.Tool("getRequisition", map[string]any{"id": ra}),
-		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}),
-		llmtest.Tool("listContracts", map[string]any{"legal_entity_id": le, "material_id": hinge}), llmtest.Tool("getContract", map[string]any{"id": con1}),
-		llmtest.Tool("getBusinessPartner", map[string]any{"id": s1}), llmtest.Tool("getBusinessPartner", map[string]any{"id": s2})}
-	read := llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge})
+// noReceiptsLine is the measures line of a supplier with no receipt.
+const noReceiptsLine = "Measures: no receipts"
+
+// TestReviewMeasuresUnread: an order is refused while the check cannot
+// read its supplier's measures (the API refuses the read, or answers in
+// another shape), and nothing reaches the API.
+func TestReviewMeasuresUnread(t *testing.T) {
+	order := rec(ra, "order", "Order 30 EA from supplier "+s2+" by 2026-11-21: contract "+con1+" item 1\n"+measures+"\nWhy: the contract's 1.05 CAD.")
 	for name, c := range map[string]struct {
 		perf   string
 		status int
-		steps  []llmtest.Step
+		want   string
 	}{
-		"not read":         {"", 0, append(slices.Clone(before), order)},
-		"read refused":     {performance(plant), 403, append(slices.Clone(before), read, order)},
-		"another plant's":  {performance(otherLE), 0, append(slices.Clone(before), read, order)},
-		"less than a year": {strings.Replace(performance(plant), "2025-11-21", "2025-11-22", 1), 0, append(slices.Clone(before), read, order)},
-		"a past year's": {strings.Replace(strings.Replace(performance(plant), "2025-11-21", "2024-11-21", 1), "2026-11-20", "2025-11-20", 1), 0,
-			append(slices.Clone(before), read, order)},
-		"a future year's": {strings.Replace(strings.Replace(performance(plant), "2025-11-21", "2026-11-21", 1), "2026-11-20", "2027-11-20", 1), 0,
-			append(slices.Clone(before), read, order)},
-		"another supplier's": {narrowed("2025-11-21"), 0, append(slices.Clone(before), read,
-			rec(ra, "order", "Order 30 EA from supplier "+s2+" by 2026-11-21: contract "+con1+" item 1\nMeasures: no receipts\nWhy: the contract's 1.05 CAD."))},
+		"refused":       {`{"code": "identity.permission_missing", "status": 403}`, 403, "identity.permission_missing"},
+		"not its shape": {`{"suppliers": 7}`, 0, "decode response body"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := &fakeAPI{perf: c.perf, perfAt: c.status}
-			model := llmtest.New(t, append(c.steps, llmtest.Final("Nothing recommended."))...)
+			model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": ra}), llmtest.Tool("getContract", map[string]any{"id": con1}),
+				llmtest.Tool("getBusinessPartner", map[string]any{"id": s2}), order, llmtest.Final("Nothing recommended."))
 			res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), run)
 			if err != nil {
 				t.Fatal(err)
@@ -493,31 +584,12 @@ func TestReviewMeasures(t *testing.T) {
 			if len(res.Recommendations) != 0 || res.Refused != 1 {
 				t.Errorf("got %v, refused %d, want none made and one refused", res.Recommendations, res.Refused)
 			}
-			told, _ := json.Marshal(replenishmentagent.ErrMeasures.Error())
-			if last := model.Requests[len(model.Requests)-1]; !strings.Contains(last, strings.Trim(string(told), `"`)) {
-				t.Errorf("the refusal: got %s, want %v", last, replenishmentagent.ErrMeasures)
+			if last := model.Requests[len(model.Requests)-1]; !strings.Contains(last, "the delivery performance of supplier "+s2) || !strings.Contains(last, c.want) {
+				t.Errorf("the refusal: got %s, want the read's error with %q", last, c.want)
 			}
 			if got := len(a.sent("recommendations")); got != 0 {
 				t.Errorf("recommendations sent: got %d, want none", got)
 			}
 		})
-	}
-}
-
-// TestReviewNarrowed: a read narrowed to the order's own supplier, here
-// twice, tells that it has no receipt: an order from s1 naming no
-// receipts is made.
-func TestReviewNarrowed(t *testing.T) {
-	order := rec(ra, "order", "Order 30 EA from supplier "+s1+" by 2026-11-21: catalog item "+cat1+"\nMeasures: no receipts\nWhy: the catalog's 1.10 CAD.")
-	read := llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge, "supplier_id": s1})
-	model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": ra}),
-		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}), llmtest.Tool("getBusinessPartner", map[string]any{"id": s1}),
-		read, read, order, llmtest.Final("Recommended ordering the hinge from the catalog."))
-	res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, &fakeAPI{perf: narrowed("2025-11-21")})}).Review(context.Background(), run)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []recommend.Made{{ID: "r1", ObjectType: "requisition", ObjectID: ra, Kind: "order"}}; !slices.Equal(res.Recommendations, want) || res.Refused != 0 {
-		t.Errorf("got %v, refused %d, want %v and none refused", res.Recommendations, res.Refused, want)
 	}
 }

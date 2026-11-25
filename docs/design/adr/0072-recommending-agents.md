@@ -1601,40 +1601,53 @@ A later slice adds its row here and its section under "As built".
   which supplier to order from stays the buyer's to judge, as S2l left
   it, and an order from a supplier the prompt would not prefer is
   admitted when it names that supplier's measures.
-- **The check** (`ErrMeasures`): an order is refused until the run has
-  read the delivery performance of the proposal's material at the run's
-  plant (a read of another plant, or one the API refused, is none), and
-  unless a line of its content is exactly the supplier's measures as read:
-  `Measures: <receipts> receipts (<history>), lead time
+- **The check** (`ErrMeasures`) reads the measures itself: for an order
+  it reads `getSupplierDeliveryPerformance` in code, through the agent's
+  own API client as the run's other reads before the session are made
+  (`erp agent replenish`'s token, no new import), narrowed to the
+  order's supplier, of the proposal's material at the run's plant, over
+  the fixed window from the run's day less 364 days to the run's day
+  (the year ending on the run's day, the read's default length), and
+  keeps the answer for the run. An order is refused unless a line of its
+  content is exactly that supplier's measures, and every line it names
+  measures in is: `Measures: <receipts> receipts (<history>), lead time
   <observed_lead_days> days`, then ` against <planned_lead_days>
   planned` when the read gives one, then `, on time <on_time_receipts>
   of <dated_receipts> (<on_time_percent>%)` when it gives a share; or
-  `Measures: no receipts` for a supplier the read has no row of. The
-  refusal names the line wanted, which holds only what the run read.
-  Every number in it is one the read returned (§4). Only a read whose window holds
-  the whole year ending on the run's day counts (a shorter, an earlier or
-  a later window may hold none of a supplier's recent receipts, and the
-  line names no window; review rounds 1 to 3); a read of every supplier
-  tells each its measures or that it has no receipt, while one narrowed
-  to a supplier (`supplier_id`, which the answer echoes) tells only that
-  supplier's, so "no receipts" never stands for a supplier no read asked
-  about (review round 1). A later read replaces what an earlier one told
-  of the same supplier.
+  `Measures: no receipts` when the supplier has no row. The refusal
+  names the line wanted. That line is held whole to what the check read,
+  so the figures check (§4) skips it, as it skips an order's first line.
+  A read the API refuses refuses the order with the read's error, and is
+  not kept. The model's own read informs its choice only: no window or
+  supplier it asks for makes an order pass or fail, so a run reviewed on
+  a later day than it was planned (the read's default then ends on the
+  later day) is held to the run's year, not refused (review rounds 1 to
+  4 found a fault in each check of the model's read's shape: a read
+  narrowed to another supplier, a past window, a future window, and the
+  default read refused on a later day; the coordinator's decision after
+  round 4 replaced that check). The prompt gives the window (`from`, the
+  run's day as `to`) so that the model reads what the check holds it to;
+  a run whose day is no date stops before its session.
 - It still only proposes: its never list is unchanged (`TestNever`), and
   the new read is `x-autonomy`-free, as every read is.
 - `evals/replenishment`, version 2: the S2l cases name their measures
   (no receipts), and three cases join them: the faster, reliable
   supplier preferred over a cheaper, late one; a supplier with no
   history not preferred over one with history; a tie of the measures
-  decided by the price. Each case's orders and receipts are dated in
-  March 2026 and read from 2025 to 2027 (`from`, `to`, 1,095 days), a
-  window holding the year to any run day of 2026, the year the suite's
-  number ranges are of.
+  decided by the price; and a run reviewed on a later day, whose
+  supplier received a late delivery on the review's day, names the
+  measures of the run's year, which do not hold it. The suite's cell
+  clock stands at noon on 2026-11-16 in Toronto and its runs are carried
+  out the day before (cmd/erp `cellClock`, `planRuns`), so every case is
+  reviewed on a later day than planned; its receipts of March 2026 stay
+  in the run's year, and the replay reads the window the prompt gives.
 - Walkthrough `step_replenishment_agent` (step 153): before the run, Ben
   orders hinges from Tyrell and from a second supplier, received on the
   company's date: Tyrell on time, the other late; the read shows both,
   and the agent recommends Tyrell's catalog item naming its measures,
-  though the other's is cheaper.
+  though the other's is cheaper; its replay reads the run's year (`from`,
+  `to` the proposal's day), which the check reads too, so a run that
+  crosses midnight names the same measures.
 
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
 

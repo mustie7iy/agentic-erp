@@ -25,8 +25,11 @@
 // times are Later); a source of the proposal's material in its company
 // that the run read, an active catalog item, an active contract item
 // valid on that day or a released or closed order's item; that source's
-// supplier, read as an active supplier; and the supplier's measures as
-// the run read them for the proposal's material at the run's plant. source_needed is refused
+// supplier, read as an active supplier; and the supplier's measures for
+// the proposal's material at the run's plant over the year ending on the
+// run's day, which the check reads itself (getSupplierDeliveryPerformance
+// narrowed to the supplier), so that the window or supplier the model's
+// own read asked for informs its choice only. source_needed is refused
 // once the run read a source of the material whose supplier it has not
 // read as inactive. Every number the content writes is one the run read
 // (recommend.Figures). It never creates, changes, submits, cancels or
@@ -43,7 +46,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
@@ -92,9 +94,10 @@ supplier), the contracts with an item of the material (listContracts with the le
 active: an outline agreement or scheduling agreement, valid from and to) and the purchase orders with an item of it
 (listPurchaseOrders with the legal entity and the material_id: the purchasing history), and each supplier you would name
 (getBusinessPartner: its status), and how the material's suppliers delivered it to the run's plant
-(getSupplierDeliveryPerformance with the run's plant_id and the material_id, for every supplier; by default over the 365 days
-ending on the company's date, or a window holding the year ending on the run's day you give as from and to): per supplier its receipts, its observed lead time (receipt less order
-date, in days), its planned one and its receipts on time of those with a delivery date, and whether its history is measured
+(getSupplierDeliveryPerformance with the run's plant_id, the material_id and from and to as the task gives them, the 365 days
+ending on the run's day, for every supplier: the check measures the order's supplier over that window whatever day you
+review on, so the read's default, the year ending on today, can differ): per supplier its receipts, its observed lead time
+(receipt less order date, in days), its planned one and its receipts on time of those with a delivery date, and whether its history is measured
 (at least min_receipts receipts) or thin. A supplier that is not active is no source. Among the sources, prefer the supplier
 whose history is measured, then the higher on-time share, then the shorter observed lead time; a supplier with thin history
 or none (no row) comes after every measured one. When the measures tie, a contract valid on the day comes before an active
@@ -157,13 +160,13 @@ var (
 	// ErrHasSource refuses a source_needed for a material the run read a
 	// source of.
 	ErrHasSource = errors.New("replenishmentagent: the run read a source of the proposal's material: recommend an order from it")
-	// ErrMeasures refuses an order before the run read the delivery
-	// performance of the proposal's material at the run's plant over a
-	// window holding the year ending on the run's day, of every supplier
-	// or of the order's, or without the supplier's
-	// measures as it read them.
-	ErrMeasures = errors.New(`replenishmentagent: an order names its supplier's measures as getSupplierDeliveryPerformance gave them for the proposal's ` +
-		`material at the run's plant over a window holding the year ending on the run's day (of every supplier, or of the order's), in a line "Measures: <receipts> receipts (<history>), lead time <observed_lead_days> days[ against ` +
+	// ErrMeasures refuses an order that does not name its supplier's
+	// measures, in every line naming them, as the check reads them itself:
+	// the delivery performance of the proposal's material at the run's
+	// plant from the run's day less 364 days to the run's day.
+	ErrMeasures = errors.New(`replenishmentagent: an order names its supplier's measures as getSupplierDeliveryPerformance gives them for the proposal's ` +
+		`material at the run's plant from the run's day less 364 days to the run's day (from and to as the task gives them; the default ends on today, ` +
+		`not the run's day), in one line "Measures: <receipts> receipts (<history>), lead time <observed_lead_days> days[ against ` +
 		`<planned_lead_days> planned][, on time <on_time_receipts> of <dated_receipts> (<on_time_percent>%)]" or "Measures: no receipts"`)
 	// ErrUnread refuses a content writing a number the run did not read.
 	ErrUnread = errors.New("replenishmentagent: every number in the content is one a tool returned or the run was given, written as returned; a count of your own is written in words")
@@ -210,16 +213,22 @@ func (a *Agent) Review(ctx context.Context, runID string) (recommend.Result, err
 	if len(objects) == 0 {
 		return recommend.Result{Reply: fmt.Sprintf("Planning run %s of plant %s proposed nothing: no recommendation.", r.ID, r.PlantCode)}, nil
 	}
-	rv := newReview(r.RunDate, r.PlantID)
+	from, err := yearTo(r.RunDate)
+	if err != nil {
+		return recommend.Result{}, err
+	}
+	rv := newReview(r.RunDate, from, r.PlantID, func(q url.Values) (apitools.Response, error) {
+		return a.API.Do(ctx, http.MethodGet, "/v1/supplier-delivery-performance", q, nil, "")
+	})
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Recommend what to order for planning run %s of plant %s", r.ID, r.PlantCode),
 		Prompt: fmt.Sprintf("Planning run %s of plant %s, %s, in company %s (legal entity %s), planned on %s. Recommend, for each requisition it "+
-			"proposed, what to order, from which supplier and when.", r.ID, r.PlantCode, r.PlantName, r.CompanyCode, r.LegalEntityID, r.RunDate),
+			"proposed, what to order, from which supplier and when. Its suppliers' delivery performance is measured from %s to %s.",
+			r.ID, r.PlantCode, r.PlantName, r.CompanyCode, r.LegalEntityID, r.RunDate, from, r.RunDate),
 		Objects: objects,
 		Observe: map[string]func(apitools.Response){"getRequisition": rv.requisitionRead, "listCatalogItems": rv.catalogRead,
 			"getCatalogItem": one(rv.catalogRead), "listContracts": rv.contractsRead, "getContract": one(rv.contractsRead),
-			"listPurchaseOrders": rv.ordersRead, "getPurchaseOrder": one(rv.ordersRead), "getBusinessPartner": rv.supplierRead,
-			"getSupplierDeliveryPerformance": rv.performanceRead},
+			"listPurchaseOrders": rv.ordersRead, "getPurchaseOrder": one(rv.ordersRead), "getBusinessPartner": rv.supplierRead},
 		Check: rv.check,
 	}
 	res, err := agent(a.MaxIterations).Run(ctx, a.LLM, a.API, task)
@@ -263,15 +272,4 @@ func one(page func(apitools.Response)) func(apitools.Response) {
 		}
 		page(resp)
 	}
-}
-
-// joined is a content's lines but the one at skip, for the figures check.
-func joined(lines []string, skip int) string {
-	rest := make([]string, 0, len(lines))
-	for i, l := range lines {
-		if i != skip {
-			rest = append(rest, l)
-		}
-	}
-	return strings.Join(rest, "\n")
 }
