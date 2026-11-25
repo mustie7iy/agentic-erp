@@ -2227,6 +2227,15 @@ described item naming the catalog item of the row it replaced.
 
 The purchase-to-pay event log (T103a, ADR-0080) pages a company's orders by date and id through `purchase_order_by_date` (`tenant_id, legal_entity_id, order_date, id`; migration 000340).
 
+The suppliers' delivery performance of a material at a plant (S2l1,
+ADR-0082 As built S2l1, `GET /v1/supplier-delivery-performance`) is read
+from the order items of the material, through
+`purchase_order_item_by_material` (`tenant_id, material_id`, partial:
+items of a material; migration 000483), and leaves out a receipt a
+reversal names, found through `goods_movement_by_reversal` (`tenant_id,
+reversal_of_id`, partial: reversals; migration 000484); no column is
+added.
+
 Stock transport orders within a company (S2h, migration 000418; ADR-0082
 As built S2h): `procurement.stock_transport_order` (SAP's purchasing
 document type UB, from memory), from a supplying plant to another

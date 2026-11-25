@@ -5587,6 +5587,28 @@ type Handler interface {
 	//
 	// GET /v1/stock-transport-orders/{id}
 	GetStockTransportOrder(ctx context.Context, params GetStockTransportOrderParams) (GetStockTransportOrderRes, error)
+	// GetSupplierDeliveryPerformance implements getSupplierDeliveryPerformance operation.
+	//
+	// How the suppliers of a material delivered it to a plant over a window of goods receipt posting dates
+	// (ADR-0082 As built S2l1), measured from posted documents at the moment of the read: per supplier,
+	// the receipts (goods receipt items, movement 101, not reversed, on purchase order items of the
+	// material whose plant, or else whose receipt's plant, is the plant), the planned lead time (the order
+	// item's delivery date less the order date, the average over the receipts whose item has a delivery
+	// date, in whole days rounded half away from zero), the observed lead time (the receipt's posting date
+	// less the order date, averaged the same way), the on-time share (receipts posted on or before their
+	// item's delivery date, of those whose item has one) and whether the supplier's history in the window
+	// is `measured` (at least `min_receipts` receipts) or `thin`. Returns to the supplier (122) are not
+	// deliveries and are not counted. A supplier with no receipt in the window has no row: no history.
+	// Rows are in the order of `supplier_number`, then `supplier_id`; `totals` sum every row. A report,
+	// not paged: one row per supplier that delivered the material to the plant in the window. The
+	// replenishment agent reads it to suggest a supplier (ADR-0072 As built S2l1). The window defaults to
+	// the 365 days ending on the plant's company's date; one that ends before it starts, or is longer than
+	// 1,096 days, is 400 `request.invalid_parameter`. A plant that does not exist, or of a company the
+	// caller cannot act in, is 422 `request.reference_not_found`. Reads only; every agent autonomy level
+	// may call it.
+	//
+	// GET /v1/supplier-delivery-performance
+	GetSupplierDeliveryPerformance(ctx context.Context, params GetSupplierDeliveryPerformanceParams) (GetSupplierDeliveryPerformanceRes, error)
 	// GetSupplierInvoice implements getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).

@@ -42224,6 +42224,266 @@ func decodeGetStockTransportOrderParams(args [1]string, argsEscaped bool, r *htt
 	return params, nil
 }
 
+// GetSupplierDeliveryPerformanceParams is parameters of getSupplierDeliveryPerformance operation.
+type GetSupplierDeliveryPerformanceParams struct {
+	// The plant (an org unit of kind `plant`, `GET /v1/org-units/{id}`) the material was delivered to
+	// (required).
+	PlantID uuid.UUID
+	// The material (`GET /v1/materials/{id}`) delivered (required).
+	MaterialID uuid.UUID
+	// Only resources of this supplier (business partner id).
+	SupplierID OptUUID `json:",omitempty,omitzero"`
+	// Receipts posted on or after this date; default 364 days before `to`.
+	From OptDate `json:",omitempty,omitzero"`
+	// Receipts posted on or before this date; default the plant's company's date (its time zone).
+	To OptDate `json:",omitempty,omitzero"`
+}
+
+func unpackGetSupplierDeliveryPerformanceParams(packed middleware.Parameters) (params GetSupplierDeliveryPerformanceParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "plant_id",
+			In:   "query",
+		}
+		params.PlantID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "material_id",
+			In:   "query",
+		}
+		params.MaterialID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "supplier_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.SupplierID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "from",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.From = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "to",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.To = v.(OptDate)
+		}
+	}
+	return params
+}
+
+func decodeGetSupplierDeliveryPerformanceParams(args [0]string, argsEscaped bool, r *http.Request) (params GetSupplierDeliveryPerformanceParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: plant_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.PlantID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "plant_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: material_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.MaterialID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "material_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: supplier_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "supplier_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotSupplierIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotSupplierIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.SupplierID.SetTo(paramsDotSupplierIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "supplier_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: from.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotFromVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotFromVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.From.SetTo(paramsDotFromVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "from",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: to.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotToVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotToVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.To.SetTo(paramsDotToVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "to",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetSupplierInvoiceParams is parameters of getSupplierInvoice operation.
 type GetSupplierInvoiceParams struct {
 	// Resource identifier (UUIDv7).
