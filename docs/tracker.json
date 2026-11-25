@@ -5790,7 +5790,14 @@
      },
      {
       "s": "T",
-      "t": "later: batch variants: batches in the delivery's goods issue and its reversal (602), stock transport orders (an intercompany one's 643 goods issue included, which still refuses a batch-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a batch-managed material until then), internal batch numbers, batch dates changed, batch status, stock by batch as at a date, transfer to another batch (309), classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
+      "t": "S2f2 A batch-managed material is sold and delivered, its delivery's goods issue naming the batches its picked quantity leaves from by number, each with its quantity and checked against the batch's stock at the storage location; the delivery's items name them, and the goods issue's reversal (602) gives each batch back what it issued",
+      "r": "S2f2 · docs/design/plan-supply-chain.md §S2f, S2f2 · ADR-0083 As built S2f2",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: batch variants: batches in stock transport orders (an intercompany one's 643 goods issue included, which still refuses a batch-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt or goods issue (refused for a batch-managed material until then), batches named at picking, internal batch numbers, batch dates changed, batch status, an expired batch's check at goods issue, stock by batch as at a date, transfer to another batch (309), classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2f, Later",
       "src": "baseline",
       "c": []
@@ -5804,7 +5811,14 @@
      },
      {
       "s": "T",
-      "t": "later: serial number variants: serial numbers in the delivery's goods issue and its reversal (602), stock transport orders (an intercompany one's 643 goods issue included, which still refuses a serial-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a serial-managed material until then), serial number profiles per plant and other serial number usages, serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
+      "t": "S2g2 A serial-managed material is sold and delivered, its delivery's goods issue naming the serial number of each unit issued, each in stock at the storage location; the delivery's items name them, and the goods issue's reversal (602) takes them into stock there again, refusing one in stock again since",
+      "r": "S2g2 · docs/design/plan-supply-chain.md §S2g, S2g2 · ADR-0083 As built S2f2",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: serial number variants: serial numbers in stock transport orders (an intercompany one's 643 goods issue included, which still refuses a serial-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt or goods issue (refused for a serial-managed material until then), serial numbers named at picking, serial number profiles per plant and other serial number usages, serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2g, Later",
       "src": "baseline",
       "c": []
