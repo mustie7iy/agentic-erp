@@ -109606,6 +109606,18 @@ func encodeRetryEInvoiceResponse(response RetryEInvoiceRes, w http.ResponseWrite
 
 		return nil
 
+	case *RetryEInvoiceUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(422)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
 	case *RetryEInvoicePreconditionRequired:
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(428)

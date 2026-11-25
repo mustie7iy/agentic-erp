@@ -94,7 +94,7 @@ func (a einvoicePayables) Invoices(ctx context.Context, ids []uuid.UUID) (map[uu
 func (einvoicePayables) Linkable(ctx context.Context, id uuid.UUID) (einvoicing.LinkTarget, bool, error) {
 	a, ok, err := payables.Invoices{}.Attachable(ctx, id)
 	return einvoicing.LinkTarget{LegalEntityID: a.LegalEntityID, SupplierID: a.SupplierID, SupplierReference: a.SupplierReference, Source: a.Source,
-		HasDocument: a.HasDocument}, ok, err
+		Status: a.Status, Currency: a.Currency, Gross: a.Gross, HasDocument: a.HasDocument}, ok, err
 }
 
 func (a einvoicePayables) HoldsTaxNumber(ctx context.Context, supplier uuid.UUID, trn string) (bool, error) {

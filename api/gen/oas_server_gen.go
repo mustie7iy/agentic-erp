@@ -5681,22 +5681,26 @@ type Handler interface {
 	// Records that a person entered a held e-invoice by hand (ADR-0061 §7, T65f; SAP Document and
 	// Reporting Compliance's assignment of an inbound e-document to an invoice posted manually): the
 	// document becomes `entered`, naming that supplier invoice and its supplier, `resolution` `linked`,
-	// and the invoice's document becomes the e-invoice's bytes (`getSupplierInvoiceDocument`), whatever
-	// the invoice's status, as a document never changes what was posted; audited
+	// and the invoice's document becomes the e-invoice's bytes (`getSupplierInvoiceDocument`), whether the
+	// invoice is parked, on hold or posted, as a document never changes what was posted; audited
 	// (`einvoicing.einvoice.linked` and the invoice's `payables.supplier_invoice.document_attached`) and
 	// published (EInvoiceChanged, status_before `held`). The invoice must be one entered by hand (source
-	// `manual`) of the document's company, of the supplier holding the seller's TRN (IBT-031) as a tax
-	// identifier, with the document's number (IBT-001) as its supplier reference, and without a document
-	// of its own; otherwise 422 `einvoicing.link_mismatch`, its detail and field errors naming each that
-	// differs (the TRN by its last four characters only). An invoice another e-invoice names already is
-	// refused with 409 `einvoicing.invoice_already_linked` naming it (at most one e-invoice names an
-	// invoice); one whose document already is these bytes, 409 `payables.already_captured`. Refused also:
-	// a document that is not held (409 `einvoicing.einvoice_not_held`); another ETag (412); its stored
-	// bytes gone or not those received (409 `einvoicing.document_changed`); an invoice the tenant has none
-	// of, or of a company the caller may not act in (422 `request.reference_not_found`). Besides
-	// `einvoicing.einvoice.manage` the caller needs `payables.invoice.read` (`x-also-permissions`; 403
-	// `identity.permission_missing` otherwise). Not found (404) for a company the caller may not act in.
-	// 503 while the server has no object storage. People only (`x-agent: false`, ADR-0061 §13).
+	// `manual`), not rejected, cancelled or reversed, of the document's company, of the supplier holding
+	// the seller's TRN (IBT-031) as a tax identifier, in the document's currency (IBT-005) with its total
+	// with VAT (IBT-112) as its gross amount, compared exactly in minor units, with the document's number
+	// (IBT-001) as its supplier reference, and without a document of its own; otherwise 422
+	// `einvoicing.link_mismatch`, its detail and field errors naming each that differs (the TRN by its
+	// last four characters only; the amounts with their currency). The invoice is read under its lock,
+	// held until the document is attached, so what is compared is what the document is attached to. An
+	// invoice another e-invoice names already is refused with 409 `einvoicing.invoice_already_linked`
+	// naming it (at most one e-invoice names an invoice); one whose document already is these bytes, 409
+	// `payables.already_captured`. Refused also: a document that is not held (409
+	// `einvoicing.einvoice_not_held`); another ETag (412); its stored bytes gone or not those received
+	// (409 `einvoicing.document_changed`); an invoice the tenant has none of, or of a company the caller
+	// may not act in (422 `request.reference_not_found`). Besides `einvoicing.einvoice.manage` the caller
+	// needs `payables.invoice.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// Not found (404) for a company the caller may not act in. 503 while the server has no object storage.
+	// People only (`x-agent: false`, ADR-0061 §13).
 	//
 	// POST /v1/e-invoices/{id}:link
 	LinkEInvoice(ctx context.Context, req *EInvoiceLink, params LinkEInvoiceParams) (LinkEInvoiceRes, error)

@@ -168,8 +168,9 @@ func TestRetryEInvoice(t *testing.T) {
 // supplier, the invoice's document the e-invoice's bytes, audited and
 // published; a second document is refused the invoice (at most one names
 // it), bytes that are another invoice's document already are refused, and
-// an invoice of another kind, company, supplier or reference, or with a
-// document of its own, is a mismatch naming each difference.
+// an invoice of another kind, company, supplier, currency, gross amount or
+// reference, cancelled, or with a document of its own, is a mismatch
+// naming each difference.
 func TestLinkEInvoice(t *testing.T) {
 	s := resolvingScene(t)
 	posted := s.manual(t, s.le, "GOI-2", "posted")
@@ -195,7 +196,25 @@ func TestLinkEInvoice(t *testing.T) {
 		return m
 	}
 	check(t, "a second document to the invoice", link("GOI-2B", posted)["code"], "einvoicing.invoice_already_linked")
-	check(t, "its bytes another invoice's document", link("GOI-2B", s.manual(t, s.le, "GOI-2", "cancelled"))["code"], "payables.already_captured")
+	// The first invoice reversed frees its reference (supplier_invoice_no_duplicates) for one entered again by hand, which
+	// has no document of its own but is offered the bytes the first holds.
+	pgtest.Exec(t, `UPDATE payables.supplier_invoice SET status = 'reversed', reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid(),
+		version = version + 1 WHERE id = $1`, posted)
+	again := s.manual(t, s.le, "GOI-2", "parked")
+	check(t, "its bytes another invoice's document", link("GOI-2B", again)["code"], "payables.already_captured")
+	for _, c := range []struct{ name, set, want string }{
+		{"another gross amount", "gross_amount = 105001", "its gross amount 1050.01 AED is not the e-invoice's total with VAT 1050.00 AED (IBT-112)"},
+		{"cancelled", "gross_amount = 105000, status = 'cancelled'", "it is cancelled"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pgtest.Exec(t, `UPDATE payables.supplier_invoice SET `+c.set+`, version = version + 1 WHERE id = $1`, again)
+			m := link("GOI-2B", again)
+			check(t, "the refusal", words(m["code"], len(apitest.List(t, m, "errors"))), "einvoicing.link_mismatch 1")
+			if !strings.Contains(m["detail"].(string), c.want) {
+				t.Errorf("the detail %q: want it to name %q", m["detail"], c.want)
+			}
+		})
+	}
 	check(t, "no such invoice", link("GOI-2B", uuid.New())["code"], "request.reference_not_found")
 	parked := s.manual(t, s.le, "X-1", "parked")
 	captured := s.manual(t, s.le, "GOI-6", "cancelled")
@@ -206,11 +225,12 @@ func TestLinkEInvoice(t *testing.T) {
 		invoice uuid.UUID
 		want    []string
 	}{
-		"another reference":         {"GOI-6", parked, []string{"supplier reference X-1"}},
+		"another reference":         {"GOI-6", parked, []string{"currency AED is not the e-invoice's USD (IBT-005)", "supplier reference X-1"}},
 		"another supplier":          {"GOI-3", s.manual(t, s.le, "GOI-3", "parked"), []string{"TRN (IBT-031) ending " + otherTRN[11:]}},
-		"another company":           {"GOI-6", s.manual(t, s.f.DE, "GOI-6", "parked"), []string{"another company's"}},
+		"another company":           {"GOI-6", s.manual(t, s.f.DE, "GOI-6", "parked"), []string{"another company's", "currency AED"}},
 		"the seller unreadable now": {"BAD", parked, []string{"cannot be read now (" + einvoicing.RefusedUnreadable + ")", "supplier reference X-1"}},
-		"a captured one":            {"GOI-6", captured, []string{"not entered by hand (source capture)", "a document of its own"}},
+		"a captured one": {"GOI-6", captured, []string{"not entered by hand (source capture)", "it is cancelled", "currency AED",
+			"a document of its own"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := link(c.message, c.invoice)

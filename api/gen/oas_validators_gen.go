@@ -84429,6 +84429,14 @@ func (s *RetryEInvoicePreconditionRequired) Validate() error {
 	return nil
 }
 
+func (s *RetryEInvoiceUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *RetryOutgoingEInvoiceTaxDataBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {

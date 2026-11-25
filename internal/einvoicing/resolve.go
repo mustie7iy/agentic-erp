@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -52,17 +53,24 @@ const (
 )
 
 // LinkTarget is a supplier invoice as a link checks it: its company, its
-// supplier and reference, how it was entered and whether it has a document
-// of its own.
+// supplier and reference, how it was entered, its status, its currency
+// and gross amount, and whether it has a document of its own.
 type LinkTarget struct {
-	LegalEntityID, SupplierID uuid.UUID
-	SupplierReference, Source string
-	HasDocument               bool
+	LegalEntityID, SupplierID         uuid.UUID
+	SupplierReference, Source, Status string
+	Currency                          string
+	Gross                             money.Minor
+	HasDocument                       bool
 }
 
 // sourceManual is the source of an invoice a person entered by hand, the
 // only one a held document is linked to.
 const sourceManual = "manual"
+
+// endedStatuses are the statuses of an invoice that will never be posted
+// or that a reversal took back: a held document linked to one would be
+// entered as an invoice that does not stand (coordinator, 24 Nov).
+var endedStatuses = map[string]bool{"rejected": true, "cancelled": true, "reversed": true}
 
 // RetryEInvoice implements POST /v1/e-invoices/{id}:retry: the held
 // document entered again in the request's transaction, as a fetch enters
@@ -241,9 +249,11 @@ func heldNow(d EInvoice) error {
 // may not act in, is no reference (422); one another document names
 // already is 409 einvoicing.invoice_already_linked (read under the
 // invoice's lock, which a concurrent link of it waits for); one not
-// entered by hand, of another company, supplier (the seller's TRN not
-// its tax identifier) or reference, or with a document of its own, is 422
-// einvoicing.link_mismatch naming each that differs.
+// entered by hand, rejected, cancelled or reversed, of another company,
+// supplier (the seller's TRN not its tax identifier), currency, gross
+// amount or reference, or with a document of its own, is 422
+// einvoicing.link_mismatch naming each that differs. The invoice's lock
+// is held to the attach, so what is compared is what is attached to.
 func (e *Endpoints) linkable(ctx context.Context, tx pgx.Tx, doc EInvoice, invoice uuid.UUID, content []byte) (LinkTarget, error) {
 	target, ok, err := e.Payables.Linkable(ctx, invoice)
 	switch {
@@ -275,13 +285,17 @@ func (e *Endpoints) linkable(ctx context.Context, tx pgx.Tx, doc EInvoice, invoi
 }
 
 // differences are what makes the invoice another than the document's:
-// not entered by hand, another company, a supplier not holding the
-// seller's TRN (named by its last four characters only), another supplier
+// not entered by hand, rejected, cancelled or reversed, another company,
+// a supplier not holding the seller's TRN (named by its last four
+// characters only), another currency or gross amount, another supplier
 // reference than the document's number, or a document of its own.
 func (e *Endpoints) differences(ctx context.Context, doc EInvoice, target LinkTarget, content []byte) ([]string, error) {
 	var out []string
 	if target.Source != sourceManual {
 		out = append(out, "it was not entered by hand (source "+target.Source+")")
+	}
+	if endedStatuses[target.Status] {
+		out = append(out, "it is "+target.Status)
 	}
 	if doc.LegalEntityID == nil || target.LegalEntityID != *doc.LegalEntityID {
 		out = append(out, "it is another company's")
@@ -289,21 +303,43 @@ func (e *Endpoints) differences(ctx context.Context, doc EInvoice, target LinkTa
 	read, refusal := Received(content, currency.SeededExponent)
 	switch {
 	case refusal != nil: // validated when processed, refused by the rules since
-		out = append(out, "the e-invoice's seller cannot be read now ("+refusal.Code+")")
+		out = append(out, "the e-invoice's seller and amounts cannot be read now ("+refusal.Code+")")
 	default:
-		holds, err := e.Payables.HoldsTaxNumber(ctx, target.SupplierID, read.Seller.TRN)
+		stated, err := e.statedDifferences(ctx, read, target)
 		if err != nil {
 			return nil, err
 		}
-		if !holds {
-			out = append(out, "its supplier does not hold the seller's TRN (IBT-031) ending "+read.Seller.TRN[max(0, len(read.Seller.TRN)-4):])
-		}
+		out = append(out, stated...)
 	}
 	if doc.DocumentNumber == nil || target.SupplierReference != *doc.DocumentNumber {
 		out = append(out, "its supplier reference "+target.SupplierReference+" is not the e-invoice's number (IBT-001)")
 	}
 	if target.HasDocument {
 		out = append(out, "it has a document of its own")
+	}
+	return out, nil
+}
+
+// statedDifferences are what the e-invoice states that the invoice does
+// not: a supplier not holding the seller's TRN, another currency (IBT-005)
+// or, in the same currency, another gross amount than the total with VAT
+// (IBT-112, the gross an e-invoice is entered with), compared exactly in
+// minor units.
+func (e *Endpoints) statedDifferences(ctx context.Context, read Document, target LinkTarget) ([]string, error) {
+	var out []string
+	holds, err := e.Payables.HoldsTaxNumber(ctx, target.SupplierID, read.Seller.TRN)
+	if err != nil {
+		return nil, err
+	}
+	if !holds {
+		out = append(out, "its supplier does not hold the seller's TRN (IBT-031) ending "+read.Seller.TRN[max(0, len(read.Seller.TRN)-4):])
+	}
+	switch {
+	case target.Currency != read.Currency:
+		out = append(out, "its currency "+target.Currency+" is not the e-invoice's "+read.Currency+" (IBT-005)")
+	case target.Gross != read.TaxInclusive:
+		out = append(out, "its gross amount "+target.Gross.Plain(read.Exponent)+" "+target.Currency+" is not the e-invoice's total with VAT "+
+			read.TaxInclusive.Plain(read.Exponent)+" "+read.Currency+" (IBT-112)")
 	}
 	return out, nil
 }

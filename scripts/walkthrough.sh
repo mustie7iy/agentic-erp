@@ -15517,7 +15517,18 @@ evatra_held_resolved() {
   supplier=$(field '.items[0].id')
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   expense=$(field '.items[] | select(.number == "6000") | .id')
-  say "The desks were bought without an order, so Alex enters the invoice by hand, as the supplier states it:"
+  say "The desks were bought without an order, so Alex enters the invoice by hand, but keys five desks for four:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), source \(.source)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-2010\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1312.50\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"62.50\", \"currency\": \"AED\"}, \"items\": [{\"description\": \"Oak desks, bought without an order\", \"quantity\": {\"value\": \"5\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1250.00\", \"currency\": \"AED\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
+  invoice=$(field .id)
+  say "Linking the held e-invoice to it is refused: the invoice's gross amount is not the e-invoice's total with VAT, compared"
+  say "exactly in its currency, so the legal document and the booked invoice never disagree:"
+  QUIET=1 api 200 '' getEInvoice -p "id=$first"
+  refused 422 einvoicing.link_mismatch linkEInvoice -p "id=$first" -if-match "$ETAG" -body "{\"supplier_invoice_id\": \"$invoice\"}"
+  expect "the amount named" "$(field '.detail | contains("gross amount 1312.50 AED is not the e-invoice'"'"'s total with VAT 1050.00 AED")')" "true"
+  say "He cancels the mistyped invoice, which frees its reference, and enters it again as the supplier states it:"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body '{"reason": "Five desks keyed for four"}'
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), source \(.source)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-2010\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"1050.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"50.00\", \"currency\": \"AED\"}, \"items\": [{\"description\": \"Oak desks, bought without an order\", \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1000.00\", \"currency\": \"AED\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
   invoice=$(field .id)

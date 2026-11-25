@@ -9,18 +9,21 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // Attachable is a supplier invoice as the einvoicing context checks it
 // before a person links a held e-invoice to it (ADR-0061 §7, T65f): its
-// company, supplier and supplier reference, its source and whether it
-// has a document of its own.
+// company, supplier and supplier reference, its source, status, currency
+// and gross amount, and whether it has a document of its own.
 type Attachable struct {
-	LegalEntityID, SupplierID uuid.UUID
-	SupplierReference, Source string
-	HasDocument               bool
+	LegalEntityID, SupplierID         uuid.UUID
+	SupplierReference, Source, Status string
+	Currency                          string
+	Gross                             money.Minor
+	HasDocument                       bool
 }
 
 // Attachable reads the invoice FOR UPDATE, so a link of it and its
@@ -36,8 +39,9 @@ func (Invoices) Attachable(ctx context.Context, id uuid.UUID) (Attachable, bool,
 		return Attachable{}, false, err
 	}
 	var a Attachable
-	err = tx.QueryRow(ctx, `SELECT legal_entity_id, supplier_id, supplier_reference, source, capture_sha256 IS NOT NULL
-		FROM payables.supplier_invoice WHERE id = $1 FOR UPDATE`, id).Scan(&a.LegalEntityID, &a.SupplierID, &a.SupplierReference, &a.Source, &a.HasDocument)
+	err = tx.QueryRow(ctx, `SELECT legal_entity_id, supplier_id, supplier_reference, source, status, currency, gross_amount, capture_sha256 IS NOT NULL
+		FROM payables.supplier_invoice WHERE id = $1 FOR UPDATE`, id).Scan(&a.LegalEntityID, &a.SupplierID, &a.SupplierReference, &a.Source, &a.Status,
+		&a.Currency, &a.Gross, &a.HasDocument)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Attachable{}, false, nil
@@ -49,11 +53,12 @@ func (Invoices) Attachable(ctx context.Context, id uuid.UUID) (Attachable, bool,
 
 // Attach makes the bytes kept under ref, whose SHA-256 is sha, the
 // document of an invoice a person entered by hand that has none (ADR-0061
-// §7, T65f: a held e-invoice linked to it), whatever its status, as a
-// document never changes what was posted: getSupplierInvoiceDocument
+// §7, T65f: a held e-invoice linked to it), parked, on hold or posted, as
+// a document never changes what was posted: getSupplierInvoiceDocument
 // serves them, compared with the hash, as a captured invoice's. The
 // update is guarded on the invoice still entered by hand without a
-// document, which the caller checked under Attachable's lock, and is
+// document and not rejected, cancelled or reversed, which the caller
+// checked under Attachable's lock, and is
 // audited (payables.supplier_invoice.document_attached, the hash and no
 // content). Bytes that are another invoice's document already are refused
 // by supplier_invoice_capture_once (409 payables.already_captured).
@@ -64,7 +69,8 @@ func (Invoices) Attach(ctx context.Context, id uuid.UUID, sha []byte, ref string
 	}
 	var number string
 	err = tx.QueryRow(ctx, `UPDATE payables.supplier_invoice SET capture_sha256 = $2, capture_object_ref = $3, version = version + 1, updated_by = $4
-		WHERE id = $1 AND source = 'manual' AND capture_sha256 IS NULL RETURNING document_number`, id, sha, ref, p.ID).Scan(&number)
+		WHERE id = $1 AND source = 'manual' AND capture_sha256 IS NULL
+			AND status NOT IN ('rejected', 'cancelled', 'reversed') RETURNING document_number`, id, sha, ref, p.ID).Scan(&number)
 	if err != nil {
 		return fmt.Errorf("payables: attach a document to invoice %s: %w", id, err)
 	}

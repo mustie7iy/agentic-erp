@@ -510,7 +510,9 @@ test.
   company, supplier (by the seller's TRN) and supplier reference, and has
   no document of its own (422 `einvoicing.link_mismatch` naming which
   differs); `EInvoices.Attach` makes the XML its document, whatever its
-  status, as a document never changes what was posted.
+  status, as a document never changes what was posted (narrowed in As
+  built T65f: the same currency and gross, and not rejected, cancelled or
+  reversed).
 - `POST /v1/e-invoices/{id}:dismiss` (`reason`) closes a held document
   that will not be entered (sent in error, replaced by the supplier).
 - Every write reads the document `FOR UPDATE` and checks its status
@@ -2113,8 +2115,7 @@ port. Decided by default:
   by its last four characters only), another supplier reference than the
   document's number (IBT-001), or a document of its own, is 422
   `einvoicing.link_mismatch`, its detail and a field error naming each.
-  The invoice may be in any status (posted, parked, cancelled): a
-  document never changes what was posted. Bytes that are another
+  Bytes that are another
   invoice's document already are refused by `supplier_invoice_capture_once`
   (409 `payables.already_captured`). The invoice's document is the
   e-invoice's object (no copy), audited
@@ -2134,17 +2135,32 @@ port. Decided by default:
   a retry's entering inserts a new invoice. No writer locks an invoice
   and then an e-invoice (payables never reads einvoicing), so no
   opposite order exists.
-- **Not compared: amounts.** A link does not compare the invoice's
-  currency and gross with the document's, nor refuse a cancelled or
-  reversed invoice (§7: whatever its status); both are listed for the
-  product owner (a money rule).
+- **Amounts and status compared (coordinator, 24 Nov, batch 94F
+  integration; logged for the product owner's review).** The lane linked
+  without comparing money and in any status; best practice keeps the
+  legal e-invoice and the booked invoice consistent, so a link also
+  refuses, with the same 422 `einvoicing.link_mismatch` and a reason
+  each: another currency than the document's (IBT-005), or in its
+  currency another gross amount than its total with VAT (IBT-112, the
+  gross an entered e-invoice takes), compared exactly as `money.Minor`
+  with no tolerance (the amounts in the detail with their currency); and
+  an invoice rejected, cancelled or reversed, which does not stand (a
+  rejected one is refused with the other two, as it never posts). The
+  comparison reads the invoice under `Attachable`'s `FOR UPDATE`, held to
+  the attach, so the decision and the attach are one; `Attach`'s update is
+  guarded on the status too. The invoice may otherwise be parked, on hold
+  or posted: a document never changes what was posted. To reverse: drop
+  the two reasons.
 - **Agents** are refused all three (`x-agent: false`, 403
   `identity.agent_not_allowed`); no agent's scope covers them, so no never
   list changes.
 - **The walkthrough.** `step_evatra_inbound` (step 144,
   `evatra_held_resolved`): Gulf Office Interiors sends GOI-2010 without an
   order, twice; both are held with `payables.capture_needs_order`; Alex
-  retries the first and it stays held; he enters the invoice by hand and
-  links it, its document becoming the XML; linking the second to that
+  retries the first and it stays held; he enters the invoice by hand with
+  five desks for four and its link is refused (422
+  `einvoicing.link_mismatch`, gross 1312.50 AED against the total with
+  VAT 1050.00 AED); he cancels it, enters it again as stated and links
+  it, its document becoming the XML; linking the second to that
   invoice is refused with `einvoicing.invoice_already_linked`; an agent's
   dismissal is refused and Alex dismisses it with a reason.

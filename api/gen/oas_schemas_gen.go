@@ -106944,6 +106944,10 @@ type RetryEInvoicePreconditionRequired Problem
 
 func (*RetryEInvoicePreconditionRequired) retryEInvoiceRes() {}
 
+type RetryEInvoiceUnprocessableEntity Problem
+
+func (*RetryEInvoiceUnprocessableEntity) retryEInvoiceRes() {}
+
 type RetryOutgoingEInvoiceTaxDataBadRequest Problem
 
 func (*RetryOutgoingEInvoiceTaxDataBadRequest) retryOutgoingEInvoiceTaxDataRes() {}
