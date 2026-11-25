@@ -18,7 +18,7 @@ func TestMaterialPlans(t *testing.T) {
 	e := setup(t)
 	p, tag := e.plan(t, e.bracket, "50.5")
 	for f, want := range map[string]any{"plant_code": "P1", "plant_name": "Unit P1", "company_code": "2000", "material_description": "Machined bracket M10",
-		"mrp_type": "reorder_point", "account_number": "150000", "version": float64(1)} {
+		"mrp_type": "reorder_point", "lot_size": "lot_for_lot", "account_number": "150000", "version": float64(1)} {
 		if p[f] != want {
 			t.Errorf("%s: got %v, want %v", f, p[f], want)
 		}
@@ -41,6 +41,10 @@ func TestMaterialPlans(t *testing.T) {
 			{"an unknown material", "mrp.material_invalid", "material_id", map[string]any{"material_id": uuid.New()}},
 			{"an unknown MRP type", "mrp.invalid_mrp_type", "mrp_type", map[string]any{"mrp_type": "forecast"}},
 			{"a reconciliation account", "mrp.account_not_postable", "account_id", map[string]any{"account_id": e.Account(t, "2000", "120000")}},
+			{"an unknown lot sizing procedure", "mrp.invalid_lot_size", "lot_size", map[string]any{"lot_size": "period"}},
+			{"a fixed lot size of zero", "mrp.invalid_quantity", "fixed_lot_size", map[string]any{"lot_size": "fixed", "fixed_lot_size": "0"}},
+			{"a maximum stock level below the reorder point", "mrp.invalid_lot_size", "maximum_stock_level",
+				map[string]any{"lot_size": "replenish_to_maximum", "maximum_stock_level": "0.5"}},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				body := map[string]any{"plant_id": e.p1, "material_id": e.service, "mrp_type": "reorder_point", "reorder_point": "1", "account_id": e.stock}
@@ -78,7 +82,7 @@ func TestMaterialPlans(t *testing.T) {
 		}
 		var detail string
 		pgtest.Scan(t, `SELECT detail::text FROM audit.audit_event WHERE tenant_id = $1 AND action = 'mrp.material_plan.change'`, []any{e.Tenant.ID}, &detail)
-		want := fmt.Sprintf(`{"after": {"mrp_type": "no_planning", "account_id": "%s", "reorder_point": "40"}, "before": {"mrp_type": "reorder_point", "account_id": "%s", "reorder_point": "50.5"}}`,
+		want := fmt.Sprintf(`{"after": {"lot_size": "lot_for_lot", "mrp_type": "no_planning", "account_id": "%s", "reorder_point": "40"}, "before": {"lot_size": "lot_for_lot", "mrp_type": "reorder_point", "account_id": "%s", "reorder_point": "50.5"}}`,
 			e.stock, e.stock)
 		if detail != want {
 			t.Errorf("the audit: got %s, want %s", detail, want)

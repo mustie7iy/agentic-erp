@@ -89,9 +89,13 @@ func (mrpSupply) Requisitions(ctx context.Context, ids []uuid.UUID) (map[uuid.UU
 
 func (s mrpSupply) Propose(ctx context.Context, p mrp.Proposal) (mrp.Proposed, error) {
 	material := p.MaterialID
+	items := make([]procurement.ItemInput, len(p.Lots))
+	for i, q := range p.Lots {
+		items[i] = procurement.ItemInput{MaterialID: &material, Quantity: q, Unit: p.Unit, Price: p.Price, Currency: p.Currency, PriceUnit: p.PriceUnit,
+			AccountID: p.AccountID}
+	}
 	r, err := s.procurement.ProposeRequisition(ctx, procurement.NewRequisition{LegalEntityID: p.LegalEntityID, Currency: p.Currency, NeededBy: &p.NeededBy,
-		Items: []procurement.ItemInput{{MaterialID: &material, Quantity: p.Quantity, Unit: p.Unit, Price: p.Price, Currency: p.Currency,
-			PriceUnit: p.PriceUnit, AccountID: p.AccountID}}})
+		Items: items})
 	return mrp.Proposed{ID: r.ID, Number: r.DocumentNumber, Version: r.Version}, err
 }
 

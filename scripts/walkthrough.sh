@@ -16247,10 +16247,14 @@ step_serial_numbers() {
 # to Montreal; he cancels an order of 30 more he entered by mistake
 # (review:batch92), which is not cancelled again. Toronto's run counts the
 # open order as its demand, and Montreal's as its receipt, and neither the
-# cancelled one, so neither proposes.
+# cancelled one, so neither proposes. Lot sizing (S2k2; ADR-0084 As
+# built S2k2): Mira creates the W8 washer, kept at Montreal, and plans it
+# there by a reorder point of 100 in fixed lots of 40, a minimum lot size
+# with a fixed lot refused; Ben's run of Montreal, none of it in stock,
+# proposes three lots of 40 (120) as the items of one requisition.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither"
-  local hinge sales own own_version run first second montreal store gasket plant mistake
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither; a washer planned in fixed lots is proposed in whole lots"
+  local hinge sales own own_version run first second montreal store gasket plant mistake washer
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -16384,6 +16388,34 @@ step_mrp() {
   say "nothing (counting none, it would propose 50):"
   mrp_run "$montreal" "$gasket"
   expect "Montreal's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value) \(.requisition_id // "none")"')" "0 0 80 0 none"
+  as mira
+  say "Lot sizing (S2k2): Mira creates the W8 washer, kept in the Montreal store and bought in cartons of 40; Priya"
+  say "approves it; Ines values it at Montreal:"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Washer W8\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"WASHERS\",
+      \"plants\": [{\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  washer=$(field .id)
+  approve priya "$(material_request "$washer")" "Washer bought by the carton."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$washer\", \"plant_id\": \"$montreal\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"0.10\", \"currency\": \"CAD\"}}"
+  as mira
+  say "Mira plans it at Montreal by a reorder point of 100 in fixed lots of 40 (SAP's lot size FX); a minimum lot size"
+  say "with a fixed lot is refused, a fixed lot is ordered as it is:"
+  refused 422 mrp.invalid_lot_size createMaterialPlan -body "{\"plant_id\": \"$montreal\", \"material_id\": \"$washer\", \"mrp_type\": \"reorder_point\",
+      \"reorder_point\": \"100\", \"lot_size\": \"fixed\", \"fixed_lot_size\": \"40\", \"minimum_lot_size\": \"80\", \"account_id\": \"$(account 6000)\"}"
+  api 201 '"\(.material_number) at \(.plant_code): reorder point \(.reorder_point.value), \(.lot_size) lots of \(.fixed_lot_size.value) \(.fixed_lot_size.unit)"' \
+    createMaterialPlan -body "{\"plant_id\": \"$montreal\", \"material_id\": \"$washer\", \"mrp_type\": \"reorder_point\", \"reorder_point\": \"100\",
+      \"lot_size\": \"fixed\", \"fixed_lot_size\": \"40\", \"account_id\": \"$(account 6000)\"}"
+  as ben
+  say "Ben runs Montreal: none of the washer is there, so it is 100 short; the run proposes the three whole lots of 40"
+  say "that cover it, 120, as the items of one requisition:"
+  mrp_run "$montreal" "$washer"
+  expect "Montreal's washer" "$(field '.lines[] | select(.material_id == "'"$washer"'") | "\(.shortage.value) \(.lot_size) \(.proposed.value) \(.lots)"')" "100 fixed 120 3"
+  QUIET=1 api 200 '' getRequisition -p "id=$(field '.lines[] | select(.material_id == "'"$washer"'") | .requisition_id')"
+  api 200 '"proposal \(.document_number): \(.status), \([.items[] | "\(.quantity.value) \(.quantity.unit)"] | join(" + "))"' \
+    getRequisition -p "id=$(field .id)"
+  expect "the washer's proposal" "$(field '[.items[] | .quantity.value] | join(" ")')" "40 40 40"
   HINGE=$hinge
   passed
 }

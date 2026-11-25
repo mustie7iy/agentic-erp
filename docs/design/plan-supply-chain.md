@@ -880,12 +880,43 @@ replaces its own open proposals and never a person's requisition.
   (`TestPlanningRunTransports`). No migration; walkthrough step 152
   (`step_mrp`): an open order of G20 gaskets from Toronto to Montreal.
 
+### S2k2 Lot sizing procedures (MRP variants, first slice)
+
+**Capability.** A planner gives a material's planning data at a plant a
+lot sizing procedure, so a run proposes what the plant orders in: the
+shortage itself (lot for lot, as before), fixed lots, or up to a maximum
+stock level, within a minimum and a maximum lot size and rounded to a
+pack size.
+
+- **Adds** (lane lotsize, 2026-11-24; the tracker's "later: MRP variants"
+  split, its first item; decided by default, ADR-0084 As built S2k2):
+  `lot_size` on `mrp.material_plan` (SAP MARC-DISLS, from memory):
+  `lot_for_lot` (EX, the default), `fixed` (FX, with `fixed_lot_size`)
+  or `replenish_to_maximum` (HB, with `maximum_stock_level`, not below
+  the reorder point); `minimum_lot_size`, `maximum_lot_size` and
+  `rounding_value` (BSTMI, BSTMA, BSTRF) with the other two, the bounds
+  multiples of the rounding value; all in the base unit. A run sizes each
+  shortage by it, an item per lot of the material's one requisition, at
+  most 100 lots (409 `mrp.too_many_lots` fails the run); its line names
+  the procedure, what it proposed and in how many lots. Migration 000469;
+  `createMaterialPlan`, `updateMaterialPlan` (merge patch, `null` removes
+  a quantity), `MrpRunLine` additive.
+- **Walkthrough:** extends `step_mrp` (step 152): a washer planned at
+  Montreal in fixed lots of 40, proposed in whole lots.
+  **Acceptance:** a fixed lot covers the shortage in whole lots; a
+  replenish-to-maximum plan proposes up to its level, bounded and
+  rounded; the run's lines say what was proposed and in how many lots.
+- **Later:** period lot sizes (daily, weekly, monthly), optimising
+  procedures (part period, least unit cost, Groff), scrap, firming in a
+  planning time fence; the replenishment agent recommending on a
+  proposal of several lots.
+
 ### S2l Replenishment agent
 
 **Capability.** A recommending agent reviews the run's proposals and
 recommends what to order, from which supplier and when, for a buyer to
-decide. **Later for MRP and replenishment:** lot sizing procedures,
-safety stock calculation, MRP areas, planned orders for production (phase
+decide. **Later for MRP and replenishment:** lot sizing procedures (lot for
+lot, fixed and replenish to maximum first, slice S2k2), safety stock calculation, MRP areas, planned orders for production (phase
 5), scheduling with calendars.
 
 - **Detailed and as built** (lane repl, 2026-11-21; ADR-0072 As built

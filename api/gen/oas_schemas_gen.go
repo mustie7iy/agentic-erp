@@ -73759,6 +73759,19 @@ type MaterialPlan struct {
 	MrpType string `json:"mrp_type"`
 	// The reorder point, in the material's base unit.
 	ReorderPoint Quantity `json:"reorder_point"`
+	// `lot_for_lot`, `fixed` or `replenish_to_maximum` (`createMaterialPlan`). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	LotSize string `json:"lot_size"`
+	// The fixed lot size, in the base unit; absent unless `lot_size` is `fixed`.
+	FixedLotSize OptQuantity `json:"fixed_lot_size"`
+	// The maximum stock level, in the base unit; absent unless `lot_size` is `replenish_to_maximum`.
+	MaximumStockLevel OptQuantity `json:"maximum_stock_level"`
+	// The minimum lot size, in the base unit; absent when none is given.
+	MinimumLotSize OptQuantity `json:"minimum_lot_size"`
+	// The maximum lot size, in the base unit; absent when none is given.
+	MaximumLotSize OptQuantity `json:"maximum_lot_size"`
+	// The rounding value, in the base unit; absent when none is given.
+	RoundingValue OptQuantity `json:"rounding_value"`
 	// The account its proposals name.
 	AccountID uuid.UUID `json:"account_id"`
 	// That account's number.
@@ -73843,6 +73856,36 @@ func (s *MaterialPlan) GetMrpType() string {
 // GetReorderPoint returns the value of ReorderPoint.
 func (s *MaterialPlan) GetReorderPoint() Quantity {
 	return s.ReorderPoint
+}
+
+// GetLotSize returns the value of LotSize.
+func (s *MaterialPlan) GetLotSize() string {
+	return s.LotSize
+}
+
+// GetFixedLotSize returns the value of FixedLotSize.
+func (s *MaterialPlan) GetFixedLotSize() OptQuantity {
+	return s.FixedLotSize
+}
+
+// GetMaximumStockLevel returns the value of MaximumStockLevel.
+func (s *MaterialPlan) GetMaximumStockLevel() OptQuantity {
+	return s.MaximumStockLevel
+}
+
+// GetMinimumLotSize returns the value of MinimumLotSize.
+func (s *MaterialPlan) GetMinimumLotSize() OptQuantity {
+	return s.MinimumLotSize
+}
+
+// GetMaximumLotSize returns the value of MaximumLotSize.
+func (s *MaterialPlan) GetMaximumLotSize() OptQuantity {
+	return s.MaximumLotSize
+}
+
+// GetRoundingValue returns the value of RoundingValue.
+func (s *MaterialPlan) GetRoundingValue() OptQuantity {
+	return s.RoundingValue
 }
 
 // GetAccountID returns the value of AccountID.
@@ -73935,6 +73978,36 @@ func (s *MaterialPlan) SetReorderPoint(val Quantity) {
 	s.ReorderPoint = val
 }
 
+// SetLotSize sets the value of LotSize.
+func (s *MaterialPlan) SetLotSize(val string) {
+	s.LotSize = val
+}
+
+// SetFixedLotSize sets the value of FixedLotSize.
+func (s *MaterialPlan) SetFixedLotSize(val OptQuantity) {
+	s.FixedLotSize = val
+}
+
+// SetMaximumStockLevel sets the value of MaximumStockLevel.
+func (s *MaterialPlan) SetMaximumStockLevel(val OptQuantity) {
+	s.MaximumStockLevel = val
+}
+
+// SetMinimumLotSize sets the value of MinimumLotSize.
+func (s *MaterialPlan) SetMinimumLotSize(val OptQuantity) {
+	s.MinimumLotSize = val
+}
+
+// SetMaximumLotSize sets the value of MaximumLotSize.
+func (s *MaterialPlan) SetMaximumLotSize(val OptQuantity) {
+	s.MaximumLotSize = val
+}
+
+// SetRoundingValue sets the value of RoundingValue.
+func (s *MaterialPlan) SetRoundingValue(val OptQuantity) {
+	s.RoundingValue = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *MaterialPlan) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
@@ -73961,6 +74034,29 @@ type MaterialPlanCreate struct {
 	// The account the requisitions runs propose name, one the plant's company may post to; a stock item's
 	// receipt posts its valuation class's accounts.
 	AccountID uuid.UUID `json:"account_id"`
+	// How a run sizes what it proposes for a shortage (SAP's lot sizing procedure, MARC-DISLS, from
+	// memory): `lot_for_lot` (EX, the default), the shortage itself; `fixed` (FX), as many lots of
+	// `fixed_lot_size` as cover it; `replenish_to_maximum` (HB), what brings the available quantity up to
+	// `maximum_stock_level`. A lot-for-lot or replenish-to-maximum quantity is raised to
+	// `minimum_lot_size`, rounded up to a multiple of `rounding_value` and split into lots of at most
+	// `maximum_lot_size`; each lot is an item of the material's one proposed requisition. Open
+	// enumeration: values may be added within /v1.
+	LotSize OptString `json:"lot_size"`
+	// The fixed procedure's lot in the material's base unit, more than zero; given with `lot_size` `fixed`
+	// alone.
+	FixedLotSize OptString `json:"fixed_lot_size"`
+	// The level `replenish_to_maximum` brings the available quantity up to, in the base unit, not below
+	// the reorder point; given with that procedure alone.
+	MaximumStockLevel OptString `json:"maximum_stock_level"`
+	// The least a lot is, in the base unit, more than zero and not above `maximum_lot_size`; not given
+	// with a fixed lot.
+	MinimumLotSize OptString `json:"minimum_lot_size"`
+	// The most a lot is, in the base unit, more than zero; a larger quantity is split into lots of it and
+	// a last lot of the rest. Not given with a fixed lot.
+	MaximumLotSize OptString `json:"maximum_lot_size"`
+	// A lot is rounded up to a multiple of it, in the base unit, more than zero (a pack size); the minimum
+	// and maximum lot sizes are multiples of it. Not given with a fixed lot.
+	RoundingValue OptString `json:"rounding_value"`
 }
 
 // GetPlantID returns the value of PlantID.
@@ -73988,6 +74084,36 @@ func (s *MaterialPlanCreate) GetAccountID() uuid.UUID {
 	return s.AccountID
 }
 
+// GetLotSize returns the value of LotSize.
+func (s *MaterialPlanCreate) GetLotSize() OptString {
+	return s.LotSize
+}
+
+// GetFixedLotSize returns the value of FixedLotSize.
+func (s *MaterialPlanCreate) GetFixedLotSize() OptString {
+	return s.FixedLotSize
+}
+
+// GetMaximumStockLevel returns the value of MaximumStockLevel.
+func (s *MaterialPlanCreate) GetMaximumStockLevel() OptString {
+	return s.MaximumStockLevel
+}
+
+// GetMinimumLotSize returns the value of MinimumLotSize.
+func (s *MaterialPlanCreate) GetMinimumLotSize() OptString {
+	return s.MinimumLotSize
+}
+
+// GetMaximumLotSize returns the value of MaximumLotSize.
+func (s *MaterialPlanCreate) GetMaximumLotSize() OptString {
+	return s.MaximumLotSize
+}
+
+// GetRoundingValue returns the value of RoundingValue.
+func (s *MaterialPlanCreate) GetRoundingValue() OptString {
+	return s.RoundingValue
+}
+
 // SetPlantID sets the value of PlantID.
 func (s *MaterialPlanCreate) SetPlantID(val uuid.UUID) {
 	s.PlantID = val
@@ -74011,6 +74137,36 @@ func (s *MaterialPlanCreate) SetReorderPoint(val string) {
 // SetAccountID sets the value of AccountID.
 func (s *MaterialPlanCreate) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetLotSize sets the value of LotSize.
+func (s *MaterialPlanCreate) SetLotSize(val OptString) {
+	s.LotSize = val
+}
+
+// SetFixedLotSize sets the value of FixedLotSize.
+func (s *MaterialPlanCreate) SetFixedLotSize(val OptString) {
+	s.FixedLotSize = val
+}
+
+// SetMaximumStockLevel sets the value of MaximumStockLevel.
+func (s *MaterialPlanCreate) SetMaximumStockLevel(val OptString) {
+	s.MaximumStockLevel = val
+}
+
+// SetMinimumLotSize sets the value of MinimumLotSize.
+func (s *MaterialPlanCreate) SetMinimumLotSize(val OptString) {
+	s.MinimumLotSize = val
+}
+
+// SetMaximumLotSize sets the value of MaximumLotSize.
+func (s *MaterialPlanCreate) SetMaximumLotSize(val OptString) {
+	s.MaximumLotSize = val
+}
+
+// SetRoundingValue sets the value of RoundingValue.
+func (s *MaterialPlanCreate) SetRoundingValue(val OptString) {
+	s.RoundingValue = val
 }
 
 // MaterialPlanHeaders wraps MaterialPlan with response headers.
@@ -74103,6 +74259,18 @@ type MaterialPlanUpdate struct {
 	ReorderPoint OptString `json:"reorder_point"`
 	// The account its proposals name.
 	AccountID OptUUID `json:"account_id"`
+	// The lot sizing procedure. Open enumeration: values may be added within /v1.
+	LotSize OptString `json:"lot_size"`
+	// The fixed lot size; null removes it.
+	FixedLotSize OptNilString `json:"fixed_lot_size"`
+	// The maximum stock level; null removes it.
+	MaximumStockLevel OptNilString `json:"maximum_stock_level"`
+	// The minimum lot size; null removes it.
+	MinimumLotSize OptNilString `json:"minimum_lot_size"`
+	// The maximum lot size; null removes it.
+	MaximumLotSize OptNilString `json:"maximum_lot_size"`
+	// The rounding value; null removes it.
+	RoundingValue OptNilString `json:"rounding_value"`
 }
 
 // GetMrpType returns the value of MrpType.
@@ -74120,6 +74288,36 @@ func (s *MaterialPlanUpdate) GetAccountID() OptUUID {
 	return s.AccountID
 }
 
+// GetLotSize returns the value of LotSize.
+func (s *MaterialPlanUpdate) GetLotSize() OptString {
+	return s.LotSize
+}
+
+// GetFixedLotSize returns the value of FixedLotSize.
+func (s *MaterialPlanUpdate) GetFixedLotSize() OptNilString {
+	return s.FixedLotSize
+}
+
+// GetMaximumStockLevel returns the value of MaximumStockLevel.
+func (s *MaterialPlanUpdate) GetMaximumStockLevel() OptNilString {
+	return s.MaximumStockLevel
+}
+
+// GetMinimumLotSize returns the value of MinimumLotSize.
+func (s *MaterialPlanUpdate) GetMinimumLotSize() OptNilString {
+	return s.MinimumLotSize
+}
+
+// GetMaximumLotSize returns the value of MaximumLotSize.
+func (s *MaterialPlanUpdate) GetMaximumLotSize() OptNilString {
+	return s.MaximumLotSize
+}
+
+// GetRoundingValue returns the value of RoundingValue.
+func (s *MaterialPlanUpdate) GetRoundingValue() OptNilString {
+	return s.RoundingValue
+}
+
 // SetMrpType sets the value of MrpType.
 func (s *MaterialPlanUpdate) SetMrpType(val OptString) {
 	s.MrpType = val
@@ -74133,6 +74331,36 @@ func (s *MaterialPlanUpdate) SetReorderPoint(val OptString) {
 // SetAccountID sets the value of AccountID.
 func (s *MaterialPlanUpdate) SetAccountID(val OptUUID) {
 	s.AccountID = val
+}
+
+// SetLotSize sets the value of LotSize.
+func (s *MaterialPlanUpdate) SetLotSize(val OptString) {
+	s.LotSize = val
+}
+
+// SetFixedLotSize sets the value of FixedLotSize.
+func (s *MaterialPlanUpdate) SetFixedLotSize(val OptNilString) {
+	s.FixedLotSize = val
+}
+
+// SetMaximumStockLevel sets the value of MaximumStockLevel.
+func (s *MaterialPlanUpdate) SetMaximumStockLevel(val OptNilString) {
+	s.MaximumStockLevel = val
+}
+
+// SetMinimumLotSize sets the value of MinimumLotSize.
+func (s *MaterialPlanUpdate) SetMinimumLotSize(val OptNilString) {
+	s.MinimumLotSize = val
+}
+
+// SetMaximumLotSize sets the value of MaximumLotSize.
+func (s *MaterialPlanUpdate) SetMaximumLotSize(val OptNilString) {
+	s.MaximumLotSize = val
+}
+
+// SetRoundingValue sets the value of RoundingValue.
+func (s *MaterialPlanUpdate) SetRoundingValue(val OptNilString) {
+	s.RoundingValue = val
 }
 
 // A plant a material is extended to (SAP MARC), with its storage locations (MARD).
@@ -79114,8 +79342,9 @@ func (s *MrpRun) SetReplaced(val []MrpRunReplaced) {
 
 // The problem that failed a run: `mrp.run_cancelled` (its Operation cancelled before it was carried
 // out), `mrp.unit_not_convertible` (an open quantity in a unit the material no longer has),
-// `identity.principal_blocked` (who started it is no longer active), `platform.internal` (an error
-// outlasting its retries), or a problem a proposed requisition was refused with
+// `mrp.too_many_lots` (a material's fixed or maximum lot size needs more than 100 lots for its
+// shortage), `identity.principal_blocked` (who started it is no longer active), `platform.internal`
+// (an error outlasting its retries), or a problem a proposed requisition was refused with
 // (`procurement.account_not_postable`, `procurement.invalid_quantity`,
 // `procurement.material_not_usable`, `config.no_number_range`, `config.number_range_exhausted`,
 // `config.not_bootstrapped`). Open list: values may be added within /v1.
@@ -79198,6 +79427,14 @@ type MrpRunLine struct {
 	// What brings the stock and receipts less the demand back to the reorder point; zero when they are not
 	// below it.
 	Shortage Quantity `json:"shortage"`
+	// The lot sizing procedure the run sized the shortage by (the planning data's). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	LotSize string `json:"lot_size"`
+	// What the run proposed for the shortage, sized by the procedure, the shortage or more; zero without a
+	// shortage.
+	Proposed Quantity `json:"proposed"`
+	// In how many lots, the items of the requisition proposed; absent without a shortage.
+	Lots OptInt32 `json:"lots"`
 	// The draft requisition proposed for the shortage (`GET /v1/requisitions/{id}`); absent without a
 	// shortage.
 	RequisitionID OptUUID `json:"requisition_id"`
@@ -79243,6 +79480,21 @@ func (s *MrpRunLine) GetReceipts() Quantity {
 // GetShortage returns the value of Shortage.
 func (s *MrpRunLine) GetShortage() Quantity {
 	return s.Shortage
+}
+
+// GetLotSize returns the value of LotSize.
+func (s *MrpRunLine) GetLotSize() string {
+	return s.LotSize
+}
+
+// GetProposed returns the value of Proposed.
+func (s *MrpRunLine) GetProposed() Quantity {
+	return s.Proposed
+}
+
+// GetLots returns the value of Lots.
+func (s *MrpRunLine) GetLots() OptInt32 {
+	return s.Lots
 }
 
 // GetRequisitionID returns the value of RequisitionID.
@@ -79293,6 +79545,21 @@ func (s *MrpRunLine) SetReceipts(val Quantity) {
 // SetShortage sets the value of Shortage.
 func (s *MrpRunLine) SetShortage(val Quantity) {
 	s.Shortage = val
+}
+
+// SetLotSize sets the value of LotSize.
+func (s *MrpRunLine) SetLotSize(val string) {
+	s.LotSize = val
+}
+
+// SetProposed sets the value of Proposed.
+func (s *MrpRunLine) SetProposed(val Quantity) {
+	s.Proposed = val
+}
+
+// SetLots sets the value of Lots.
+func (s *MrpRunLine) SetLots(val OptInt32) {
+	s.Lots = val
 }
 
 // SetRequisitionID sets the value of RequisitionID.

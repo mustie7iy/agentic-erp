@@ -24293,9 +24293,14 @@ func (s *Server) handleCreateMaterialDocumentRequest(args [0]string, argsEscaped
 // active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active
 // one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may
 // post to (422 `mrp.account_not_postable`); an MRP type of the list (422 `mrp.invalid_mrp_type`); a
-// reorder point with up to six decimals (422 `mrp.invalid_quantity`). A material is planned once at a
-// plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key` answers the
-// planning data created. Human-only (`x-agent: false`).
+// reorder point with up to six decimals (422 `mrp.invalid_quantity`); a lot sizing procedure of the
+// list, `lot_for_lot` unless named, with the quantities it uses and no others, each more than zero
+// with up to six decimals (422 `mrp.invalid_quantity`): a fixed lot size exactly with `fixed`, a
+// maximum stock level not below the reorder point exactly with `replenish_to_maximum`, no minimum or
+// maximum lot size or rounding value with a fixed lot, a minimum lot size not above the maximum and
+// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field). A material is
+// planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same
+// `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`).
 //
 // POST /v1/material-plans
 func (s *Server) handleCreateMaterialPlanRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -134508,19 +134513,23 @@ func (s *Server) handleStartMigrationRunRequest(args [1]string, argsEscaped bool
 // that are not received, open or in transit, and the items of the requisitions earlier runs proposed
 // that a person took over and that are not ordered, cancelled or rejected). Where the stock and
 // receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is
-// proposed as a draft purchase requisition of the material in its base unit, raised by the person who
-// started the run in the company's currency at the material's valuation price at the plant (zero when
-// it has none), naming the planning data's account and needed by the run's day. Before it plans, the
-// run cancels the plant's earlier proposals still its own: drafts no person changed since a run
-// proposed them. A proposal a person changed or submitted is theirs from then on and is never touched;
-// a requisition a person raised is never touched either. The run's lines say what it counted and
-// proposed per material. The plant is an active plant of a company the caller may act in (422
-// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
-// names it. A business problem while planning (the company's requisition number range exhausted, the
-// account no longer postable, the requester no longer active, an open quantity in a unit the material
-// no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation
-// with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried
-// out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+// sized by the planning data's lot sizing procedure (lot for lot: the shortage itself; a fixed lot
+// size; or up to the maximum stock level, with the minimum and maximum lot sizes and the rounding
+// value) and proposed as a draft purchase requisition of the material in its base unit, an item per
+// lot, raised by the person who started the run in the company's currency at the material's valuation
+// price at the plant (zero when it has none), naming the planning data's account and needed by the
+// run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no
+// person changed since a run proposed them. A proposal a person changed or submitted is theirs from
+// then on and is never touched; a requisition a person raised is never touched either. The run's lines
+// say what it counted and proposed per material. The plant is an active plant of a company the caller
+// may act in (422 `mrp.plant_invalid`); a run of the plant already queued is 409
+// `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's
+// requisition number range exhausted, the account no longer postable, the requester no longer active,
+// an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; a shortage
+// needing more than 100 lots of a material's fixed or maximum lot size: `mrp.too_many_lots`;
+// `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or
+// cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`.
+// Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/mrp-runs
 func (s *Server) handleStartMrpRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -141083,10 +141092,12 @@ func (s *Server) handleUpdateMaterialRequest(args [1]string, argsEscaped bool, w
 // handleUpdateMaterialPlanRequest handles updateMaterialPlan operation.
 //
 // Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
-// §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_mrp_type`,
-// `mrp.invalid_quantity`, `mrp.account_not_postable`); a change to what it already is is 422
-// `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the plant
-// plans by it. JSON Merge Patch. Audited with the values before and after. Human-only
+// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity) or account, checked as on
+// creation, the planning data as it is after the change (422 `mrp.invalid_mrp_type`,
+// `mrp.invalid_quantity`, `mrp.invalid_lot_size`, `mrp.account_not_postable`: changing `lot_size`
+// removes or adds the quantities the procedures use in the same patch); a change to what it already is
+// is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the
+// plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only
 // (`x-agent: false`).
 //
 // PATCH /v1/material-plans/{id}
