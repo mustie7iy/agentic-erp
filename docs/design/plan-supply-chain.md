@@ -137,9 +137,75 @@ version read.
   and material type do not change once created.
 - **Depends on:** nothing.
 
-**Later for Material master:** further descriptions by language (MAKT);
-the material's sales organisation and purchasing views (MVKE, EINA/EINE
-belong to S1f and sourcing); dimensions, weights and EAN/GTIN codes;
+#### S1a2 Descriptions by language
+
+The first item of the leaf "later: material master variants" (lane
+matdesc, 2026-11-24); what is left of it stays a leaf (Later, below).
+
+**Capability.** A master data specialist describes a material in
+further languages beside its default description (SAP MAKT, one text
+per language, from memory), Arabic for the UAE pilot; a person, an
+integration or an agent reading a material asks for a language and gets
+its description in that language, or the default one when it has none.
+
+- **Reuses:** S1a's material and its `description`, S1b's material
+  changes (a change of the descriptions is governed as any other field),
+  S2o's SAP load of MAKT, `golang.org/x/text/language` (as the web
+  workspace's locales, `internal/web/i18n`).
+- **Adds:** `materials.material.description_language` (the default
+  description's language, `en` for every material created before) and
+  `materials.material_description` (a further description per language,
+  removed by its mark as a unit is); `description_language` and
+  `descriptions` on `MaterialCreate`, `descriptions` on
+  `MaterialUpdate` and `MaterialChangeRequested`; `default_language`,
+  `description_language` and `descriptions` on `Material`; the query
+  parameter `language` of `getMaterial` and `listMaterials`; the
+  problem codes `materials.unknown_language` and
+  `materials.duplicate_language`; MaterialChanged's
+  `description_language` and `descriptions`; ADR-0082 As built S1a2.
+- **Decided by default (ADR-0082 As built S1a2):** a language is a
+  BCP 47 tag of a language with an optional script and region in their
+  canonical form (`ar`, `ar-AE`, `zh-Hant`), its subtags known to the
+  IANA registry as `golang.org/x/text/language` holds it (a partner's
+  ISO 639-1 `language` is such a tag); a read names its language with
+  the explicit parameter `language`, since the API has no
+  `Accept-Language` convention (only the web workspace reads that
+  header), and finds it by RFC 4647 lookup (`ar-AE`, then `ar`), else
+  the default; `description` answers that description, so a read that
+  names no language is as before; the default's language is
+  `description_language` at creation (`en` when absent) and does not
+  change in this slice; further descriptions are replaced as a whole by
+  a change, each language once and none in the default's; the duplicate
+  check stays on the default description; no contract step is needed,
+  as `description` stays the default's text.
+- **SAP:** the load maps MAKT-SPRAS to a tag (a table of SAP's
+  one-character keys and the two-letter ISO codes, from memory); the
+  text it picks today (English, else the first other) stays the default
+  in its language, and the material's other MAKT texts become its
+  further descriptions; a text in a key the table has no tag for is a
+  warning and is left out (a default in such a key is `und`).
+- **Walkthrough:** `step_material`: the bracket is created with an
+  Arabic description, read in Arabic, in `ar-AE` and in French (the
+  default English answered); the zinc-plated change carries the new
+  Arabic text and a French one, approved with the rest; a further
+  description in the default's language is refused.
+- **Acceptance:** a description is stored and answered as given,
+  Arabic included, no case or white space folded; a read in a language
+  the material has answers it, any other the default, naming the
+  language answered; a change of the descriptions waits for its
+  approval as the material's other fields do and is audited with the
+  texts before and after; materials created before keep their
+  description as their default, in `en`.
+- **As built** (2026-11-24): ADR-0082 As built S1a2, migrations 000469
+  and 000470, walkthrough step 122.
+
+**Later for Material master:** changing a material's default language,
+documents and outputs taking the material's description in their
+partner's language, the duplicate check across languages, a later SAP
+run's new or changed descriptions of a material an earlier run created
+(the rest of descriptions by language, S1a2); the material's sales
+organisation and purchasing views (MVKE, EINA/EINE belong to S1f and
+sourcing); dimensions, weights and EAN/GTIN codes;
 material types and groups from configuration (T134, T023) instead of an
 open enumeration and a code; plant-specific status and MRP data (MARC
 fields beyond the assignment, S2k); external number assignment;
