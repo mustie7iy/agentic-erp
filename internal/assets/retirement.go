@@ -262,8 +262,8 @@ func notBeforeCapitalisation(a Asset, value time.Time) error {
 // laterValueDate refuses a retirement or transfer while the asset has a
 // movement or an assignment valued after its period, is booked through a
 // later period in a ledger, or has a change in estimate from a later
-// period, whose residual value is the asset's as it stood (T57j)
-// (laterValues).
+// period, whose residual value is the asset's as it stood (T57j), or an
+// impairment valued in its own period (laterValues).
 func laterValueDate(ctx context.Context, tx pgx.Tx, a Asset, v Period) error {
 	return laterValues(ctx, tx, a, v, true)
 }
@@ -271,10 +271,17 @@ func laterValueDate(ctx context.Context, tx pgx.Tx, a Asset, v Period) error {
 // laterValues refuses a document valued in period v while the asset has
 // a movement or an assignment valued after v, is booked through a later
 // period in a ledger, or, when estimates, has a change in estimate from a
-// later period (409 assets.later_value_date, ADR-0057 §6): a run of a
+// later period, and, when estimates (a retirement or transfer), a change
+// in estimate from a later period or an impairment or its reversal
+// valued in v (409 assets.later_value_date, ADR-0057 §6): a run of a
 // later period, an acquisition valued later, a transfer from a later
-// date. An impairment leaves the residual value as it is, so a later
-// change in estimate does not bind it (As built, impairment). A reversed
+// date. An impairment applies at the end of its period and the share is
+// taken at its start (Move), so a share taken in the same period would
+// hold the impairment before it applies and the period would depreciate
+// a book value it never had; the retirement or transfer is valued in the
+// next period. An impairment leaves the residual value as it is, so a
+// later change in estimate does not bind it, nor does another impairment
+// of its period (As built, impairment). A reversed
 // movement and its reversal cancel out (§7) and do not count, and only
 // the latest assignment row is read: a reversed center transfer's row is
 // followed by the row restoring the previous one, and the rows left are
@@ -285,15 +292,19 @@ func laterValues(ctx context.Context, tx pgx.Tx, a Asset, v Period, estimates bo
 				AND NOT EXISTS (SELECT FROM assets.movement r WHERE r.tenant_id = m.tenant_id AND r.reverses_id = m.id))
 			OR (SELECT valid_from FROM assets.asset_assignment WHERE asset_id = $1 ORDER BY seq DESC LIMIT 1) > $2
 			OR EXISTS (SELECT FROM assets.asset_terms WHERE asset_id = $1 AND (booked_through_year, booked_through_period) > ($3::smallint, $4::smallint))
-			OR ($5 AND EXISTS (SELECT FROM assets.estimate_change WHERE asset_id = $1 AND effective_from > $2))`,
-		a.ID, v.End, v.FiscalYear, v.Number, estimates).Scan(&later)
+			OR ($5 AND EXISTS (SELECT FROM assets.estimate_change WHERE asset_id = $1 AND effective_from > $2))
+			OR ($5 AND EXISTS (SELECT FROM assets.movement m WHERE m.asset_id = $1 AND m.kind IN ('impairment', 'impairment_reversal')
+				AND m.value_date >= $6 AND m.reverses_id IS NULL
+				AND NOT EXISTS (SELECT FROM assets.movement r WHERE r.tenant_id = m.tenant_id AND r.reverses_id = m.id)))`,
+		a.ID, v.End, v.FiscalYear, v.Number, estimates, v.Start).Scan(&later)
 	if err != nil {
 		return fmt.Errorf("assets: later values of asset %s: %w", a.Number, err)
 	}
 	if later {
 		return problem.Conflict("assets.later_value_date", fmt.Sprintf("Asset %s has a movement or center assignment valued after %d/%02d, "+
-			"depreciation booked through a later period or a change in estimate from one; a retirement, transfer or impairment is valued in its "+
-			"posting period and not before them.",
+			"depreciation booked through a later period, a change in estimate from one, or an impairment valued in its period; a retirement, "+
+			"transfer or impairment is valued in its posting period and not before them, and a retirement or transfer not in an impairment's "+
+			"period.",
 			a.Number, v.FiscalYear, v.Number))
 	}
 	return nil

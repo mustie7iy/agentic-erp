@@ -202,20 +202,28 @@ func TestImpairmentChangeInEstimateLater(t *testing.T) {
 	want(t, "July: 900.00 over the 59 periods left of 60", schedule(s, 7)[:22], "7 15.25 0.00 884.75; 8")
 }
 
-// TestImpairmentReversalAfterRetirement: once a retirement took a share
-// of an impaired asset, what its accumulated depreciation held of the
-// impairment is not known apart, so the impairment is not reversed; the
-// retirement took the impaired carrying amount; a loss is still posted,
-// after which the retirement, no longer the asset's latest posting, is
-// not reversed.
+// TestImpairmentReversalAfterRetirement: a retirement or transfer is not
+// valued in an impaired period (the impairment applies at its end, the
+// share at its start); in the next period one takes half of the impaired
+// asset, its catch-up on the impaired amount; once it has, what its
+// accumulated depreciation held of the impairment is not known apart, so
+// the impairment is not reversed; a loss is still posted, after which the
+// retirement, no longer the asset's latest posting, is not reversed.
 func TestImpairmentReversalAfterRetirement(t *testing.T) {
 	e := newImpairments(t)
 	mill, _ := e.depreciable(t, "Mill")
+	press, _ := e.depreciable(t, "Press")
 	e.impair(t, mill, `"kind": "loss", "amount": {"amount": "200.00", "currency": "EUR"}`)
-	q := e.retire(t, mill, `"kind": "scrapping", "share": {"percent": "50"}`)
-	want(t, "the half retired, its impairment with it", retired(q)[:40], "0L 0.5 0.00 600.00 -100.00 0.00 500.00 -")
-	e.refuseImpairment(t, mill, `"kind": "reversal", "amount": {"amount": "1.00", "currency": "EUR"}`, 409, "assets.impairment_reversal_after_retirement")
-	e.impair(t, mill, `"kind": "loss", "amount": {"amount": "100.00", "currency": "EUR"}`)
+	e.clocked.Problem(409, "assets.later_value_date", "POST", "/v1/asset-retirements", fmt.Sprintf(`{"asset_id": %q, "kind": "scrapping"}`, mill), "")
+	e.clocked.Problem(409, "assets.later_value_date", "POST", "/v1/asset-transfers",
+		fmt.Sprintf(`{"asset_id": %q, "kind": "asset", "to_asset_id": %q}`, mill, press), "")
+	july := `"posting_date": "2026-07-15", "value_date": "2026-07-15"`
+	q := e.retire(t, mill, `"kind": "scrapping", "share": {"percent": "50"}, `+july)
+	// June depreciated 10.00 of 1,200.00, then 990.00 left after the loss
+	// over 119 periods; half of cost 1,200.00 and of accumulated 210.00.
+	want(t, "the half retired, its impairment with it", retired(q)[:41], "0L 0.5 10.00 600.00 -105.00 0.00 495.00 -")
+	e.refuseImpairment(t, mill, `"kind": "reversal", "amount": {"amount": "1.00", "currency": "EUR"}, `+july, 409, "assets.impairment_reversal_after_retirement")
+	e.impair(t, mill, `"kind": "loss", "amount": {"amount": "100.00", "currency": "EUR"}, `+july)
 	e.refuseRetirementReversal(t, q, `{"reason": "r"}`, 409, "assets.later_movements")
 }
 

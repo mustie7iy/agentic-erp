@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -103,7 +104,11 @@ func (e *Endpoints) prepareImpairment(ctx context.Context, tx pgx.Tx, id uuid.UU
 	if err := e.impairmentLedger(ctx, r); err != nil {
 		return nil, err
 	}
-	if err := e.impairmentAccounts(ctx, r); err != nil {
+	doc, err := e.impairmentAccounts(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.impairmentDates(ctx, doc, r); err != nil {
 		return nil, err
 	}
 	if err := laterValues(ctx, tx, r.asset, r.period, false); err != nil {
@@ -156,22 +161,22 @@ func (e *Endpoints) impairmentLedger(ctx context.Context, r *impairing) error {
 // company the entry posts to: the accumulated depreciation, and the
 // impairment loss for a loss or the impairment reversal for a reversal
 // (422 assets.impairment_account_missing when the company names none);
-// then the dates and the group currency.
-func (e *Endpoints) impairmentAccounts(ctx context.Context, r *impairing) error {
+// and the group currency. It returns the active document.
+func (e *Endpoints) impairmentAccounts(ctx context.Context, r *impairing) (*config.Config, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
-		return fmt.Errorf("assets: configuration: %w", err)
+		return nil, fmt.Errorf("assets: configuration: %w", err)
 	}
 	_, a, err := classOf(doc, r.company, r.asset.Class)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	field, number := "impairment_loss", a.ImpairmentLoss
 	if r.in.Kind == ImpairmentReversal {
 		field, number = "impairment_reversal", a.ImpairmentReversal
 	}
 	if number == "" {
-		return problem.InvalidDetail("assets.impairment_account_missing", fmt.Sprintf("Company %s names no %s account for asset class %s "+
+		return nil, problem.InvalidDetail("assets.impairment_account_missing", fmt.Sprintf("Company %s names no %s account for asset class %s "+
 			"(companies[].asset_accounts[].%s); add one before its assets are impaired.", r.company.Code, field, r.asset.Class, field), "kind",
 			"a kind the class has an account for")
 	}
@@ -179,12 +184,21 @@ func (e *Endpoints) impairmentAccounts(ctx context.Context, r *impairing) error 
 	// company (ADR-0057 §3), so both are found.
 	ids, err := e.Ledger.Accounts(ctx, r.company.ID, []string{a.AccumulatedDepreciation, number})
 	if err != nil {
-		return fmt.Errorf("assets: accounts of class %s in %s: %w", r.asset.Class, r.company.Code, err)
+		return nil, fmt.Errorf("assets: accounts of class %s in %s: %w", r.asset.Class, r.company.Code, err)
 	}
 	r.accumulated, r.account = ids[a.AccumulatedDepreciation], ids[number]
 	if r.group, err = e.Companies.GroupCurrency(ctx); err != nil {
-		return fmt.Errorf("assets: group currency: %w", err)
+		return nil, fmt.Errorf("assets: group currency: %w", err)
 	}
+	return doc, nil
+}
+
+// impairmentDates sets the posting date, the value date (the posting
+// date by default) and the posting period, as a retirement's
+// (postingDates): valued in the period on or before the posting date and
+// not before the capitalisation date.
+func (e *Endpoints) impairmentDates(ctx context.Context, doc *config.Config, r *impairing) error {
+	var err error
 	if r.posting, r.period, _, err = e.postingDates(ctx, doc, r.company, r.in.PostingDate); err != nil {
 		return err
 	}

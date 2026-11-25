@@ -2840,6 +2840,15 @@ Decided by default (ADR-0053 d), for the product owner to overrule:
   valued or booked in a later period (`assets.later_value_date`); a
   change in estimate from a later period does not bind it, since an
   impairment leaves the residual value as it is (`laterValues`).
+  A retirement or transfer (either kind) is in turn refused while an
+  impairment or its reversal is valued in its own period (409
+  `assets.later_value_date`): the share leaves at the period's start, the
+  impairment applies at its end, so a share taken of balances that
+  already hold the impairment would make that period depreciate a book
+  value the asset never had. The retirement is valued in the next period,
+  after which its catch-up and share are those of the impaired asset.
+  Alternative: apply moves posted after a same-period impairment at the
+  period's end too.
 - **No document reversal:** an impairment entered in error is undone by a
   reversal of the loss, within the ceiling; the ledger names that path
   (`ledger.entry_owned_elsewhere`).

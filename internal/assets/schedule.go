@@ -154,9 +154,10 @@ func PlannedThrough(p Plan, moves []Move, through Month) (money.Minor, error) {
 func byMonth(a, b Move) int { return int(a.Month) - int(b.Month) }
 
 // inMonthOrder is the moves applied at their periods' starts and the
-// impairments applied at their ends (Move), each in period order: copied
-// only to split or sort, since most assets have one move and none
-// impaired.
+// impairments applied at their ends (Move), each in period order: the
+// impairments are kept apart because the walk applies them after the
+// period's d_k, not before it. Copied only to split or sort, since most
+// assets have one move and none impaired.
 func inMonthOrder(moves []Move) (starts, ends []Move) {
 	if slices.ContainsFunc(moves, func(mv Move) bool { return mv.Impairment }) {
 		for _, mv := range moves {
