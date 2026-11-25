@@ -110,9 +110,13 @@ func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dat
 			-- the lines are probed by statement through their key, only for
 			-- the statements whose lines count, however the tables' sizes
 			-- sway the planner (TestReconcileReadsUnreconciledLines).
-			SELECT s.tenant_id, s.id, s.closing_date, s.reconciled_excluded, k.kept,
-				k.kept AND coalesce(s.reconciled_posted_until <= (SELECT min(d) FROM unnest($2::date[]) AS d), true) AS settled
-			FROM payments.bank_statement s, LATERAL (SELECT s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL AS kept) k
+			-- Plain expressions of the statement's columns, so a use's
+			-- condition on them filters the statements before their lines
+			-- are read.
+			SELECT s.tenant_id, s.id, s.closing_date, s.reconciled_excluded, s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL AS kept,
+				s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL
+					AND coalesce(s.reconciled_posted_until <= (SELECT min(d) FROM unnest($2::date[]) AS d), true) AS settled
+			FROM payments.bank_statement s
 			WHERE s.house_bank_id = $1),
 		per AS (
 			SELECT closing_date AS c, reconciled_excluded AS excluded, 0::bigint AS in_transit FROM st WHERE kept
