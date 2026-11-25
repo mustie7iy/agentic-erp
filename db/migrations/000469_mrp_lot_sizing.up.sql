@@ -19,6 +19,10 @@
 -- accept: its plans are lot for lot, and its run lines name no proposed
 -- quantity or lots, which readers take as the shortage in one lot (lot
 -- for lot, as it proposed). Lines are insert-only, so none is rewritten.
+-- One write of such a server is refused during the rollout: raising the
+-- reorder point of a plan a new server set to replenish to a lower
+-- maximum stock level meets material_plan_maximum_level (a 500 there,
+-- where the new server answers 422 mrp.invalid_lot_size).
 ALTER TABLE mrp.material_plan
   ADD COLUMN lot_size text NOT NULL DEFAULT 'lot_for_lot'
     CONSTRAINT material_plan_lot_size_check CHECK (lot_size IN ('lot_for_lot', 'fixed', 'replenish_to_maximum')),

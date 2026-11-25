@@ -16,7 +16,8 @@
 //
 // Its check holds an order to what the run read: the proposal read with
 // getRequisition and still to be ordered, of one material; the quantity
-// and unit as the proposal has them (lot sizing is Later, ADR-0084 §6);
+// and unit as the proposal has them, a proposal of one item (one of several
+// lots, ADR-0084 As built S2k2, is left to the buyer);
 // the day it is needed by (or the run's day, when it names none: lead
 // times are Later); a source of the proposal's material in its company
 // that the run read, an active catalog item, an active contract item
@@ -99,7 +100,8 @@ Why: <reasons>
 saying why this supplier and source, citing what you read (the source's price, the last order, the supplier's number and
 name), each figure as a tool returned it; a quantity with a fraction stands only in the first line. source_needed, when nothing you read is a source of the material: say what you looked for, so
 that the buyer can source it (for example by a request for quotation). A proposal that is no longer to be ordered gets no
-recommendation: say so in your answer.`
+recommendation: say so in your answer. Nor does a proposal of more than one item (its run line's lots above 1: the plan
+sizes it in lots): say it is left to the buyer.`
 
 // Agent reviews a planning run's proposals.
 type Agent struct {

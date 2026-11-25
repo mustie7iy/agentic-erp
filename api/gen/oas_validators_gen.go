@@ -61667,8 +61667,8 @@ func (s *MaterialPlanCreate) Validate() error {
 		if value, ok := s.LotSize.Get(); ok {
 			if err := func() error {
 				if err := (validate.String{
-					MinLength:     0,
-					MinLengthSet:  false,
+					MinLength:     1,
+					MinLengthSet:  true,
 					MaxLength:     30,
 					MaxLengthSet:  true,
 					Email:         false,
@@ -62012,8 +62012,8 @@ func (s *MaterialPlanUpdate) Validate() error {
 		if value, ok := s.LotSize.Get(); ok {
 			if err := func() error {
 				if err := (validate.String{
-					MinLength:     0,
-					MinLengthSet:  false,
+					MinLength:     1,
+					MinLengthSet:  true,
 					MaxLength:     30,
 					MaxLengthSet:  true,
 					Email:         false,

@@ -253,7 +253,8 @@ func (e *Endpoints) ChangePlan(ctx context.Context, id uuid.UUID, ifMatch func(i
 	return out, audit.Record(ctx, "mrp.material_plan.change", "mrp.material_plan", id, map[string]any{"before": planAudit(before), "after": planAudit(out)})
 }
 
-// planAudit is what a plan's change audits of it, before and after.
+// planAudit is what a plan's audit records hold of it: on creation,
+// and before and after a change.
 func planAudit(p Plan) map[string]any {
 	out := p.Lots.auditOf()
 	out["mrp_type"], out["reorder_point"], out["account_id"] = p.MRPType, p.ReorderPoint, p.AccountID

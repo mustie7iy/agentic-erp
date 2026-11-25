@@ -1534,8 +1534,9 @@ A later slice adds its row here and its section under "As built".
   <unit> from supplier <supplier_id> by <YYYY-MM-DD>: <source>`, the
   source `contract <id> item <n>`, `catalog item <id>` or `purchase order
   <id>`, and a line `Why: ` gives the reasons (`ErrForm`); the quantity
-  and unit are the proposal's (`ErrQuantity`: lot sizing is Later,
-  ADR-0084 §6); the day is the one the proposal is needed by, the run's
+  and unit are the proposal's (`ErrQuantity`); a proposal of several
+  lots (ADR-0084 As built S2k2) is refused (`ErrProposal`) and left to
+  the buyer, as the prompt says; the day is the one the proposal is needed by, the run's
   day when it names none (`ErrWhen`: lead times are Later); the source is
   one the run read of the proposal's material in its company, an `active`
   catalog item, an `active` contract's item valid on that day, or a

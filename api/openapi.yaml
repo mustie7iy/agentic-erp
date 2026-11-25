@@ -68001,6 +68001,7 @@ components:
         account_id: {type: string, format: uuid, description: "The account the requisitions runs propose name, one the plant's company may post to; a stock item's receipt posts its valuation class's accounts."}
         lot_size:
           type: string
+          minLength: 1
           maxLength: 30
           x-extensible-enum: [lot_for_lot, fixed, replenish_to_maximum]
           description: "How a run sizes what it proposes for a shortage (SAP's lot sizing procedure, MARC-DISLS, from memory): `lot_for_lot` (EX, the default), the shortage itself; `fixed` (FX), as many lots of `fixed_lot_size` as cover it; `replenish_to_maximum` (HB), what brings the available quantity up to `maximum_stock_level`. A lot-for-lot or replenish-to-maximum quantity is raised to `minimum_lot_size`, rounded up to a multiple of `rounding_value` and split into lots of at most `maximum_lot_size`; each lot is an item of the material's one proposed requisition. Open enumeration: values may be added within /v1."
@@ -68024,6 +68025,7 @@ components:
         account_id: {type: string, format: uuid, description: "The account its proposals name."}
         lot_size:
           type: string
+          minLength: 1
           maxLength: 30
           x-extensible-enum: [lot_for_lot, fixed, replenish_to_maximum]
           description: "The lot sizing procedure. Open enumeration: values may be added within /v1."
