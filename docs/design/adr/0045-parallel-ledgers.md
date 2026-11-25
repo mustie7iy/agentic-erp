@@ -175,8 +175,9 @@ written as a CASE so the planner did not underestimate it, T52c). As built
 (finfix, T52): the ledger page indexes 000470–000472 (company, ledger, then
 posting date, document number, or period and posting date, with id) serve
 the filter, which is now a plain condition on the ledger asked for or the
-leading one, resolved before the list's query, so a page reads its entries
-alone (`TestListReadsOnlyItsLedgersPage`). **Decided by default** (for the
+leading one, resolved before the list's query (as `coalesce($10, the
+leading ledger)` in the query, the cached statement's generic plan took
+the ledger-less index), so a page reads its entries alone (`TestListReadsOnlyItsLedgersPage`). **Decided by default** (for the
 product owner's review): no extended statistics object. The planner's
 misestimate of the ledger's selectivity (across every tenant's ledgers)
 is harmless once the ledger is a column of the index the page follows,

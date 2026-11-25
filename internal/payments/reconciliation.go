@@ -102,23 +102,27 @@ const reconciledFigures = `reconciled_excluded = (SELECT coalesce(sum(l.amount),
 // by a server of the release before 000469 keeps nothing, and its lines
 // are read as before.
 func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dates []time.Time, closing []money.Minor) ([]Figures, error) {
-	rows, _ := tx.Query(ctx, `WITH per AS (
-			SELECT s.closing_date AS c, s.reconciled_excluded AS excluded, 0::bigint AS in_transit
-			FROM payments.bank_statement s
-			WHERE s.house_bank_id = $1 AND s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL
+	rows, _ := tx.Query(ctx, `WITH st AS NOT MATERIALIZED (
+			-- kept: what its lines add is on the statement; settled: kept, and
+			-- none of its lines posted after the earliest date asked. Inlined
+			-- in each use, so the lines are joined by statement, only where
+			-- they are read (TestReconcileReadsUnreconciledLines).
+			SELECT s.tenant_id, s.id, s.closing_date, s.reconciled_excluded, k.kept,
+				k.kept AND coalesce(s.reconciled_posted_until <= (SELECT min(d) FROM unnest($2::date[]) AS d), true) AS settled
+			FROM payments.bank_statement s, LATERAL (SELECT s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL AS kept) k
+			WHERE s.house_bank_id = $1),
+		per AS (
+			SELECT closing_date AS c, reconciled_excluded AS excluded, 0::bigint AS in_transit FROM st WHERE kept
 			UNION ALL
 			SELECT s.closing_date, coalesce(sum(l.amount) FILTER (WHERE l.status = 'excluded'), 0),
 				coalesce(sum(l.amount) FILTER (WHERE l.status NOT IN ('posted', 'excluded')), 0)
-			FROM payments.bank_statement s
-			LEFT JOIN payments.bank_statement_line l ON l.tenant_id = s.tenant_id AND l.statement_id = s.id
-			WHERE s.house_bank_id = $1 AND NOT (s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL) GROUP BY s.id, s.closing_date),
+			FROM st s LEFT JOIN payments.bank_statement_line l ON l.tenant_id = s.tenant_id AND l.statement_id = s.id
+			WHERE NOT s.kept GROUP BY s.id, s.closing_date),
 		late AS (
-			SELECT s.closing_date AS c, m.posting_date AS pd, l.amount FROM payments.bank_statement s
+			SELECT s.closing_date AS c, m.posting_date AS pd, l.amount FROM st s
 			JOIN payments.bank_statement_line l ON l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status = 'posted'
 			JOIN payments.statement_match m ON m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no AND m.status <> 'rejected'
-			WHERE s.house_bank_id = $1 AND m.posting_date > s.closing_date
-				AND NOT (s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL AND (s.reconciled_posted_until IS NULL
-					OR s.reconciled_posted_until <= (SELECT min(d) FROM unnest($2::date[]) AS d))))
+			WHERE NOT s.settled AND m.posting_date > s.closing_date)
 		SELECT x.d, x.closing, NULL::bigint, coalesce((SELECT sum(excluded) FROM per WHERE c <= x.d), 0)::bigint,
 			coalesce((SELECT sum(in_transit) FROM per WHERE c <= x.d), 0)::bigint, coalesce((SELECT sum(amount) FROM late WHERE c <= x.d AND pd > x.d), 0)::bigint
 		FROM unnest($2::date[], $3::bigint[]) WITH ORDINALITY AS x(d, closing, n) ORDER BY x.n`, b.ID, dates, closing)

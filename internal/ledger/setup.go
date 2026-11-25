@@ -436,12 +436,10 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 // movement's stock account, then its offsetting one), so row locks
 // against an activation changing two of them in key order could wait on
 // each other in a cycle; shared holders never wait for each other, and
-// the one exclusive holder takes it before any other lock of the
-// ledger's. The activation's number ranges, applied before it, lock only
-// the ranges it changes (configuration.applyRanges), so a posting that
-// read a key and then draws its number waits for an activation only when
-// it raised that range (ADR-0048 As built finfix). An activation is rare
-// and short, so postings waiting for one cost little.
+// Apply takes it exclusively before any ledger row lock. What is left of
+// its interplay with the activation's number ranges is in ADR-0048 As
+// built (finfix). An activation is rare and short, so postings waiting
+// for one cost little.
 const determinationLock = "ledger.account_determination"
 
 // determination is the company's account determination by key, the

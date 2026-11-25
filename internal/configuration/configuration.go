@@ -712,18 +712,11 @@ func activate(ctx context.Context, tx pgx.Tx, deps Dependencies, actor reqctx.Pr
 
 // applyRanges creates the document's new number ranges and raises the
 // last number of existing ones; next_value is the database's. It locks
-// only a range it changes: an INSERT ... ON CONFLICT DO UPDATE would lock
-// every existing range the document lists, its WHERE false or not, and a
-// posting that has read an account determination key (holding the
-// ledger's determination lock shared, ledger.Setup) and then draws its
-// number from such a range would wait on the activation as the activation
-// waits on it (finfix, ADR-0048 As built). A range is inserted only when
-// the transaction's snapshot has none: ON CONFLICT alone would probe the
-// existing row and wait for a posting that drew a number from it (an
-// uncommitted UPDATE of next_value). Activations are serialized by the
-// activation lock, so the snapshot read is not raced by another one; ON
-// CONFLICT DO NOTHING still keeps it safe. A changed range is updated
-// where its last number differs, which skips the others without waiting.
+// only the ranges it changes, because a posting holding the ledger's
+// determination lock may be drawing from the others (ADR-0048 As built
+// finfix). The insert reads the snapshot for a range and writes only a
+// missing one, safe because the activation lock serializes activations;
+// the raise updates only a range whose last number differs.
 func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx.Principal, doc *config.Config) error {
 	for _, n := range doc.NumberRanges {
 		le, _, ok, err := les.LegalEntityByCode(ctx, n.Company)

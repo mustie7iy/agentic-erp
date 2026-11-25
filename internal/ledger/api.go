@@ -350,18 +350,13 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 // entryFilter is the condition and the arguments (from $3) of the journal
 // entries' filters.
 //
-// The ledger, the one asked for or the leading one (ledgerOrLeading, read
-// first), is a plain condition on a parameter that the ledger page
-// indexes (000470 to 000472: company, ledger, then each page order)
-// serve, so a page reads its entries and not their copies in the
-// company's other ledgers (TestListReadsOnlyItsLedgersPage, T52). The
-// planner still estimates the ledger's selectivity across every tenant's
-// ledgers, but as a column of the index it follows, the estimate no
-// longer turns it from the page order to reading and sorting the
-// company's year, as it did against the ledger-less page indexes, which a
-// CASE kept it from (TestListReadsOnlyItsPage). Resolved in SQL instead,
-// as coalesce($10, the leading ledger), the cached statement's generic
-// plan followed the ledger-less index.
+// The ledger is a plain condition, e.ledger_id = $10: the ledger page
+// indexes (000470 to 000472) lead with the company and the ledger, so a
+// page reads only its ledger's entries (TestListReadsOnlyItsLedgersPage,
+// T52). The caller resolves the ledger, the one asked for or the leading
+// one (ledgerOrLeading), before the query: as coalesce($10, the leading
+// ledger) the cached statement's generic plan took an index without the
+// ledger (ADR-0045 As built finfix).
 //
 // An account is asked by a condition of its own, added only when one is
 // named: PostgreSQL turns an EXISTS into a join before it folds
