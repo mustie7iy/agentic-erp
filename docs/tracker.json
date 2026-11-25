@@ -1327,7 +1327,7 @@
      },
      {
       "s": "T",
-      "t": "fix: a configuration activation keeps the row locks of the number ranges it raised while it goes on to apply the rest of the document (applyRanges raises only changed ranges since finfix, but each lock is held to commit), so a posting that draws a number from a range the activation raised can still form a lock cycle with it (40P01; both roll back, nothing written): take the ranges in the same order as a posting does, or raise them last",
+      "t": "fix: a configuration activation keeps the row locks of the number ranges it raised while it goes on to apply the rest of the document (applyRanges raises only changed ranges since finfix, but each lock is held to commit), so a posting that draws a number from a range the activation raised can still form a lock cycle with it, which PostgreSQL breaks by rolling the victim back (40P01, nothing written); ADR-0048 As built finfix leaves it, since a posting draws its numbers before or after its keys depending on its path and no order of the two locks avoids it: retry the victim on 40P01 (the posting, or the activation), or record the decision to leave it",
       "r": "internal/configuration/configuration.go applyRanges · internal/platform/numbering · internal/ledger/ports.go Determination (determinationLock, shared) · internal/ledger/setup.go Setup.Apply (exclusive) · ADR-0008 lock order · finfix's review",
       "src": "review:batch95",
       "c": []
