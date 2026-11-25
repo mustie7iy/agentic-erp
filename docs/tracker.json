@@ -2624,7 +2624,7 @@
        {
         "s": "D",
         "t": "Tax follow-up: the declared tax base and the jurisdiction on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases and sales by emirate",
-        "r": "ADR-0049 §9 · after T61e · api/asyncapi.yaml JournalEntryPostedV1 lines tax_jurisdiction, tax_base_tc, tax_base_lc · ledger.addTax · TestPostedEventTax · analytics/datasets/v1/gl_lines.yaml tax_jurisdiction, tax_base_minor (role measure) · semantic dimension tax_jurisdiction of revenue and income · reader view by name (TestColumnsAddedLater) · extract TestTaxColumns, TestCompactionOfOlderParts · store TestParity · ADR-0049 §9 As built batch 95 · ADR-0044 As built batch 95 · walkthrough step 41 (step_uae)",
+        "r": "ADR-0049 §9 · after T61e · api/asyncapi.yaml JournalEntryPostedV1 lines tax_jurisdiction, tax_base_tc, tax_base_lc · ledger.addTax · TestPostedEventTax · analytics/datasets/v1/gl_lines.yaml tax_jurisdiction, tax_base_minor (role measure) · semantic dimension tax_jurisdiction of revenue and income · reader TestTaxColumns · extract TestTaxColumns, TestJournalExtractedAgain (the journal extracted again when its columns change) · store TestParity · ADR-0049 §9 As built batch 95 · ADR-0044 As built batch 95 · walkthrough step 41 (step_uae)",
         "src": "baseline",
         "c": []
        },

@@ -41,7 +41,7 @@ columns:
   # declared tax base in local currency, an import's from its customs
   # declaration (§9), in the line's currency and exponent: carried for the
   # store's readers, summed by no metric yet (role measure). Both added for
-  # ADR-0049 §9's follow-up; files written before them are read with both
-  # null (the reader's view, ADR-0044 As built).
+  # ADR-0049 §9's follow-up; a journal written before them is extracted
+  # again from the start by the next run (ADR-0044 As built batch 95).
   - {name: tax_jurisdiction, type: string, role: dimension, nullable: true}
   - {name: tax_base_minor, type: int64, role: measure, nullable: true}

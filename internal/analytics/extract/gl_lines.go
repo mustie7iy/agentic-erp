@@ -64,15 +64,34 @@ const (
 	firstRun = `(e.posted_xid IS NULL OR e.posted_xid < $1::text::xid8) ORDER BY l.posting_date, l.journal_entry_id, l.line_no`
 )
 
+// glColumns are the columns a journal part holds, as glLine writes them.
+var glColumns = func() []string {
+	var out []string
+	for _, f := range parquet.SchemaOf(new(glLine)).Fields() {
+		out = append(out, f.Name())
+	}
+	return out
+}()
+
 // glLines appends the journal lines above the previous watermark and below
 // the cutoff to the previous manifest's, one file per posting month, and
-// notes whether entries at or above the cutoff wait for a later run.
+// notes whether entries at or above the cutoff wait for a later run. A
+// journal whose files hold other columns than glLine writes (written
+// before a column was added, its manifest naming none or others) is
+// extracted again from the start instead, all of it below the cutoff:
+// posted lines are immutable but the columns are new, and the old files
+// leave the manifest and are collected with it. A reader never sees
+// parts of two schemas, and a column added to the contract is filled for
+// every line the database holds it for (ADR-0044 As built batch 95).
 func (r *run) glLines(ctx context.Context, tx pgx.Tx) error {
-	sql, args := glLinesSQL+firstRun, []any{strconv.FormatUint(r.cutoff, 10)}
-	if r.prev.set {
-		sql, args = glLinesSQL+nextRun, []any{strconv.FormatUint(r.prev.watermark, 10), args[0]}
-	}
 	ds := r.prevM.Datasets[glLinesDataset]
+	sql, args := glLinesSQL+firstRun, []any{strconv.FormatUint(r.cutoff, 10)}
+	if r.prev.set && slices.Equal(ds.Columns, glColumns) {
+		sql, args, r.from = glLinesSQL+nextRun, []any{strconv.FormatUint(r.prev.watermark, 10), args[0]}, r.prev.watermark
+	} else {
+		ds = Dataset{}
+	}
+	ds.Columns = glColumns
 	ds.Files = slices.Clone(ds.Files)
 	months := batcher[glLine]{flush: func(month string, lines []glLine) error {
 		var err error
@@ -135,7 +154,7 @@ func (r *run) appendMonth(ctx context.Context, files []File, month string, lines
 			rest = append(rest, f)
 		}
 	}
-	from := seq(r.prev.watermark)
+	from := seq(r.from)
 	if len(parts)+1 < r.x.compactAt() {
 		f, err := put(ctx, r.x, r.key(glLinesDataset, month, "part-"+from+"-"+seq(r.cutoff)), lines)
 		return append(files, f), err

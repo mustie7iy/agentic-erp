@@ -40,7 +40,10 @@ type glLine struct {
 	Currency     string      `parquet:"currency"`
 	Exponent     int32       `parquet:"exponent"`
 	PostedXID    uint64      `parquet:"posted_xid"`
-	IBAN         string      `parquet:"iban"`
+	// The line's tax jurisdiction and declared tax base (ADR-0049 §7, §9).
+	TaxJurisdiction *string      `parquet:"tax_jurisdiction,optional"`
+	TaxBaseMinor    *money.Minor `parquet:"tax_base_minor,optional"`
+	IBAN            string       `parquet:"iban"`
 }
 
 type accountRow struct {
@@ -225,51 +228,42 @@ func TestTwoTenants(t *testing.T) {
 	wantSums(t, e.query(e.request(e.b, p)), map[string]money.Minor{"1000|EUR": 150000, "2000|EUR": 7000})
 }
 
-// glTaxLine is a gl_lines row with the columns added for ADR-0049 §9's
-// follow-up, the line's tax jurisdiction and declared tax base: the
-// extractor's row today, where glLine is one written before them.
-type glTaxLine struct {
-	TenantID        uuid.UUID    `parquet:"tenant_id,uuid"`
-	DocumentID      uuid.UUID    `parquet:"document_id,uuid"`
-	LineNo          int32        `parquet:"line_no"`
-	LedgerID        uuid.UUID    `parquet:"ledger_id,uuid"`
-	Company         string       `parquet:"company"`
-	PostingDate     int32        `parquet:"posting_date,date"`
-	Account         string       `parquet:"account"`
-	DocumentType    string       `parquet:"document_type"`
-	Vendor          *string      `parquet:"vendor,optional"`
-	AmountMinor     money.Minor  `parquet:"amount_minor"`
-	Currency        string       `parquet:"currency"`
-	Exponent        int32        `parquet:"exponent"`
-	PostedXID       uint64       `parquet:"posted_xid"`
-	TaxJurisdiction *string      `parquet:"tax_jurisdiction,optional"`
-	TaxBaseMinor    *money.Minor `parquet:"tax_base_minor,optional"`
+// olderLine is a gl_lines row as the extractor wrote it before the tax
+// columns.
+type olderLine struct {
+	TenantID     uuid.UUID   `parquet:"tenant_id,uuid"`
+	DocumentID   uuid.UUID   `parquet:"document_id,uuid"`
+	LineNo       int32       `parquet:"line_no"`
+	LedgerID     uuid.UUID   `parquet:"ledger_id,uuid"`
+	Company      string      `parquet:"company"`
+	PostingDate  int32       `parquet:"posting_date,date"`
+	Account      string      `parquet:"account"`
+	DocumentType string      `parquet:"document_type"`
+	Vendor       *string     `parquet:"vendor,optional"`
+	AmountMinor  money.Minor `parquet:"amount_minor"`
+	Currency     string      `parquet:"currency"`
+	Exponent     int32       `parquet:"exponent"`
+	PostedXID    uint64      `parquet:"posted_xid"`
 }
 
-func taxLine(l glLine, jurisdiction *string, base *money.Minor) glTaxLine {
-	return glTaxLine{TenantID: l.TenantID, DocumentID: l.DocumentID, LineNo: l.LineNo, LedgerID: l.LedgerID, Company: l.Company, PostingDate: l.PostingDate,
-		Account: l.Account, DocumentType: l.DocumentType, Vendor: l.Vendor, AmountMinor: l.AmountMinor, Currency: l.Currency, Exponent: l.Exponent,
-		PostedXID: l.PostedXID, TaxJurisdiction: jurisdiction, TaxBaseMinor: base}
-}
-
-// TestColumnsAddedLater: the contract grows by nullable columns, and a
-// month written before one was added keeps its file. A tenant whose files
-// all predate the tax jurisdiction is read with none; one with a file of
-// each groups the older file's lines under none and the newer's by their
-// emirate. The declared base is a measure: nothing groups or filters by
-// it.
-func TestColumnsAddedLater(t *testing.T) {
+// TestTaxColumns: the journal's lines are grouped and filtered by their
+// tax jurisdiction, a line without one under none; the declared base is a
+// measure, which nothing groups or filters by. A file written before the
+// columns existed does not bind, so the store answers from the database
+// until the extractor has written the journal again (ADR-0044 As built
+// batch 95).
+func TestTaxColumns(t *testing.T) {
 	e := setup(t)
-	byEmirate := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"tax_jurisdiction"}}
-	wantSums(t, e.query(e.request(e.a, byEmirate)), map[string]money.Minor{"|EUR": 157})
 	dubai, base := "AE-DU", money.Minor(4000)
-	newer := encode(t, []glTaxLine{taxLine(line(e.a, "1000", "2026-04-02", "400000", nil, -1000), &dubai, nil),
-		taxLine(line(e.a, "1000", "2026-04-03", "240000", nil, -200), nil, &base)})
+	sale, imported := line(e.a, "1000", "2026-04-02", "400000", nil, -1000), line(e.a, "1000", "2026-04-03", "240000", nil, -200)
+	sale.TaxJurisdiction, imported.TaxBaseMinor = &dubai, &base
+	newer := encode(t, []glLine{sale, imported})
 	m := e.manifs[e.a]
 	gl := m.Datasets["gl_lines"]
 	gl.Files = append(gl.Files, e.put(part(e.a, "gl_lines", "2026-04", newer), newer))
 	m.Datasets["gl_lines"] = gl
 	e.keys[e.a] = e.publish(e.a, m)
+	byEmirate := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"tax_jurisdiction"}}
 	wantSums(t, e.query(e.request(e.a, byEmirate)), map[string]money.Minor{"|EUR": -43, "AE-DU|EUR": -1000})
 	in := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "tax_jurisdiction", Op: "in", Values: []string{dubai}}}}
 	wantSums(t, e.query(e.request(e.a, in)), map[string]money.Minor{"|EUR": -1000})
@@ -282,6 +276,17 @@ func TestColumnsAddedLater(t *testing.T) {
 			refusedErr(t, err)
 		})
 	}
+	t.Run("a file written before them", func(t *testing.T) {
+		older := encode(t, []olderLine{{TenantID: e.b, DocumentID: uuid.New(), LineNo: 1, Company: "1000", PostingDate: day("2026-05-01"), Account: "400000",
+			DocumentType: "SA", AmountMinor: -5, Currency: "EUR", Exponent: 2, PostedXID: 7}})
+		m := e.manifs[e.b]
+		gl := m.Datasets["gl_lines"]
+		gl.Files = append(gl.Files, e.put(part(e.b, "gl_lines", "2026-05", older), older))
+		m.Datasets["gl_lines"] = gl
+		if _, err := e.r.Query(context.Background(), Request{TenantID: e.b, ManifestKey: e.publish(e.b, m), Scope: everything, Plan: byEmirate}); err == nil {
+			t.Error("query: got nil error, want the view refused, so the store answers from the database")
+		}
+	})
 }
 
 // TestPlans: joins, filters and both aggregates.

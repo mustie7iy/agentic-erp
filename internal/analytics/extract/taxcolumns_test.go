@@ -59,8 +59,7 @@ func (e env) taxCodes(t *testing.T) {
 	co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "240000", Name: "Output tax", Type: config.Liability})
 	five := []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}
 	fixture.TaxCodes(t, e.Tenant, doc,
-		config.TaxCode{Code: "S5", Description: "UAE standard rate", Direction: config.TaxOutput, Kind: config.TaxStandard, Components: []config.TaxComponent{
-			{Key: "vat", AccountKey: config.KeyOutput, Account: "240000", Jurisdiction: "AE", JurisdictionOnLine: true, Rates: five}}},
+		fixture.UAEStandard("240000"),
 		config.TaxCode{Code: "IM5", Description: "UAE import VAT", Kind: config.TaxImport, Components: []config.TaxComponent{
 			{Key: "due", AccountKey: config.KeySelfOutput, Account: "240000", Rates: five},
 			{Key: "claim", AccountKey: config.KeySelfInput, Account: "140000", Rates: five}}})
@@ -138,20 +137,25 @@ func TestTaxColumns(t *testing.T) {
 	}
 }
 
-// TestCompactionOfOlderParts: a month's part written before the tax
-// columns existed is merged with a newer one, its lines null in them and
-// the newer's kept.
-func TestCompactionOfOlderParts(t *testing.T) {
+// TestJournalExtractedAgain: a journal whose files were written before
+// the tax columns existed (its manifest naming no columns) is extracted
+// again from the start by the next run: every line, those of the older
+// files with their tax columns filled from the database, in files of the
+// columns the extractor writes; the older files leave the manifest. The
+// run after it appends again.
+func TestJournalExtractedAgain(t *testing.T) {
 	e := setup(t)
 	e.taxCodes(t)
-	e.x.CompactAt = 2
-	plain := e.post(t, "2026-03-01", "1.00")
+	sale, imported := e.taxEntries(t)
 	res := e.run(t)
 	// The pointer moves to a manifest listing the same lines as a part of
-	// the older schema.
+	// the older schema, naming no columns, as a manifest before them did.
 	m := e.manifest(t, res.ManifestKey)
 	gl := m.Datasets["gl_lines"]
-	o, _ := e.server.Object(gl.Files[0].Key)
+	o, ok := e.server.Object(gl.Files[0].Key)
+	if !ok {
+		t.Fatalf("file %s not stored", gl.Files[0].Key)
+	}
 	older, err := parquet.Read[olderRow](bytes.NewReader(o.Content), int64(len(o.Content)))
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +166,7 @@ func TestCompactionOfOlderParts(t *testing.T) {
 	}
 	key := strings.Replace(gl.Files[0].Key, "/part-", "/part-older-", 1)
 	sum := sha256.Sum256(buf.Bytes())
-	gl.Files = []extract.File{{Key: key, Size: int64(buf.Len()), SHA256: hex.EncodeToString(sum[:]), Rows: int64(len(older))}}
+	gl.Files, gl.Columns = []extract.File{{Key: key, Size: int64(buf.Len()), SHA256: hex.EncodeToString(sum[:]), Rows: int64(len(older))}}, nil
 	m.Datasets["gl_lines"] = gl
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -175,16 +179,28 @@ func TestCompactionOfOlderParts(t *testing.T) {
 		}
 	}
 	pgtest.Exec(t, `UPDATE analytics.snapshot SET manifest_key = $2 WHERE tenant_id = $1`, e.Tenant.ID, manifest)
-	sale, _ := e.taxEntries(t)
-	merged := e.manifest(t, e.run(t).ManifestKey).Datasets["gl_lines"]
-	if len(merged.Files) != 1 {
-		t.Fatalf("gl_lines: got %d files, want the month merged into 1", len(merged.Files))
+	april := e.post(t, "2026-04-01", "1.00")
+	again := e.run(t)
+	if again.Lines != 7 {
+		t.Errorf("lines: got %d, want the journal's 7 extracted again", again.Lines)
 	}
-	rows := e.taxRows(t, merged.Files[0].Key)
-	if got, want := taxLines(rows, plain), []string{"610000 - -", "211000 - -"}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("the older part's lines: got %v, want %v", got, want)
+	got := e.manifest(t, again.ManifestKey).Datasets["gl_lines"]
+	if len(got.Files) != 2 || got.Rows != 7 || len(got.Columns) == 0 {
+		t.Fatalf("gl_lines: got %+v, want a file per month, 7 rows and the columns named", got)
 	}
-	if got, want := taxLines(rows, sale), []string{"100000 - -", "400000 AE-DU -", "240000 AE-DU -"}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("the newer lines: got %v, want %v", got, want)
+	var rows []taxRow
+	for _, f := range got.Files {
+		if f.Key == key {
+			t.Errorf("files: got the older part %s, want it gone from the manifest", key)
+		}
+		rows = append(rows, e.taxRows(t, f.Key)...)
+	}
+	want := []string{"100000 - -", "400000 AE-DU -", "240000 AE-DU -", "140000 - 100000", "240000 - 100000", "610000 - -", "211000 - -"}
+	if got := taxLines(rows, sale, imported, april); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("tax columns: got %v, want %v", got, want)
+	}
+	e.post(t, "2026-04-02", "2.00")
+	if next := e.run(t); next.Lines != 2 {
+		t.Errorf("the next run: got %d lines, want the new entry's 2 appended", next.Lines)
 	}
 }

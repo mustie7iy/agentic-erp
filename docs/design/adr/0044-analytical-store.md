@@ -1269,32 +1269,32 @@ line as the journal API shows it (`tax_jurisdiction`, `tax_base_lc`).
 - *The base is a measure.* A fact has one amount; the contract's new role
   `measure` is money beside it, in its currency and exponent, that the
   reader neither sums, filters nor groups by (`resolve` takes dimensions,
-  dates and currency alone; `TestColumnsAddedLater` refuses both). A
+  dates and currency alone; reader `TestTaxColumns` refuses both). A
   governed metric of declared bases (VAT 201 box 6's values) needs the
   semantic layer to sum a column other than the amount, on both paths: a
   step of its own.
-- *Files written before the columns.* An appended dataset keeps them, and
-  DuckDB binds a column absent from a file to nothing. The reader's view
-  now reads its files by name (`union_by_name`), the contract's columns
-  alone leaving them (`COLUMNS` by an anchored pattern of their names, so
-  a column a file holds beside them, such as a masked field, reaches not
-  even the union), beneath an empty relation
-  of the contract's nullable columns (`UNION ALL BY NAME`), so a file
-  without one gives null, also while no file has it; a column that is not
-  nullable must still be in the files, or the view does not bind (the
-  reader's `missing columns` refusal). This replaces T72l's interim, a
-  query answered from the database until the next snapshot rewrote the
-  files, for every nullable column of any dataset. Compaction reads an
-  older part with the columns null (parquet-go's conversion), so a merged
-  month holds both (extract `TestCompactionOfOlderParts`).
+- *Files written before the columns.* `ledger.journal_line` held the
+  jurisdiction (ADR-0049 §7) and the bases (§9) long before the dataset
+  did, and an appended dataset keeps its files: read with the columns
+  null they would put a Dubai sale under none, an answer the database
+  path does not give. So the journal's manifest names the columns its
+  files hold (`columns`, gl_lines alone), and a run that finds others
+  (a manifest written before, naming none) extracts the journal again
+  from the start, below its cutoff, into files of the extractor's
+  columns; the older files leave the manifest and are collected with it
+  (extract `TestJournalExtractedAgain`), and the next run appends again.
+  Until that run, the reader's view does not bind over the older files,
+  so the store answers from the database (the fallback, as T72l's
+  accounts did; reader `TestTaxColumns`); a reader never sees parts of
+  two schemas. The re-extraction is once per contract change and holds
+  one month in memory, as a first run does.
 - *Isolation.* The reader's and parity's isolation tests are unchanged
-  and pass: the view's tenant and company filters are applied above the
-  union, as before.
+  and pass; the reader's view is unchanged.
 - *Walkthrough.* Step 41 (`step_uae`) asks revenue by tax jurisdiction of
   the UAE company: the Dubai and Abu Dhabi branches' sales under AE-DU and
   AE-AZ.
-- *Evidence.* extract `TestTaxColumns`, `TestCompactionOfOlderParts`;
-  reader `TestColumnsAddedLater`; store `TestParity` (the dimension in
+- *Evidence.* extract `TestTaxColumns`, `TestJournalExtractedAgain`;
+  reader `TestTaxColumns`; store `TestParity` (the dimension in
   every metric's breakdowns, and the Dubai sale's 200.00 under AE-DU);
   analytics `TestDatasetContractShape` (a measure is a nullable int64).
 

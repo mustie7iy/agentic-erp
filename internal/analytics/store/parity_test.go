@@ -89,9 +89,7 @@ func (p parity) dubaiSale(t *testing.T) {
 	doc := parityDoc(t)
 	co := doc.Company("2000")
 	co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "240000", Name: "Output tax", Type: config.Liability})
-	fixture.TaxCodes(t, p.Tenant, doc, config.TaxCode{Code: "S5", Description: "UAE standard rate", Direction: config.TaxOutput, Kind: config.TaxStandard,
-		Components: []config.TaxComponent{{Key: "vat", AccountKey: config.KeyOutput, Account: "240000", Jurisdiction: "AE", JurisdictionOnLine: true,
-			Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}})
+	fixture.TaxCodes(t, p.Tenant, doc, fixture.UAEStandard("240000"))
 	p.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-04-14", "posting_date": "2026-04-14", "currency": "EUR",
 		"lines": [{"account_id": %q, "amount": {"amount": "210.00", "currency": "EUR"}},
 		{"account_id": %q, "amount": {"amount": "-200.00", "currency": "EUR"}, "tax_code": "S5", "tax_jurisdiction": "AE-DU"},
@@ -379,8 +377,11 @@ func TestParity(t *testing.T) {
 		// The Dubai sale's revenue under its emirate, the other sales under
 		// none.
 		res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"revenue"}, By: []string{"tax_jurisdiction"}})
-		if err != nil || len(res.Rows) != 2 || fmt.Sprint(res.Rows[1]) != "[AE-DU 200.00]" {
-			t.Errorf("revenue of 2000 by tax jurisdiction: got %v, %v; want a row of none and AE-DU's 200.00", res, err)
+		if err != nil {
+			t.Fatalf("revenue of 2000 by tax jurisdiction: got %v, want an answer", err)
+		}
+		if got := fmt.Sprint(res.Rows); !strings.HasSuffix(got, " [AE-DU 200.00]]") || len(res.Rows) != 2 {
+			t.Errorf("revenue of 2000 by tax jurisdiction: got %s, want a row of none, then AE-DU's 200.00", got)
 		}
 		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "1119.00"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"expenses"}, Ledger: ledger})
