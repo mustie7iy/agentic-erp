@@ -21,8 +21,14 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 // tasks, one of them company 1000's only; company 1000 a holiday on Monday
 // 2 February 2026; company 2000 a Friday and Saturday weekend and the
 // parallel ledger 2L, whose periods the calendar leaves out (ADR-0058 §3).
+// Both companies' closes are signed off as the pilot's are, by anyone
+// with the permissions, one who completed their tasks included (product
+// owner 2026-11-04); TestSignOffSeparated is the rule on.
 func withTemplate(doc *config.Config) {
 	fixture.Parallel(doc)
+	for i := range doc.Companies {
+		doc.Companies[i].Close.SignOffSeparation = new(false)
+	}
 	doc.Close.Tasks = []config.CloseTask{
 		{Code: "AP_CUTOFF", Name: "Supplier invoices of the period entered", Kind: config.CloseManual, DueDay: 2},
 		{Code: "REVIEW", Name: "Balances reviewed", Kind: config.CloseManual, DueDay: -1},

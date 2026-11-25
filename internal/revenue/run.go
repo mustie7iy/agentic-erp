@@ -21,8 +21,9 @@ import (
 )
 
 // The recognition run (ADR-0068 §9, T81d). For a company and one of its
-// regular fiscal periods it brings every active contract to its
-// cumulative position at the period's last day. Billing credited each
+// regular fiscal periods it brings every active contract whose revenue
+// can still move (activeContracts) to its cumulative position at the
+// period's last day. Billing credited each
 // order item's revenue account with what was billed (sales, ADR-0067
 // §9); per obligation the run moves that account by the revenue
 // recognized to the day (the schedule, schedule.go) less the revenue
@@ -242,15 +243,30 @@ func inOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Enti
 	return nil
 }
 
-// activeContracts are the company's active contracts by their orders'
-// numbers; more than the run's bound are refused (422
-// revenue.recognition_run_too_large).
+// activeContracts are the company's active contracts a run reads, by
+// their orders' numbers: those whose revenue can still move, so that the
+// set does not grow with the contracts a company ever had (ADR-0068 As
+// built, review:batch79). A contract that has not ended can still be
+// delivered, billed, have a billing cancelled or its order changed, so it
+// is read. An ended one changes no more and recognizes nothing (its
+// obligations are in no period), so it is read until a run took its
+// position off: while its last posting left an obligation's recognized
+// and billed apart, which the next run moves (posted);
+// one ended with nothing posted has nothing to take off (its order was
+// cancelled, which sales refuses once billed). More than the run's bound
+// are refused (422 revenue.recognition_run_too_large).
 func (e *Endpoints) activeContracts(ctx context.Context, tx pgx.Tx, le tenancy.Entity) ([]Contract, error) {
 	limit := e.MaxContracts
 	if limit == 0 {
 		limit = MaxRunContracts
 	}
-	rows, _ := tx.Query(ctx, contractSelect+` WHERE k.legal_entity_id = $1 AND k.status = $2 ORDER BY k.sales_order_number, k.id LIMIT $3`, le.ID, Active, limit+1)
+	rows, _ := tx.Query(ctx, contractSelect+` WHERE k.legal_entity_id = $1 AND k.status = $2
+		AND (k.ended_at IS NULL OR (SELECT EXISTS (SELECT FROM revenue.recognition_posting_obligation o WHERE o.tenant_id = p.tenant_id
+				AND o.run_id = p.run_id AND o.contract_id = p.contract_id AND o.recognized_amount <> o.billed_amount)
+			FROM revenue.recognition_posting p
+			JOIN revenue.recognition_run r ON r.tenant_id = p.tenant_id AND r.id = p.run_id
+			WHERE p.tenant_id = k.tenant_id AND p.contract_id = k.id ORDER BY r.posting_date DESC, r.id DESC LIMIT 1))
+		ORDER BY k.sales_order_number, k.id LIMIT $3`, le.ID, Active, limit+1)
 	contracts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Contract, error) { return scanContract(r) })
 	if err != nil {
 		return nil, fmt.Errorf("revenue: active contracts of company %s: %w", le.Code, err)
@@ -262,23 +278,27 @@ func (e *Endpoints) activeContracts(ctx context.Context, tx pgx.Tx, le tenancy.E
 	return contracts, nil
 }
 
-// posted is, per contract and obligation, what the runs so far posted
-// for the obligation: its recognized less billed at the contract's last
-// posting, which holds every obligation of the contract. The last posting
-// of each of the company's contracts is found once (DISTINCT ON, through
+// posted is, per contract the run reads and obligation, what the runs so
+// far posted for the obligation: its recognized less billed at the
+// contract's last posting, which holds every obligation of the contract.
+// The last posting of each contract is found once (DISTINCT ON, through
 // recognition_posting_by_contract), not once per obligation row; of two
-// runs posted on one date, the later created (ids are UUIDv7).
-func posted(ctx context.Context, tx pgx.Tx, le tenancy.Entity) (map[uuid.UUID]map[int32]money.Minor, error) {
+// runs posted on one date, the later created (ids are UUIDv7). Only the
+// contracts read are looked up, so it grows with them alone.
+func posted(ctx context.Context, tx pgx.Tx, le tenancy.Entity, contracts []Contract) (map[uuid.UUID]map[int32]money.Minor, error) {
+	ids := make([]uuid.UUID, len(contracts))
+	for i, k := range contracts {
+		ids[i] = k.ID
+	}
 	rows, _ := tx.Query(ctx, `WITH last AS (
 			SELECT DISTINCT ON (p.contract_id) p.tenant_id, p.contract_id, p.run_id
-			FROM revenue.contract k
-			JOIN revenue.recognition_posting p ON p.tenant_id = k.tenant_id AND p.contract_id = k.id
+			FROM revenue.recognition_posting p
 			JOIN revenue.recognition_run r ON r.tenant_id = p.tenant_id AND r.id = p.run_id
-			WHERE k.legal_entity_id = $1
+			WHERE p.contract_id = ANY ($1)
 			ORDER BY p.contract_id, r.posting_date DESC, r.id DESC)
 		SELECT o.contract_id, o.obligation_no, o.recognized_amount - o.billed_amount
 		FROM last JOIN revenue.recognition_posting_obligation o ON o.tenant_id = last.tenant_id AND o.run_id = last.run_id
-			AND o.contract_id = last.contract_id`, le.ID)
+			AND o.contract_id = last.contract_id`, ids)
 	out := map[uuid.UUID]map[int32]money.Minor{}
 	var contract uuid.UUID
 	var no int32
@@ -367,8 +387,8 @@ func entryLines(p Posting, b runBasis) []ledger.PostingLine {
 	return lines
 }
 
-// read computes the company's active contracts at the period's last
-// day, each brought to its order first (current): the run with its totals, and the postings of the contracts that
+// read computes the active contracts the run reads (activeContracts) at
+// the period's last day, each brought to its order first (current): the run with its totals, and the postings of the contracts that
 // moved, not posted yet. A day a contract's schedule has no fiscal
 // period for is refused naming the contract's order (422
 // revenue.no_fiscal_period); totals beyond an amount are refused (422
@@ -378,7 +398,7 @@ func (e *Endpoints) read(ctx context.Context, tx pgx.Tx, b runBasis) (Run, error
 	if err != nil {
 		return Run{}, err
 	}
-	before, err := posted(ctx, tx, b.le)
+	before, err := posted(ctx, tx, b.le, contracts)
 	if err != nil {
 		return Run{}, err
 	}

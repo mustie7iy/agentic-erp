@@ -510,7 +510,9 @@ test.
   company, supplier (by the seller's TRN) and supplier reference, and has
   no document of its own (422 `einvoicing.link_mismatch` naming which
   differs); `EInvoices.Attach` makes the XML its document, whatever its
-  status, as a document never changes what was posted.
+  status, as a document never changes what was posted (narrowed in As
+  built T65f: the same kind, date, currency, gross and tax, and not
+  rejected, cancelled or reversed).
 - `POST /v1/e-invoices/{id}:dismiss` (`reason`) closes a held document
   that will not be entered (sent in error, replaced by the supplier).
 - Every write reads the document `FOR UPDATE` and checks its status
@@ -1498,6 +1500,13 @@ emulation answers the four calls below, scripted per filename
   `listOutgoingEInvoices?delivery_outcome=rejected`; the tax data
   documents to send again are
   `listOutgoingEInvoices?tax_data_status=TDD_FAILED` (review round 1).
+  A corrected e-invoice's transmission names the credit note that
+  corrected it (`corrected_by`, review:batch86): the first of those
+  credit notes rendered (then by id), by its e-invoice, its customer
+  credit memo and that memo's number, read in the same statement as the
+  outcome, so the worklist's reader finds it without searching the
+  credit notes by `reference_invoice_number`; null for any other
+  outcome.
 - **Retry and withdrawal, people only.** A person asks for a failed tax
   data document (TDD_FAILED) to be sent again, or for one reported
   (TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED, or WITHDRAW_FAILED to ask
@@ -2058,3 +2067,106 @@ po:2026-11-22). Built:
   `TestDeterminationFallbacks`, db's `TestDiscountAccountKeys`, config's
   `TestDiscountKeysValid`. Walkthrough step 144: EWS-501's item is on
   4830, which UAE pack 2026.10 brought in step 41.
+
+### T65f: held e-invoices resolved by people (adr:ADR-0061)
+
+Built as §7, §11 and §13: migrations 000469 (`resolution`, `resolved_at`,
+`dismissal_reason`, the status `dismissed`, the checks widened NOT VALID,
+the partial unique index `einvoice_invoice_once` and the trigger) and
+000470 (the checks validated); `POST /v1/e-invoices/{id}:retry`
+(`retryEInvoice`), `:link` (`linkEInvoice`) and `:dismiss`
+(`dismissEInvoice`) in `internal/einvoicing/resolve.go`, each answering
+the document with its ETag; payables' `Invoices.Attachable` and
+`Invoices.Attach` (`einvoice_attach.go`; §2 calls it
+`EInvoices.Attach`), adapted in `internal/app/einvoicing.go` with the
+supplier's tax identifiers read by fingerprint through payables' partner
+port. Decided by default:
+
+- **At the caller's ETag.** Each resolution takes `If-Match` (the
+  document's version, 412 otherwise), as every other state change of a
+  document a person reads first, and reads the document `FOR UPDATE`,
+  refusing one no longer held (409 `einvoicing.einvoice_not_held`).
+- **The bytes before the lock.** A retry and a link read the bytes from
+  the store (compared with the hash recorded: 409
+  `einvoicing.document_changed` when gone or other; 503 without a store or
+  when it fails) before the document is locked, so no row lock is held
+  across the call to the store; the status is checked again under the
+  lock.
+- **A retry** enters the document again in the request's transaction as
+  a fetch does (§6: the rules' refusal of its bytes now, a document not
+  in AED without its VAT in AED and a credit note naming no invoice hold
+  it again; otherwise payables' entering in the savepoint), in the
+  caller's name and company access (`authz.ActingFor` widens only the
+  fetcher's), and answers 200 with the document entered or still held
+  with that attempt's problem; only a failure of the machinery fails the
+  request. The fetch's `entry_at` and `entry_fetch_operation_id` stay,
+  so a fetch's documents still list it.
+- **A link** needs `payables.invoice.read` besides
+  `einvoicing.einvoice.manage` (`x-also-permissions`). The invoice is read
+  `FOR UPDATE` with the caller's company access (none: 422
+  `request.reference_not_found`); one another document names is 409
+  `einvoicing.invoice_already_linked`, read under the invoice's lock, so
+  two links of one invoice wait for each other and the second is refused
+  so (the partial unique index stays the database's guard, mapped to the
+  same 409); then any of:
+  not entered by hand (source `manual`: a captured, EDI, migrated or
+  e-invoice's invoice is not "entered by hand"), another company, a
+  supplier not holding the seller's TRN (IBT-031, by fingerprint; named
+  by its last four characters only), another supplier reference than the
+  document's number (IBT-001), or a document of its own, is 422
+  `einvoicing.link_mismatch`, its detail and a field error naming each.
+  Bytes that are another
+  invoice's document already are refused by `supplier_invoice_capture_once`
+  (409 `payables.already_captured`). The invoice's document is the
+  e-invoice's object (no copy), audited
+  (`payables.supplier_invoice.document_attached`, the hash) and its
+  version moved; no payables event is published (a document is no
+  business event of the invoice).
+- **A dismissal** keeps the problem the document was held with and the
+  reason given (`dismissal_reason`, at most 500 characters, not white
+  space alone: 422 `request.validation_failed`), which is kept on the
+  document only, neither in the audit record nor in the event (ADR-0079).
+- **Audit and events.** `einvoicing.einvoice.retried`, `.linked` and
+  `.dismissed`, each with EInvoiceChanged (status_before `held`,
+  `resolution` added within v1). Who resolved it is the audit record's
+  actor and the row's `updated_by`; the API shows `resolution` and
+  `resolved_at` (the last one), not the person.
+- **Locks.** A resolution locks the document, then (a link) the invoice;
+  a retry's entering inserts a new invoice. No writer locks an invoice
+  and then an e-invoice (payables never reads einvoicing), so no
+  opposite order exists.
+- **Amounts and status compared (coordinator, 24 Nov, batch 94F
+  integration; logged for the product owner's review).** The lane linked
+  without comparing money and in any status; best practice keeps the
+  legal e-invoice and the booked invoice consistent, so a link also
+  refuses, with the same 422 `einvoicing.link_mismatch` and a reason
+  each: another currency than the document's (IBT-005), or in its
+  currency another gross amount than its total with VAT (IBT-112, the
+  gross an entered e-invoice takes) or another tax amount than its VAT
+  total (IBT-110, the input tax the return claims on its evidence),
+  compared exactly as `money.Minor` with no tolerance (the amounts in the
+  detail with their currency); another kind than the one the document is
+  entered as (IBT-003: a tax invoice an `invoice`, a tax credit note a
+  `credit_memo`), so a credit note's bytes never become an invoice's
+  document; another invoice date than its issue date (IBT-002, which
+  sets the VAT period); and
+  an invoice rejected, cancelled or reversed, which does not stand (a
+  rejected one is refused with the other two, as it never posts). The
+  comparison reads the invoice under `Attachable`'s `FOR UPDATE`, held to
+  the attach, so the decision and the attach are one; `Attach`'s update is
+  guarded on the status too. The invoice may otherwise be parked, on hold
+  or posted: a document never changes what was posted. To reverse: drop
+  the two reasons.
+- **Agents** are refused all three (`x-agent: false`, 403
+  `identity.agent_not_allowed`); no agent's scope covers them, so no never
+  list changes.
+- **The walkthrough.** `step_evatra_inbound` (step 144,
+  `evatra_held_resolved`): Gulf Office Interiors sends GOI-2010 without an
+  order, twice; both are held with `payables.capture_needs_order`; Alex
+  retries the first and it stays held; he enters the invoice by hand with
+  five desks for four and its link is refused (422
+  `einvoicing.link_mismatch`, gross 1312.50 AED against the total with
+  VAT 1050.00 AED); he cancels it, enters it again as stated and links
+  it, its document becoming the XML; linking the second to that
+  invoice is refused with `einvoicing.invoice_already_linked`; an agent's
+  dismissal is refused and Alex dismisses it with a reason.

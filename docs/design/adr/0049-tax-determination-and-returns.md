@@ -2145,8 +2145,8 @@ owner's digest and the tax specialist:
   step of its own, so an incoming payment never leaves the relieved tax
   unrecovered, and an undoing charges back less. A ledger clearing
   (`createClearing`) of a relieved invoice's items against a credit
-  posted straight to the customer is no incoming payment and charges
-  nothing (Later, below). Posted on the payment's
+  posted straight to the customer is no incoming payment: it is refused
+  (As built batch 94, below). Posted on the payment's
   posting date, or the reversal's, which is its tax date.
 - **How much.** What is charged again is a function of the invoice's
   state, and each change posts the difference to what was charged so
@@ -2219,9 +2219,72 @@ owner's digest and the tax specialist:
   the ledger publishes its entry. People only, as the payment operations
   are (`x-agent: false`).
 - **Later.** A ledger clearing (`createClearing`) of a relieved
-  invoice's items or write-off credits, which charges nothing again and
-  which paid does not count (tracker leaf, src review:batch91); counting
+  invoice's items or write-off credits, which charged nothing again and
+  which paid did not count: refused in batch 94 (below); counting
   a payment in another currency; a bad debt
   recovered by a receipt not applied to the invoice (on account, never
   applied); the write-off's own credit item left open beside a recovered
   invoice (ADR-0065's "clearing the credit against the invoice", Later).
+
+### As built batch 94: a relieved invoice cleared apart (review:batch91)
+
+The tracker leaf "A ledger clearing of a relieved invoice charges its
+bad debt relief again or is refused" (src review:batch91), built in
+receivables (`relievedclearing.go`) and the ledger's clearing
+(`ClearingGuard`, `clearingguard.go`); no migration. Decided by default,
+for the product owner's digest:
+
+- **Refused, not charged again.** The leaf left the choice: charge the
+  relieved tax again, as an incoming payment does, or refuse. Charging
+  again needs what a clearing *paid* of the invoice, and `paidOf` counts
+  incoming payment items only: a clearing nets whole items, so how much
+  of a relieved item a credit memo, the write-off's credit or a credit
+  posted to the customer settled has no answer the payment's rules
+  give, and counting it would copy paidOf's following of residuals over
+  the ledger's clearings. So a clearing (`createClearing`) of a relieved
+  invoice's lines (every line of its entry, the residual items its
+  incoming payments left, followed as paidOf follows them
+  (`appliedItems`, now shared), and its reliefs' write-off credits)
+  together with an item that is not that invoice's line, another
+  relieved invoice's included (paid is counted per invoice: one's
+  write-off credit would settle the other), is refused, 422
+  `receivables.relieved_invoice_clearing` naming that item
+  (`items[i]`): the customer's money is applied with an incoming
+  payment, which charges the tax again. A clearing of one invoice's
+  relieved lines alone, such as its item with a relieved write-off's
+  credit, settles nothing paid and is allowed (`paidOf` is unchanged by
+  it). A credit memo's credit is refused with the rest: a credit memo of
+  a relieved invoice is outside this leaf. The credit of a write-off
+  not yet relieved is not among the lines (the write-offs are read
+  through the reliefs), so clearing the invoice's item with it is
+  refused too, the safer side: it can be cleared before that
+  write-off's relief, which must then be the invoice's first, or applied
+  with an incoming payment.
+- **The relief after such a clearing.** The same gap in the other
+  order, a write-off whose invoice's item a clearing settled against a
+  credit before any relief, is refused at the relief with the same code,
+  naming `customer_invoice_id` and the clearing by number and id: what
+  it settled is not counted as paid, so the debt is not shown to be bad.
+  The ledger answers it (`OpenItems.ClearedApart`): clearings whose
+  entries are its own (`source_context` `ledger`, document type AB, so
+  createClearing's alone; an incoming payment's or a reversal's are not)
+  that clear one of the invoice's lines (the claimed write-off's credits
+  among them) with an item that is not one of them; a reset clearing
+  clears nothing any more.
+- **The port.** The ledger asks its `Clearings` port (`ClearingGuard`,
+  implemented by `receivables.Clearings`, wired in internal/app) with the
+  clearing's company, the partners of its items (read without a lock; a
+  line's partner never changes) and the items, before `loadItems` takes
+  the entries' locks. The ledger imports no context; receivables already
+  imports the ledger, so no import direction changes.
+- **Locks.** The guard holds the partners as customers
+  (`receivables.bad_debt`, holdRelieved, sorted) and locks their
+  relieved invoices `FOR UPDATE` by id, before the clearing's own entry
+  locks: the order an incoming payment takes them. A relief holds the
+  customer before reading the clearings, so a clearing and a relief of
+  one customer run one after the other and neither misses the other
+  (`TestReliefRacesAClearing`, both orders).
+- **Walkthrough** step 157, `step_bad_debt_relief`: before the final
+  dividend, a cheque of Bayview's receiver booked straight to Bayview's
+  account cannot be cleared against the invoice's residual item; the
+  entry is reversed and the dividend applied as a payment.

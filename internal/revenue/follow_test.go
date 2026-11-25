@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -336,6 +337,49 @@ func TestCancelledOrderEndsContract(t *testing.T) {
 			t.Errorf("logged %q, want nothing", log.String())
 		}
 	})
+}
+
+// TestRunReadsEndedContractsUntilTakenOff: an ended contract is read by
+// the run after its end, which takes its accruals off, and by no run
+// after that; one that ended with nothing posted is never read. So the
+// contracts a run reads do not grow with the contracts that ended: with
+// a bound of one, the runs go on however many ended (review:batch79).
+func TestRunReadsEndedContractsUntilTakenOff(t *testing.T) {
+	e := setup(t)
+	accrued, order := e.contract(t, e.goods(), e.serviceItem())
+	e.Must(200, "PATCH", contracts+"/"+accrued, set(overTime(2, "2026-01-01", "2026-12-31", "1200.00")), `"1"`)
+	e.activated(t, accrued)
+	_, live := e.active(t, e.goods())
+	e.delivered(t, live, 1, "10", "2026-01-15")
+	fields(t, e.ran(t, 1), map[string]any{"contract_count": float64(2), "posting_count": float64(2)})
+	var log pgtest.SyncBuffer
+	c := consumer(t, &log)
+	for range 3 {
+		_, never := e.active(t, e.goods())
+		e.cancelOrder(t, never)
+		e.handled(t, c, never)
+	}
+	e.cancelOrder(t, order)
+	e.handled(t, c, order)
+	february := e.ran(t, 2)
+	fields(t, february, map[string]any{"contract_count": float64(2), "posting_count": float64(1)})
+	if got := e.balance(t, "125000"); got != 12500 {
+		t.Errorf("contract assets after February: got %d, want 12500, the live order's delivery alone", got)
+	}
+	h := endpoints(t)
+	h.MaxContracts = 1
+	var march gen.CreateRevenueRecognitionRunRes
+	err := e.inRequest(t, func(ctx context.Context) (err error) {
+		march, err = h.CreateRevenueRecognitionRun(ctx, &gen.RevenueRecognitionRunCreate{LegalEntityID: e.DE, FiscalYear: 2026, FiscalPeriod: 3},
+			gen.CreateRevenueRecognitionRunParams{})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("March's run with a bound of one contract: got %v, want it run", err)
+	}
+	if run, ok := march.(*gen.RevenueRecognitionRunHeaders); !ok || run.Response.ContractCount != 1 {
+		t.Errorf("March's run: got %+v, want it read 1 contract, the live order's", march)
+	}
 }
 
 // TestFollowRacingChange: a follow and a change of its order at once wait

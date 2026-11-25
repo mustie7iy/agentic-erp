@@ -62,6 +62,8 @@ type specialPeriod struct {
 // signOff is a stored sign-off of a close: a period close's covered
 // ledgers with their period (Ledgers), a year close's with their special
 // periods (Special) and the signer's name as it was then (SignedByName).
+// Separated, which the audit record keeps and the row does not, is
+// whether the company separated the signer from the preparers then.
 type signOff struct {
 	ID, CloseID  uuid.UUID
 	SignedBy     uuid.UUID
@@ -70,11 +72,14 @@ type signOff struct {
 	Note         *string
 	Ledgers      []lockedLedger
 	Special      []specialLedger
+	Separated    bool
 }
 
 // SignOffPeriodClose implements POST /v1/period-closes/{id}:signOff
-// (ADR-0058 §7): under the close's lock, every manual task done, every
-// check passing when run again (its result then recorded), each covered
+// (ADR-0058 §7): under the close's lock, every manual task done, the
+// signer none of the close's preparers where its company separates them
+// (notPreparer, T64o), every check passing when run again (its result
+// then recorded), each covered
 // period closed or locked; each closed one is then locked through the
 // ledger's period lock in the order postings take them, and the sign-off
 // is recorded, audited and published. A refusal keeps nothing: the request
@@ -95,6 +100,10 @@ func (e *Endpoints) SignOffPeriodClose(ctx context.Context, req gen.OptPeriodClo
 	if err := manualDone(tasks); err != nil {
 		return nil, err
 	}
+	separated, err := e.notPreparer(ctx, tx, periodCloses, c, p, tasks)
+	if err != nil {
+		return nil, err
+	}
 	if err := e.checksPass(ctx, tx, periodCloses, p, tasks); err != nil {
 		return nil, err
 	}
@@ -105,7 +114,8 @@ func (e *Endpoints) SignOffPeriodClose(ctx context.Context, req gen.OptPeriodClo
 	if err != nil {
 		return nil, err
 	}
-	s := signOff{ID: uuid.Must(uuid.NewV7()), CloseID: c.ID, SignedBy: p.ID, Note: apitypes.Ptr[string](req.Value.Note), Ledgers: locked}
+	s := signOff{ID: uuid.Must(uuid.NewV7()), CloseID: c.ID, SignedBy: p.ID, Note: apitypes.Ptr[string](req.Value.Note), Ledgers: locked,
+		Separated: separated}
 	if c, s, err = signedOff(ctx, tx, periodCloses, p, s); err != nil {
 		return nil, err
 	}
@@ -170,6 +180,79 @@ func manualDone(tasks []task) error {
 		return nil
 	}
 	return problem.Conflict("closing.tasks_open", "Manual task "+strings.Join(open, ", ")+" is open; complete every manual task before signing off.")
+}
+
+// notPreparer refuses a sign-off by one of the close's preparers when its
+// company separates the two (companies[].close.sign_off_separation, on
+// unless set false; ADR-0058 As built T64o; product owner 2026-11-04): the
+// preparers are the people recorded as completing its tasks as they stand
+// now, a manual task by :complete and a check by its first passing run
+// (a reopened task's completion is cleared, so its earlier completer no
+// longer counts). A sign-off's own run of the checks records its signer
+// on a check task no one had completed (recordCheck); such a completion
+// is the sign-off's, not a preparation, so it never refuses that signer
+// again, after an unlock (byASignOff). The check runs before the checks
+// run again, so the signer is judged on what others prepared. It returns
+// whether the separation applied, which the audit record keeps.
+func (e *Endpoints) notPreparer(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow, p reqctx.Principal, tasks []task) (bool, error) {
+	doc, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return false, fmt.Errorf("closing: configuration: %w", err)
+	}
+	// A close's company exists (the close was created for it); one not
+	// found would have no code, which no company of the configuration has,
+	// and a company the configuration does not name keeps the default: on.
+	co, _, err := e.Companies.Company(ctx, c.LegalEntityID)
+	if err != nil {
+		return false, fmt.Errorf("closing: company of close %s: %w", c.ID, err)
+	}
+	if cc := doc.Company(co.Code); cc != nil && !cc.Close.SeparatesSignOff() {
+		return false, nil
+	}
+	bySignOff := byASignOff(ctx, tx, k, c, p)
+	var prepared []string
+	for _, t := range tasks {
+		if t.CompletedBy == nil || *t.CompletedBy != p.ID {
+			continue
+		}
+		if t.Kind == config.CloseCheck && t.CompletedAt != nil {
+			signed, err := bySignOff(*t.CompletedAt)
+			if err != nil {
+				return false, err
+			}
+			if signed {
+				continue
+			}
+		}
+		prepared = append(prepared, t.Code)
+	}
+	if len(prepared) == 0 {
+		return true, nil
+	}
+	return true, problem.Conflict("closing.signer_is_preparer", fmt.Sprintf("You completed task %s of this close; company %s's closes are signed "+
+		"off by someone who completed none of their tasks (companies[].close.sign_off_separation). Another person signs it off.",
+		strings.Join(prepared, ", "), co.Code))
+}
+
+// byASignOff tells whether a check task the principal completed at an
+// instant was completed by the principal's own sign-off of the close: a
+// sign-off's row and the completions its check run records share the
+// transaction's now() (signed_at, completed_at). The close's sign-offs are
+// read once, on the first question: only a caller who completed a check
+// task asks.
+func byASignOff(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow, p reqctx.Principal) func(time.Time) (bool, error) {
+	var offs []signOff
+	read := false
+	return func(at time.Time) (bool, error) {
+		if !read {
+			var err error
+			if offs, err = signOffsOf(ctx, tx, k, c.ID); err != nil {
+				return false, err
+			}
+			read = true
+		}
+		return slices.ContainsFunc(offs, func(s signOff) bool { return s.SignedBy == p.ID && s.SignedAt.Equal(at) }), nil
+	}
 }
 
 // checksPass runs every check task's check of a close of a kind again:
@@ -288,7 +371,7 @@ func recordSignOff(ctx context.Context, c closeRow, s signOff) error {
 	}
 	return audit.Record(ctx, "closing.period_close.sign_off", "closing.period_close", c.ID,
 		map[string]any{"legal_entity_id": c.LegalEntityID, "fiscal_year": c.FiscalYear, "fiscal_period": c.FiscalPeriod, "sign_off_id": s.ID,
-			"note": s.Note, "periods": periods, "version": c.Version},
+			"note": s.Note, "periods": periods, "version": c.Version, "sign_off_separation": s.Separated},
 		outbox.Event{Context: "closing", Name: "period_close_signed_off", AggregateType: "closing.period_close", AggregateID: c.ID,
 			Payload: map[string]any{"period_close_id": c.ID, "sign_off_id": s.ID, "legal_entity_id": c.LegalEntityID, "fiscal_year": c.FiscalYear,
 				"fiscal_period": c.FiscalPeriod, "signed_by": s.SignedBy, "note": s.Note, "periods": periods, "status": c.Status, "version": c.Version}})

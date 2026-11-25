@@ -318,7 +318,7 @@ func acknowledged(ctx context.Context, tx pgx.Tx, p reqctx.Principal, connector 
 
 // change is what changed of a document: its receipt, its bytes, its
 // validation (status unchanged) or its refusal (T65c), its entering or its
-// hold (T65d).
+// hold (T65d), or a person's resolution of a held one (T65f).
 type change int
 
 const (
@@ -328,17 +328,26 @@ const (
 	refused
 	entered
 	held
+	retried
+	linked
+	dismissed
 )
 
 // changeActions are the audit actions of the changes.
 var changeActions = map[change]string{received: "einvoicing.einvoice.received", bytesChanged: "einvoicing.einvoice.bytes_changed",
 	validated: "einvoicing.einvoice.validated", refused: "einvoicing.einvoice.refused", entered: "einvoicing.einvoice.entered",
-	held: "einvoicing.einvoice.held"}
+	held: "einvoicing.einvoice.held", retried: "einvoicing.einvoice.retried", linked: "einvoicing.einvoice.linked",
+	dismissed: "einvoicing.einvoice.dismissed"}
+
+// resolutionChanges are the changes of a person's resolutions (T65f).
+var resolutionChanges = map[string]change{ResolutionRetried: retried, ResolutionLinked: linked, ResolutionDismissed: dismissed}
 
 // recordChange audits a document's change and, but for its validation,
 // publishes EInvoiceChanged (api/asyncapi.yaml): its receipt (status_before
 // nil), a change of its bytes (status_before its status, which does not
-// move) or its refusal (status_before received, with its problem code).
+// move), its refusal (status_before received, with its problem code), its
+// entering or hold, or a person's resolution (status_before held, with the
+// resolution; a dismissal's reason is on the document only).
 // Every one carries the change of bytes the document holds, if any, the
 // fetch that found it and the problem code, null but for a refusal; never
 // the problem's detail, which may quote the document (ADR-0079). A
@@ -348,7 +357,7 @@ func recordChange(ctx context.Context, d EInvoice, company *Company, what change
 	payload := map[string]any{"einvoice_id": d.ID, "connector_id": d.ConnectorID, "message_id": d.MessageID, "legal_entity_id": d.LegalEntityID,
 		"legal_entity_code": nil, "status": d.Status, "status_before": nil, "sha256": hex.EncodeToString(d.SHA256), "changed_sha256": nil,
 		"changed_fetch_operation_id": d.ChangedFetchedBy, "fetch_operation_id": d.FetchOperationID, "problem_code": d.ProblemCode,
-		"supplier_invoice_id": d.SupplierInvoiceID, "version": d.Version}
+		"supplier_invoice_id": d.SupplierInvoiceID, "resolution": d.Resolution, "version": d.Version}
 	if company != nil {
 		payload["legal_entity_code"] = company.Code
 	}
@@ -361,6 +370,8 @@ func recordChange(ctx context.Context, d EInvoice, company *Company, what change
 		payload["status_before"] = d.Status
 	case refused, validated, entered, held:
 		payload["status_before"] = StatusReceived
+	case retried, linked, dismissed:
+		payload["status_before"] = StatusHeld
 	}
 	if what == validated {
 		return audit.Record(ctx, changeActions[what], "einvoicing.einvoice", d.ID, payload)

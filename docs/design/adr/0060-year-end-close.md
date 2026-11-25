@@ -1214,3 +1214,12 @@ annual adjustments, which have no tax document, must be postable into
 the closed year's special period with a tax date in the first return
 after it, rather than as a manual entry of that return's period (7
 above).
+
+**T64o, the year close's signer differs from its preparers** (no
+migration; ADR-0058 As built T64o, product owner 2026-11-04). The year
+close's sign-off takes the period close's rule: where the company
+separates sign-off from preparation (`companies[].close.sign_off_separation`,
+on unless set false), a person who completed one of the year close's tasks
+as they stand is refused (409 `closing.signer_is_preparer`, naming them),
+before the checks run again. Walkthrough: step 42's `year_end_sign_off`,
+signed off by Fiona after Carla prepared the year close.

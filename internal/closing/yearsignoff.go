@@ -21,9 +21,11 @@ import (
 // SignOffYearClose implements POST /v1/year-closes/{id}:signOff (ADR-0060
 // §8), the period close's sign-off with the year's periods: under the
 // close's lock, the year's periods of every covered ledger are read FOR
-// UPDATE in the one order; every manual task done, every check passing
-// when run again (its result then recorded), every regular period locked
-// and every special period closed or locked; each closed special period
+// UPDATE in the one order; every manual task done, the signer none of
+// the year close's preparers where the company separates them (as a
+// period close's, notPreparer), every check passing when run again (its
+// result then recorded), every regular period locked and every special
+// period closed or locked; each closed special period
 // is then locked through the ledger's period lock in the order read, and
 // the sign-off is recorded with the signer's name, audited and published.
 // A refusal keeps nothing: the request rolls back.
@@ -43,6 +45,10 @@ func (e *Endpoints) SignOffYearClose(ctx context.Context, req gen.OptPeriodClose
 	if err := manualDone(tasks); err != nil {
 		return nil, err
 	}
+	separated, err := e.notPreparer(ctx, tx, yearCloses, c, p, tasks)
+	if err != nil {
+		return nil, err
+	}
 	if err := e.checksPass(ctx, tx, yearCloses, p, tasks); err != nil {
 		return nil, err
 	}
@@ -59,7 +65,7 @@ func (e *Endpoints) SignOffYearClose(ctx context.Context, req gen.OptPeriodClose
 	}
 	name := v.people[p.ID].Name
 	s := signOff{ID: uuid.Must(uuid.NewV7()), CloseID: c.ID, SignedBy: p.ID, SignedByName: &name, Note: apitypes.Ptr[string](req.Value.Note),
-		Special: special}
+		Special: special, Separated: separated}
 	if c, s, err = signedOff(ctx, tx, yearCloses, p, s); err != nil {
 		return nil, err
 	}
@@ -192,7 +198,7 @@ func recordYearSignOff(ctx context.Context, c closeRow, s signOff) error {
 	}
 	return audit.Record(ctx, "closing.year_close.sign_off", "closing.year_close", c.ID,
 		map[string]any{"legal_entity_id": c.LegalEntityID, "fiscal_year": c.FiscalYear, "sign_off_id": s.ID, "note": s.Note, "periods": periods,
-			"version": c.Version},
+			"version": c.Version, "sign_off_separation": s.Separated},
 		outbox.Event{Context: "closing", Name: "year_close_signed_off", AggregateType: "closing.year_close", AggregateID: c.ID,
 			Payload: map[string]any{"year_close_id": c.ID, "sign_off_id": s.ID, "legal_entity_id": c.LegalEntityID, "fiscal_year": c.FiscalYear,
 				"signed_by": s.SignedBy, "note": s.Note, "periods": periods, "status": c.Status, "version": c.Version}})
