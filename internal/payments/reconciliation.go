@@ -104,9 +104,12 @@ const reconciledFigures = `reconciled_excluded = (SELECT coalesce(sum(l.amount),
 func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dates []time.Time, closing []money.Minor) ([]Figures, error) {
 	rows, _ := tx.Query(ctx, `WITH st AS NOT MATERIALIZED (
 			-- kept: what its lines add is on the statement; settled: kept, and
-			-- none of its lines posted after the earliest date asked. Inlined
-			-- in each use, so the lines are joined by statement, only where
-			-- they are read (TestReconcileReadsUnreconciledLines).
+			-- none of its lines posted after the earliest date asked. Each
+			-- statement's lines are read in a LATERAL subquery of their own
+			-- (the late one fenced with OFFSET 0 so it is not flattened), so
+			-- the lines are probed by statement through their key, only for
+			-- the statements whose lines count, however the tables' sizes
+			-- sway the planner (TestReconcileReadsUnreconciledLines).
 			SELECT s.tenant_id, s.id, s.closing_date, s.reconciled_excluded, k.kept,
 				k.kept AND coalesce(s.reconciled_posted_until <= (SELECT min(d) FROM unnest($2::date[]) AS d), true) AS settled
 			FROM payments.bank_statement s, LATERAL (SELECT s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL AS kept) k
@@ -114,15 +117,17 @@ func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dat
 		per AS (
 			SELECT closing_date AS c, reconciled_excluded AS excluded, 0::bigint AS in_transit FROM st WHERE kept
 			UNION ALL
-			SELECT s.closing_date, coalesce(sum(l.amount) FILTER (WHERE l.status = 'excluded'), 0),
-				coalesce(sum(l.amount) FILTER (WHERE l.status NOT IN ('posted', 'excluded')), 0)
-			FROM st s LEFT JOIN payments.bank_statement_line l ON l.tenant_id = s.tenant_id AND l.statement_id = s.id
-			WHERE NOT s.kept GROUP BY s.id, s.closing_date),
+			SELECT s.closing_date, t.excluded, t.in_transit FROM st s, LATERAL (
+				SELECT coalesce(sum(l.amount) FILTER (WHERE l.status = 'excluded'), 0) AS excluded,
+					coalesce(sum(l.amount) FILTER (WHERE l.status NOT IN ('posted', 'excluded')), 0) AS in_transit
+				FROM payments.bank_statement_line l WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id) t
+			WHERE NOT s.kept),
 		late AS (
-			SELECT s.closing_date AS c, m.posting_date AS pd, l.amount FROM st s
-			JOIN payments.bank_statement_line l ON l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status = 'posted'
-			JOIN payments.statement_match m ON m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no AND m.status <> 'rejected'
-			WHERE NOT s.settled AND m.posting_date > s.closing_date)
+			SELECT s.closing_date AS c, t.pd, t.amount FROM st s, LATERAL (
+				SELECT m.posting_date AS pd, l.amount FROM payments.bank_statement_line l
+				JOIN payments.statement_match m ON m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no AND m.status <> 'rejected'
+				WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status = 'posted' AND m.posting_date > s.closing_date OFFSET 0) t
+			WHERE NOT s.settled)
 		SELECT x.d, x.closing, NULL::bigint, coalesce((SELECT sum(excluded) FROM per WHERE c <= x.d), 0)::bigint,
 			coalesce((SELECT sum(in_transit) FROM per WHERE c <= x.d), 0)::bigint, coalesce((SELECT sum(amount) FROM late WHERE c <= x.d AND pd > x.d), 0)::bigint
 		FROM unnest($2::date[], $3::bigint[]) WITH ORDINALITY AS x(d, closing, n) ORDER BY x.n`, b.ID, dates, closing)
