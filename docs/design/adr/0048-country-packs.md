@@ -543,12 +543,16 @@ settings cannot simply overwrite their document.
   only the ranges it inserts or raises: an `INSERT ... ON CONFLICT DO
   UPDATE ... WHERE` locked every existing range the document lists, so a
   posting that had read a key and then drew its number waited on any
-  activation as the activation waited for it (found in review); now a new
-  range is inserted `ON CONFLICT DO NOTHING` and a raised one updated where
-  its last number differs (`TestApplyRangesLocksOnlyChanged`). Left as it
-  is: an activation raising a range while a posting that already read a
-  key draws from that very range waits in a cycle PostgreSQL breaks
-  (40P01, nothing written); a posting draws its numbers before or after
+  activation as the activation waited for it (found in review); now a
+  range is inserted only when the activation's snapshot has none (an
+  `ON CONFLICT` probe alone waits for a posting that drew from the
+  existing range) and a raised one updated where its last number differs
+  (`TestApplyRangesLocksOnlyChanged`, the posting holding a drawn number).
+  Left as it is: once an activation has raised a range, a posting that
+  already read a key and then draws from a range the activation raised
+  waits in a cycle PostgreSQL breaks (40P01, nothing written), as does a
+  transaction drawing from an earlier range and then a raised one, which
+  the base's activation had too; a posting draws its numbers before or after
   its keys depending on its path, so no order of the two locks avoids it.
   And while an activation waits for the lock, PostgreSQL queues the
   postings that ask for it after, so one long transaction holding it

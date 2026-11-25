@@ -717,9 +717,13 @@ func activate(ctx context.Context, tx pgx.Tx, deps Dependencies, actor reqctx.Pr
 // posting that has read an account determination key (holding the
 // ledger's determination lock shared, ledger.Setup) and then draws its
 // number from such a range would wait on the activation as the activation
-// waits on it (finfix, ADR-0048 As built). A new range is inserted with
-// ON CONFLICT DO NOTHING, which locks no existing row, and a changed one
-// updated where its last number differs, which skips the others unlocked.
+// waits on it (finfix, ADR-0048 As built). A range is inserted only when
+// the transaction's snapshot has none: ON CONFLICT alone would probe the
+// existing row and wait for a posting that drew a number from it (an
+// uncommitted UPDATE of next_value). Activations are serialized by the
+// activation lock, so the snapshot read is not raced by another one; ON
+// CONFLICT DO NOTHING still keeps it safe. A changed range is updated
+// where its last number differs, which skips the others without waiting.
 func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx.Principal, doc *config.Config) error {
 	for _, n := range doc.NumberRanges {
 		le, _, ok, err := les.LegalEntityByCode(ctx, n.Company)
@@ -731,7 +735,8 @@ func applyRanges(ctx context.Context, tx pgx.Tx, les LegalEntities, actor reqctx
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO config.number_range (tenant_id, id, legal_entity_id, document_type, fiscal_year, prefix,
 				first_value, last_value, next_value, is_gapless, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, $9, $10)
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8, $7, $9, $10
+			WHERE NOT EXISTS (SELECT FROM config.number_range WHERE legal_entity_id = $3 AND document_type = $4 AND fiscal_year = $5)
 			ON CONFLICT (tenant_id, legal_entity_id, document_type, fiscal_year) DO NOTHING`,
 			actor.TenantID, uuid.Must(uuid.NewV7()), le, n.DocumentType, n.FiscalYear, n.Prefix, n.First, n.Last, n.Gapless, actor.ID); err != nil {
 			return fmt.Errorf("configuration: apply number range %s: %w", n.Key(), err)

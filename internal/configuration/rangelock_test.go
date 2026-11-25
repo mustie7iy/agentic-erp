@@ -16,7 +16,7 @@ import (
 )
 
 // TestApplyRangesLocksOnlyChanged (finfix, ADR-0048 As built): while a
-// posting holds a number range's row, as drawing its number does, an
+// posting has drawn a number from a range and not committed, an
 // activation whose document leaves that range as it is applies its
 // ranges without waiting for it, so it never waits on a posting that in
 // turn waits for the activation's account determination lock; one
@@ -56,7 +56,7 @@ func TestApplyRangesLocksOnlyChanged(t *testing.T) {
 	}
 	var unchanged, raising error
 	if err := apitest.Committed(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
-		if err := (configuration.Numbers{}).Lock(ctx, f.DE, "material_document", 2026); err != nil {
+		if _, err := (configuration.Numbers{}).Next(ctx, f.DE, "material_document", 2026); err != nil {
 			return err
 		}
 		unchanged, raising = apply(doc), apply(&raised)
