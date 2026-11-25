@@ -6027,9 +6027,16 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Lot sizing procedures: a material's planning data at a plant sizes a run's proposals lot for lot, in fixed lots or up to a maximum stock level, within a minimum and maximum lot size and rounded to a rounding value, an item per lot",
+      "r": "S2k2 · docs/design/plan-supply-chain.md §S2k2 · ADR-0084 As built S2k2 · db/migrations/000469 · mrp.material_plan lot_size, fixed_lot_size, maximum_stock_level, minimum_lot_size, maximum_lot_size, rounding_value · mrp.run_line lot_size, proposed, lots · internal/mrp/lotsize.go · createMaterialPlan, updateMaterialPlan, MrpRunLine · mrp.invalid_lot_size, mrp.too_many_lots · TestLots, TestLotSizingChecks, TestTooManyLots, TestPlanningRunLotSizing, TestMRPLotSizing · walkthrough step_mrp (step 152)",
+      "src": "po:2026-11-17 · adr:ADR-0084",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: MRP variants: lot sizing procedures, safety stock calculation, MRP areas, planned orders for production, scheduling with calendars (after the plan's slices; product owner 2026-11-17)",
-      "r": "docs/design/plan-supply-chain.md §S2k, Later",
+      "t": "later: MRP variants: period lot sizes (daily, weekly, monthly), optimising lot sizing procedures (part period, least unit cost, Groff), scrap, safety stock calculation, MRP areas, planned orders for production, scheduling with calendars, firming in a planning time fence (after the plan's slices; product owner 2026-11-17; lot for lot, fixed and replenish-to-maximum lot sizes split off as S2k2)",
+      "r": "docs/design/plan-supply-chain.md §S2k, Later; §S2k2, Later",
       "src": "baseline",
       "c": []
      },

@@ -7252,7 +7252,7 @@ erDiagram
 
 ## 3.37 Material requirements planning (`mrp`)
 
-ADR-0084, S2k (migration 000436). Materials' planning data at plants and
+ADR-0084, S2k (migration 000436; lot sizing, migration 000469). Materials' planning data at plants and
 planning runs per plant: the context reads tenancy's plants, materials,
 the ledger's accounts, sales' demand, inventory's stock and prices and
 procurement's receipts and requisitions through ports, writes
@@ -7272,6 +7272,12 @@ erDiagram
     uuid material_id "materials; once per plant"
     text mrp_type "reorder_point, no_planning"
     numeric reorder_point "0 or more, base unit"
+    text lot_size "lot_for_lot, fixed, replenish_to_maximum"
+    numeric fixed_lot_size "exactly with fixed"
+    numeric maximum_stock_level "exactly with replenish_to_maximum"
+    numeric minimum_lot_size "not with fixed"
+    numeric maximum_lot_size "not with fixed"
+    numeric rounding_value "not with fixed"
     uuid account_id "ledger: its proposals'"
     integer version }
   run { uuid id PK
@@ -7293,6 +7299,9 @@ erDiagram
     numeric stock
     numeric receipts
     numeric shortage "above 0 exactly with a requisition"
+    text lot_size "the plan's procedure"
+    numeric proposed "the shortage or more; null before 000469"
+    integer lots "with a requisition: its items"
     uuid requisition_id "procurement"
     text requisition_number }
   proposal { uuid requisition_id PK "procurement"
@@ -7311,7 +7320,14 @@ erDiagram
   and a reorder point of zero or more (`material_plan_reorder_point_check`);
   its company, plant and material do not change (`material_plan_fixed`,
   a trigger). Its version moves with every change (`material_plan_touch`).
-  The list reads by `material_plan_by_created_at`; a run reads the
+  Its lot sizing procedure (`material_plan_lot_size_check`, `lot_for_lot`
+  by default) takes its fixed lot size or maximum stock level exactly with
+  `fixed` or `replenish_to_maximum`, and a fixed lot no minimum or maximum
+  lot size or rounding value (`material_plan_lot_size_fields`); the level
+  is not below the reorder point (`material_plan_maximum_level`), every
+  quantity above zero (`material_plan_*_check`), the minimum not above
+  the maximum (`material_plan_lot_bounds`) and both multiples of the
+  rounding value (`material_plan_rounding`). The list reads by `material_plan_by_created_at`; a run reads the
   plant's plans under a share lock.
 - `mrp.run`: a planning run of a plant with its Operation, `queued`,
   `completed` or `failed` (`run_status_check`), one queued per plant
@@ -7325,7 +7341,11 @@ erDiagram
   reorder point, demand, stock, receipts and shortage, none below zero
   (`run_line_*_check`), naming the requisition proposed exactly when the
   shortage is above zero, with its number of 1 to 40 characters
-  (`run_line_proposed`, `run_line_requisition_number_check`).
+  (`run_line_proposed`, `run_line_requisition_number_check`); the lot
+  sizing procedure it sized by (`run_line_lot_size_check`) and what it
+  proposed, the shortage or more, above zero exactly with a shortage, in
+  one lot or more exactly then (`run_line_lots`); a line written before
+  000469 names neither, read as the shortage in one lot.
   Insert-only (`run_line_immutable`).
 - `mrp.proposal`: a requisition a run proposed (`proposal_run_fkey`), with
   its number (`proposal_requisition_number_check`) and the version it was

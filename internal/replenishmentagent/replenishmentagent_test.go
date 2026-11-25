@@ -31,6 +31,7 @@ const (
 	rb      = "01a1aa00-0000-7000-8000-000000000d02" // the gasket's, a draft naming no day
 	rc      = "01a1aa00-0000-7000-8000-000000000d03" // a proposal a later run replaced: cancelled
 	rd      = "01a1aa00-0000-7000-8000-000000000d04" // a proposal never read
+	re      = "01a1aa00-0000-7000-8000-000000000d05" // a proposal of two lots (ADR-0084 As built S2k2), a draft
 	s1      = "01a1aa00-0000-7000-8000-000000000e01" // an active supplier, of the catalog
 	s2      = "01a1aa00-0000-7000-8000-000000000e02" // an active supplier, of the contract
 	s3      = "01a1aa00-0000-7000-8000-000000000e03" // a blocked supplier, last ordered from
@@ -58,10 +59,13 @@ var answers = map[string]string{
 		{"material_number": "MA-GASKET", "shortage": {"value": "2.5", "unit": "KG"}, "requisition_id": "` + rb + `", "requisition_number": "PR2"},
 		{"material_number": "MA-HINGE", "requisition_id": "` + rc + `", "requisition_number": "PR3"},
 		{"material_number": "MA-OTHER", "requisition_id": "` + rd + `", "requisition_number": "PR4"},
+		{"material_number": "MA-HINGE", "lot_size": "fixed", "lots": 2, "requisition_id": "` + re + `", "requisition_number": "PR5"},
 		{"material_number": "MA-NONE", "shortage": {"value": "0", "unit": "EA"}}]}`,
 	"/v1/requisitions/" + ra: requisition(ra, "draft", `"needed_by": "2026-11-21", `, hinge, "30", "EA"),
 	"/v1/requisitions/" + rb: requisition(rb, "draft", "", gasket, "2.5", "KG"),
 	"/v1/requisitions/" + rc: requisition(rc, "cancelled", "", hinge, "30", "EA"),
+	"/v1/requisitions/" + re: `{"id": "` + re + `", "legal_entity_id": "` + le + `", "status": "draft", "needed_by": "2026-11-21", "items": [
+		{"material_id": "` + hinge + `", "quantity": {"value": "20", "unit": "EA"}}, {"material_id": "` + hinge + `", "quantity": {"value": "20", "unit": "EA"}}]}`,
 	"/v1/catalog-items": `{"items": [` + catalog(cat1, le, s1, hinge, "active") + `, ` + catalog(cat2, le, s1, hinge, "retired") + `, ` +
 		catalog(cat3, otherLE, s1, hinge, "active") + `, ` + catalog(cat5, le, s5, hinge, "active") +
 		`, {"id": "01a1aa00-0000-7000-8000-000000000f06", "legal_entity_id": "` + le + `", "supplier_id": "` + s1 + `", "status": "active"}]}`,
@@ -194,6 +198,7 @@ var reads = []llmtest.Step{
 	llmtest.Tool("getRequisition", map[string]any{"id": ra}),
 	llmtest.Tool("getRequisition", map[string]any{"id": rb}),
 	llmtest.Tool("getRequisition", map[string]any{"id": rc}),
+	llmtest.Tool("getRequisition", map[string]any{"id": re}),
 	llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}),
 	llmtest.Tool("getCatalogItem", map[string]any{"id": cat4}),
 	llmtest.Tool("listContracts", map[string]any{"legal_entity_id": le, "material_id": hinge}),
@@ -248,6 +253,7 @@ func TestReview(t *testing.T) {
 		{rb, "order", ordered("2.5", "KG", s2, "2026-11-20", "contract "+con4+" item 1"), replenishmentagent.ErrSource},
 		{rc, "order", ordered("30", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrProposal},
 		{rd, "source_needed", none, replenishmentagent.ErrProposal},
+		{re, "order", ordered("20", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrProposal},
 	}
 	steps := slices.Clone(reads)
 	for _, r := range refusals {

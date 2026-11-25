@@ -198640,6 +198640,40 @@ func (s *MaterialPlan) encodeFields(e *jx.Encoder) {
 		s.ReorderPoint.Encode(e)
 	}
 	{
+		e.FieldStart("lot_size")
+		e.Str(s.LotSize)
+	}
+	{
+		if s.FixedLotSize.Set {
+			e.FieldStart("fixed_lot_size")
+			s.FixedLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumStockLevel.Set {
+			e.FieldStart("maximum_stock_level")
+			s.MaximumStockLevel.Encode(e)
+		}
+	}
+	{
+		if s.MinimumLotSize.Set {
+			e.FieldStart("minimum_lot_size")
+			s.MinimumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumLotSize.Set {
+			e.FieldStart("maximum_lot_size")
+			s.MaximumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.RoundingValue.Set {
+			e.FieldStart("rounding_value")
+			s.RoundingValue.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
 	}
@@ -198649,7 +198683,7 @@ func (s *MaterialPlan) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialPlan = [18]string{
+var jsonFieldsNameOfMaterialPlan = [24]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -198666,8 +198700,14 @@ var jsonFieldsNameOfMaterialPlan = [18]string{
 	13: "material_description",
 	14: "mrp_type",
 	15: "reorder_point",
-	16: "account_id",
-	17: "account_number",
+	16: "lot_size",
+	17: "fixed_lot_size",
+	18: "maximum_stock_level",
+	19: "minimum_lot_size",
+	20: "maximum_lot_size",
+	21: "rounding_value",
+	22: "account_id",
+	23: "account_number",
 }
 
 // Decode decodes MaterialPlan from json.
@@ -198867,8 +198907,70 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reorder_point\"")
 			}
-		case "account_id":
+		case "lot_size":
 			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.LotSize = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "fixed_lot_size":
+			if err := func() error {
+				s.FixedLotSize.Reset()
+				if err := s.FixedLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fixed_lot_size\"")
+			}
+		case "maximum_stock_level":
+			if err := func() error {
+				s.MaximumStockLevel.Reset()
+				if err := s.MaximumStockLevel.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_stock_level\"")
+			}
+		case "minimum_lot_size":
+			if err := func() error {
+				s.MinimumLotSize.Reset()
+				if err := s.MinimumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"minimum_lot_size\"")
+			}
+		case "maximum_lot_size":
+			if err := func() error {
+				s.MaximumLotSize.Reset()
+				if err := s.MaximumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_lot_size\"")
+			}
+		case "rounding_value":
+			if err := func() error {
+				s.RoundingValue.Reset()
+				if err := s.RoundingValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rounding_value\"")
+			}
+		case "account_id":
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -198880,7 +198982,7 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
 		case "account_number":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountNumber = string(v)
@@ -198903,7 +199005,7 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00000011,
+		0b11000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -198978,14 +199080,56 @@ func (s *MaterialPlanCreate) encodeFields(e *jx.Encoder) {
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
 	}
+	{
+		if s.LotSize.Set {
+			e.FieldStart("lot_size")
+			s.LotSize.Encode(e)
+		}
+	}
+	{
+		if s.FixedLotSize.Set {
+			e.FieldStart("fixed_lot_size")
+			s.FixedLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumStockLevel.Set {
+			e.FieldStart("maximum_stock_level")
+			s.MaximumStockLevel.Encode(e)
+		}
+	}
+	{
+		if s.MinimumLotSize.Set {
+			e.FieldStart("minimum_lot_size")
+			s.MinimumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumLotSize.Set {
+			e.FieldStart("maximum_lot_size")
+			s.MaximumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.RoundingValue.Set {
+			e.FieldStart("rounding_value")
+			s.RoundingValue.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanCreate = [5]string{
-	0: "plant_id",
-	1: "material_id",
-	2: "mrp_type",
-	3: "reorder_point",
-	4: "account_id",
+var jsonFieldsNameOfMaterialPlanCreate = [11]string{
+	0:  "plant_id",
+	1:  "material_id",
+	2:  "mrp_type",
+	3:  "reorder_point",
+	4:  "account_id",
+	5:  "lot_size",
+	6:  "fixed_lot_size",
+	7:  "maximum_stock_level",
+	8:  "minimum_lot_size",
+	9:  "maximum_lot_size",
+	10: "rounding_value",
 }
 
 // Decode decodes MaterialPlanCreate from json.
@@ -198993,7 +199137,7 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MaterialPlanCreate to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -199057,6 +199201,66 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
+		case "lot_size":
+			if err := func() error {
+				s.LotSize.Reset()
+				if err := s.LotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "fixed_lot_size":
+			if err := func() error {
+				s.FixedLotSize.Reset()
+				if err := s.FixedLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fixed_lot_size\"")
+			}
+		case "maximum_stock_level":
+			if err := func() error {
+				s.MaximumStockLevel.Reset()
+				if err := s.MaximumStockLevel.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_stock_level\"")
+			}
+		case "minimum_lot_size":
+			if err := func() error {
+				s.MinimumLotSize.Reset()
+				if err := s.MinimumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"minimum_lot_size\"")
+			}
+		case "maximum_lot_size":
+			if err := func() error {
+				s.MaximumLotSize.Reset()
+				if err := s.MaximumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_lot_size\"")
+			}
+		case "rounding_value":
+			if err := func() error {
+				s.RoundingValue.Reset()
+				if err := s.RoundingValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rounding_value\"")
+			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
 		}
@@ -199066,8 +199270,9 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00011111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -199263,12 +199468,54 @@ func (s *MaterialPlanUpdate) encodeFields(e *jx.Encoder) {
 			s.AccountID.Encode(e)
 		}
 	}
+	{
+		if s.LotSize.Set {
+			e.FieldStart("lot_size")
+			s.LotSize.Encode(e)
+		}
+	}
+	{
+		if s.FixedLotSize.Set {
+			e.FieldStart("fixed_lot_size")
+			s.FixedLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumStockLevel.Set {
+			e.FieldStart("maximum_stock_level")
+			s.MaximumStockLevel.Encode(e)
+		}
+	}
+	{
+		if s.MinimumLotSize.Set {
+			e.FieldStart("minimum_lot_size")
+			s.MinimumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumLotSize.Set {
+			e.FieldStart("maximum_lot_size")
+			s.MaximumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.RoundingValue.Set {
+			e.FieldStart("rounding_value")
+			s.RoundingValue.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanUpdate = [3]string{
+var jsonFieldsNameOfMaterialPlanUpdate = [9]string{
 	0: "mrp_type",
 	1: "reorder_point",
 	2: "account_id",
+	3: "lot_size",
+	4: "fixed_lot_size",
+	5: "maximum_stock_level",
+	6: "minimum_lot_size",
+	7: "maximum_lot_size",
+	8: "rounding_value",
 }
 
 // Decode decodes MaterialPlanUpdate from json.
@@ -199310,6 +199557,66 @@ func (s *MaterialPlanUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
+			}
+		case "lot_size":
+			if err := func() error {
+				s.LotSize.Reset()
+				if err := s.LotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "fixed_lot_size":
+			if err := func() error {
+				s.FixedLotSize.Reset()
+				if err := s.FixedLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fixed_lot_size\"")
+			}
+		case "maximum_stock_level":
+			if err := func() error {
+				s.MaximumStockLevel.Reset()
+				if err := s.MaximumStockLevel.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_stock_level\"")
+			}
+		case "minimum_lot_size":
+			if err := func() error {
+				s.MinimumLotSize.Reset()
+				if err := s.MinimumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"minimum_lot_size\"")
+			}
+		case "maximum_lot_size":
+			if err := func() error {
+				s.MaximumLotSize.Reset()
+				if err := s.MaximumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_lot_size\"")
+			}
+		case "rounding_value":
+			if err := func() error {
+				s.RoundingValue.Reset()
+				if err := s.RoundingValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rounding_value\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -209648,6 +209955,20 @@ func (s *MrpRunLine) encodeFields(e *jx.Encoder) {
 		s.Shortage.Encode(e)
 	}
 	{
+		e.FieldStart("lot_size")
+		e.Str(s.LotSize)
+	}
+	{
+		e.FieldStart("proposed")
+		s.Proposed.Encode(e)
+	}
+	{
+		if s.Lots.Set {
+			e.FieldStart("lots")
+			s.Lots.Encode(e)
+		}
+	}
+	{
 		if s.RequisitionID.Set {
 			e.FieldStart("requisition_id")
 			s.RequisitionID.Encode(e)
@@ -209661,17 +209982,20 @@ func (s *MrpRunLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMrpRunLine = [10]string{
-	0: "material_id",
-	1: "material_number",
-	2: "material_description",
-	3: "reorder_point",
-	4: "demand",
-	5: "stock",
-	6: "receipts",
-	7: "shortage",
-	8: "requisition_id",
-	9: "requisition_number",
+var jsonFieldsNameOfMrpRunLine = [13]string{
+	0:  "material_id",
+	1:  "material_number",
+	2:  "material_description",
+	3:  "reorder_point",
+	4:  "demand",
+	5:  "stock",
+	6:  "receipts",
+	7:  "shortage",
+	8:  "lot_size",
+	9:  "proposed",
+	10: "lots",
+	11: "requisition_id",
+	12: "requisition_number",
 }
 
 // Decode decodes MrpRunLine from json.
@@ -209769,6 +210093,38 @@ func (s *MrpRunLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"shortage\"")
 			}
+		case "lot_size":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.LotSize = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "proposed":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.Proposed.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"proposed\"")
+			}
+		case "lots":
+			if err := func() error {
+				s.Lots.Reset()
+				if err := s.Lots.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lots\"")
+			}
 		case "requisition_id":
 			if err := func() error {
 				s.RequisitionID.Reset()
@@ -209800,7 +210156,7 @@ func (s *MrpRunLine) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000000,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
