@@ -737,6 +737,23 @@ storage location's.
   **Later:** batches in those flows, a batch created at goods receipt,
   internal batch numbers, changing a batch's dates, batch status, stock
   by batch as at a date, transfer to another batch (309).
+- **S2f1 Batches in the purchase order's goods receipt** (lane grbatch,
+  2026-11-24; split from the batch variants, decided by default, ADR-0082
+  As built S2f1). **Adds:** a purchase order's stock item of a
+  batch-managed material (refused at ordering until now); `batch` on the
+  items of `POST /v1/goods-receipts` (its number, and for a new batch its
+  manufacture date and optional expiry date), the batch created by the
+  receipt when the material has none of that number (SAP MIGO creating a
+  batch at goods receipt, from memory), the goods receipt's items naming
+  the batch by id and number, its reversal (102) taking the batch's stock
+  back. **Acceptance:** a batch-managed stock item's receipt without a
+  batch is refused; a receipt naming a new batch creates it with its
+  dates, one naming an existing batch adds to its stock, and stock by
+  batch still adds up to the storage location's. **Later:** the batch
+  variants left (the delivery's goods issue, stock transport orders,
+  counts, the SAP take-over, a WMS-reported receipt naming a batch,
+  internal batch numbers, changing a batch's dates, batch status, stock
+  by batch as at a date, 309, FEFO, classification, where-used, recall).
 
 ### S2g Serial numbers
 
@@ -759,6 +776,19 @@ and its history. **Acceptance:** a serial number is in stock at most once.
   yet refuse a serial-managed material where they refuse a batch-managed
   one (S2f). **Later:** serial numbers in those flows, profiles per plant
   and other serial number usages.
+- **S2g1 Serial numbers in the purchase order's goods receipt** (lane
+  grbatch, 2026-11-24; split from the serial number variants, decided by
+  default, ADR-0082 As built S2f1). **Adds:** a purchase order's stock
+  item of a serial-managed material; `serial_numbers` on the items of
+  `POST /v1/goods-receipts`, one per unit of the base unit, each created
+  by the receipt as a 501's are; the goods receipt's items naming them;
+  its reversal (102) taking them out of stock again. **Acceptance:** a
+  serial-managed stock item's receipt names one serial number per unit,
+  none in stock already; its reversal leaves them in no stock. **Later:**
+  the serial number variants left (the delivery's goods issue, stock
+  transport orders, counts, the SAP take-over, a WMS-reported receipt
+  naming serial numbers, profiles per plant, other usages, maintenance
+  and service, serialization at delivery only).
 
 **Later for Batch and serial number management:** batch classification
 and determination (FEFO), where-used lists, recall, serial numbers in

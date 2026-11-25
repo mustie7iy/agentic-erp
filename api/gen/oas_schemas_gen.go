@@ -56571,6 +56571,53 @@ func (s *GoodsReceipt) SetItems(val []GoodsReceiptItem) {
 	s.Items = val
 }
 
+// The batch a goods receipt's stock item receives into (ADR-0082 As built S2f1): one of the material's
+// by its number, or a new one the receipt creates with its dates.
+// Ref: #/components/schemas/GoodsReceiptBatch
+type GoodsReceiptBatch struct {
+	// The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier
+	// gives it.
+	Number string `json:"number"`
+	// The day the batch was made: required for a new batch (422
+	// `inventory.batch_manufacture_date_required`); for an existing one, given only as its own (422
+	// `inventory.batch_dates_differ`).
+	ManufactureDate OptDate `json:"manufacture_date"`
+	// The day it is to be used by, not before its manufacture date (422 `inventory.batch_dates`); absent
+	// when a new batch does not expire. For an existing batch, given only as its own (422
+	// `inventory.batch_dates_differ`).
+	ExpiryDate OptDate `json:"expiry_date"`
+}
+
+// GetNumber returns the value of Number.
+func (s *GoodsReceiptBatch) GetNumber() string {
+	return s.Number
+}
+
+// GetManufactureDate returns the value of ManufactureDate.
+func (s *GoodsReceiptBatch) GetManufactureDate() OptDate {
+	return s.ManufactureDate
+}
+
+// GetExpiryDate returns the value of ExpiryDate.
+func (s *GoodsReceiptBatch) GetExpiryDate() OptDate {
+	return s.ExpiryDate
+}
+
+// SetNumber sets the value of Number.
+func (s *GoodsReceiptBatch) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetManufactureDate sets the value of ManufactureDate.
+func (s *GoodsReceiptBatch) SetManufactureDate(val OptDate) {
+	s.ManufactureDate = val
+}
+
+// SetExpiryDate sets the value of ExpiryDate.
+func (s *GoodsReceiptBatch) SetExpiryDate(val OptDate) {
+	s.ExpiryDate = val
+}
+
 // Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive
 // either way: a return's are stored negative.
 // Ref: #/components/schemas/GoodsReceiptCreate
@@ -56735,6 +56782,15 @@ type GoodsReceiptItem struct {
 	PoItemNo int32 `json:"po_item_no"`
 	// Quantity received; negative on reversals (movement type 102).
 	Quantity Quantity `json:"quantity"`
+	// The batch the item received, or its reversal took back, of a batch-managed material
+	// (`GET /v1/batches/{id}`, ADR-0082 As built S2f1); absent on another item.
+	BatchID OptUUID `json:"batch_id"`
+	// That batch's number; absent with it.
+	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers of the units the item received, or its reversal took out of stock, of a
+	// serial-managed material (`GET /v1/serial-numbers?number=`, S2g1), sorted by number; absent on
+	// another item.
+	SerialNumbers []string `json:"serial_numbers"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -56757,6 +56813,21 @@ func (s *GoodsReceiptItem) GetQuantity() Quantity {
 	return s.Quantity
 }
 
+// GetBatchID returns the value of BatchID.
+func (s *GoodsReceiptItem) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *GoodsReceiptItem) GetBatchNumber() OptString {
+	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *GoodsReceiptItem) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *GoodsReceiptItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -56777,6 +56848,21 @@ func (s *GoodsReceiptItem) SetQuantity(val Quantity) {
 	s.Quantity = val
 }
 
+// SetBatchID sets the value of BatchID.
+func (s *GoodsReceiptItem) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *GoodsReceiptItem) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *GoodsReceiptItem) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
+}
+
 // An item to receive.
 // Ref: #/components/schemas/GoodsReceiptItemInput
 type GoodsReceiptItemInput struct {
@@ -56786,6 +56872,16 @@ type GoodsReceiptItemInput struct {
 	PoItemNo int32 `json:"po_item_no"`
 	// Quantity received; positive. Receipts above the ordered quantity plus tolerance are refused (409).
 	Quantity Quantity `json:"quantity"`
+	// The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422
+	// `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`,
+	// `procurement.not_stock_item`).
+	Batch OptGoodsReceiptBatch `json:"batch"`
+	// The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for
+	// each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base
+	// units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`)
+	// and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none
+	// (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`).
+	SerialNumbers []string `json:"serial_numbers"`
 }
 
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
@@ -56803,6 +56899,16 @@ func (s *GoodsReceiptItemInput) GetQuantity() Quantity {
 	return s.Quantity
 }
 
+// GetBatch returns the value of Batch.
+func (s *GoodsReceiptItemInput) GetBatch() OptGoodsReceiptBatch {
+	return s.Batch
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *GoodsReceiptItemInput) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *GoodsReceiptItemInput) SetPurchaseOrderID(val uuid.UUID) {
 	s.PurchaseOrderID = val
@@ -56816,6 +56922,16 @@ func (s *GoodsReceiptItemInput) SetPoItemNo(val int32) {
 // SetQuantity sets the value of Quantity.
 func (s *GoodsReceiptItemInput) SetQuantity(val Quantity) {
 	s.Quantity = val
+}
+
+// SetBatch sets the value of Batch.
+func (s *GoodsReceiptItemInput) SetBatch(val OptGoodsReceiptBatch) {
+	s.Batch = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *GoodsReceiptItemInput) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
 }
 
 // One page of goods receipts.
@@ -83265,6 +83381,52 @@ func (o OptForecastVarianceCommentAccept) Get() (v ForecastVarianceCommentAccept
 
 // Or returns value if set, or given parameter if does not.
 func (o OptForecastVarianceCommentAccept) Or(d ForecastVarianceCommentAccept) ForecastVarianceCommentAccept {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptGoodsReceiptBatch returns new OptGoodsReceiptBatch with value set to v.
+func NewOptGoodsReceiptBatch(v GoodsReceiptBatch) OptGoodsReceiptBatch {
+	return OptGoodsReceiptBatch{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptGoodsReceiptBatch is optional GoodsReceiptBatch.
+type OptGoodsReceiptBatch struct {
+	Value GoodsReceiptBatch
+	Set   bool
+}
+
+// IsSet returns true if OptGoodsReceiptBatch was set.
+func (o OptGoodsReceiptBatch) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptGoodsReceiptBatch) Reset() {
+	var v GoodsReceiptBatch
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptGoodsReceiptBatch) SetTo(v GoodsReceiptBatch) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptGoodsReceiptBatch) Get() (v GoodsReceiptBatch, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptGoodsReceiptBatch) Or(d GoodsReceiptBatch) GoodsReceiptBatch {
 	if v, ok := o.Get(); ok {
 		return v
 	}

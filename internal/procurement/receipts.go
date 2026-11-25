@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -43,6 +44,17 @@ type ReceiptItem struct {
 	POItemNo        int32     `json:"po_item_no"`
 	Quantity        string    `json:"quantity"`
 	Unit            string    `json:"unit"`
+	// BatchID and BatchNumber are the batch a stock item of a
+	// batch-managed material moved, and SerialNumbers the serial numbers
+	// of a serial-managed one's units, sorted (S2f1, S2g1): what its
+	// material document's line moved, a reversal's its original's; nil on
+	// another item.
+	BatchID       *uuid.UUID `json:"batch_id"`
+	BatchNumber   *string    `json:"batch_number"`
+	SerialNumbers []string   `json:"serial_numbers"`
+	// Batch is the batch a receipt's item names as the request gives it,
+	// found or created by inventory (ReceiveForOrder).
+	Batch *inventory.ReceiptBatch `json:"-"`
 }
 
 // GoodsReceipt is a row of procurement.goods_movement with its items.
@@ -78,7 +90,8 @@ const receiptSelect = `SELECT m.id, m.document_number, m.legal_entity_id, m.plan
 		m.reversal_of_id, (SELECT r.id FROM procurement.goods_movement r WHERE r.tenant_id = m.tenant_id AND r.reversal_of_id = m.id LIMIT 1) AS reversed_by,
 		m.posted_at, m.posted_by, m.journal_entry_year, m.journal_entry_id, m.reason, m.material_document_id, m.material_document_number,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'purchase_order_id', i.purchase_order_id, 'po_item_no', i.po_item_no,
-			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code) ORDER BY i.item_no)
+			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'batch_id', i.batch_id, 'batch_number', i.batch_number,
+			'serial_numbers', i.serial_numbers) ORDER BY i.item_no)
 		 FROM procurement.goods_movement_item i WHERE i.tenant_id = m.tenant_id AND i.goods_movement_id = m.id)
 	FROM procurement.goods_movement m`
 
@@ -186,6 +199,7 @@ func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 		if posted, err = e.postStock(ctx, id, number, g, current); err != nil {
 			return GoodsReceipt{}, err
 		}
+		tracked(g.Items, posted.lines)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, plant_id, movement_type,
 			document_date, posting_date, reference, reversal_of_id, posted_by, journal_entry_year, journal_entry_id, reason, material_document_id,
@@ -196,12 +210,18 @@ func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 	}
 	n := len(g.Items)
 	nos, orders, poItems, quantities, units := make([]int32, n), make([]uuid.UUID, n), make([]int32, n), make([]string, n), make([]string, n)
+	batches, batchNumbers, serials := make([]*uuid.UUID, n), make([]*string, n), make([]string, n)
 	for i, it := range g.Items {
 		nos[i], orders[i], poItems[i], quantities[i], units[i] = int32(i+1), it.PurchaseOrderID, it.POItemNo, it.Quantity, it.Unit
+		// A serial number is capitals, digits, '-' and '_' (inventory's
+		// serial_number_check), so a comma joins them unambiguously.
+		batches[i], batchNumbers[i], serials[i] = it.BatchID, it.BatchNumber, strings.Join(it.SerialNumbers, ",")
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO procurement.goods_movement_item (tenant_id, goods_movement_id, item_no, purchase_order_id, po_item_no, quantity, uom_code)
-		SELECT $1, $2, n, o, pi, q::numeric, u FROM unnest($3::int[], $4::uuid[], $5::int[], $6::text[], $7::text[]) AS x(n, o, pi, q, u)`,
-		p.TenantID, id, nos, orders, poItems, quantities, units); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO procurement.goods_movement_item (tenant_id, goods_movement_id, item_no, purchase_order_id, po_item_no, quantity, uom_code,
+			batch_id, batch_number, serial_numbers)
+		SELECT $1, $2, n, o, pi, q::numeric, u, b, bn, string_to_array(nullif(s, ''), ',')
+		FROM unnest($3::int[], $4::uuid[], $5::int[], $6::text[], $7::text[], $8::uuid[], $9::text[], $10::text[]) AS x(n, o, pi, q, u, b, bn, s)`,
+		p.TenantID, id, nos, orders, poItems, quantities, units, batches, batchNumbers, serials); err != nil {
 		return GoodsReceipt{}, fmt.Errorf("procurement: insert items of goods movement %s: %w", number, err)
 	}
 	return getReceipt(ctx, tx, id)
@@ -211,7 +231,8 @@ func movementItems(g GoodsReceipt) []map[string]any {
 	items := make([]map[string]any, len(g.Items))
 	for i, it := range g.Items {
 		items[i] = map[string]any{"item_no": it.No, "purchase_order_id": it.PurchaseOrderID, "po_item_no": it.POItemNo,
-			"quantity": map[string]string{"value": it.Quantity, "unit": it.Unit}}
+			"quantity": map[string]string{"value": it.Quantity, "unit": it.Unit}, "batch_id": it.BatchID, "batch_number": it.BatchNumber,
+			"serial_numbers": it.SerialNumbers}
 	}
 	return items
 }
@@ -305,6 +326,8 @@ func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) 
 			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are returned only on released or closed orders.")
 		case it.Unit != oi.unit:
 			return nil, problem.Invalid("procurement.unit_mismatch", field+".quantity.unit", "the purchase order item's unit "+oi.unit)
+		case oi.storageLocation == nil && (it.Batch != nil || len(it.SerialNumbers) > 0):
+			return nil, notStockItem(field, it, oi)
 		}
 		if mt == Return {
 			it.Quantity = negated(it.Quantity)
