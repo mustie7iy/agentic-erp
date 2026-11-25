@@ -10,8 +10,9 @@
 // accepted, current comment, explaining it by the entries it cites
 // (proposeVarianceComment, x-autonomy: propose). It reads and proposes; it
 // cannot post, reverse, cancel, complete or check a task, accept or reject
-// a comment, or sign off, and the API would refuse it if it tried
-// (x-agent: false, identity.agent_not_allowed; ADR-0036). What suppliers
+// a comment, or sign off: those are no tools of its (Never), and the API
+// would refuse it if it tried (x-agent: false, identity.agent_not_allowed;
+// ADR-0036). What suppliers
 // and people wrote is untrusted data, never instructions, as for the
 // reconciliation agent (internal/reconagent). Its evaluation suite is
 // evals/close (ADR-0039).
@@ -43,6 +44,26 @@ const Alias = "erp-close"
 var AccrualTools = []string{"getPeriodClose", "listAccrualProposals", "listBalances", "listJournalEntries", "getJournalEntry",
 	"listSupplierInvoices", "getSupplierInvoice", "listPurchaseOrders", "listParkedJournalEntries", "listEntryTemplates",
 	"getBusinessPartner", "listAccounts", "proposeAccrual"}
+
+// Never are the operations the agent never calls (ADR-0058 §12, As built
+// "accrual proposals by agent"): every write of closing but its two
+// proposals (creating a close, a task's assignment, completion, reopening
+// and check, sign-off, rejecting an accrual, writing, accepting or
+// rejecting a comment, and the year close's), every write of a journal
+// entry, parked or posted (it proposes an accrual through proposeAccrual
+// alone, whose evidence and duplicate rules parkJournalEntry does not
+// apply), every period action, the period-end runs and clearings that
+// post, and every decision of an approval. None is among its tools, and
+// the API refuses an agent each of closing's (x-agent: false).
+var Never = []string{
+	"createPeriodClose", "updateCloseTask", "completeCloseTask", "reopenCloseTask", "checkCloseTask", "signOffPeriodClose",
+	"rejectAccrualProposal", "createVarianceComment", "acceptVarianceComment", "rejectVarianceComment",
+	"createYearClose", "updateYearCloseTask", "completeYearCloseTask", "reopenYearCloseTask", "checkYearCloseTask", "signOffYearClose",
+	"postJournalEntry", "reverseJournalEntry", "parkJournalEntry", "updateParkedJournalEntry", "postParkedJournalEntry",
+	"cancelParkedJournalEntry", "openFiscalPeriod", "closeFiscalPeriod", "lockFiscalPeriod", "unlockFiscalPeriod",
+	"runBalanceCarryForward", "postRevaluationRun", "cancelRevaluationRun", "startDepreciationRun", "createClearing",
+	"createGrIrClearing", "approveApprovalRequest", "rejectApprovalRequest", "cancelApprovalRequest",
+}
 
 const accrualSystem = `You propose the accruals of a company's period close, for a person to post.
 

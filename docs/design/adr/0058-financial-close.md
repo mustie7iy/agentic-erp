@@ -1860,3 +1860,45 @@ product owner to overrule:
   yet, refused as the cut-off reminder's assignee), and
   `TestCloseDatabaseFailures`, which fails the new read in turn (tracker
   T64n).
+
+**Accrual proposals by agent (batch 96, accrualagent).** The tracker leaf
+"Accrual proposals by agent" (T64, §8 and §12) was built by T64e, T64f
+and T64g; this step checked what they built against both sections and
+closed the one gap the later agents' convention (ADR-0072's never lists)
+shows: the close agent's never list was only the prose of §12 and its
+tool lists. `closeagent.Never` now names the operations it never calls,
+and `closeagent.TestNever` holds them to the contract. Decided by
+default, for the product owner to overrule:
+- **What the list holds.** Every write of `closing` but its two proposals
+  (a close's creation, a task's assignment, completion, reopening and
+  check, sign-off, `rejectAccrualProposal`, writing, accepting and
+  rejecting a variance comment, and the year close's, ADR-0060); every
+  write of a journal entry, parked or posted, `parkJournalEntry`,
+  `updateParkedJournalEntry` and `cancelParkedJournalEntry` included,
+  though agents may call them: the agent proposes an accrual through
+  `proposeAccrual` alone, whose evidence and duplicate rules a bare
+  parking would skip; every fiscal period action (`openFiscalPeriod` and
+  `closeFiscalPeriod` are open to agents at level 2); the period-end runs
+  and clearings that post (carry-forward, revaluation, depreciation,
+  clearing, GR/IR clearing); and every decision of an approval request.
+  The alternative, listing only §12's words, would leave a level-2 close
+  agent able to close a period or park an unchecked entry if its tools
+  ever grew.
+- **What the test checks.** Each of the agent's tools is a read or one of
+  its two proposals (`x-autonomy: propose`); every write of `closing`'s
+  paths, and every write whose operation names a journal entry, a fiscal
+  period or an approval request, is on the list; no listed operation is a
+  tool and each is in the contract; and every write of `closing` but the
+  proposals is `x-agent: false`, the API's own refusal behind §12's
+  "whatever its level". A new write of any of those kinds fails the test
+  until it is listed.
+- **Walkthrough.** `close_accrual_decisions` (step_close) has the agent,
+  after proposing its second accrual, refused rejecting it and signing
+  the close off (403 `identity.agent_not_allowed`); Carla then rejects it
+  as before. The accrual proposed by the agent and decided by a person is
+  T64e's and T64g's (`close_accruals`, `close_accrual_agent`), unchanged.
+- **Certification stays open.** Nothing runs against the live model: the
+  suite `evals/close` is replayed against the model stand-in in CI, and
+  the type `close` is certified on the model `erp-close` routes to only
+  by a live run (ADR-0039; decision 14: one type, both tasks); that is
+  its own tracker leaf, waiting for the live-evaluation key.

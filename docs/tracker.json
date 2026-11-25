@@ -2131,10 +2131,17 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Accrual proposals by agent",
-      "r": "T64 · ADR-0058 §8, §12 · T64e, T64f, T64g",
+      "r": "T64 · ADR-0058 §8, §12 · T64e, T64f, T64g · done by T64e (accrual proposals parked for a person to post), T64f (deciding them) and T64g (the close agent proposing them through its tools, evals/close replayed against the model stand-in) under Financial close designed, and by accrualagent (batch 96): the close agent's never list (closeagent.Never, TestNever: every other write of closing, every journal entry and fiscal period write, the period-end runs and clearings that post and every approval decision; every write of closing but the two proposals x-agent: false), step_close showing the agent's own rejection and sign-off refused · ADR-0058 As built (accrual proposals by agent) · its live evaluation and certification is the leaf below",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The close agent evaluated against the live Claude API and its type close certified on the model erp-close routes to (ADR-0039), its accrual and variance cases as one suite (ADR-0058 decision 14), before it runs above level 0 in a tenant's cell; until then it runs only against the model stand-in in replay; waits for the live-evaluation key (pre-pilot)",
+      "r": "evals/close/suite.yaml (replayed in CI by TestEvalSuites only) · internal/closeagent · erp-server certify · ADR-0058 §12, As built (accrual proposals by agent) · ADR-0039",
+      "src": "adr:ADR-0058 · adr:ADR-0039",
       "c": []
      },
      {
