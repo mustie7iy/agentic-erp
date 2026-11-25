@@ -10072,7 +10072,28 @@ step_plan_version() {
     "$(field '[.items[] | select(.account_id == "'"$account"'" and (.cost_center_id == "'"$admin"'" or .cost_center_id == "'"$sales"'")) | "\(.cost_center_id) \(.plan.amount)"] | sort | join("; ")')" \
     "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
+  plan_actuals_analytics "$admin" "$sales" "$month"
   passed
+}
+
+# plan_actuals_analytics ADMIN SALES MONTH is T56i1 (ADR-0044 As built
+# T56i1): the actuals of the plan against actual report just read (the
+# last response), account 6000 in MONTH, asked again of the semantic layer
+# as the governed metric expenses by cost center, which the journal's
+# lines carry by code; for CC-1100 and CC-1300 the two agree, a center
+# without actual costs having no row.
+plan_actuals_analytics() {
+  local admin=$1 sales=$2 month=$3 want got
+  want=$(field '[.items[] | select(.account_id == "'"$(account 6000)"'" and .actual.amount != "0.00") | select(.cost_center_id == "'"$admin"'" or .cost_center_id == "'"$sales"'")
+    | "\(if .cost_center_id == "'"$admin"'" then "CC-1100" else "CC-1300" end) \(.actual.amount) \(.actual.currency)"] | sort | join("; ")')
+  [ -n "$want" ] || fail "no actual costs on 6000 for CC-1100 or CC-1300 in month $month: the earlier steps' postings are not there"
+  say "Carla asks the semantic layer the same actuals: the governed metric expenses by cost center, the journal's lines"
+  say "on 6000 in month $month by the code of their cost center (ADR-0044 As built T56i1):"
+  api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value // "" | if . == "" then "none" else . end): \(.[1].value) \(.[1].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"expenses\"], \"by\": [\"cost_center\"], \"where\": [{\"dim\": \"account\", \"op\": \"in\", \"values\": [\"6000\"]}, {\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}, {\"dim\": \"fiscal_month\", \"op\": \"in\", \"values\": [\"$month\"]}], \"companies\": [\"$CC\"]}"
+  got=$(field '[.rows[] | select(.[0].value == "CC-1100" or .[0].value == "CC-1300") | "\(.[0].value) \(.[1].value) \(.[1].currency)"] | sort | join("; ")')
+  expect "expenses by cost center, the report's actuals" "$got" "$want"
+  say "The governed metric expenses by cost center agrees with the report: $got."
 }
 # step_planning_agent is T105e (ADR-0072, As built T105e): the planning
 # agent, erp agent plan through the model stand-in answering from a script

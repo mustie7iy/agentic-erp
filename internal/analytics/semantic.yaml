@@ -36,7 +36,9 @@ dimensions:
   - {name: vendor, label: Vendor}
   - {name: vendor_name, label: Vendor name}
   - {name: invoice_status, label: Invoice status, description: "parked, on_hold, posted, rejected"}
-  - {name: cost_center, label: Cost center, description: "The cost center's code; empty for an item assigned to none"}
+  - {name: cost_center, label: Cost center, description: "The cost center's code, unique within its company; empty for an item or a journal line assigned to none"}
+  - {name: profit_center, label: Profit center, description: "The profit center's code a journal line is assigned to; empty for a line assigned to none"}
+  - {name: segment, label: Segment, description: "The segment (IFRS 8) of a journal line's profit center, by its code; empty for a line without one"}
   - {name: contract, label: Contract, description: "The document number of the contract the item's purchase order was made on; empty for spend off contract"}
   - {name: customer, label: Customer, description: "The customer's business partner number"}
   - {name: customer_name, label: Customer name}
@@ -63,7 +65,7 @@ metrics:
     aggregate: sum
     sign: -1
     filter: {account_type: [revenue], determination: [none]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, tax_jurisdiction]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, tax_jurisdiction, cost_center, profit_center, segment]
 
   - name: income
     label: Income
@@ -74,7 +76,7 @@ metrics:
     aggregate: sum
     sign: -1
     filter: {account_type: [revenue]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, determination, document_type, tax_jurisdiction]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, determination, document_type, tax_jurisdiction, cost_center, profit_center, segment]
 
   - name: expenses
     label: Operating expenses
@@ -85,7 +87,7 @@ metrics:
     aggregate: sum
     sign: 1
     filter: {account_type: [expense]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, cost_center, profit_center, segment]
 
   - name: operating_profit
     label: Operating profit

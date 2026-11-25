@@ -168,17 +168,10 @@ func TestJournalExtractedAgain(t *testing.T) {
 	sum := sha256.Sum256(buf.Bytes())
 	gl.Files, gl.Columns = []extract.File{{Key: key, Size: int64(buf.Len()), SHA256: hex.EncodeToString(sum[:]), Rows: int64(len(older))}}, nil
 	m.Datasets["gl_lines"] = gl
-	b, err := json.Marshal(m)
-	if err != nil {
+	if err := e.server.Store().Put(context.Background(), key, buf.Bytes(), blobstore.PutOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	manifest := extract.ManifestKey(e.Tenant.ID, res.Watermark, "0123456789abcdef")
-	for k, v := range map[string][]byte{key: buf.Bytes(), manifest: b} {
-		if err := e.server.Store().Put(context.Background(), k, v, blobstore.PutOptions{}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	pgtest.Exec(t, `UPDATE analytics.snapshot SET manifest_key = $2 WHERE tenant_id = $1`, e.Tenant.ID, manifest)
+	e.repoint(t, res, m)
 	april := e.post(t, "2026-04-01", "1.00")
 	again := e.run(t)
 	if again.Lines != 7 {
@@ -203,4 +196,19 @@ func TestJournalExtractedAgain(t *testing.T) {
 	if next := e.run(t); next.Lines != 2 {
 		t.Errorf("the next run: got %d lines, want the new entry's 2 appended", next.Lines)
 	}
+}
+
+// repoint moves the tenant's pointer to m, published under a manifest key
+// of res's watermark, as a run before it would have left it.
+func (e env) repoint(t *testing.T, res extract.Result, m extract.Manifest) {
+	t.Helper()
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := extract.ManifestKey(e.Tenant.ID, res.Watermark, "0123456789abcdef")
+	if err := e.server.Store().Put(context.Background(), manifest, b, blobstore.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `UPDATE analytics.snapshot SET manifest_key = $2 WHERE tenant_id = $1`, e.Tenant.ID, manifest)
 }
