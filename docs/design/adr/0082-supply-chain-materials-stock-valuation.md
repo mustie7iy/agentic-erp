@@ -1613,7 +1613,7 @@ specialist) and S2i's and S2i2's decisions above.
 
 ### S2f1 and S2g1: batches and serial numbers in the purchase order's goods receipt (2026-11-24)
 
-- Migrations 000464 and 000465 (03 §3.9): `procurement.goods_movement_item`'s
+- Migrations 000473 and 000474 (03 §3.9): `procurement.goods_movement_item`'s
   `batch_id`, `batch_number` and `serial_numbers`, what the item's material
   document line moved (a reversal's item its original's), under schema
   tests (`db/goods_receipt_tracking_test.go`: a batch by id and number

@@ -6,7 +6,7 @@
 -- names its original's. batch_id is the inventory context's batch, by id:
 -- no foreign key leaves a schema but ref's (02 §2.1). Expand only (06
 -- §6.4): nullable columns the previous version neither reads nor writes,
--- and checks it always passes, added NOT VALID (validated by 000465).
+-- and checks it always passes, added NOT VALID (validated by 000474).
 ALTER TABLE procurement.goods_movement_item
   ADD COLUMN batch_id uuid,     -- inventory context: inventory.batch
   ADD COLUMN batch_number text, -- inventory.batch.number, as the reader needs it beside the id

@@ -1926,7 +1926,7 @@ reverses a 101 (migration 000064, T47b): each reverses only its own kind
 own way, 101 and 123 in, 102 and 122 out (`goods_movement_item_sign`).
 
 A stock item's item names what its material document's line moved (S2f1,
-S2g1, migrations 000464 and 000465): the batch of a batch-managed material
+S2g1, migrations 000473 and 000474): the batch of a batch-managed material
 by id and number together (`goods_movement_item_batch`), and the serial
 numbers of a serial-managed material's units, one to 1000
 (`goods_movement_item_serial_numbers`); a reversal's item names its

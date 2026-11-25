@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestGoodsReceiptTracking (S2f1, S2g1; migrations 000464, 000465): a
+// TestGoodsReceiptTracking (S2f1, S2g1; migrations 000473, 000474): a
 // goods receipt's item names a batch by id and number together, or
 // neither, and one to 1000 serial numbers, or none.
 func TestGoodsReceiptTracking(t *testing.T) {
@@ -68,7 +68,7 @@ func TestGoodsReceiptTracking(t *testing.T) {
 	}
 }
 
-// TestGoodsReceiptTrackingDownRefused: 000464's down migration refuses to
+// TestGoodsReceiptTrackingDownRefused: 000473's down migration refuses to
 // drop goods receipt items naming a batch or serial numbers (06 §6.4: a
 // down migration loses no data).
 func TestGoodsReceiptTrackingDownRefused(t *testing.T) {
@@ -98,7 +98,7 @@ func TestGoodsReceiptTrackingDownRefused(t *testing.T) {
 				step(`SET LOCAL session_replication_role = origin`)); err != nil {
 				t.Fatal(err)
 			}
-			failsWith(t, exec(tx, migrationNamed(t, "000464_goods_receipt_tracking").Down), "goods receipt items name batches or serial numbers")
+			failsWith(t, exec(tx, migrationNamed(t, "000473_goods_receipt_tracking").Down), "goods receipt items name batches or serial numbers")
 		})
 	}
 }
