@@ -11,7 +11,10 @@ import (
 // issuedAndReversed records a goods issue's delivery of the quantity of
 // the order's first item on the day and its reversal on another, as
 // shipping's goods issue and its reversal have sales write them (ADR-0083
-// §5 and As built S2b3).
+// §5 and As built S2b3). The rows are written directly, not through
+// shipping: a real goods issue and its reversal need stock, valuation and
+// a delivery at a plant, none of which the schedule reads, and revenue's
+// tests do not import shipping.
 func (e env) issuedAndReversed(t *testing.T, order, quantity, day, reversed string) {
 	t.Helper()
 	delivery := uuid.Must(uuid.NewV7())

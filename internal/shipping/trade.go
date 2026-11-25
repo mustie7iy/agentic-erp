@@ -86,13 +86,13 @@ func tradeHeld(d Delivery) error {
 // delivery (S2s): the delivery read under its row lock (ADR-0008), of a
 // company the caller may act in, while its goods issue is not posted (409
 // shipping.goods_issued: what is issued is no longer held, or
-// shipping.goods_issue_reversed); the answer
-// released or blocked, its reason code at most 40 characters (422
-// shipping.invalid_screening), naming when the service screened it (422
-// shipping.invalid_screening without, or more than screenedAhead past the
-// ERP's clock). The service's latest answer
-// counts, by that time, not by when it is read: one screened before the
-// answer recorded already is refused (409 shipping.screening_superseded),
+// shipping.goods_issue_reversed); the answer released or blocked, its
+// reason code at most 40 characters (422 shipping.invalid_screening),
+// naming when the service screened it (422 shipping.invalid_screening
+// without, or more than screenedAhead past the ERP's clock). The
+// service's latest answer counts, by that time, not by when it is read:
+// one screened before the answer recorded already is refused (409
+// shipping.screening_superseded),
 // so an answer read late cannot undo a later block. A newer one replaces
 // the status, reason code and time, and a person's release before it. A
 // delivery created before its plant was screened takes it all the same:
