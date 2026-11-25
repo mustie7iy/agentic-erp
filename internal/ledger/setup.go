@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -400,11 +401,18 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 	}
 }
 
-// Apply makes the ledger's master data match the document.
+// Apply makes the ledger's master data match the document. It first
+// takes the tenant's account determination lock exclusively
+// (determinationLock), before any row of the ledger's, so it waits for
+// the postings under way that read a key (Accounts.Determination holds
+// the lock shared) and they wait for it.
 func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return err
+	}
+	if err := database.LockTenant(ctx, tx, determinationLock); err != nil {
+		return fmt.Errorf("ledger: apply the configuration: %w", err)
 	}
 	if err := applyLedgers(ctx, tx, p, doc); err != nil {
 		return err
@@ -419,6 +427,19 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 	}
 	return applyLedgerGroups(ctx, tx, p, doc)
 }
+
+// determinationLock is the tenant's lock on its account determination
+// (review:batch93, ADR-0008): a posting reading a key holds it shared
+// (Accounts.Determination), an activation applying the configuration
+// exclusively (Apply). One lock for the tenant, not a row lock per key:
+// a posting reads several keys in an order of its own (a goods
+// movement's stock account, then its offsetting one), so row locks
+// against an activation changing two of them in key order could wait on
+// each other in a cycle; shared holders never wait for each other, and
+// the one exclusive holder takes it before any other lock of the
+// ledger's. An activation is rare and short, so postings waiting for one
+// cost little.
+const determinationLock = "ledger.account_determination"
 
 // determination is the company's account determination by key, the
 // accounts by valuation class (config.InventoryKey, ADR-0082 §8) among
@@ -511,10 +532,11 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 // class's stock is its balance, and the rule above reads the class's
 // postings on it): so the stock account a class names holds every
 // posting the class made, across activations. The accounts are read as
-// they were before this activation. A movement in flight while the activation runs reads the key unlocked:
-// its reversal is refused (422 inventory.no_inventory_account) until a
-// configuration names the key again, and nothing is posted wrong. The
-// removal record's own refusals (account_determination_removal_kept,
+// they were before this activation. A movement in flight while the
+// activation runs holds the determination lock (determinationLock), which
+// Apply waits for before these checks, so they see its postings; one
+// starting meanwhile waits for the activation and reads the keys it left.
+// The removal record's own refusals (account_determination_removal_kept,
 // _determined) have no problem of their own: checkActivated and the
 // stale-base check refuse a change that could reach them first.
 func applyDetermination(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart uuid.UUID, co config.Company) error {

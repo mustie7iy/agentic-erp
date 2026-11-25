@@ -1312,9 +1312,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: a goods movement reads its account determination key with no lock (ledger.Accounts.Determination, internal/ledger/ports.go), so a movement posting while a configuration activation changes a valuation class's stock account can post to the old account after the change commits; read the key FOR SHARE so the activation's update waits for the posting, or the posting for the activation",
-      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted",
+      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted · done (finfix): one tenant lock, shared by Accounts.Determination, exclusive in Setup.Apply (database.LockTenantShared); TestDeterminationAndActivationSerialize; ADR-0048 As built finfix",
       "src": "review:batch93",
       "c": []
      },
