@@ -161,3 +161,33 @@ func TestMaterialDescriptionLanguageBackfilled(t *testing.T) {
 		t.Error("the check: got not validated, want 000481 to validate it")
 	}
 }
+
+// TestMaterialDescriptionDownRefused (S1a2, migration 000480): the down
+// refuses, rather than drops, a further description (one removed too:
+// its history) and a default in another language than en, which the
+// previous version cannot hold (06 §6.4).
+func TestMaterialDescriptionDownRefused(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000480_material_descriptions").Down
+	in := func(tenant, material uuid.UUID, language string) stmt {
+		return step(`INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, description_language, base_uom_code, material_type,
+			material_group, status, created_by, updated_by) VALUES ($1, $2, 'MA1', $1, 'Bracket', $3, 'EA', 'trading_good', 'B', 'active', $1, $1)`,
+			tenant, material, language)
+	}
+	for name, rows := range map[string]func(tenant, material uuid.UUID) []stmt{
+		"a further description": func(tenant, material uuid.UUID) []stmt {
+			return []stmt{in(tenant, material, "en"), step(`INSERT INTO materials.material_description (tenant_id, material_id, language, description,
+				created_by) VALUES ($1, $2, 'ar', 'دعامة', $1)`, tenant, material)}
+		},
+		"a removed further description": func(tenant, material uuid.UUID) []stmt {
+			return []stmt{in(tenant, material, "en"), step(`INSERT INTO materials.material_description (tenant_id, material_id, language, description,
+				created_by, removed_at, removed_by) VALUES ($1, $2, 'ar', 'دعامة', $1, now(), $1)`, tenant, material)}
+		},
+		"a default in Arabic": func(tenant, material uuid.UUID) []stmt { return []stmt{in(tenant, material, "ar")} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			tenant := id()
+			downRefused(t, down, tenant, rows(tenant, id()), "materials described in further languages")
+		})
+	}
+}

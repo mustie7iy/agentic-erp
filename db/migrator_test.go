@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"strings"
+	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -27,4 +28,31 @@ func asMigrator(tx pgx.Tx) error {
 	}
 	return all(tx, step(`CREATE ROLE `+role+` NOLOGIN NOSUPERUSER NOBYPASSRLS IN ROLE erp_owner`),
 		step(`GRANT USAGE, CREATE ON SCHEMA `+strings.Join(schemas, ", ")+` TO `+role), step(`SET LOCAL ROLE `+role))
+}
+
+// downRefused asserts that a down migration refuses the rows written in
+// the tenant (rather than dropping them, 06 §6.4): as a migrating role
+// held to row-level security its guard fails on that security, not on
+// seeing no rows, and as the owner it refuses naming want. Nothing is
+// kept: the transaction is rolled back.
+func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want string) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // the test's own transaction, never committed
+	written := append([]stmt{step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String())}, rows...)
+	if err := all(tx, append(written, step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT migrator`))...); err != nil {
+		t.Fatal(err)
+	}
+	if err := asMigrator(tx); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "row-level security")
+	if err := exec(tx, `ROLLBACK TO SAVEPOINT migrator`); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), want)
 }

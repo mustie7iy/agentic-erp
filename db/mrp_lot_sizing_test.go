@@ -110,3 +110,27 @@ func TestMRPLotSizing(t *testing.T) {
 		})
 	}
 }
+
+// TestMRPLotSizingDownRefused (S2k2, migration 000482): the down refuses,
+// rather than drops, lot sizing the previous version cannot hold: a plan
+// sized otherwise than lot for lot, or bounded or rounded, and a run line
+// that proposed other than its shortage in one lot (06 §6.4).
+func TestMRPLotSizingDownRefused(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000482_mrp_lot_sizing").Down
+	for name, rows := range map[string]func(s mrpScene) []stmt{
+		"a fixed plan":              func(s mrpScene) []stmt { return []stmt{s.lotPlan("fixed", "70", nil, nil, nil, nil)} },
+		"a plan to the maximum":     func(s mrpScene) []stmt { return []stmt{s.lotPlan("replenish_to_maximum", nil, "50", nil, nil, nil)} },
+		"a plan with a minimum":     func(s mrpScene) []stmt { return []stmt{s.lotPlan("lot_for_lot", nil, nil, "10", nil, nil)} },
+		"a plan with a maximum":     func(s mrpScene) []stmt { return []stmt{s.lotPlan("lot_for_lot", nil, nil, nil, "100", nil)} },
+		"a plan rounded":            func(s mrpScene) []stmt { return []stmt{s.lotPlan("lot_for_lot", nil, nil, nil, nil, "5")} },
+		"a line of fixed lots":      func(s mrpScene) []stmt { return []stmt{s.queued(), s.lotLine("30", "70", 1, "fixed")} },
+		"a line in two lots":        func(s mrpScene) []stmt { return []stmt{s.queued(), s.lotLine("30", "30", 2, "lot_for_lot")} },
+		"a line above its shortage": func(s mrpScene) []stmt { return []stmt{s.queued(), s.lotLine("30", "35", 1, "lot_for_lot")} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := mrpScene{tenant: id(), plan: id(), plant: id(), material: id(), run: id(), requisition: id()}
+			downRefused(t, down, s.tenant, rows(s), "lot sizing of material plans or run lines exists")
+		})
+	}
+}
