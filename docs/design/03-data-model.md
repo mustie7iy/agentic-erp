@@ -4685,7 +4685,7 @@ a fetch lists every `received` document by `einvoice_to_process` (the
 status alone), which replaces `einvoice_to_enter`; no column changes.
 A processed document that was not refused states its `document_kind`,
 which the entering branches on (`einvoice_read_processed`, migrations
-000437, 000438; review:batch87). T65f (migrations 000464, 000465) lets
+000437, 000438; review:batch87). T65f (migrations 000469, 000470) lets
 a person resolve a held document: `resolution` (retried, linked or
 dismissed, the last) with `resolved_at`, set only from `held` and after
 the fetch's entry (`einvoice_resolved`); the status `dismissed`, final,

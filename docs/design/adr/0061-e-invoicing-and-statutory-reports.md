@@ -2068,10 +2068,10 @@ po:2026-11-22). Built:
 
 ### T65f: held e-invoices resolved by people (adr:ADR-0061)
 
-Built as §7, §11 and §13: migrations 000464 (`resolution`, `resolved_at`,
+Built as §7, §11 and §13: migrations 000469 (`resolution`, `resolved_at`,
 `dismissal_reason`, the status `dismissed`, the checks widened NOT VALID,
 the partial unique index `einvoice_invoice_once` and the trigger) and
-000465 (the checks validated); `POST /v1/e-invoices/{id}:retry`
+000470 (the checks validated); `POST /v1/e-invoices/{id}:retry`
 (`retryEInvoice`), `:link` (`linkEInvoice`) and `:dismiss`
 (`dismissEInvoice`) in `internal/einvoicing/resolve.go`, each answering
 the document with its ETag; payables' `Invoices.Attachable` and

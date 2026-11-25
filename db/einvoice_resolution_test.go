@@ -20,7 +20,7 @@ const (
 	dismissedSet = "status = 'dismissed', resolution = 'dismissed', resolved_at = now(), dismissal_reason = 'Sent twice.'"
 )
 
-// TestEInvoiceResolution (T65f, migrations 000464, 000465; ADR-0061 §7): a
+// TestEInvoiceResolution (T65f, migrations 000469, 000470; ADR-0061 §7): a
 // held document moves by a person's resolution, and by nothing else, to
 // entered (retried or linked, naming its invoice), to held again (retried,
 // with that attempt's problem) or to dismissed (with its reason, keeping
@@ -103,7 +103,7 @@ func TestEInvoiceResolution(t *testing.T) {
 			step(named, tenant, invoice, "M1"), step(named, tenant, invoice, "M2"))
 		failsWith(t, err, "einvoice_invoice_once")
 	})
-	t.Run("the checks validated by 000465", func(t *testing.T) {
+	t.Run("the checks validated by 000470", func(t *testing.T) {
 		var valid bool
 		if err := testDB.QueryRow(context.Background(), `SELECT bool_and(convalidated) FROM pg_constraint
 			WHERE (conrelid = 'einvoicing.einvoice'::regclass AND conname IN ('einvoice_status_check', 'einvoice_entry', 'einvoice_problem',
@@ -152,13 +152,13 @@ func TestEInvoiceResolutionTrigger(t *testing.T) {
 	}
 }
 
-// TestEInvoiceResolutionDown: the down migration of 000464 refuses, rather
+// TestEInvoiceResolutionDown: the down migration of 000469 refuses, rather
 // than drops, e-invoices a person resolved and invoices entered by hand
 // that carry a linked e-invoice's document (06 §6.4), reading every
 // tenant's rows.
 func TestEInvoiceResolutionDown(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000464_einvoice_resolution").Down
+	down := migrationNamed(t, "000469_einvoice_resolution").Down
 	for name, seed := range map[string]string{
 		"a dismissed e-invoice": `INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref,
 			fetch_operation_id, processed_at, processed_fetch_operation_id, validated_against, problem_code, problem_detail, entry_at,

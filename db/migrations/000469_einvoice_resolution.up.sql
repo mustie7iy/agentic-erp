@@ -13,7 +13,7 @@
 -- kept as a captured one's is (supplier_invoice_document_hash); a captured
 -- or e-invoice's still always does, and an EDI or migrated one never.
 -- Expand only: nullable columns the previous version neither reads nor
--- writes, the checks widened NOT VALID (000465 validates them, 06 §6.4),
+-- writes, the checks widened NOT VALID (000470 validates them, 06 §6.4),
 -- the index, and the trigger replaced to allow a held document's
 -- resolution.
 ALTER TABLE payables.supplier_invoice

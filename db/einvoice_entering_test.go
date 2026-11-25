@@ -126,7 +126,7 @@ func TestEInvoiceEnteringTrigger(t *testing.T) {
 	}
 }
 
-// TestSupplierInvoiceFromEInvoice (T65d, migration 000423; T65f, 000464):
+// TestSupplierInvoiceFromEInvoice (T65d, migration 000423; T65f, 000469):
 // an invoice of source einvoice keeps its document's hash, as a captured
 // one does; one entered by hand may have one, the e-invoice a person
 // linked to it; no other source has one.
@@ -137,7 +137,7 @@ func TestSupplierInvoiceFromEInvoice(t *testing.T) {
 	}{
 		{"an e-invoice's with its hash", "einvoice", "sha256('x'::bytea)", ""},
 		{"an e-invoice's without one", "einvoice", "NULL", "supplier_invoice_document_hash"},
-		{"a manual one with a linked e-invoice's (000464)", "manual", "sha256('x'::bytea)", ""},
+		{"a manual one with a linked e-invoice's (000469)", "manual", "sha256('x'::bytea)", ""},
 		{"an EDI one with a hash", "edi", "sha256('x'::bytea)", "supplier_invoice_document_hash"},
 		{"a captured one without one", "capture", "NULL", "supplier_invoice_document_hash"},
 		{"another source", "fax", "NULL", "supplier_invoice_source_check"},

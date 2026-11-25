@@ -1,5 +1,5 @@
 -- A validated constraint cannot be marked unvalidated again; the down
--- restores 000464's state by adding the checks back NOT VALID.
+-- restores 000469's state by adding the checks back NOT VALID.
 ALTER TABLE einvoicing.einvoice
   DROP CONSTRAINT einvoice_status_check,
   ADD CONSTRAINT einvoice_status_check CHECK (status IN ('received', 'refused', 'entered', 'held', 'dismissed')) NOT VALID,
