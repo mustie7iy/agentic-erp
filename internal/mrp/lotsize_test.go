@@ -154,3 +154,26 @@ func TestLotSizingChecks(t *testing.T) {
 		})
 	}
 }
+
+// TestLotSizingSame: two lot sizings are one when their procedure and
+// the quantities given are, written alike or not.
+func TestLotSizingSame(t *testing.T) {
+	base := LotSizing{Procedure: LotForLot, Minimum: s("40"), Rounding: s("10")}
+	for _, c := range []struct {
+		name  string
+		other LotSizing
+		want  bool
+	}{
+		{"the same, written otherwise", LotSizing{Procedure: LotForLot, Minimum: s("40.0"), Rounding: s("10")}, true},
+		{"another procedure", LotSizing{Procedure: ReplenishToMaximum, Minimum: s("40"), Rounding: s("10")}, false},
+		{"another minimum", LotSizing{Procedure: LotForLot, Minimum: s("50"), Rounding: s("10")}, false},
+		{"a minimum removed", LotSizing{Procedure: LotForLot, Rounding: s("10")}, false},
+		{"a maximum added", LotSizing{Procedure: LotForLot, Minimum: s("40"), Maximum: s("100"), Rounding: s("10")}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := base.same(c.other); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}

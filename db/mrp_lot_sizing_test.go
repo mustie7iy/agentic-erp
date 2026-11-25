@@ -68,11 +68,13 @@ func TestMRPLotSizing(t *testing.T) {
 		{"a level below the reorder point", func(s mrpScene) []stmt { return []stmt{s.lotPlan("replenish_to_maximum", nil, "49", nil, nil, nil)} },
 			"material_plan_maximum_level"},
 		{"the reorder point raised above the level", func(s mrpScene) []stmt {
-			return []stmt{s.lotPlan("replenish_to_maximum", nil, "50", nil, nil, nil), step(`UPDATE mrp.material_plan SET reorder_point = 51`)}
+			return []stmt{s.lotPlan("replenish_to_maximum", nil, "50", nil, nil, nil), step(`UPDATE mrp.material_plan SET reorder_point = 51, version = version + 1`)}
 		}, "material_plan_maximum_level"},
 		{"a zero fixed lot", func(s mrpScene) []stmt { return []stmt{s.lotPlan("fixed", "0", nil, nil, nil, nil)} }, "material_plan_fixed_lot_size_check"},
-		{"a zero level", func(s mrpScene) []stmt { return []stmt{s.lotPlan("replenish_to_maximum", nil, "0", nil, nil, nil)} },
-			"material_plan_maximum_stock_level_check"},
+		{"a zero level", func(s mrpScene) []stmt {
+			return []stmt{s.planned("reorder_point", "0"), step(`UPDATE mrp.material_plan SET lot_size = 'replenish_to_maximum', maximum_stock_level = 0,
+				version = version + 1`)}
+		}, "material_plan_maximum_stock_level_check"},
 		{"a zero minimum", func(s mrpScene) []stmt { return []stmt{s.lotPlan("lot_for_lot", nil, nil, "0", nil, nil)} }, "material_plan_minimum_lot_size_check"},
 		{"a zero maximum", func(s mrpScene) []stmt { return []stmt{s.lotPlan("lot_for_lot", nil, nil, nil, "0", nil)} }, "material_plan_maximum_lot_size_check"},
 		{"a zero rounding value", func(s mrpScene) []stmt { return []stmt{s.lotPlan("lot_for_lot", nil, nil, nil, nil, "0")} },
