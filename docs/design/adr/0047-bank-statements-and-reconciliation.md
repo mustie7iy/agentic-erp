@@ -455,9 +455,25 @@ Canadian bank may only offer BAI2.
   latest agent proposal a person decided; `summary` is the period's (its
   first opening balance, the figures on its last closing date, its lines by
   status; another `line_status` than a line's is 422). Paged by statement,
-  by closing date, as the statement list is. Each check reads the bank's
-  statements and lines from its first: fine for the pilot, bounded later
-  (from the earliest statement not reconciled; tracked).
+  by closing date, as the statement list is. Each check read the bank's
+  statements and lines from its first; since T49's bound (finfix, 000469)
+  a statement keeps, when it is reconciled, what its lines add to the
+  figures for good (`reconciled_excluded`, the sum of its excluded lines;
+  `reconciled_posted_until`, the latest posting date of its posted lines'
+  matches), so the figures read the lines of the statements not
+  reconciled, from the earliest one, and of a reconciled one only while a
+  line of it was posted after the earliest date asked; a reconciled
+  statement adds its kept sum to excluded and nothing in transit. The
+  report and the cash position read the figures the same way.
+  **Decided by default** (for the product owner's review): the kept sums
+  are per statement, not running totals, because a statement can be
+  imported before one already reconciled (its gap check) and a running
+  total would then be wrong; the statements' rows (one a day per bank) are
+  still read from the first, their lines (the bulk) no longer. 000469
+  backfills the reconciled statements; one a server of the release before
+  reconciles during the rolling upgrade keeps nothing and its lines are
+  read as before, so no check requires the sums
+  (`TestReconcileReadsUnreconciledLines`).
   A bank without a main bank account has no ledger balance and nothing
   unexplained. Conservative choices for the product owner: excluded lines
   and lines posted on a later date are reconciling items, so a statement

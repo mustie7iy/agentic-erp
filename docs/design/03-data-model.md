@@ -2816,6 +2816,8 @@ erDiagram
     uuid previous_statement_id "the bank's statement before; null for its first"
     text status "imported | gap | reconciled"
     timestamptz reconciled_at "with reconciled_by, exactly when reconciled"
+    bigint reconciled_excluded "its excluded lines' sum, kept when reconciled (000469)"
+    date reconciled_posted_until "its posted lines' latest posting date, kept when reconciled"
     timestamptz gap_accepted_at "with gap_accepted_by and gap_reason, a person's acceptance of its gap" }
   bank_statement_line { uuid statement_id PK
     int line_no PK

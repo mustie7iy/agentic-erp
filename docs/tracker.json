@@ -1672,9 +1672,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Bound the reconciliation check to the bank's statements from the earliest one not reconciled, before production-sized statement history",
-        "r": "internal/payments/reconciliation.go · T49",
+        "r": "internal/payments/reconciliation.go · T49 · done (finfix): 000469 reconciled_excluded and reconciled_posted_until kept at reconciliation; figures read only unreconciled statements' lines; TestReconcileReadsUnreconciledLines; ADR-0047 As built",
         "src": "baseline",
         "c": []
        }
