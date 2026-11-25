@@ -283,8 +283,9 @@ func TestTaxColumns(t *testing.T) {
 		gl := m.Datasets["gl_lines"]
 		gl.Files = append(gl.Files, e.put(part(e.b, "gl_lines", "2026-05", older), older))
 		m.Datasets["gl_lines"] = gl
-		if _, err := e.r.Query(context.Background(), Request{TenantID: e.b, ManifestKey: e.publish(e.b, m), Scope: everything, Plan: byEmirate}); err == nil {
-			t.Error("query: got nil error, want the view refused, so the store answers from the database")
+		_, err := e.r.Query(context.Background(), Request{TenantID: e.b, ManifestKey: e.publish(e.b, m), Scope: everything, Plan: byEmirate})
+		if err == nil || !strings.Contains(err.Error(), `"tax_jurisdiction"`) {
+			t.Errorf("query: got %v, want the view not bound for the missing tax_jurisdiction, so the store answers from the database", err)
 		}
 	})
 }

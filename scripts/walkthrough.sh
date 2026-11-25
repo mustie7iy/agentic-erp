@@ -5231,7 +5231,7 @@ uae_ledger_hook() {
   say "Maple's tax analytics wants each posting's lines as they are posted: Sam subscribes its endpoint to the ledger's"
   say "JournalEntryPosted, whose lines carry the emirate and the declared tax base (ADR-0049 §9 As built, batch 95):"
   api 201 '"subscription to \(.event_types | join(", ")) at \(.url): \(.status)"' createWebhookSubscription \
-    -body "{\"url\": \"https://$HOOK_ADDR/tax/events\", \"description\": \"Maple tax analytics\", \"event_types\": [\"ledger.journal_entry_posted\"]}"
+    -body "{\"url\": \"https://$HOOK_ADDR/tax/events\", \"description\": \"Maple tax analytics\", \"event_types\": [\"com.example.erp.ledger.journal_entry_posted.v1\"]}"
   hook=$(field .id)
   cp "$WORK/hook/secret" "$WORK/hook/secret.treasury"
   field .secret >"$WORK/hook/secret"
