@@ -392,6 +392,10 @@ specialist):
   reorder point); `minimum_lot_size`, `maximum_lot_size` and
   `rounding_value` with the other two. All in the base unit, exact
   decimals of a quantity's scale, more than zero.
+  Its down migration refuses, rather than drops, a plan sized otherwise
+  than lot for lot (or bounded or rounded) and a run line that proposed
+  other than its shortage in one lot (06 §6.4; batch 95S integration,
+  `TestMRPLotSizingDownRefused`).
 - **Sizing** (`internal/mrp/lotsize.go`), when there is a shortage: a
   fixed lot proposes as many lots of its size as cover the shortage;
   lot for lot sizes the shortage and replenishing to the maximum sizes

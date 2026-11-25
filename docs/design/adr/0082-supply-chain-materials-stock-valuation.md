@@ -2495,7 +2495,10 @@ per material and language, from memory), Arabic for the UAE pilot.
   further descriptions, removed by their mark and given back as a unit is
   (nothing is deleted, 000011); none is in the default's language
   (`material_description_not_default`), which holds without a lock on the
-  material because that language never changes. **Nothing is
+  material because that language never changes. The down migration
+  refuses, rather than drops, a further description (a removed one too)
+  and a default in another language than `en` (06 §6.4; batch 95S
+  integration, `TestMaterialDescriptionDownRefused`). **Nothing is
   contracted:** `description` stays the default description's text, so
   today's field, the duplicate check, items by material (S1f) and every
   reader of the published API keep working unchanged.

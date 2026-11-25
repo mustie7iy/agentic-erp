@@ -6053,6 +6053,20 @@
       "r": "docs/design/plan-supply-chain.md §S2l, Later",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: the replenishment agent recommends on a proposal of several lots (ADR-0084 As built S2k2: a requisition of an item per lot), an order per lot or one order of the lots, held to the proposal's lots and its supplier's measures; today its check refuses such a proposal (ErrProposal) before reading any measures and leaves it to the buyer",
+      "r": "docs/design/plan-supply-chain.md §S2k2, Later · ADR-0072 As built S2l1 · ADR-0084 As built S2k2 · internal/replenishmentagent review.check · TestReviewLotsBeforeMeasures",
+      "src": "review:batch95",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "fix: tests post on the UTC day, not the host's, so that west of UTC in the evening they are not a day behind the fixture companies' day and meet no closed period at a month boundary (inventory's order receipt and reversals, shipping's sales issue, inventory's batch manufacture date)",
+      "r": "internal/inventory/order_edges_test.go TestOrderPorts · internal/shipping/pick_test.go TestDatabaseFailures · internal/inventory/batch_test.go TestBatchDatabaseFailures",
+      "src": "review:batch94",
+      "c": []
      }
     ]
    },
