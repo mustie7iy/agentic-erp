@@ -31,6 +31,7 @@ type source struct {
 // the suppliers' deliveries at the plant.
 type review struct {
 	runDate, plant string
+	yearBefore     string               // the first day of the year ending on the run's day; "" for a run day that is no date
 	proposals      map[string]proposal  // requisition id to the proposal
 	sources        map[string]source    // "contract <id> item <n>", "catalog item <id>", "purchase order <id>" to the source
 	suppliers      map[string]bool      // business partners read: id to whether it is an active supplier
@@ -47,7 +48,11 @@ type measures struct {
 }
 
 func newReview(runDate, plant string) *review {
-	return &review{runDate: runDate, plant: plant, proposals: map[string]proposal{}, sources: map[string]source{}, suppliers: map[string]bool{},
+	yearBefore := ""
+	if d, err := time.Parse(time.DateOnly, runDate); err == nil {
+		yearBefore = d.AddDate(0, 0, 1-minWindow).Format(time.DateOnly)
+	}
+	return &review{runDate: runDate, plant: plant, yearBefore: yearBefore, proposals: map[string]proposal{}, sources: map[string]source{}, suppliers: map[string]bool{},
 		measures: map[string]*measures{}}
 }
 
@@ -186,17 +191,17 @@ type delivery struct {
 	History          string `json:"history"`
 }
 
-// minWindow is the shortest window a read measures over that the check
-// takes, in days: a year, the read's default. A shorter one may hold none
-// of a supplier's receipts and would let "no receipts" stand for a
-// supplier that delivers.
+// minWindow is the year, in days, a read's window must hold, ending on
+// the run's day: the read's default. Any window that misses part of it,
+// shorter, earlier or later, may hold none of a supplier's recent
+// receipts and would let "no receipts" stand for a supplier that
+// delivers.
 const minWindow = 365
 
 // performanceRead keeps the measures of a material's suppliers at the
 // run's plant, as the line an order names them in. A read of another
-// plant, over less than a year or ending before the run's day is no
-// measure of this run's: its window may hold none of a supplier's recent
-// receipts. A read
+// plant, or whose window does not hold the year ending on the run's day,
+// is no measure of this run's. A read
 // narrowed to one supplier tells that supplier's measures, or that it has
 // no receipt, and nothing of the others; a read of every supplier tells
 // them all. A later read replaces what an earlier one told of the same
@@ -210,8 +215,8 @@ func (rv *review) performanceRead(resp apitools.Response) {
 		To         string     `json:"to"`
 		Suppliers  []delivery `json:"suppliers"`
 	}
-	if resp.Decode(&read) != nil || read.PlantID != rv.plant || !yearLong(read.From, read.To) || read.To < rv.runDate {
-		return // a refused read, another plant's, a short window's or a past one's shows nothing (ISO dates compare as text)
+	if resp.Decode(&read) != nil || read.PlantID != rv.plant || !rv.holdsYear(read.From, read.To) {
+		return // a refused read, another plant's or one missing part of the year shows nothing
 	}
 	m := rv.measures[read.MaterialID]
 	if m == nil {
@@ -228,12 +233,11 @@ func (rv *review) performanceRead(resp apitools.Response) {
 	}
 }
 
-// yearLong reports whether a read's window, both ends counted, is at
-// least minWindow days.
-func yearLong(from, to string) bool {
-	f, err1 := time.Parse(time.DateOnly, from)
-	t, err2 := time.Parse(time.DateOnly, to)
-	return err1 == nil && err2 == nil && int(t.Sub(f).Hours()/24)+1 >= minWindow
+// holdsYear reports whether a read's window from to holds the year
+// ending on the run's day. Dates are ISO, so they compare as text; a run
+// day that is no date has no year, and no read holds it.
+func (rv *review) holdsYear(from, to string) bool {
+	return rv.yearBefore != "" && from != "" && from <= rv.yearBefore && to >= rv.runDate
 }
 
 // noReceipts is the measures line of a supplier with no receipt in the
@@ -307,7 +311,7 @@ func (rv *review) measuresNamed(p proposal, supplier string, lines []string) err
 		}
 	}
 	if !ok {
-		return fmt.Errorf("%w: the run has not read getSupplierDeliveryPerformance of material %s at its plant over a year to its day, of every supplier or of %s",
+		return fmt.Errorf("%w: the run has not read getSupplierDeliveryPerformance of material %s at its plant over the year ending on its day, of every supplier or of %s",
 			ErrMeasures, p.material, supplier)
 	}
 	for _, l := range lines {

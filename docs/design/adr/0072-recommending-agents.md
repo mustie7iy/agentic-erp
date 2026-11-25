@@ -1611,10 +1611,10 @@ A later slice adds its row here and its section under "As built".
   of <dated_receipts> (<on_time_percent>%)` when it gives a share; or
   `Measures: no receipts` for a supplier the read has no row of. The
   refusal names the line wanted, which holds only what the run read.
-  Every number in it is one the read returned (§4). Only a read over a
-  year or more ending on or after the run's day counts (a shorter or an
-  earlier window may hold none of a supplier's recent receipts, and the
-  line names no window; review rounds 1 and 2); a read of every supplier
+  Every number in it is one the read returned (§4). Only a read whose window holds
+  the whole year ending on the run's day counts (a shorter, an earlier or
+  a later window may hold none of a supplier's recent receipts, and the
+  line names no window; review rounds 1 to 3); a read of every supplier
   tells each its measures or that it has no receipt, while one narrowed
   to a supplier (`supplier_id`, which the answer echoes) tells only that
   supplier's, so "no receipts" never stands for a supplier no read asked
