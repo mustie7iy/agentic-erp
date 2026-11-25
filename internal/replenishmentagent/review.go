@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
@@ -30,15 +31,24 @@ type source struct {
 // the suppliers' deliveries at the plant.
 type review struct {
 	runDate, plant string
-	proposals      map[string]proposal          // requisition id to the proposal
-	sources        map[string]source            // "contract <id> item <n>", "catalog item <id>", "purchase order <id>" to the source
-	suppliers      map[string]bool              // business partners read: id to whether it is an active supplier
-	measures       map[string]map[string]string // material id to its suppliers' measures at the plant: supplier id to the line naming them
+	proposals      map[string]proposal  // requisition id to the proposal
+	sources        map[string]source    // "contract <id> item <n>", "catalog item <id>", "purchase order <id>" to the source
+	suppliers      map[string]bool      // business partners read: id to whether it is an active supplier
+	measures       map[string]*measures // material id to its suppliers' measures at the plant
+}
+
+// measures are what the run read of a material's suppliers' deliveries at
+// the run's plant: each supplier's line naming them, and whether a read
+// of every supplier was among them, so that a supplier with no line has
+// no receipt rather than not having been asked about.
+type measures struct {
+	lines    map[string]string // supplier id to the line naming its measures
+	complete bool
 }
 
 func newReview(runDate, plant string) *review {
 	return &review{runDate: runDate, plant: plant, proposals: map[string]proposal{}, sources: map[string]source{}, suppliers: map[string]bool{},
-		measures: map[string]map[string]string{}}
+		measures: map[string]*measures{}}
 }
 
 // quantity is a Quantity as an answer gives it.
@@ -176,25 +186,57 @@ type delivery struct {
 	History          string `json:"history"`
 }
 
+// minWindow is the shortest window a read measures over that the check
+// takes, in days: a year, the read's default. A shorter one may hold none
+// of a supplier's receipts and would let "no receipts" stand for a
+// supplier that delivers.
+const minWindow = 365
+
 // performanceRead keeps the measures of a material's suppliers at the
-// run's plant, as the line an order names them in; a read of another
-// plant is no measure of this run's, and a later read of the material
-// replaces an earlier one (another window).
+// run's plant, as the line an order names them in. A read of another
+// plant, or over less than a year, is no measure of this run's. A read
+// narrowed to one supplier tells that supplier's measures, or that it has
+// no receipt, and nothing of the others; a read of every supplier tells
+// them all. A later read replaces what an earlier one told of the same
+// supplier.
 func (rv *review) performanceRead(resp apitools.Response) {
 	var read struct {
 		PlantID    string     `json:"plant_id"`
 		MaterialID string     `json:"material_id"`
+		SupplierID string     `json:"supplier_id"`
+		From       string     `json:"from"`
+		To         string     `json:"to"`
 		Suppliers  []delivery `json:"suppliers"`
 	}
-	if resp.Decode(&read) != nil || read.PlantID != rv.plant {
-		return // a refused read, or another plant's, shows nothing
+	if resp.Decode(&read) != nil || read.PlantID != rv.plant || !yearLong(read.From, read.To) {
+		return // a refused read, another plant's or a short window's shows nothing
 	}
-	lines := map[string]string{}
+	m := rv.measures[read.MaterialID]
+	if m == nil {
+		m = &measures{lines: map[string]string{}}
+		rv.measures[read.MaterialID] = m
+	}
+	if read.SupplierID == "" {
+		m.lines, m.complete = map[string]string{}, true
+	} else {
+		m.lines[read.SupplierID] = noReceipts
+	}
 	for _, d := range read.Suppliers {
-		lines[d.SupplierID] = measured(d)
+		m.lines[d.SupplierID] = measured(d)
 	}
-	rv.measures[read.MaterialID] = lines
 }
+
+// yearLong reports whether a read's window, both ends counted, is at
+// least minWindow days.
+func yearLong(from, to string) bool {
+	f, err1 := time.Parse(time.DateOnly, from)
+	t, err2 := time.Parse(time.DateOnly, to)
+	return err1 == nil && err2 == nil && int(t.Sub(f).Hours()/24)+1 >= minWindow
+}
+
+// noReceipts is the measures line of a supplier with no receipt in the
+// window.
+const noReceipts = "Measures: no receipts"
 
 // measured is the line naming a supplier's measures (S2l1): its
 // receipts and their history, its observed lead time, against its
@@ -254,13 +296,17 @@ func (rv *review) check(r recommend.Proposed, f *recommend.Figures) error {
 // "no receipts" for a supplier the read has no row of; the refusal tells
 // the line wanted, which holds only what the run read.
 func (rv *review) measuresNamed(p proposal, supplier string, lines []string) error {
-	read, ok := rv.measures[p.material]
-	if !ok {
-		return fmt.Errorf("%w: the run has not read getSupplierDeliveryPerformance of material %s at its plant", ErrMeasures, p.material)
+	m := rv.measures[p.material]
+	want, ok := "", false
+	if m != nil {
+		want, ok = m.lines[supplier]
+		if !ok && m.complete {
+			want, ok = noReceipts, true
+		}
 	}
-	want, ok := read[supplier]
 	if !ok {
-		want = "Measures: no receipts"
+		return fmt.Errorf("%w: the run has not read getSupplierDeliveryPerformance of material %s at its plant over a year, of every supplier or of %s",
+			ErrMeasures, p.material, supplier)
 	}
 	for _, l := range lines {
 		if strings.TrimSpace(l) == want {

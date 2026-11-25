@@ -2412,7 +2412,9 @@ the specialist list):
   supplier number, then the id; `totals` sum every row (ROLLUP in the
   same statement, so the totals and the rows are one snapshot). A
   report, not paged: one row per supplier that delivered the material to
-  the plant in the window; `supplier_id` narrows it to one. A plant that
+  the plant in the window; `supplier_id` narrows it to one, and the
+  answer echoes it. The totals give the lead times averaged over every
+  receipt too, which the rows' rounded figures cannot give. A plant that
   does not exist, an org unit that is no plant, or a plant of a company
   the caller cannot act in is 422 `request.reference_not_found`, as a
   legal entity is (`tenancy.Accessible`).

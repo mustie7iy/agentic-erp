@@ -443,23 +443,39 @@ func TestReviewFromHistory(t *testing.T) {
 	}
 }
 
+// narrowed is a read of the hinge's performance at the plant narrowed to
+// s1, which has no receipt, over the window from to 2026-11-20.
+func narrowed(from string) string {
+	return fmt.Sprintf(`{"plant_id": %q, "material_id": %q, "supplier_id": %q, "from": %q, "to": "2026-11-20", "min_receipts": 3, "suppliers": [],
+		"totals": {"receipts": 0, "dated_receipts": 0, "on_time_receipts": 0}}`, plant, hinge, s1, from)
+}
+
 // TestReviewMeasures: an order needs the run to have read the delivery
-// performance of the proposal's material at the run's plant: before any
-// read, after a read the API refused and after a read of another plant
-// it is refused, and nothing reaches the API.
+// performance of the proposal's material at the run's plant over a year,
+// of every supplier or of the order's: before any read, after a read the
+// API refused, after a read of another plant, a read over less than a
+// year (which could hold none of a supplier's receipts) and a read
+// narrowed to another supplier (whose empty answer says nothing of the
+// order's), "no receipts" is refused, and nothing reaches the API. A read
+// narrowed to the order's supplier tells its own.
 func TestReviewMeasures(t *testing.T) {
 	order := rec(ra, "order", "Order 30 EA from supplier "+s1+" by 2026-11-21: catalog item "+cat1+"\nMeasures: no receipts\nWhy: the catalog's 1.10 CAD.")
 	before := []llmtest.Step{llmtest.Tool("getRequisition", map[string]any{"id": ra}),
-		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}), llmtest.Tool("getBusinessPartner", map[string]any{"id": s1})}
+		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}),
+		llmtest.Tool("listContracts", map[string]any{"legal_entity_id": le, "material_id": hinge}), llmtest.Tool("getContract", map[string]any{"id": con1}),
+		llmtest.Tool("getBusinessPartner", map[string]any{"id": s1}), llmtest.Tool("getBusinessPartner", map[string]any{"id": s2})}
 	read := llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge})
 	for name, c := range map[string]struct {
 		perf   string
 		status int
 		steps  []llmtest.Step
 	}{
-		"not read":        {"", 0, append(slices.Clone(before), order)},
-		"read refused":    {performance(plant), 403, append(slices.Clone(before), read, order)},
-		"another plant's": {performance(otherLE), 0, append(slices.Clone(before), read, order)},
+		"not read":         {"", 0, append(slices.Clone(before), order)},
+		"read refused":     {performance(plant), 403, append(slices.Clone(before), read, order)},
+		"another plant's":  {performance(otherLE), 0, append(slices.Clone(before), read, order)},
+		"less than a year": {strings.Replace(performance(plant), "2025-11-21", "2025-11-22", 1), 0, append(slices.Clone(before), read, order)},
+		"another supplier's": {narrowed("2025-11-21"), 0, append(slices.Clone(before), read,
+			rec(ra, "order", "Order 30 EA from supplier "+s2+" by 2026-11-21: contract "+con1+" item 1\nMeasures: no receipts\nWhy: the contract's 1.05 CAD."))},
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := &fakeAPI{perf: c.perf, perfAt: c.status}
@@ -479,5 +495,23 @@ func TestReviewMeasures(t *testing.T) {
 				t.Errorf("recommendations sent: got %d, want none", got)
 			}
 		})
+	}
+}
+
+// TestReviewNarrowed: a read narrowed to the order's own supplier, here
+// twice, tells that it has no receipt: an order from s1 naming no
+// receipts is made.
+func TestReviewNarrowed(t *testing.T) {
+	order := rec(ra, "order", "Order 30 EA from supplier "+s1+" by 2026-11-21: catalog item "+cat1+"\nMeasures: no receipts\nWhy: the catalog's 1.10 CAD.")
+	read := llmtest.Tool("getSupplierDeliveryPerformance", map[string]any{"plant_id": plant, "material_id": hinge, "supplier_id": s1})
+	model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": ra}),
+		llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}), llmtest.Tool("getBusinessPartner", map[string]any{"id": s1}),
+		read, read, order, llmtest.Final("Recommended ordering the hinge from the catalog."))
+	res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, &fakeAPI{perf: narrowed("2025-11-21")})}).Review(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []recommend.Made{{ID: "r1", ObjectType: "requisition", ObjectID: ra, Kind: "order"}}; !slices.Equal(res.Recommendations, want) || res.Refused != 0 {
+		t.Errorf("got %v, refused %d, want %v and none refused", res.Recommendations, res.Refused, want)
 	}
 }

@@ -97,7 +97,7 @@ type DeliveryPerformance struct {
 // planner takes supplier_id for a constant and may drop an ORDER BY on it. Averages of whole days are rounded half away from zero
 // (numeric's round), never through a float.
 const deliveries = `WITH r AS (
-	SELECT o.supplier_id, m.posting_date, o.order_date, i.delivery_date
+	SELECT o.supplier_id, m.posting_date, o.order_date, i.delivery_date, m.posting_date <= i.delivery_date AS on_time
 	FROM procurement.purchase_order_item i
 	JOIN procurement.purchase_order o ON o.tenant_id = i.tenant_id AND o.id = i.purchase_order_id
 	JOIN procurement.goods_movement_item gi ON gi.tenant_id = i.tenant_id AND gi.purchase_order_id = i.purchase_order_id AND gi.po_item_no = i.item_no
@@ -105,10 +105,13 @@ const deliveries = `WITH r AS (
 	WHERE i.material_id = $2 AND coalesce(i.plant_id, m.plant_id) = $1 AND o.status IN ('released', 'closed') AND m.movement_type = '101'
 		AND m.posting_date BETWEEN $3 AND $4 AND ($5::uuid IS NULL OR o.supplier_id = $5)
 		AND NOT EXISTS (SELECT FROM procurement.goods_movement v WHERE v.tenant_id = m.tenant_id AND v.reversal_of_id = m.id))
-SELECT GROUPING(supplier_id) = 1, supplier_id, count(*)::int, count(delivery_date)::int, (count(*) FILTER (WHERE posting_date <= delivery_date))::int,
-	CASE WHEN count(delivery_date) > 0 THEN round(100 * (count(*) FILTER (WHERE posting_date <= delivery_date))::numeric / count(delivery_date))::int END,
+SELECT GROUPING(supplier_id) = 1, supplier_id,
+	count(*)::int, count(delivery_date)::int, (count(*) FILTER (WHERE on_time))::int,
+	CASE WHEN count(delivery_date) > 0 THEN round(100 * (count(*) FILTER (WHERE on_time))::numeric / count(delivery_date))::int END,
 	round(avg(delivery_date - order_date))::int, round(avg(posting_date - order_date))::int, max(posting_date)
-FROM r GROUP BY ROLLUP (supplier_id) ORDER BY GROUPING(supplier_id) DESC, supplier_id`
+FROM r
+GROUP BY ROLLUP (supplier_id)
+ORDER BY GROUPING(supplier_id) DESC, supplier_id`
 
 // DeliveryPerformance measures the suppliers' deliveries of a material
 // at a plant of a company the caller may act in (422
@@ -193,7 +196,7 @@ func (e *Endpoints) window(ctx context.Context, le uuid.UUID, from, to *time.Tim
 	}
 	switch days := int(last.Sub(first).Hours()/24) + 1; {
 	case days < 1:
-		return time.Time{}, time.Time{}, problem.BadRequest("request.invalid_parameter", "Parameter from is on or before to.",
+		return time.Time{}, time.Time{}, problem.BadRequest("request.invalid_parameter", "Parameter from must be on or before to.",
 			problem.FieldError{Field: "from", Code: "invalid", Message: "on or before to"})
 	case days > maxWindowDays:
 		return time.Time{}, time.Time{}, problem.BadRequest("request.invalid_parameter", fmt.Sprintf("The window is at most %d days.", maxWindowDays),
@@ -211,15 +214,24 @@ func (e *Endpoints) GetSupplierDeliveryPerformance(ctx context.Context, params g
 	if err != nil {
 		return nil, err
 	}
-	out := &gen.SupplierDeliveryPerformance{PlantID: d.Plant.ID, PlantCode: d.Plant.Code, PlantName: d.Plant.Name, LegalEntityID: d.Plant.LegalEntityID,
-		MaterialID: d.MaterialID, From: d.From, To: d.To, MinReceipts: MinReceipts, Suppliers: make([]gen.SupplierDelivery, len(d.Suppliers)),
-		Totals: gen.SupplierDeliveryTotals{Receipts: d.Totals.Receipts, DatedReceipts: d.Totals.Dated, OnTimeReceipts: d.Totals.OnTime,
-			OnTimePercent: apitypes.OptInt32(d.Totals.OnTimePercent)}}
+	t := d.Totals
+	out := &gen.SupplierDeliveryPerformance{
+		PlantID: d.Plant.ID, PlantCode: d.Plant.Code, PlantName: d.Plant.Name, LegalEntityID: d.Plant.LegalEntityID,
+		MaterialID: d.MaterialID, SupplierID: params.SupplierID, From: d.From, To: d.To, MinReceipts: MinReceipts,
+		Suppliers: make([]gen.SupplierDelivery, len(d.Suppliers)),
+		Totals: gen.SupplierDeliveryTotals{
+			Receipts: t.Receipts, DatedReceipts: t.Dated, OnTimeReceipts: t.OnTime, OnTimePercent: apitypes.OptInt32(t.OnTimePercent),
+			PlannedLeadDays: apitypes.OptInt32(t.PlannedLeadDays), ObservedLeadDays: apitypes.OptInt32(t.ObservedLeadDays),
+		},
+	}
 	for i, s := range d.Suppliers {
-		out.Suppliers[i] = gen.SupplierDelivery{SupplierID: s.SupplierID, SupplierNumber: d.Names[s.SupplierID].Number,
-			SupplierName: d.Names[s.SupplierID].Name, Receipts: s.Receipts, DatedReceipts: s.Dated, OnTimeReceipts: s.OnTime,
-			OnTimePercent: apitypes.OptInt32(s.OnTimePercent), PlannedLeadDays: apitypes.OptInt32(s.PlannedLeadDays),
-			ObservedLeadDays: *s.ObservedLeadDays, LastReceiptDate: *s.LastReceipt, History: s.History()}
+		name := d.Names[s.SupplierID]
+		out.Suppliers[i] = gen.SupplierDelivery{
+			SupplierID: s.SupplierID, SupplierNumber: name.Number, SupplierName: name.Name,
+			Receipts: s.Receipts, DatedReceipts: s.Dated, OnTimeReceipts: s.OnTime, OnTimePercent: apitypes.OptInt32(s.OnTimePercent),
+			PlannedLeadDays: apitypes.OptInt32(s.PlannedLeadDays), ObservedLeadDays: *s.ObservedLeadDays, // a row has a receipt
+			LastReceiptDate: *s.LastReceipt, History: s.History(),
+		}
 	}
 	return out, nil
 }

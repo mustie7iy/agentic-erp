@@ -55823,6 +55823,7 @@ components:
         plant_name: {type: string, description: "The plant's name.", readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
         material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
+        supplier_id: {type: string, format: uuid, description: "The one supplier the read was narrowed to (`supplier_id`), as asked; absent for a read of every supplier. A narrowed read's empty `suppliers` says nothing of the others.", readOnly: true}
         from: {type: string, format: date, description: "The window's first posting date.", readOnly: true}
         to: {type: string, format: date, description: "The window's last posting date.", readOnly: true}
         min_receipts: {type: integer, format: int32, minimum: 1, description: "The receipts a supplier needs in the window for its history to be `measured`; with fewer it is `thin`.", readOnly: true}
@@ -55875,13 +55876,15 @@ components:
           readOnly: true
     SupplierDeliveryTotals:
       type: object
-      description: "Every row's receipts summed, and their on-time share."
+      description: "Every row's receipts summed, their on-time share and their lead times."
       required: [receipts, dated_receipts, on_time_receipts]
       properties:
         receipts: {type: integer, format: int32, minimum: 0, description: "Goods receipt items of every row.", readOnly: true}
         dated_receipts: {type: integer, format: int32, minimum: 0, description: "Of them, those whose order item has a delivery date.", readOnly: true}
         on_time_receipts: {type: integer, format: int32, minimum: 0, description: "Of them, those posted on or before it.", readOnly: true}
         on_time_percent: {type: integer, format: int32, minimum: 0, maximum: 100, description: "`on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no receipt is dated.", readOnly: true}
+        planned_lead_days: {type: integer, format: int32, description: "The planned lead time averaged over every dated receipt of every row, in whole days rounded half away from zero (not an average of the rows' rounded figures); absent when no receipt is dated.", readOnly: true}
+        observed_lead_days: {type: integer, format: int32, description: "The observed lead time averaged over every receipt of every row, rounded the same way; absent when there is no receipt.", readOnly: true}
     CatalogItem:
       description: "A catalog item (procurement, ADR-0071): a supplier's item in a company's catalog, with one price."
       allOf:

@@ -70,12 +70,12 @@ func TestDeliveryPerformance(t *testing.T) {
 	march := "plant_id=" + p1 + "&from=2026-03-01&to=2026-03-31"
 	for name, c := range map[string]struct{ query, want, totals string }{
 		"both suppliers": {march,
-			"BP90000001 BP90000001 3 2 1 50 6 6 2026-03-10 measured | BP90000002 BP90000002 1 1 1 100 2 2 2026-03-04 thin", "4 3 2 67"},
-		"one supplier":       {march + "&supplier_id=" + e.Vendor.String(), "BP90000002 BP90000002 1 1 1 100 2 2 2026-03-04 thin", "1 1 1 100"},
-		"another plant":      {"plant_id=" + p2 + "&from=2026-03-01&to=2026-03-31", "BP90000001 BP90000001 1 1 1 100 5 4 2026-03-05 thin", "1 1 1 100"},
-		"no receipts":        {"plant_id=" + p1 + "&from=2026-05-01&to=2026-05-31", "", "0 0 0 -"},
+			"BP90000001 BP90000001 3 2 1 50 6 6 2026-03-10 measured | BP90000002 BP90000002 1 1 1 100 2 2 2026-03-04 thin", "4 3 2 67 4 5 -"},
+		"one supplier":  {march + "&supplier_id=" + e.Vendor.String(), "BP90000002 BP90000002 1 1 1 100 2 2 2026-03-04 thin", "1 1 1 100 2 2 " + e.Vendor.String()},
+		"another plant": {"plant_id=" + p2 + "&from=2026-03-01&to=2026-03-31", "BP90000001 BP90000001 1 1 1 100 5 4 2026-03-05 thin", "1 1 1 100 5 4 -"},
+		"no receipts":   {"plant_id=" + p1 + "&from=2026-05-01&to=2026-05-31", "", "0 0 0 - - - -"},
 		// The year to 15 June holds the receipt of 2 April too: 32 days, undated.
-		"the default window": {"plant_id=" + p1, "BP90000001 BP90000001 4 2 1 50 6 13 2026-04-02 measured | BP90000002 BP90000002 1 1 1 100 2 2 2026-03-04 thin", "5 3 2 67"},
+		"the default window": {"plant_id=" + p1, "BP90000001 BP90000001 4 2 1 50 6 13 2026-04-02 measured | BP90000002 BP90000002 1 1 1 100 2 2 2026-03-04 thin", "5 3 2 67 4 11 -"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := read(c.query)
@@ -83,7 +83,8 @@ func TestDeliveryPerformance(t *testing.T) {
 				t.Errorf("suppliers: got %q, want %q", rows, c.want)
 			}
 			tot := got["totals"].(map[string]any)
-			if totals := fmt.Sprint(tot["receipts"], " ", tot["dated_receipts"], " ", tot["on_time_receipts"], " ", orDash(tot["on_time_percent"])); totals != c.totals {
+			if totals := fmt.Sprint(tot["receipts"], " ", tot["dated_receipts"], " ", tot["on_time_receipts"], " ", orDash(tot["on_time_percent"]), " ",
+				orDash(tot["planned_lead_days"]), " ", orDash(tot["observed_lead_days"]), " ", orDash(got["supplier_id"])); totals != c.totals {
 				t.Errorf("totals: got %q, want %q", totals, c.totals)
 			}
 		})

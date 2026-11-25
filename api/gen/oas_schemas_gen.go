@@ -121736,6 +121736,9 @@ type SupplierDeliveryPerformance struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The material.
 	MaterialID uuid.UUID `json:"material_id"`
+	// The one supplier the read was narrowed to (`supplier_id`), as asked; absent for a read of every
+	// supplier. A narrowed read's empty `suppliers` says nothing of the others.
+	SupplierID OptUUID `json:"supplier_id"`
 	// The window's first posting date.
 	From time.Time `json:"from"`
 	// The window's last posting date.
@@ -121772,6 +121775,11 @@ func (s *SupplierDeliveryPerformance) GetLegalEntityID() uuid.UUID {
 // GetMaterialID returns the value of MaterialID.
 func (s *SupplierDeliveryPerformance) GetMaterialID() uuid.UUID {
 	return s.MaterialID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *SupplierDeliveryPerformance) GetSupplierID() OptUUID {
+	return s.SupplierID
 }
 
 // GetFrom returns the value of From.
@@ -121824,6 +121832,11 @@ func (s *SupplierDeliveryPerformance) SetMaterialID(val uuid.UUID) {
 	s.MaterialID = val
 }
 
+// SetSupplierID sets the value of SupplierID.
+func (s *SupplierDeliveryPerformance) SetSupplierID(val OptUUID) {
+	s.SupplierID = val
+}
+
 // SetFrom sets the value of From.
 func (s *SupplierDeliveryPerformance) SetFrom(val time.Time) {
 	s.From = val
@@ -121851,7 +121864,7 @@ func (s *SupplierDeliveryPerformance) SetTotals(val SupplierDeliveryTotals) {
 
 func (*SupplierDeliveryPerformance) getSupplierDeliveryPerformanceRes() {}
 
-// Every row's receipts summed, and their on-time share.
+// Every row's receipts summed, their on-time share and their lead times.
 // Ref: #/components/schemas/SupplierDeliveryTotals
 type SupplierDeliveryTotals struct {
 	// Goods receipt items of every row.
@@ -121863,6 +121876,12 @@ type SupplierDeliveryTotals struct {
 	// `on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no
 	// receipt is dated.
 	OnTimePercent OptInt32 `json:"on_time_percent"`
+	// The planned lead time averaged over every dated receipt of every row, in whole days rounded half
+	// away from zero (not an average of the rows' rounded figures); absent when no receipt is dated.
+	PlannedLeadDays OptInt32 `json:"planned_lead_days"`
+	// The observed lead time averaged over every receipt of every row, rounded the same way; absent when
+	// there is no receipt.
+	ObservedLeadDays OptInt32 `json:"observed_lead_days"`
 }
 
 // GetReceipts returns the value of Receipts.
@@ -121885,6 +121904,16 @@ func (s *SupplierDeliveryTotals) GetOnTimePercent() OptInt32 {
 	return s.OnTimePercent
 }
 
+// GetPlannedLeadDays returns the value of PlannedLeadDays.
+func (s *SupplierDeliveryTotals) GetPlannedLeadDays() OptInt32 {
+	return s.PlannedLeadDays
+}
+
+// GetObservedLeadDays returns the value of ObservedLeadDays.
+func (s *SupplierDeliveryTotals) GetObservedLeadDays() OptInt32 {
+	return s.ObservedLeadDays
+}
+
 // SetReceipts sets the value of Receipts.
 func (s *SupplierDeliveryTotals) SetReceipts(val int32) {
 	s.Receipts = val
@@ -121903,6 +121932,16 @@ func (s *SupplierDeliveryTotals) SetOnTimeReceipts(val int32) {
 // SetOnTimePercent sets the value of OnTimePercent.
 func (s *SupplierDeliveryTotals) SetOnTimePercent(val OptInt32) {
 	s.OnTimePercent = val
+}
+
+// SetPlannedLeadDays sets the value of PlannedLeadDays.
+func (s *SupplierDeliveryTotals) SetPlannedLeadDays(val OptInt32) {
+	s.PlannedLeadDays = val
+}
+
+// SetObservedLeadDays sets the value of ObservedLeadDays.
+func (s *SupplierDeliveryTotals) SetObservedLeadDays(val OptInt32) {
+	s.ObservedLeadDays = val
 }
 
 // Merged schema.

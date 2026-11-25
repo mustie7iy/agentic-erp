@@ -1611,8 +1611,14 @@ A later slice adds its row here and its section under "As built".
   of <dated_receipts> (<on_time_percent>%)` when it gives a share; or
   `Measures: no receipts` for a supplier the read has no row of. The
   refusal names the line wanted, which holds only what the run read.
-  Every number in it is one the read returned (§4). A later read of the
-  material (another window) replaces an earlier one.
+  Every number in it is one the read returned (§4). Only a read over a
+  year or more counts (a shorter window may hold none of a supplier's
+  receipts, and the line names no window); a read of every supplier
+  tells each its measures or that it has no receipt, while one narrowed
+  to a supplier (`supplier_id`, which the answer echoes) tells only that
+  supplier's, so "no receipts" never stands for a supplier no read asked
+  about (review round 1). A later read replaces what an earlier one told
+  of the same supplier.
 - It still only proposes: its never list is unchanged (`TestNever`), and
   the new read is `x-autonomy`-free, as every read is.
 - `evals/replenishment`, version 2: the S2l cases name their measures

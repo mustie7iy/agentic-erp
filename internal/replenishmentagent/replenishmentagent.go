@@ -92,8 +92,8 @@ supplier), the contracts with an item of the material (listContracts with the le
 active: an outline agreement or scheduling agreement, valid from and to) and the purchase orders with an item of it
 (listPurchaseOrders with the legal entity and the material_id: the purchasing history), and each supplier you would name
 (getBusinessPartner: its status), and how the material's suppliers delivered it to the run's plant
-(getSupplierDeliveryPerformance with the run's plant_id and the material_id; by default over the 365 days ending on the
-company's date, or a window you give as from and to): per supplier its receipts, its observed lead time (receipt less order
+(getSupplierDeliveryPerformance with the run's plant_id and the material_id, for every supplier; by default over the 365 days
+ending on the company's date, or a window of at least a year you give as from and to): per supplier its receipts, its observed lead time (receipt less order
 date, in days), its planned one and its receipts on time of those with a delivery date, and whether its history is measured
 (at least min_receipts receipts) or thin. A supplier that is not active is no source. Among the sources, prefer the supplier
 whose history is measured, then the higher on-time share, then the shorter observed lead time; a supplier with thin history
@@ -158,10 +158,11 @@ var (
 	// source of.
 	ErrHasSource = errors.New("replenishmentagent: the run read a source of the proposal's material: recommend an order from it")
 	// ErrMeasures refuses an order before the run read the delivery
-	// performance of the proposal's material at the run's plant, or
-	// without the supplier's measures as it read them.
+	// performance of the proposal's material at the run's plant over a
+	// year, of every supplier or of the order's, or without the supplier's
+	// measures as it read them.
 	ErrMeasures = errors.New(`replenishmentagent: an order names its supplier's measures as getSupplierDeliveryPerformance gave them for the proposal's ` +
-		`material at the run's plant, in a line "Measures: <receipts> receipts (<history>), lead time <observed_lead_days> days[ against ` +
+		`material at the run's plant over a year (of every supplier, or of the order's), in a line "Measures: <receipts> receipts (<history>), lead time <observed_lead_days> days[ against ` +
 		`<planned_lead_days> planned][, on time <on_time_receipts> of <dated_receipts> (<on_time_percent>%)]" or "Measures: no receipts"`)
 	// ErrUnread refuses a content writing a number the run did not read.
 	ErrUnread = errors.New("replenishmentagent: every number in the content is one a tool returned or the run was given, written as returned; a count of your own is written in words")

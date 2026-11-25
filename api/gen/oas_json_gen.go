@@ -298670,6 +298670,12 @@ func (s *SupplierDeliveryPerformance) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.MaterialID)
 	}
 	{
+		if s.SupplierID.Set {
+			e.FieldStart("supplier_id")
+			s.SupplierID.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("from")
 		json.EncodeDate(e, s.From)
 	}
@@ -298695,17 +298701,18 @@ func (s *SupplierDeliveryPerformance) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierDeliveryPerformance = [10]string{
-	0: "plant_id",
-	1: "plant_code",
-	2: "plant_name",
-	3: "legal_entity_id",
-	4: "material_id",
-	5: "from",
-	6: "to",
-	7: "min_receipts",
-	8: "suppliers",
-	9: "totals",
+var jsonFieldsNameOfSupplierDeliveryPerformance = [11]string{
+	0:  "plant_id",
+	1:  "plant_code",
+	2:  "plant_name",
+	3:  "legal_entity_id",
+	4:  "material_id",
+	5:  "supplier_id",
+	6:  "from",
+	7:  "to",
+	8:  "min_receipts",
+	9:  "suppliers",
+	10: "totals",
 }
 
 // Decode decodes SupplierDeliveryPerformance from json.
@@ -298777,8 +298784,18 @@ func (s *SupplierDeliveryPerformance) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"material_id\"")
 			}
+		case "supplier_id":
+			if err := func() error {
+				s.SupplierID.Reset()
+				if err := s.SupplierID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_id\"")
+			}
 		case "from":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.From = v
@@ -298790,7 +298807,7 @@ func (s *SupplierDeliveryPerformance) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"from\"")
 			}
 		case "to":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.To = v
@@ -298802,7 +298819,7 @@ func (s *SupplierDeliveryPerformance) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"to\"")
 			}
 		case "min_receipts":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.MinReceipts = int32(v)
@@ -298814,7 +298831,7 @@ func (s *SupplierDeliveryPerformance) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"min_receipts\"")
 			}
 		case "suppliers":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				s.Suppliers = make([]SupplierDelivery, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -298832,7 +298849,7 @@ func (s *SupplierDeliveryPerformance) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"suppliers\"")
 			}
 		case "totals":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				if err := s.Totals.Decode(d); err != nil {
 					return err
@@ -298851,8 +298868,8 @@ func (s *SupplierDeliveryPerformance) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11111111,
-		0b00000011,
+		0b11011111,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -298925,13 +298942,27 @@ func (s *SupplierDeliveryTotals) encodeFields(e *jx.Encoder) {
 			s.OnTimePercent.Encode(e)
 		}
 	}
+	{
+		if s.PlannedLeadDays.Set {
+			e.FieldStart("planned_lead_days")
+			s.PlannedLeadDays.Encode(e)
+		}
+	}
+	{
+		if s.ObservedLeadDays.Set {
+			e.FieldStart("observed_lead_days")
+			s.ObservedLeadDays.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSupplierDeliveryTotals = [4]string{
+var jsonFieldsNameOfSupplierDeliveryTotals = [6]string{
 	0: "receipts",
 	1: "dated_receipts",
 	2: "on_time_receipts",
 	3: "on_time_percent",
+	4: "planned_lead_days",
+	5: "observed_lead_days",
 }
 
 // Decode decodes SupplierDeliveryTotals from json.
@@ -298988,6 +299019,26 @@ func (s *SupplierDeliveryTotals) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"on_time_percent\"")
+			}
+		case "planned_lead_days":
+			if err := func() error {
+				s.PlannedLeadDays.Reset()
+				if err := s.PlannedLeadDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"planned_lead_days\"")
+			}
+		case "observed_lead_days":
+			if err := func() error {
+				s.ObservedLeadDays.Reset()
+				if err := s.ObservedLeadDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"observed_lead_days\"")
 			}
 		default:
 			return d.Skip()
