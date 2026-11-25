@@ -196,13 +196,9 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Order{}, err
 	}
-	var promises []promise
-	if o.Status == Confirmed {
-		changed := o
-		changed.DeliveryDate = c.delivery // the check is for the date the change asks for
-		if promises, err = e.availability(ctx, tx, changed, le, c.items, quantityChanged(c.changes)); err != nil {
-			return Order{}, err
-		}
+	promises, err := e.recheck(ctx, tx, o, le, c)
+	if err != nil {
+		return Order{}, err
 	}
 	after, err := loadOrder(ctx, tx, id, false)
 	if err != nil {
@@ -224,6 +220,18 @@ func (e *Endpoints) ChangeOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		extra["tax_jurisdiction_defaults"] = defaults
 	}
 	return after, recordOrder(ctx, "sales.sales_order.change", after, le, names[o.CustomerID].Number, &o.Status, c.check, extra)
+}
+
+// recheck checks the availability of a confirmed order's items the
+// change adds or changes the quantity of again (S2j), for the requested
+// delivery date the change leaves the order with (S2j2); a draft's change
+// checks nothing.
+func (e *Endpoints) recheck(ctx context.Context, tx pgx.Tx, o Order, le tenancy.Entity, c changed) ([]promise, error) {
+	if o.Status != Confirmed {
+		return nil, nil
+	}
+	o.DeliveryDate = c.delivery
+	return e.availability(ctx, tx, o, le, c.items, quantityChanged(c.changes))
 }
 
 // quantityChanged reports whether a change added the item or changed its
