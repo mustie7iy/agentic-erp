@@ -350,10 +350,13 @@ func TestReversalCountsDue(t *testing.T) {
 }
 
 // salesReversal is sales' record of a reversal of the outbound delivery
-// of the order, from the plant, by a 602 that does not exist.
+// of the order, from the plant, by a 602 that does not exist, on the
+// company's date today: the fixture's companies keep UTC, so the day is
+// UTC's, not the host's, which west of Greenwich is a day behind in the
+// evening and dates the reversal before its delivery.
 func salesReversal(order, delivery, plant uuid.UUID) sales.IssueReversal {
 	return sales.IssueReversal{OrderID: order, DeliveryID: delivery, DeliveryNumber: "OD9", PlantID: plant, MaterialDocumentID: uuid.New(),
-		MaterialDocumentNumber: "MD9", Date: time.Now()}
+		MaterialDocumentNumber: "MD9", Date: time.Now().UTC()}
 }
 
 // sorted are the lines, sorted.

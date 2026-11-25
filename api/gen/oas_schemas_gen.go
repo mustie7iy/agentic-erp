@@ -29011,6 +29011,7 @@ func (*ConflictHeaders) listConsolidationBalancesRes()                   {}
 func (*ConflictHeaders) listConsolidationGroupsRes()                     {}
 func (*ConflictHeaders) listConsolidationRunsRes()                       {}
 func (*ConflictHeaders) listCustomerSalesDataRes()                       {}
+func (*ConflictHeaders) listCycleCountsDueRes()                          {}
 func (*ConflictHeaders) listEInvoiceTransmissionDeadlinesRes()           {}
 func (*ConflictHeaders) listExpenseReportsRes()                          {}
 func (*ConflictHeaders) listForecastVarianceDocumentsRes()               {}
@@ -29162,6 +29163,8 @@ func (*ConflictHeaders) updateControlRes()                               {}
 func (*ConflictHeaders) updateCostCenterRes()                            {}
 func (*ConflictHeaders) updateCreditLimitRes()                           {}
 func (*ConflictHeaders) updateCustomerSalesDataRes()                     {}
+func (*ConflictHeaders) updateCycleCountIndicatorRes()                   {}
+func (*ConflictHeaders) updateCycleCountMaterialRes()                    {}
 func (*ConflictHeaders) updateDisputeCaseRes()                           {}
 func (*ConflictHeaders) updateEntryTemplateRes()                         {}
 func (*ConflictHeaders) updateInternalOrderSettlementRuleRes()           {}
