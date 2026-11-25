@@ -1,12 +1,15 @@
--- Earlier counts, which the previous version cannot hold, are refused
--- rather than dropped (06 §6.4: a down migration loses no data). An item
--- recounted has one (count_item_recount_check), so none means no item was
--- recounted either.
+-- Earlier counts, and the names of who entered counts, which the
+-- previous version cannot hold, are refused rather than dropped (06 §6.4:
+-- a down migration loses no data). An item recounted has an earlier count
+-- (count_item_recount_check), so none means no item was recounted either.
 SET LOCAL row_security = off; -- the guard reads every tenant's rows: a role held to row-level security fails here, not on zero rows (06 §6.4)
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM inventory.count_item_recount) THEN
     RAISE EXCEPTION 'earlier counts of count items exist; the previous version cannot hold them' USING ERRCODE = 'check_violation';
+  END IF;
+  IF EXISTS (SELECT FROM inventory.count_item WHERE counted_by_name IS NOT NULL) THEN
+    RAISE EXCEPTION 'counts name who entered them; the previous version cannot hold the names' USING ERRCODE = 'check_violation';
   END IF;
 END $$;
 -- 000406's status flow and 000407's count_item_once.
@@ -35,4 +38,6 @@ BEGIN
 END $$;
 DROP TABLE inventory.count_item_recount;
 DROP FUNCTION inventory.count_item_recount_check();
-ALTER TABLE inventory.count_item DROP COLUMN recounts;
+ALTER TABLE inventory.count_item DROP COLUMN recounts, DROP COLUMN counted_by_name;
+UPDATE ref.permission SET description = 'Create physical inventory count documents, which block postings of their materials, and enter counts'
+  WHERE code = 'inventory.count.write';

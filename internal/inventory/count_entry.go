@@ -56,7 +56,11 @@ func (e *Endpoints) EnterCount(ctx context.Context, id uuid.UUID, ifMatch func(C
 	if err != nil {
 		return CountDocument{}, err
 	}
-	if d, err = writeCounts(ctx, tx, p, d, counts); err != nil {
+	name, err := e.personName(ctx, p, "count document "+d.Number)
+	if err != nil {
+		return CountDocument{}, err
+	}
+	if d, err = writeCounts(ctx, tx, p, name, d, counts); err != nil {
 		return CountDocument{}, err
 	}
 	return d, recordCount(ctx, "inventory.count_document.count", d, r)
@@ -107,17 +111,18 @@ func countedQuantity(field string, m materials.Material, quantity, unit string) 
 	return converted(field, m, q, quantity, unit)
 }
 
-// writeCounts writes the counts, moves the document to counted once every
-// item is, and raises its version; it reads the document back.
-func writeCounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d CountDocument, counts []counting) (CountDocument, error) {
+// writeCounts writes the counts, naming who counted, moves the document to
+// counted once every item is, and raises its version; it reads the
+// document back.
+func writeCounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, name string, d CountDocument, counts []counting) (CountDocument, error) {
 	nos, counted, entry, units := make([]int16, len(counts)), make([]string, len(counts)), make([]string, len(counts)), make([]string, len(counts))
 	for i, c := range counts {
 		nos[i], counted[i], entry[i], units[i] = c.itemNo, c.counted, c.entry, c.unit
 	}
 	if _, err := tx.Exec(ctx, `UPDATE inventory.count_item i SET counted_quantity = x.c::numeric, entry_quantity = x.e::numeric, entry_uom_code = x.u,
-			counted_at = now(), counted_by = $2
+			counted_at = now(), counted_by = $2, counted_by_name = $7
 		FROM unnest($3::smallint[], $4::text[], $5::text[], $6::text[]) AS x (n, c, e, u)
-		WHERE i.count_document_id = $1 AND i.item_no = x.n AND i.counted_quantity IS NULL`, d.ID, p.ID, nos, counted, entry, units); err != nil {
+		WHERE i.count_document_id = $1 AND i.item_no = x.n AND i.counted_quantity IS NULL`, d.ID, p.ID, nos, counted, entry, units, name); err != nil {
 		return CountDocument{}, fmt.Errorf("inventory: counts of count document %s: %w", d.Number, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE inventory.count_document d SET version = version + 1, updated_by = $2,

@@ -7165,7 +7165,7 @@ components:
         status: {type: string, description: "The document's status after it. Open enum: counting, counted, pending_approval, posted, rejected, withdrawn."}
         items:
           type: array
-          description: 'The items sent for a recount, by item number.'
+          description: 'The items sent for a recount, in the order the request named them.'
           items:
             type: object
             required: [item_no, material_id, material_number, count_no, counted_quantity, counted_at, counted_by]

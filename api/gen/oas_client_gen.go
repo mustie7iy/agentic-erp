@@ -8558,15 +8558,16 @@ type Invoker interface {
 	// (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422
 	// `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's
 	// count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when
-	// and who sent it for the recount and when) and the item is open to be counted again
-	// (`enterPhysicalInventoryCount`), its `count_no` one more; the document is `counting` until every
-	// item is counted again. Only an item's latest count is posted (`postPhysicalInventoryDifferences`).
-	// An item not counted (its first count or its recount not entered yet) is not recounted (409
-	// `inventory.item_not_counted`), nor one counted 99 times (409 `inventory.recount_limit`). A document
-	// whose differences are posted, wait for approval, or were rejected or withdrawn takes no recount (409
-	// `inventory.count_invalid_status`): its materials are counted by a new document. One of a company the
-	// caller may not act in is not found (404). The posting block holds throughout. Audited, and published
-	// as PhysicalInventoryRecountRequested. Human-only (`x-agent: false`).
+	// and who sent it for the recount and when, each by id and by name as named then) and the item is open
+	// to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is
+	// `counting` until every item is counted again. Only an item's latest count is posted
+	// (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not
+	// entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409
+	// `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were
+	// rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are
+	// counted by a new document. One of a company the caller may not act in is not found (404). The
+	// posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/physical-inventory-documents/{id}:recount
 	RecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (RecountPhysicalInventoryItemsRes, error)
@@ -115178,15 +115179,16 @@ func (c *Client) sendRecordAgentToolCall(ctx context.Context, request *AgentTool
 // (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422
 // `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's
 // count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when
-// and who sent it for the recount and when) and the item is open to be counted again
-// (`enterPhysicalInventoryCount`), its `count_no` one more; the document is `counting` until every
-// item is counted again. Only an item's latest count is posted (`postPhysicalInventoryDifferences`).
-// An item not counted (its first count or its recount not entered yet) is not recounted (409
-// `inventory.item_not_counted`), nor one counted 99 times (409 `inventory.recount_limit`). A document
-// whose differences are posted, wait for approval, or were rejected or withdrawn takes no recount (409
-// `inventory.count_invalid_status`): its materials are counted by a new document. One of a company the
-// caller may not act in is not found (404). The posting block holds throughout. Audited, and published
-// as PhysicalInventoryRecountRequested. Human-only (`x-agent: false`).
+// and who sent it for the recount and when, each by id and by name as named then) and the item is open
+// to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is
+// `counting` until every item is counted again. Only an item's latest count is posted
+// (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not
+// entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409
+// `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were
+// rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are
+// counted by a new document. One of a company the caller may not act in is not found (404). The
+// posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/physical-inventory-documents/{id}:recount
 func (c *Client) RecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (RecountPhysicalInventoryItemsRes, error) {

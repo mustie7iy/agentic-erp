@@ -8,14 +8,18 @@
 -- waits for its recount. Expand only: a new insert-only table, a column
 -- with a default the previous version neither reads nor writes, and two
 -- triggers that refuse nothing the previous version writes (06 §6.4).
+-- An item's count also names the person who entered it by name, as it was
+-- then (none for a count entered before this version).
 ALTER TABLE inventory.count_item
-  ADD COLUMN recounts smallint NOT NULL DEFAULT 0 CONSTRAINT count_item_recounts_check CHECK (recounts BETWEEN 0 AND 98);
-GRANT UPDATE (recounts) ON inventory.count_item TO erp_app;
+  ADD COLUMN recounts smallint NOT NULL DEFAULT 0 CONSTRAINT count_item_recounts_check CHECK (recounts BETWEEN 0 AND 98),
+  ADD COLUMN counted_by_name text CONSTRAINT count_item_counted_by_name_check CHECK (counted_by_name IS NULL OR counted_by IS NOT NULL);
+GRANT UPDATE (recounts, counted_by_name) ON inventory.count_item TO erp_app;
 
 -- An earlier count of an item: its number (the item's first count is 1),
 -- the quantity counted in the base unit with the quantity and unit it was
--- entered in, when and by whom, and when and by whom it was sent for a
--- recount. Insert-only: what was counted is never changed.
+-- entered in, when and by whom (by id and by name as it was then, none
+-- for a count entered before this version), and when and by whom it was
+-- sent for a recount. Insert-only: what was counted is never changed.
 CREATE TABLE inventory.count_item_recount (
   tenant_id          uuid NOT NULL,
   count_document_id  uuid NOT NULL,
@@ -26,8 +30,10 @@ CREATE TABLE inventory.count_item_recount (
   entry_uom_code     text NOT NULL REFERENCES ref.unit_of_measure,
   counted_at         timestamptz NOT NULL,
   counted_by         uuid NOT NULL,
+  counted_by_name    text,
   recounted_at       timestamptz NOT NULL DEFAULT now(),
   recounted_by       uuid NOT NULL,
+  recounted_by_name  text NOT NULL,
   PRIMARY KEY (tenant_id, count_document_id, item_no, count_no),
   CONSTRAINT count_item_recount_item_fkey FOREIGN KEY (tenant_id, count_document_id, item_no)
     REFERENCES inventory.count_item (tenant_id, count_document_id, item_no)
@@ -42,8 +48,8 @@ CREATE FUNCTION inventory.count_item_recount_check() RETURNS trigger LANGUAGE pl
 BEGIN
   IF NOT EXISTS (SELECT FROM inventory.count_item i WHERE i.tenant_id = NEW.tenant_id AND i.count_document_id = NEW.count_document_id
       AND i.item_no = NEW.item_no AND i.open AND i.difference IS NULL AND i.recounts + 1 = NEW.count_no
-      AND (i.counted_quantity, i.entry_quantity, i.entry_uom_code, i.counted_at, i.counted_by)
-        = (NEW.counted_quantity, NEW.entry_quantity, NEW.entry_uom_code, NEW.counted_at, NEW.counted_by)) THEN
+      AND (i.counted_quantity, i.entry_quantity, i.entry_uom_code, i.counted_at, i.counted_by, i.counted_by_name)
+        IS NOT DISTINCT FROM (NEW.counted_quantity, NEW.entry_quantity, NEW.entry_uom_code, NEW.counted_at, NEW.counted_by, NEW.counted_by_name)) THEN
     RAISE EXCEPTION 'count_item_recount_check: count document % item %: count % is not the open item''s count', NEW.count_document_id, NEW.item_no,
       NEW.count_no USING ERRCODE = 'check_violation', CONSTRAINT = 'count_item_recount_check';
   END IF;
@@ -59,13 +65,16 @@ CREATE TRIGGER count_item_recount_check AFTER INSERT ON inventory.count_item_rec
 -- and its count kept as that earlier count.
 CREATE OR REPLACE FUNCTION inventory.count_item_once() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
+  -- The count's name goes with it: taken off with it, set with it.
   recounted boolean := OLD.counted_quantity IS NOT NULL AND NEW.counted_quantity IS NULL AND OLD.open AND OLD.difference IS NULL
     AND NEW.recounts = OLD.recounts + 1
     AND EXISTS (SELECT FROM inventory.count_item_recount r WHERE r.tenant_id = OLD.tenant_id AND r.count_document_id = OLD.count_document_id
       AND r.item_no = OLD.item_no AND r.count_no = NEW.recounts);
 BEGIN
   IF (OLD.counted_quantity IS NOT NULL AND NOT recounted AND (NEW.counted_quantity, NEW.entry_quantity, NEW.entry_uom_code, NEW.counted_at,
-        NEW.counted_by) IS DISTINCT FROM (OLD.counted_quantity, OLD.entry_quantity, OLD.entry_uom_code, OLD.counted_at, OLD.counted_by))
+        NEW.counted_by, NEW.counted_by_name) IS DISTINCT FROM (OLD.counted_quantity, OLD.entry_quantity, OLD.entry_uom_code, OLD.counted_at,
+        OLD.counted_by, OLD.counted_by_name))
+      OR (recounted AND NEW.counted_by_name IS NOT NULL)
       OR (NEW.recounts <> OLD.recounts AND NOT recounted)
       OR (NOT OLD.open AND NEW.open)
       OR (OLD.difference IS NOT NULL AND (NEW.difference, NEW.amount, NEW.material_document_id)
@@ -91,3 +100,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+
+-- Sending items for a recount is counting's (ADR-0082 As built S2d2).
+UPDATE ref.permission SET description = 'Create physical inventory count documents, which block postings of their materials, enter counts and '
+  || 'send counted items for a recount' WHERE code = 'inventory.count.write';

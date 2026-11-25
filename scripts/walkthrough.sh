@@ -15326,6 +15326,7 @@ step_count() {
   api 200 '"\(.status): " + ([.items[] | "item \(.item_no) count \(.count_no): \(.counted_quantity.value // "-"), earlier [\([.earlier_counts[] | "#\(.count_no) \(.counted_quantity.value)"] | join(", "))]"] | join("; "))' \
     recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 1}]}'
   expect "the brackets sent for a recount" "$(field '.items[0] | "\(.count_no) \(.counted_quantity.value // "-") \([.earlier_counts[].counted_quantity.value] | join(","))"')" "2 - $((book - 9))"
+  expect "who counted and who sent it back" "$(field '.items[0].earlier_counts[0] | "\(.counted_by_name), \(.recounted_by_name)"')" "Wade Warehouse, Ines Inventory"
   refused 409 inventory.item_not_counted recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 2}]}'
   as wade
   say "Wade recounts and finds $((book - 8)), 8 fewer; the document shows the brackets' counts in order:"

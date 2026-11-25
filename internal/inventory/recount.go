@@ -53,7 +53,11 @@ func (e *Endpoints) Recount(ctx context.Context, id uuid.UUID, ifMatch func(Coun
 	if err != nil {
 		return CountDocument{}, err
 	}
-	recounted, err := writeRecounts(ctx, tx, p, d, set)
+	name, err := e.personName(ctx, p, "count document "+d.Number)
+	if err != nil {
+		return CountDocument{}, err
+	}
+	recounted, err := writeRecounts(ctx, tx, p, name, d, set)
 	if err != nil {
 		return CountDocument{}, err
 	}
@@ -99,20 +103,20 @@ func checkRecounts(d CountDocument, itemNos []int, r refs) ([]CountItem, error) 
 // moves the document back to counting at a new version. It reads the
 // document back. The caller holds the document's row lock, which every
 // writer of its items takes first.
-func writeRecounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d CountDocument, set []CountItem) (CountDocument, error) {
+func writeRecounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, name string, d CountDocument, set []CountItem) (CountDocument, error) {
 	nos := make([]int16, len(set))
 	for i, it := range set {
 		nos[i] = it.ItemNo
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity, entry_quantity,
-			entry_uom_code, counted_at, counted_by, recounted_by)
+			entry_uom_code, counted_at, counted_by, counted_by_name, recounted_by, recounted_by_name)
 		SELECT i.tenant_id, i.count_document_id, i.item_no, i.recounts + 1, i.counted_quantity, i.entry_quantity, i.entry_uom_code, i.counted_at,
-			i.counted_by, $2
-		FROM inventory.count_item i WHERE i.count_document_id = $1 AND i.item_no = ANY($3) ORDER BY i.item_no`, d.ID, p.ID, nos); err != nil {
+			i.counted_by, i.counted_by_name, $2, $4
+		FROM inventory.count_item i WHERE i.count_document_id = $1 AND i.item_no = ANY($3) ORDER BY i.item_no`, d.ID, p.ID, nos, name); err != nil {
 		return CountDocument{}, fmt.Errorf("inventory: earlier counts of count document %s: %w", d.Number, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE inventory.count_item SET counted_quantity = NULL, entry_quantity = NULL, entry_uom_code = NULL, counted_at = NULL,
-			counted_by = NULL, recounts = recounts + 1
+			counted_by = NULL, counted_by_name = NULL, recounts = recounts + 1
 		WHERE count_document_id = $1 AND item_no = ANY($2)`, d.ID, nos); err != nil {
 		return CountDocument{}, fmt.Errorf("inventory: recount items of count document %s: %w", d.Number, err)
 	}
@@ -144,4 +148,14 @@ func recordRecount(ctx context.Context, d CountDocument, set []CountItem, r refs
 	return errs.Wrapf(audit.Record(ctx, "inventory.count_document.recount", "inventory.count_document", d.ID, detail,
 		outbox.Event{Context: "inventory", Name: "physical_inventory_recount_requested", AggregateType: "inventory.count_document", AggregateID: d.ID,
 			Payload: payload}), "inventory: record the recount of count document %s", d.Number)
+}
+
+// personName is the caller's name as the identity context has it now,
+// which a count and a recount keep ("" when it names none).
+func (e *Endpoints) personName(ctx context.Context, p reqctx.Principal, of string) (string, error) {
+	names, err := e.People.PersonNames(ctx, []uuid.UUID{p.ID})
+	if err != nil {
+		return "", fmt.Errorf("inventory: name of the person counting %s: %w", of, err)
+	}
+	return names[p.ID], nil
 }

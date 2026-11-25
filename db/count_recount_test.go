@@ -11,8 +11,9 @@ import (
 // application does: copied from the item.
 func (s countScene) earlier(item, no int) stmt {
 	return step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity, entry_quantity,
-		entry_uom_code, counted_at, counted_by, recounted_by)
-		SELECT tenant_id, count_document_id, item_no, $3, counted_quantity, entry_quantity, entry_uom_code, counted_at, counted_by, tenant_id
+		entry_uom_code, counted_at, counted_by, counted_by_name, recounted_by, recounted_by_name)
+		SELECT tenant_id, count_document_id, item_no, $3, counted_quantity, entry_quantity, entry_uom_code, counted_at, counted_by, counted_by_name,
+			tenant_id, 'Ines'
 		FROM inventory.count_item WHERE count_document_id = $1 AND item_no = $2`, s.count, item, no)
 }
 
@@ -57,7 +58,7 @@ func TestRecountRules(t *testing.T) {
 		{"an earlier count numbered out of turn", func(s countScene) []stmt { return append(counted(s), s.earlier(1, 2)) }, "count_item_recount_check"},
 		{"an earlier count unlike the item's", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
-				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by) VALUES ($1, $2, 1, 1, 8, 9, 'EA', now(), $1, $1)`, s.tenant, s.count))
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 1, 1, 8, 9, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
 		}, "count_item_recount_check"},
 		{"an earlier count of an item not counted", func(s countScene) []stmt {
 			return []stmt{s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"), s.earlier(1, 1)}
@@ -67,27 +68,27 @@ func TestRecountRules(t *testing.T) {
 		}, "count_item_recount_check"},
 		{"an earlier count of no item", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
-				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by) VALUES ($1, $2, 2, 1, 9, 9, 'EA', now(), $1, $1)`, s.tenant, s.count))
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 2, 1, 9, 9, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
 		}, "count_item_recount_check"},
 		{"an earlier count numbered 0", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
-				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by) VALUES ($1, $2, 1, 0, 9, 9, 'EA', now(), $1, $1)`, s.tenant, s.count))
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 1, 0, 9, 9, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
 		}, "count_item_recount_count_no_check"},
 		{"an earlier count numbered 99", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
-				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by) VALUES ($1, $2, 1, 99, 9, 9, 'EA', now(), $1, $1)`, s.tenant, s.count))
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 1, 99, 9, 9, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
 		}, "count_item_recount_count_no_check"},
 		{"a negative earlier count", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
-				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by) VALUES ($1, $2, 1, 1, -1, 9, 'EA', now(), $1, $1)`, s.tenant, s.count))
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 1, 1, -1, 9, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
 		}, "count_item_recount_counted_quantity_check"},
 		{"a negative earlier entry", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
-				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by) VALUES ($1, $2, 1, 1, 9, -1, 'EA', now(), $1, $1)`, s.tenant, s.count))
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 1, 1, 9, -1, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
 		}, "count_item_recount_entry_quantity_check"},
 		{"an earlier count in no unit", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
-				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by) VALUES ($1, $2, 1, 1, 9, 9, 'XX9', now(), $1, $1)`, s.tenant, s.count))
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 1, 1, 9, 9, 'XX9', now(), $1, $1, 'Ines')`, s.tenant, s.count))
 		}, "count_item_recount_entry_uom_code_fkey"},
 		{"an earlier count changed", func(s countScene) []stmt {
 			return append(counted(s), s.earlier(1, 1), step(`UPDATE inventory.count_item_recount SET counted_quantity = 1`))
@@ -95,6 +96,29 @@ func TestRecountRules(t *testing.T) {
 		{"an earlier count deleted", func(s countScene) []stmt {
 			return append(counted(s), s.earlier(1, 1), step(`DELETE FROM inventory.count_item_recount`))
 		}, "permission denied"},
+		{"an earlier count's name unlike the item's", func(s countScene) []stmt {
+			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
+				entry_quantity, entry_uom_code, counted_at, counted_by, counted_by_name, recounted_by, recounted_by_name)
+				SELECT tenant_id, count_document_id, item_no, 1, counted_quantity, entry_quantity, entry_uom_code, counted_at, counted_by, 'Someone else',
+					tenant_id, 'Ines' FROM inventory.count_item WHERE count_document_id = $1`, s.count))
+		}, "count_item_recount_check"},
+		{"an earlier count without who sent it back", func(s countScene) []stmt {
+			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
+				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by)
+				SELECT tenant_id, count_document_id, item_no, 1, counted_quantity, entry_quantity, entry_uom_code, counted_at, counted_by, tenant_id
+				FROM inventory.count_item WHERE count_document_id = $1`, s.count))
+		}, "null value"},
+		{"a count's name changed", func(s countScene) []stmt {
+			return append(counted(s), step(`UPDATE inventory.count_item SET counted_by_name = 'Someone else' WHERE count_document_id = $1`, s.count))
+		}, "count_item_once"},
+		{"a recount keeping the count's name", func(s countScene) []stmt {
+			return append(counted(s), s.earlier(1, 1), step(`UPDATE inventory.count_item SET counted_quantity = NULL, entry_quantity = NULL,
+				entry_uom_code = NULL, counted_at = NULL, counted_by = NULL, recounts = 1 WHERE count_document_id = $1`, s.count))
+		}, "count_item_once"},
+		{"a name without its count", func(s countScene) []stmt {
+			return []stmt{s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"),
+				step(`UPDATE inventory.count_item SET counted_by_name = 'Wade' WHERE count_document_id = $1`, s.count)}
+		}, "count_item_counted_by_name_check"},
 		{"recounts 99", func(s countScene) []stmt {
 			return []stmt{s.document(s.count, "PI1", "counting"), step(`INSERT INTO inventory.count_item (tenant_id, count_document_id, item_no, material_id,
 				plant_id, storage_location_id, book_quantity, recounts) VALUES ($1, $2, 1, $3, $4, $5, 10, 99)`, s.tenant, s.count, s.material, s.plant,
@@ -187,4 +211,24 @@ func TestRecountDownRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	failsWith(t, exec(tx, down), "earlier counts of count items exist")
+}
+
+// TestRecountDownRefusedNames (S2d2, migration 000476): with no earlier
+// count, the down still refuses while a count names who entered it.
+func TestRecountDownRefusedNames(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000476_count_recounts").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	s := newCountScene()
+	if err := all(tx, append(append([]stmt{step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String())}, s.received()[:3]...),
+		s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"), s.counted(1),
+		step(`SELECT set_config('app.tenant_id', '', true)`))...); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "counts name who entered them")
 }

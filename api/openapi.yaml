@@ -26517,7 +26517,7 @@ paths:
       tags:
         - inventory
       summary: Send counted items for a recount
-      description: "Sends counted items of a `counting` or `counted` document for a recount at the caller's version (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422 `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when and who sent it for the recount and when) and the item is open to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is `counting` until every item is counted again. Only an item's latest count is posted (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409 `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are counted by a new document. One of a company the caller may not act in is not found (404). The posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested. Human-only (`x-agent: false`)."
+      description: "Sends counted items of a `counting` or `counted` document for a recount at the caller's version (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422 `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when and who sent it for the recount and when, each by id and by name as named then) and the item is open to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is `counting` until every item is counted again. Only an item's latest count is posted (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409 `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are counted by a new document. One of a company the caller may not act in is not found (404). The posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested. Human-only (`x-agent: false`)."
       x-permission: inventory.count.write
       x-agent: false
       x-problem-codes:
@@ -68200,6 +68200,7 @@ components:
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity counted as it was entered, in the unit it was entered in; absent with `counted_quantity`.", readOnly: true}
         counted_at: {type: string, format: date-time, description: "When the count was entered; absent with it.", readOnly: true}
         counted_by: {type: string, format: uuid, description: "Who entered it; absent with it.", readOnly: true}
+        counted_by_name: {type: string, description: "That person's name as it was when they entered it (S2d2); absent with it, and for a count entered before names were kept.", readOnly: true}
         difference: {$ref: "#/components/schemas/Quantity", description: "Once the document is posted, the counted quantity less the book quantity, in the base unit: positive a gain, negative a loss, zero none (S2d); absent before.", readOnly: true}
         difference_value: {$ref: "#/components/schemas/Money", description: "What the difference moved in value on the material's valuation in the plant, signed as it is; absent with it.", readOnly: true}
         material_document_id: {type: string, format: uuid, description: "The material document (`GET /v1/material-documents/{id}`, movement type 701 or 702) that posted the difference; absent when there was none.", readOnly: true}
@@ -68213,15 +68214,17 @@ components:
     PhysicalInventoryEarlierCount:
       type: object
       description: "An earlier count of a count document's item, sent for a recount (S2d2; SAP MI11, from memory): kept as it was counted, never posted."
-      required: [count_no, counted_quantity, entry_quantity, counted_at, counted_by, recounted_at, recounted_by]
+      required: [count_no, counted_quantity, entry_quantity, counted_at, counted_by, recounted_at, recounted_by, recounted_by_name]
       properties:
         count_no: {type: integer, format: int32, description: "Its number among the item's counts, from 1.", readOnly: true}
         counted_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity it counted, in the material's base unit.", readOnly: true}
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity as it was entered, in the unit it was entered in.", readOnly: true}
         counted_at: {type: string, format: date-time, description: "When it was entered.", readOnly: true}
         counted_by: {type: string, format: uuid, description: "Who entered it.", readOnly: true}
+        counted_by_name: {type: string, description: "That person's name as it was when they entered it; absent for a count entered before names were kept.", readOnly: true}
         recounted_at: {type: string, format: date-time, description: "When the item was sent for a recount, which set this count aside.", readOnly: true}
         recounted_by: {type: string, format: uuid, description: "Who sent it for the recount.", readOnly: true}
+        recounted_by_name: {type: string, description: "That person's name as it was then.", readOnly: true}
     PhysicalInventoryRecount:
       type: object
       description: "Counted items of a count document to recount."

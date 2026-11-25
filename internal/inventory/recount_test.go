@@ -14,12 +14,18 @@ import (
 // status, and returns the answer.
 func (e env) recount(t *testing.T, id string, status int, nos ...int) map[string]any {
 	t.Helper()
-	_, tag := e.Must(200, "GET", counts+"/"+id, "", "")
+	return e.recountAs(t, e.Client, id, status, nos...)
+}
+
+// recountAs is recount by the client's person.
+func (e env) recountAs(t *testing.T, c apitest.Client, id string, status int, nos ...int) map[string]any {
+	t.Helper()
+	_, tag := c.Must(200, "GET", counts+"/"+id, "", "")
 	items := make([]any, len(nos))
 	for i, no := range nos {
 		items[i] = map[string]any{"item_no": no}
 	}
-	code, got, _ := e.Do("POST", counts+"/"+id+":recount", mustJSON(t, map[string]any{"items": items}), tag)
+	code, got, _ := c.Do("POST", counts+"/"+id+":recount", mustJSON(t, map[string]any{"items": items}), tag)
 	if code != status {
 		t.Fatalf("recount: got %d %v, want %d", code, got, status)
 	}
@@ -57,13 +63,34 @@ func TestRecount(t *testing.T) {
 	bolt := mustMaterial(t, e)
 	e.post(t, "561", e.item("10", "EA", nil))
 	id := e.counted(t, []string{e.bracket, bolt}, "7", "0")
-	got := e.recount(t, id, 200, 1)
-	if want := "1 #2 - [#1 7 (7 EA)]; 2 #1 0 []"; history(t, got) != want || got["status"] != "counting" || got["version"] != float64(3) {
-		t.Fatalf("recounted: got %v version %v %s, want counting version 3 %s", got["status"], got["version"], history(t, got), want)
+	before, _ := e.Must(200, "GET", counts+"/"+id, "", "")
+	counter := rows(t, before, "items")[0]
+	ines := e.Reader(t, "Ines Inventory", e.DE)
+	got := e.recountAs(t, e.As(ines), id, 200, 1)
+	for _, w := range []struct{ name, got, want string }{
+		{"history", history(t, got), "1 #2 - [#1 7 (7 EA)]; 2 #1 0 []"},
+		{"status", fmt.Sprint(got["status"]), "counting"},
+		{"version", fmt.Sprint(got["version"]), "3"},
+	} {
+		if w.got != w.want {
+			t.Errorf("recounted %s: got %q, want %q", w.name, w.got, w.want)
+		}
 	}
 	first := rows(t, rows(t, got, "items")[0], "earlier_counts")[0]
-	if who := e.Tenant.Human.ID.String(); first["counted_by"] != who || first["recounted_by"] != who || first["counted_at"] == nil || first["recounted_at"] == nil {
-		t.Errorf("the earlier count: got %v, want counted and recounted by %s, with when", first, who)
+	for _, w := range []struct{ name, got, want string }{
+		{"counted_by", fmt.Sprint(first["counted_by"]), e.Tenant.Human.ID.String()},
+		{"counted_by_name", fmt.Sprint(first["counted_by_name"]), fmt.Sprint(counter["counted_by_name"])},
+		{"counted_at", fmt.Sprint(first["counted_at"]), fmt.Sprint(counter["counted_at"])},
+		{"recounted_by", fmt.Sprint(first["recounted_by"]), ines.ID.String()},
+		{"recounted_by_name", fmt.Sprint(first["recounted_by_name"]), "Ines Inventory"},
+		{"recounted_at given", fmt.Sprint(first["recounted_at"] != nil), "true"},
+	} {
+		if w.got != w.want {
+			t.Errorf("the earlier count's %s: got %q, want %q", w.name, w.got, w.want)
+		}
+	}
+	if name, _ := counter["counted_by_name"].(string); name == "" {
+		t.Errorf("the count's counted_by_name: got %v, want the counter's name", counter["counted_by_name"])
 	}
 	if got := e.enter(t, id, 409, [3]string{"2", "1", "EA"}); got["code"] != "inventory.item_counted" {
 		t.Errorf("an item not recounted entered again: got %v, want inventory.item_counted", got)
@@ -77,15 +104,21 @@ func TestRecount(t *testing.T) {
 		t.Errorf("recounted twice: got %s, want %s", history(t, after), want)
 	}
 	posted := e.postDiffs(t, id, 200)
-	if got, want := diffs(t, posted), "1 -1 -2.00 true; 2 0 0.00 false"; got != want || e.stock(t, e.s1, "") != "9 EA" {
-		t.Errorf("posted: got %s and stock %s, want %s and 9 EA, the latest count", got, e.stock(t, e.s1, ""), want)
+	if got, want := diffs(t, posted), "1 -1 -2.00 true; 2 0 0.00 false"; got != want {
+		t.Errorf("posted: got %s, want %s, the latest count's", got, want)
+	}
+	if got := e.stock(t, e.s1, ""); got != "9 EA" {
+		t.Errorf("the stock after posting: got %s, want 9 EA, the latest count", got)
 	}
 	if got := e.recount(t, id, 409, 1); got["code"] != "inventory.count_invalid_status" {
 		t.Errorf("a posted document recounted: got %v, want inventory.count_invalid_status", got)
 	}
 	a := e.audits(t, id, "inventory.count_document.recount")
-	if len(a) != 2 || fmt.Sprint(rows(t, a[1], "recounted")[0]["count_no"]) != "2" {
-		t.Errorf("audits of the recounts: got %v, want two, the second setting count 2 aside", a)
+	if len(a) != 2 {
+		t.Fatalf("audits of the recounts: got %d, want 2", len(a))
+	}
+	if got := fmt.Sprint(rows(t, a[1], "recounted")[0]["count_no"]); got != "2" {
+		t.Errorf("the second recount's audit: got count %s set aside, want 2", got)
 	}
 	e.recountEvents(t, id)
 }
@@ -106,6 +139,33 @@ func (e env) recountEvents(t *testing.T, id string) {
 	}
 	if want := "counting 3 item 1 #1 7 EA, counting 5 item 1 #2 10 EA"; strings.Join(got, ", ") != want {
 		t.Errorf("events: got %v, want %s", got, want)
+	}
+}
+
+// TestRecountSeveral: items of a document still counting are recounted
+// together, in the request's order, each keeping its own count; the
+// document stays counting.
+func TestRecountSeveral(t *testing.T) {
+	e := countSetup(t)
+	id := e.count(t, e.bracket, mustMaterial(t, e), mustMaterial(t, e))["id"].(string)
+	e.enter(t, id, 200, [3]string{"1", "4", "EA"}, [3]string{"2", "5", "EA"})
+	got := e.recount(t, id, 200, 2, 1)
+	if want := "1 #2 - [#1 4 (4 EA)]; 2 #2 - [#1 5 (5 EA)]; 3 #1 - []"; history(t, got) != want {
+		t.Errorf("recounted: got %s, want %s", history(t, got), want)
+	}
+	if got["status"] != "counting" {
+		t.Errorf("the document: got %v, want counting", got["status"])
+	}
+	var nos []string
+	for _, p := range apitest.Published(t, e.Tenant, outbox.Event{Context: "inventory", Name: "physical_inventory_recount_requested"}) {
+		if p["count_document_id"] == id {
+			for _, it := range rows(t, p, "items") {
+				nos = append(nos, fmt.Sprint(it["item_no"]))
+			}
+		}
+	}
+	if got := strings.Join(nos, " "); got != "2 1" {
+		t.Errorf("the event's items: got %s, want 2 1, the request's order", got)
 	}
 }
 

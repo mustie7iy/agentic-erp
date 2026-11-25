@@ -1108,8 +1108,9 @@ recount indicator, all from memory, for the specialist):
   taken off an item only with its recounts one more and that earlier
   count written (`count_item_once`, widened); a counted document goes back
   to `counting` only while an item of it is uncounted
-  (`count_document_status_flow`, widened); the down migration refuses
-  while an earlier count exists. Schema tests `TestRecountRules`,
+  (`count_document_status_flow`, widened); a count's name goes with the
+  count (`count_item_counted_by_name_check`, `count_item_once`); the down
+  migration refuses while an earlier count or a count's name exists. Schema tests `TestRecountRules`,
   `TestRecountTriggersAsOwner` (as the owner), `TestRecountDownRefused`
   (as a migrating role held to RLS).
 - **Locks.** The count document's row (`FOR UPDATE`), which `:enterCount`
@@ -1121,15 +1122,23 @@ recount indicator, all from memory, for the specialist):
 - **Read.** Each item gives `count_no` and `earlier_counts` (in count
   order, empty when never recounted), so the document shows each item's
   counts in order: its earlier counts, then its latest
-  (`counted_quantity`).
+  (`counted_quantity`). **Who** counted and who sent an item back are
+  given by id and by name as named then (`counted_by_name`,
+  `recounted_by_name`, read through the new `People` port, the app's
+  `LedgerPeople`, when the count or recount is written, as sales' credit
+  release and shipping's trade compliance release keep theirs): a count
+  entered from this version on names its counter, an earlier one has no
+  name. The audit record and the event carry the ids alone (ADR-0079, PO
+  2026-11-05).
 - **Audited and published.** `inventory.count_document.recount` names
   the document, each item's count number and the counts set aside
   (`recounted`). Unlike the count's other steps, a recount publishes
   **PhysicalInventoryRecountRequested** (asyncapi, inventory channel):
   whoever counts again (a counting device or a warehouse system) learns
   that an item is open again; it names the document, its company, plant
-  and storage location, its status and version, and each item with its
-  material and the count set aside, by person id, never a name. Not
+  and storage location, its status and version, and each item, in the
+  request's order, with its material and the count set aside, by person
+  id, never a name. Not
   offered to webhooks until a consumer asks.
 - **Agents.** `recountPhysicalInventoryItems` is on the never lists of
   the count planning and demand forecasting agents (ADR-0072 As built

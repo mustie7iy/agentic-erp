@@ -28,7 +28,8 @@ func countAPI(d CountDocument, r refs) gen.PhysicalInventoryDocument {
 	for i, it := range d.Items {
 		m := r.materials[it.MaterialID]
 		item := gen.PhysicalInventoryItem{ItemNo: int32(it.ItemNo), MaterialID: it.MaterialID, MaterialNumber: m.Number, MaterialDescription: m.Description,
-			BookQuantity: gen.Quantity{Value: it.Book, Unit: m.BaseUnit}, CountedAt: apitypes.OptDateTime(it.CountedAt), CountedBy: apitypes.OptUUID(it.CountedBy)}
+			BookQuantity: gen.Quantity{Value: it.Book, Unit: m.BaseUnit}, CountedAt: apitypes.OptDateTime(it.CountedAt), CountedBy: apitypes.OptUUID(it.CountedBy),
+			CountedByName: apitypes.OptString(it.CountedByName)}
 		if it.Counted != nil {
 			item.CountedQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Counted, Unit: m.BaseUnit})
 			item.EntryQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Entry, Unit: *it.EntryUnit})
@@ -54,8 +55,8 @@ func earlierAPI(earlier []EarlierCount, base string) []gen.PhysicalInventoryEarl
 	out := make([]gen.PhysicalInventoryEarlierCount, len(earlier))
 	for i, c := range earlier {
 		out[i] = gen.PhysicalInventoryEarlierCount{CountNo: int32(c.CountNo), CountedQuantity: gen.Quantity{Value: c.Counted, Unit: base},
-			EntryQuantity: gen.Quantity{Value: c.Entry, Unit: c.EntryUnit}, CountedAt: c.CountedAt, CountedBy: c.CountedBy, RecountedAt: c.RecountedAt,
-			RecountedBy: c.RecountedBy}
+			EntryQuantity: gen.Quantity{Value: c.Entry, Unit: c.EntryUnit}, CountedAt: c.CountedAt, CountedBy: c.CountedBy,
+			CountedByName: apitypes.OptString(c.CountedByName), RecountedAt: c.RecountedAt, RecountedBy: c.RecountedBy, RecountedByName: c.RecountedByName}
 	}
 	return out
 }

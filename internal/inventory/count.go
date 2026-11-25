@@ -62,7 +62,10 @@ type CountItem struct {
 	EntryUnit  *string    `json:"entry_unit"`
 	CountedAt  *time.Time `json:"counted_at"`
 	CountedBy  *uuid.UUID `json:"counted_by"`
-	Open       bool       `json:"open"`
+	// CountedByName is who entered the count, as named then; nil for a
+	// count entered before S2d2.
+	CountedByName *string `json:"counted_by_name"`
+	Open          bool    `json:"open"`
 	// Difference (counted less book), Amount, the value it moved in the
 	// document's currency, and the material document that moved it, once
 	// the document is posted (S2d).
@@ -79,14 +82,17 @@ type CountItem struct {
 // counted in the base unit and as entered, when and by whom, and when and
 // by whom it was sent for the recount.
 type EarlierCount struct {
-	CountNo     int16     `json:"count_no"`
-	Counted     string    `json:"counted_quantity"`
-	Entry       string    `json:"entry_quantity"`
-	EntryUnit   string    `json:"entry_unit"`
-	CountedAt   time.Time `json:"counted_at"`
-	CountedBy   uuid.UUID `json:"counted_by"`
-	RecountedAt time.Time `json:"recounted_at"`
-	RecountedBy uuid.UUID `json:"recounted_by"`
+	CountNo   int16     `json:"count_no"`
+	Counted   string    `json:"counted_quantity"`
+	Entry     string    `json:"entry_quantity"`
+	EntryUnit string    `json:"entry_unit"`
+	CountedAt time.Time `json:"counted_at"`
+	CountedBy uuid.UUID `json:"counted_by"`
+	// CountedByName is nil for a count entered before S2d2.
+	CountedByName   *string   `json:"counted_by_name"`
+	RecountedAt     time.Time `json:"recounted_at"`
+	RecountedBy     uuid.UUID `json:"recounted_by"`
+	RecountedByName string    `json:"recounted_by_name"`
 }
 
 // CountNo is the number of the item's latest count, the one Counted gives.
@@ -134,11 +140,12 @@ const countSelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number, d.
 		coalesce(c.exponent, 0),
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'book_quantity', trim_scale(i.book_quantity)::text,
 				'counted_quantity', trim_scale(i.counted_quantity)::text, 'entry_quantity', trim_scale(i.entry_quantity)::text,
-				'entry_unit', i.entry_uom_code, 'counted_at', i.counted_at, 'counted_by', i.counted_by, 'open', i.open,
+				'entry_unit', i.entry_uom_code, 'counted_at', i.counted_at, 'counted_by', i.counted_by, 'counted_by_name', i.counted_by_name, 'open', i.open,
 				'difference', trim_scale(i.difference)::text, 'amount', i.amount, 'material_document_id', i.material_document_id,
 				'material_document_number', m.number, 'recounts', i.recounts, 'earlier_counts', coalesce((SELECT json_agg(json_build_object('count_no', r.count_no,
 					'counted_quantity', trim_scale(r.counted_quantity)::text, 'entry_quantity', trim_scale(r.entry_quantity)::text, 'entry_unit', r.entry_uom_code,
-					'counted_at', r.counted_at, 'counted_by', r.counted_by, 'recounted_at', r.recounted_at, 'recounted_by', r.recounted_by) ORDER BY r.count_no)
+					'counted_at', r.counted_at, 'counted_by', r.counted_by, 'counted_by_name', r.counted_by_name, 'recounted_at', r.recounted_at,
+					'recounted_by', r.recounted_by, 'recounted_by_name', r.recounted_by_name) ORDER BY r.count_no)
 					FROM inventory.count_item_recount r WHERE r.tenant_id = i.tenant_id AND r.count_document_id = i.count_document_id AND r.item_no = i.item_no),
 					'[]')) ORDER BY i.item_no)
 			FROM inventory.count_item i LEFT JOIN inventory.material_document m ON m.tenant_id = i.tenant_id AND m.id = i.material_document_id

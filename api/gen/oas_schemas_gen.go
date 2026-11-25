@@ -95600,10 +95600,15 @@ type PhysicalInventoryEarlierCount struct {
 	CountedAt time.Time `json:"counted_at"`
 	// Who entered it.
 	CountedBy uuid.UUID `json:"counted_by"`
+	// That person's name as it was when they entered it; absent for a count entered before names were
+	// kept.
+	CountedByName OptString `json:"counted_by_name"`
 	// When the item was sent for a recount, which set this count aside.
 	RecountedAt time.Time `json:"recounted_at"`
 	// Who sent it for the recount.
 	RecountedBy uuid.UUID `json:"recounted_by"`
+	// That person's name as it was then.
+	RecountedByName string `json:"recounted_by_name"`
 }
 
 // GetCountNo returns the value of CountNo.
@@ -95631,6 +95636,11 @@ func (s *PhysicalInventoryEarlierCount) GetCountedBy() uuid.UUID {
 	return s.CountedBy
 }
 
+// GetCountedByName returns the value of CountedByName.
+func (s *PhysicalInventoryEarlierCount) GetCountedByName() OptString {
+	return s.CountedByName
+}
+
 // GetRecountedAt returns the value of RecountedAt.
 func (s *PhysicalInventoryEarlierCount) GetRecountedAt() time.Time {
 	return s.RecountedAt
@@ -95639,6 +95649,11 @@ func (s *PhysicalInventoryEarlierCount) GetRecountedAt() time.Time {
 // GetRecountedBy returns the value of RecountedBy.
 func (s *PhysicalInventoryEarlierCount) GetRecountedBy() uuid.UUID {
 	return s.RecountedBy
+}
+
+// GetRecountedByName returns the value of RecountedByName.
+func (s *PhysicalInventoryEarlierCount) GetRecountedByName() string {
+	return s.RecountedByName
 }
 
 // SetCountNo sets the value of CountNo.
@@ -95666,6 +95681,11 @@ func (s *PhysicalInventoryEarlierCount) SetCountedBy(val uuid.UUID) {
 	s.CountedBy = val
 }
 
+// SetCountedByName sets the value of CountedByName.
+func (s *PhysicalInventoryEarlierCount) SetCountedByName(val OptString) {
+	s.CountedByName = val
+}
+
 // SetRecountedAt sets the value of RecountedAt.
 func (s *PhysicalInventoryEarlierCount) SetRecountedAt(val time.Time) {
 	s.RecountedAt = val
@@ -95674,6 +95694,11 @@ func (s *PhysicalInventoryEarlierCount) SetRecountedAt(val time.Time) {
 // SetRecountedBy sets the value of RecountedBy.
 func (s *PhysicalInventoryEarlierCount) SetRecountedBy(val uuid.UUID) {
 	s.RecountedBy = val
+}
+
+// SetRecountedByName sets the value of RecountedByName.
+func (s *PhysicalInventoryEarlierCount) SetRecountedByName(val string) {
+	s.RecountedByName = val
 }
 
 // An item of a count document (SAP ISEG): a material, its book quantity frozen as the document was
@@ -95700,6 +95725,9 @@ type PhysicalInventoryItem struct {
 	CountedAt OptDateTime `json:"counted_at"`
 	// Who entered it; absent with it.
 	CountedBy OptUUID `json:"counted_by"`
+	// That person's name as it was when they entered it (S2d2); absent with it, and for a count entered
+	// before names were kept.
+	CountedByName OptString `json:"counted_by_name"`
 	// Once the document is posted, the counted quantity less the book quantity, in the base unit: positive
 	// a gain, negative a loss, zero none (S2d); absent before.
 	Difference OptQuantity `json:"difference"`
@@ -95762,6 +95790,11 @@ func (s *PhysicalInventoryItem) GetCountedAt() OptDateTime {
 // GetCountedBy returns the value of CountedBy.
 func (s *PhysicalInventoryItem) GetCountedBy() OptUUID {
 	return s.CountedBy
+}
+
+// GetCountedByName returns the value of CountedByName.
+func (s *PhysicalInventoryItem) GetCountedByName() OptString {
+	return s.CountedByName
 }
 
 // GetDifference returns the value of Difference.
@@ -95837,6 +95870,11 @@ func (s *PhysicalInventoryItem) SetCountedAt(val OptDateTime) {
 // SetCountedBy sets the value of CountedBy.
 func (s *PhysicalInventoryItem) SetCountedBy(val OptUUID) {
 	s.CountedBy = val
+}
+
+// SetCountedByName sets the value of CountedByName.
+func (s *PhysicalInventoryItem) SetCountedByName(val OptString) {
+	s.CountedByName = val
 }
 
 // SetDifference sets the value of Difference.

@@ -232024,6 +232024,12 @@ func (s *PhysicalInventoryEarlierCount) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.CountedBy)
 	}
 	{
+		if s.CountedByName.Set {
+			e.FieldStart("counted_by_name")
+			s.CountedByName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("recounted_at")
 		json.EncodeDateTime(e, s.RecountedAt)
 	}
@@ -232031,16 +232037,22 @@ func (s *PhysicalInventoryEarlierCount) encodeFields(e *jx.Encoder) {
 		e.FieldStart("recounted_by")
 		json.EncodeUUID(e, s.RecountedBy)
 	}
+	{
+		e.FieldStart("recounted_by_name")
+		e.Str(s.RecountedByName)
+	}
 }
 
-var jsonFieldsNameOfPhysicalInventoryEarlierCount = [7]string{
+var jsonFieldsNameOfPhysicalInventoryEarlierCount = [9]string{
 	0: "count_no",
 	1: "counted_quantity",
 	2: "entry_quantity",
 	3: "counted_at",
 	4: "counted_by",
-	5: "recounted_at",
-	6: "recounted_by",
+	5: "counted_by_name",
+	6: "recounted_at",
+	7: "recounted_by",
+	8: "recounted_by_name",
 }
 
 // Decode decodes PhysicalInventoryEarlierCount from json.
@@ -232048,7 +232060,7 @@ func (s *PhysicalInventoryEarlierCount) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode PhysicalInventoryEarlierCount to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -232108,8 +232120,18 @@ func (s *PhysicalInventoryEarlierCount) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"counted_by\"")
 			}
+		case "counted_by_name":
+			if err := func() error {
+				s.CountedByName.Reset()
+				if err := s.CountedByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"counted_by_name\"")
+			}
 		case "recounted_at":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.RecountedAt = v
@@ -232121,7 +232143,7 @@ func (s *PhysicalInventoryEarlierCount) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"recounted_at\"")
 			}
 		case "recounted_by":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.RecountedBy = v
@@ -232132,6 +232154,18 @@ func (s *PhysicalInventoryEarlierCount) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"recounted_by\"")
 			}
+		case "recounted_by_name":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.RecountedByName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"recounted_by_name\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -232141,8 +232175,9 @@ func (s *PhysicalInventoryEarlierCount) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b01111111,
+	for i, mask := range [2]uint8{
+		0b11011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -232242,6 +232277,12 @@ func (s *PhysicalInventoryItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CountedByName.Set {
+			e.FieldStart("counted_by_name")
+			s.CountedByName.Encode(e)
+		}
+	}
+	{
 		if s.Difference.Set {
 			e.FieldStart("difference")
 			s.Difference.Encode(e)
@@ -232279,7 +232320,7 @@ func (s *PhysicalInventoryItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPhysicalInventoryItem = [15]string{
+var jsonFieldsNameOfPhysicalInventoryItem = [16]string{
 	0:  "item_no",
 	1:  "material_id",
 	2:  "material_number",
@@ -232289,12 +232330,13 @@ var jsonFieldsNameOfPhysicalInventoryItem = [15]string{
 	6:  "entry_quantity",
 	7:  "counted_at",
 	8:  "counted_by",
-	9:  "difference",
-	10: "difference_value",
-	11: "material_document_id",
-	12: "material_document_number",
-	13: "count_no",
-	14: "earlier_counts",
+	9:  "counted_by_name",
+	10: "difference",
+	11: "difference_value",
+	12: "material_document_id",
+	13: "material_document_number",
+	14: "count_no",
+	15: "earlier_counts",
 }
 
 // Decode decodes PhysicalInventoryItem from json.
@@ -232404,6 +232446,16 @@ func (s *PhysicalInventoryItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"counted_by\"")
 			}
+		case "counted_by_name":
+			if err := func() error {
+				s.CountedByName.Reset()
+				if err := s.CountedByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"counted_by_name\"")
+			}
 		case "difference":
 			if err := func() error {
 				s.Difference.Reset()
@@ -232445,7 +232497,7 @@ func (s *PhysicalInventoryItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_document_number\"")
 			}
 		case "count_no":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.CountNo = int32(v)
@@ -232457,7 +232509,7 @@ func (s *PhysicalInventoryItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"count_no\"")
 			}
 		case "earlier_counts":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				s.EarlierCounts = make([]PhysicalInventoryEarlierCount, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -232485,7 +232537,7 @@ func (s *PhysicalInventoryItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00011111,
-		0b01100000,
+		0b11000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
