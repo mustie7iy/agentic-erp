@@ -42,7 +42,7 @@ func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // the test's own transaction, never committed
+	defer tx.Rollback(ctx)
 	written := append([]stmt{step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String())}, rows...)
 	if err := all(tx, append(written, step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT migrator`))...); err != nil {
 		t.Fatal(err)
