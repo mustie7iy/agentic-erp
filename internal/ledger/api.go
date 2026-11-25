@@ -351,7 +351,7 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 // entries' filters.
 //
 // The ledger is a plain condition, e.ledger_id = $10: the ledger page
-// indexes (000470 to 000472) lead with the company and the ledger, so a
+// indexes (000477 to 000479) lead with the company and the ledger, so a
 // page reads only its ledger's entries (TestListReadsOnlyItsLedgersPage,
 // T52). The caller resolves the ledger, the one asked for or the leading
 // one (ledgerOrLeading), before the query: as coalesce($10, the leading

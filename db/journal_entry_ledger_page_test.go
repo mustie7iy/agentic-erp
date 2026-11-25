@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestJournalEntryLedgerPageIndexes (T52; migrations 000470-000472): the
+// TestJournalEntryLedgerPageIndexes (T52; migrations 000477-000479): the
 // ledger page indexes are on the journal and every partition, valid, and a
 // cached statement's generic plan of one ledger's page follows the index
 // of its order, the ledger in its index condition and no sort, as the

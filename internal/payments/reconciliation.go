@@ -81,7 +81,7 @@ func scanReconBank(row pgx.Row) (reconBank, error) {
 }
 
 // reconciledFigures sets, on the statements a reconciliation takes
-// (s), what their lines add to the figures for good (000469): the sum of
+// (s), what their lines add to the figures for good (000476): the sum of
 // their excluded lines and the latest posting date of their posted
 // lines' matches, null without one, as figures reads them.
 const reconciledFigures = `reconciled_excluded = (SELECT coalesce(sum(l.amount), 0) FROM payments.bank_statement_line l
@@ -99,7 +99,7 @@ const reconciledFigures = `reconciled_excluded = (SELECT coalesce(sum(l.amount),
 // date asked. So the lines read are those of the statements not
 // reconciled, from the earliest one, and of the few reconciled ones
 // posted late, not the bank's whole history (T49); a statement reconciled
-// by a server of the release before 000469 keeps nothing, and its lines
+// by a server of the release before 000476 keeps nothing, and its lines
 // are read as before.
 func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dates []time.Time, closing []money.Minor) ([]Figures, error) {
 	rows, _ := tx.Query(ctx, `WITH st AS NOT MATERIALIZED (

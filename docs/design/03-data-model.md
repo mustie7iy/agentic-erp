@@ -1590,7 +1590,7 @@ year's partition) gives a period's first page of entries, as the page
 indexes of 000055 give a year's; with `journal_line_account` it serves the
 journal list's `account_id` and `fiscal_period` filters, a trial
 balance's row drilled down to its entries. The ledger page indexes (T52,
-migrations 000470–000472: `journal_entry_page_ledger_posting`,
+migrations 000477–000479: `journal_entry_page_ledger_posting`,
 `_number`, `_period`) put the ledger after the company in each page
 order, so the list's ledger filter reads one ledger's page alone.
 
@@ -2822,7 +2822,7 @@ erDiagram
     uuid previous_statement_id "the bank's statement before; null for its first"
     text status "imported | gap | reconciled"
     timestamptz reconciled_at "with reconciled_by, exactly when reconciled"
-    bigint reconciled_excluded "its excluded lines' sum, kept when reconciled (000469)"
+    bigint reconciled_excluded "its excluded lines' sum, kept when reconciled (000476)"
     date reconciled_posted_until "its posted lines' latest posting date, kept when reconciled"
     timestamptz gap_accepted_at "with gap_accepted_by and gap_reason, a person's acceptance of its gap" }
   bank_statement_line { uuid statement_id PK

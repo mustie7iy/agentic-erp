@@ -172,7 +172,7 @@ runs T52b. The journal
 list's ledger filter first needed no index: a page followed the page
 indexes (000055) and read at most its entries' copies besides (the filter
 written as a CASE so the planner did not underestimate it, T52c). As built
-(finfix, T52): the ledger page indexes 000470–000472 (company, ledger, then
+(finfix, T52): the ledger page indexes 000477–000479 (company, ledger, then
 posting date, document number, or period and posting date, with id) serve
 the filter, which is now a plain condition on the ledger asked for or the
 leading one, resolved before the list's query (as `coalesce($10, the

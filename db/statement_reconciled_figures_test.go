@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// TestStatementReconciledFiguresBackfill (migration 000469, T49): the
+// TestStatementReconciledFiguresBackfill (migration 000476, T49): the
 // backfill gives every tenant's reconciled statement the sum of its
 // excluded lines and the latest posting date of its posted lines' live
 // matches (a rejected match's date left out), null without a posted line;
@@ -13,7 +13,7 @@ import (
 func TestStatementReconciledFiguresBackfill(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := t.Context()
-	up := migrateBefore(t, conn, "000469_statement_reconciled_figures")
+	up := migrateBefore(t, conn, "000476_statement_reconciled_figures")
 	tenants, actor := []string{id().String(), id().String()}, id()
 	// Foreign keys are triggers: replica mode leaves the house banks and
 	// companies these statements would name out of the scene.

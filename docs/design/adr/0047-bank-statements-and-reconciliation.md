@@ -456,7 +456,7 @@ Canadian bank may only offer BAI2.
   first opening balance, the figures on its last closing date, its lines by
   status; another `line_status` than a line's is 422). Paged by statement,
   by closing date, as the statement list is. Each check read the bank's
-  statements and lines from its first; since T49's bound (finfix, 000469)
+  statements and lines from its first; since T49's bound (finfix, 000476)
   a statement keeps, when it is reconciled, what its lines add to the
   figures for good (`reconciled_excluded`, the sum of its excluded lines;
   `reconciled_posted_until`, the latest posting date of its posted lines'
@@ -469,7 +469,7 @@ Canadian bank may only offer BAI2.
   are per statement, not running totals, because a statement can be
   imported before one already reconciled (its gap check) and a running
   total would then be wrong; the statements' rows (one a day per bank) are
-  still read from the first, their lines (the bulk) no longer. 000469
+  still read from the first, their lines (the bulk) no longer. 000476
   backfills the reconciled statements; one a server of the release before
   reconciles during the rolling upgrade keeps nothing and its lines are
   read as before, so no check requires the sums

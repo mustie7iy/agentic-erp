@@ -6,7 +6,7 @@
 -- other ledger too, which share their posting dates and document numbers
 -- (TestListReadsOnlyItsLedgersPage). These indexes put the ledger after
 -- the company in each page order: posting date (this one), document
--- number (000471) and a period's posting date (000472). The list's ledger
+-- number (000478) and a period's posting date (000479). The list's ledger
 -- condition is then a plain one the index serves, no longer a CASE kept
 -- out of the planner's estimate. Built per partition and attached (06
 -- §6.4), postings going on meanwhile; the page indexes stay for the reads
