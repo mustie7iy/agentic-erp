@@ -116937,9 +116937,11 @@ type SalesOrderItem struct {
 	// last confirmed the item, which the plant replenishes by `lead_time_date`. Absent when the stock
 	// covered all that is confirmed.
 	LeadTimeQuantity OptQuantity `json:"lead_time_quantity"`
-	// The day the replenishment lead time ends: the company's date of the check that confirmed
-	// `lead_time_quantity` plus the material's lead time, on or before the requested delivery date. Absent
-	// with `lead_time_quantity`.
+	// The day the replenishment lead time ends: the company's date of the check that put the part on the
+	// lead time plus the material's lead time, on or before the requested delivery date that check was
+	// for. A later change that asks for an earlier date, or checks the item again for a date the lead time
+	// does not reach, keeps the part (less stock that arrived since) and this day, so it may fall after
+	// the order's requested delivery date as it is now. Absent with `lead_time_quantity`.
 	LeadTimeDate OptDate `json:"lead_time_date"`
 	// The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's
 	// unit; at most `delivered_quantity`.

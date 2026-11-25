@@ -161,8 +161,14 @@ func TestJudged(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			lt := judged(today, c.requested, 10)
-			if lt.reached != c.want || lt.ends.Format(time.DateOnly) != "2100-01-04" || lt.days != 10 {
-				t.Errorf("got %+v, want reached %v, ending 2100-01-04", lt, c.want)
+			if lt.reached != c.want {
+				t.Errorf("reached: got %v, want %v", lt.reached, c.want)
+			}
+			if got := lt.ends.Format(time.DateOnly); got != "2100-01-04" {
+				t.Errorf("ends: got %s, want 2100-01-04", got)
+			}
+			if lt.days != 10 {
+				t.Errorf("days: got %d, want 10", lt.days)
 			}
 		})
 	}

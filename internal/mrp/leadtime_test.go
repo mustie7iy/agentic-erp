@@ -59,10 +59,11 @@ func TestLeadTimes(t *testing.T) {
 		t.Errorf("the plant's lead times once removed: got %s, want none", got)
 	}
 	var detail string
-	pgtest.Scan(t, `SELECT string_agg(detail->'after'->>'replenishment_lead_time_days', ',' ORDER BY seq) FROM audit.audit_event
+	pgtest.Scan(t, `SELECT string_agg(coalesce(detail->'before'->>'replenishment_lead_time_days', 'none') || '>' ||
+			coalesce(detail->'after'->>'replenishment_lead_time_days', 'none'), ',' ORDER BY seq) FROM audit.audit_event
 		WHERE tenant_id = $1 AND action = 'mrp.material_plan.change'`, []any{e.Tenant.ID}, &detail)
-	if detail != "20" {
-		t.Errorf("the changes' audit: got %q, want 20, then none", detail)
+	if detail != "10>20,20>none" {
+		t.Errorf("the changes' audit: got %q, want 10>20, then 20>none", detail)
 	}
 	pgtest.Scan(t, `SELECT detail->>'replenishment_lead_time_days' FROM audit.audit_event WHERE tenant_id = $1 AND object_id = $2
 		AND action = 'mrp.material_plan.create'`, []any{e.Tenant.ID, id}, &detail)
