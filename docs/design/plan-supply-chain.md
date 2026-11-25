@@ -900,6 +900,49 @@ safety stock calculation, MRP areas, planned orders for production (phase
   of them. `listPurchaseOrders` and `listContracts` filter by
   `material_id`. No migration; walkthrough step 153
   (`step_replenishment_agent`), suite `evals/replenishment`.
+- **S2l1 Supplier choice by lead time and on-time share** (lane replsup,
+  2026-11-24; the first item of the tracker's "later: replenishment
+  agent variants", split; ADR-0082 As built S2l1 and ADR-0072 As built
+  S2l1, decided by default).
+  - **Adds:** `GET /v1/supplier-delivery-performance` (procurement,
+    `procurement.order.read`): for a material at a plant over a stated
+    window of goods receipt posting dates (default the 365 days ending on
+    the plant's company's date, at most 1,096), per supplier, measured in
+    SQL from posted documents: the receipts (101 items not reversed, on
+    items of the material at the plant), the planned lead time (the
+    order item's delivery date less the order date, on average, in
+    days), the observed lead time (the receipt's posting date less the
+    order date), the on-time share (receipts posted on or before the
+    item's delivery date, of those whose item has one) and whether the
+    history is `measured` (at least 3 receipts) or `thin`; the suppliers
+    by number with their names, and the totals. The replenishment agent
+    reads it for each proposal and names, in its order, the measures of
+    the supplier it suggests (a line `Measures: …`, checked against the
+    read); it prefers the measured supplier with the higher on-time
+    share, then the shorter observed lead time, over one with thin or no
+    history, and on a tie keeps the source order it had. It still only
+    proposes; its never list is unchanged. A migration indexes order
+    items by material and goods movements by the one they reverse.
+  - **Acceptance:** the measures equal a hand count over posted orders
+    and receipts, with reversed receipts, returns, other plants, other
+    materials and receipts outside the window left out; a window that
+    ends before it starts or is longer than 1,096 days is 400
+    `request.invalid_parameter`; an unknown plant, or one of a company
+    the caller cannot act in, is 422 `request.reference_not_found`; an
+    order without the measures line, or with another supplier's
+    measures, is refused by the agent's check; the suite's cases (the
+    faster, reliable supplier preferred; one with no history not
+    preferred over one with history; a tie) pass replayed.
+  - **Walkthrough:** `step_replenishment_agent` (step 153): Ben's orders
+    of hinges from Tyrell (on time) and from a second supplier (late),
+    received; the read shows both, and the agent suggests Tyrell naming
+    its measures.
+  - **Later** (the leaf's remainder): orders created on acceptance; a
+    planned delivery time kept as master data (SAP's info record or
+    material master, from memory) and the order dated back from the need
+    by it; a weighted supplier score with price, quantity reliability and
+    quality (SAP's vendor evaluation, from memory); source lists and
+    quota arrangements.
 
 ### S2m Demand forecasting agent
 
