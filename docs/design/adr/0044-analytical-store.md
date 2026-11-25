@@ -1252,6 +1252,52 @@ API is T95a). Decisions:
   `TestRerunKeepsTheExchange`; `erp`'s `TestAskContinue`,
   `TestEvalSuites` (analytics); the walkthrough's step 81.
 
+**The journal's tax columns (batch 95, ADR-0049 §9's follow-up; decided
+by default).** Dataset `gl_lines` gains two nullable columns, additive in
+v1: `tax_jurisdiction`, the country subdivision a line's tax is levied in
+(a UAE sale's emirate, ADR-0049 §7), and `tax_base_minor`, the line's
+declared tax base in local currency (an import's from its customs
+declaration, §9), in the line's currency and exponent; both read from the
+line as the journal API shows it (`tax_jurisdiction`, `tax_base_lc`).
+- *Semantic dimension now.* `tax_jurisdiction` is a dimension of
+  `revenue` and `income` ("sales by emirate"), read by the database path
+  from `/v1/journal-entries` and by the store from the column, null and
+  empty alike being no jurisdiction; parity covers it (a Dubai sale in
+  `setupParity`). Not of `expenses`: only output codes levy their lines'
+  subdivision (config's check), so an expense line has none. It needs no
+  permission beyond the journal's: it names no partner or account.
+- *The base is a measure.* A fact has one amount; the contract's new role
+  `measure` is money beside it, in its currency and exponent, that the
+  reader neither sums, filters nor groups by (`resolve` takes dimensions,
+  dates and currency alone; `TestColumnsAddedLater` refuses both). A
+  governed metric of declared bases (VAT 201 box 6's values) needs the
+  semantic layer to sum a column other than the amount, on both paths: a
+  step of its own.
+- *Files written before the columns.* An appended dataset keeps them, and
+  DuckDB binds a column absent from a file to nothing. The reader's view
+  now reads its files by name (`union_by_name`), the contract's columns
+  alone leaving them (`COLUMNS` by an anchored pattern of their names, so
+  a column a file holds beside them, such as a masked field, reaches not
+  even the union), beneath an empty relation
+  of the contract's nullable columns (`UNION ALL BY NAME`), so a file
+  without one gives null, also while no file has it; a column that is not
+  nullable must still be in the files, or the view does not bind (the
+  reader's `missing columns` refusal). This replaces T72l's interim, a
+  query answered from the database until the next snapshot rewrote the
+  files, for every nullable column of any dataset. Compaction reads an
+  older part with the columns null (parquet-go's conversion), so a merged
+  month holds both (extract `TestCompactionOfOlderParts`).
+- *Isolation.* The reader's and parity's isolation tests are unchanged
+  and pass: the view's tenant and company filters are applied above the
+  union, as before.
+- *Walkthrough.* Step 41 (`step_uae`) asks revenue by tax jurisdiction of
+  the UAE company: the Dubai and Abu Dhabi branches' sales under AE-DU and
+  AE-AZ.
+- *Evidence.* extract `TestTaxColumns`, `TestCompactionOfOlderParts`;
+  reader `TestColumnsAddedLater`; store `TestParity` (the dimension in
+  every metric's breakdowns, and the Dubai sale's 200.00 under AE-DU);
+  analytics `TestDatasetContractShape` (a measure is a nullable int64).
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the

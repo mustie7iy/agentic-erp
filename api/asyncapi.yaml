@@ -5887,6 +5887,13 @@ components:
               amount_lc: {$ref: '#/components/schemas/SignedMoney'}
               amount_gc: {$ref: '#/components/schemas/SignedMoney'}
               tax_code: {type: [string, 'null']}
+              tax_jurisdiction: {type: string, pattern: '^[A-Z]{2}-[A-Z0-9]{1,3}$', description: 'The country subdivision (ISO 3166-2) the line''s tax is levied in, where its code''s component levies its lines'' subdivision (ADR-0049 §7): a UAE sale''s emirate (`AE-DU`), on its base and its tax lines alike, as `GET /v1/journal-entries/{id}` shows it. Absent on lines without one.'}
+              tax_base_tc:
+                $ref: '#/components/schemas/SignedMoney'
+                description: "A tax line's declared base in transaction currency (ADR-0049 §9): the declared value an import's tax from a customs declaration is on, which no line of the entry carries, as its code's tax item takes it (`tax_base` of `GET /v1/journal-entries/{id}`); negated on a reversal. Absent on other lines."
+              tax_base_lc:
+                $ref: '#/components/schemas/SignedMoney'
+                description: "The declared base in local currency, converted with the entry's rate; set with `tax_base_tc`."
               quantity: {$ref: '#/components/schemas/Quantity'}
               purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'Purchase order whose item a GR/IR line belongs to.'}
               po_item_no: {type: [integer, 'null'], minimum: 1, description: 'Item of the purchase order, set with purchase_order_id.'}

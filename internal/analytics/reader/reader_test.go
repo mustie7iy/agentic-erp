@@ -225,6 +225,65 @@ func TestTwoTenants(t *testing.T) {
 	wantSums(t, e.query(e.request(e.b, p)), map[string]money.Minor{"1000|EUR": 150000, "2000|EUR": 7000})
 }
 
+// glTaxLine is a gl_lines row with the columns added for ADR-0049 §9's
+// follow-up, the line's tax jurisdiction and declared tax base: the
+// extractor's row today, where glLine is one written before them.
+type glTaxLine struct {
+	TenantID        uuid.UUID    `parquet:"tenant_id,uuid"`
+	DocumentID      uuid.UUID    `parquet:"document_id,uuid"`
+	LineNo          int32        `parquet:"line_no"`
+	LedgerID        uuid.UUID    `parquet:"ledger_id,uuid"`
+	Company         string       `parquet:"company"`
+	PostingDate     int32        `parquet:"posting_date,date"`
+	Account         string       `parquet:"account"`
+	DocumentType    string       `parquet:"document_type"`
+	Vendor          *string      `parquet:"vendor,optional"`
+	AmountMinor     money.Minor  `parquet:"amount_minor"`
+	Currency        string       `parquet:"currency"`
+	Exponent        int32        `parquet:"exponent"`
+	PostedXID       uint64       `parquet:"posted_xid"`
+	TaxJurisdiction *string      `parquet:"tax_jurisdiction,optional"`
+	TaxBaseMinor    *money.Minor `parquet:"tax_base_minor,optional"`
+}
+
+func taxLine(l glLine, jurisdiction *string, base *money.Minor) glTaxLine {
+	return glTaxLine{TenantID: l.TenantID, DocumentID: l.DocumentID, LineNo: l.LineNo, LedgerID: l.LedgerID, Company: l.Company, PostingDate: l.PostingDate,
+		Account: l.Account, DocumentType: l.DocumentType, Vendor: l.Vendor, AmountMinor: l.AmountMinor, Currency: l.Currency, Exponent: l.Exponent,
+		PostedXID: l.PostedXID, TaxJurisdiction: jurisdiction, TaxBaseMinor: base}
+}
+
+// TestColumnsAddedLater: the contract grows by nullable columns, and a
+// month written before one was added keeps its file. A tenant whose files
+// all predate the tax jurisdiction is read with none; one with a file of
+// each groups the older file's lines under none and the newer's by their
+// emirate. The declared base is a measure: nothing groups or filters by
+// it.
+func TestColumnsAddedLater(t *testing.T) {
+	e := setup(t)
+	byEmirate := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"tax_jurisdiction"}}
+	wantSums(t, e.query(e.request(e.a, byEmirate)), map[string]money.Minor{"|EUR": 157})
+	dubai, base := "AE-DU", money.Minor(4000)
+	newer := encode(t, []glTaxLine{taxLine(line(e.a, "1000", "2026-04-02", "400000", nil, -1000), &dubai, nil),
+		taxLine(line(e.a, "1000", "2026-04-03", "240000", nil, -200), nil, &base)})
+	m := e.manifs[e.a]
+	gl := m.Datasets["gl_lines"]
+	gl.Files = append(gl.Files, e.put(part(e.a, "gl_lines", "2026-04", newer), newer))
+	m.Datasets["gl_lines"] = gl
+	e.keys[e.a] = e.publish(e.a, m)
+	wantSums(t, e.query(e.request(e.a, byEmirate)), map[string]money.Minor{"|EUR": -43, "AE-DU|EUR": -1000})
+	in := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "tax_jurisdiction", Op: "in", Values: []string{dubai}}}}
+	wantSums(t, e.query(e.request(e.a, in)), map[string]money.Minor{"|EUR": -1000})
+	for name, p := range map[string]Plan{
+		"grouped by the base":  {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"tax_base_minor"}},
+		"filtered by the base": {Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "tax_base_minor", Op: "in", Values: []string{"4000"}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := e.r.Query(context.Background(), e.request(e.a, p))
+			refusedErr(t, err)
+		})
+	}
+}
+
 // TestPlans: joins, filters and both aggregates.
 func TestPlans(t *testing.T) {
 	e := setup(t)

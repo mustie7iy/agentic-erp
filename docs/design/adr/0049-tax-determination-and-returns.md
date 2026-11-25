@@ -688,11 +688,12 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   keep codes of their own. A code
   of a province's own (Ontario's HST, `CA-ON`) needs none. Zero-rated and
   exempt bases carry their codes without tax lines and are items at rate 0
-  (GST34 line 101, VAT 201 boxes 4/5). The posted event's lines do not
-  carry the declared base or the jurisdiction yet (tracker); nor do
-  postings that build lines of their own (a cash discount's tax
-  correction, a down payment's transfer, `ledger.Posting`): all are
-  supplier-side today, and a customer cash discount on such a code will
+  (GST34 line 101, VAT 201 boxes 4/5). The posted event's lines carry
+  the jurisdiction and the declared base since batch 95 (§9 As built,
+  the posted event). Postings that build lines of their own named no
+  jurisdiction at first (a cash discount's tax
+  correction, a down payment's transfer, `ledger.Posting`): all were
+  supplier-side then, and a customer cash discount on such a code would
   need it. (Since the product owner's decision of 2026-11-12,
   `ledger.PostingLine` carries `TaxJurisdiction` and a customer invoice's
   items name it: ADR-0063 As built, "The emirate on the item", and from
@@ -921,9 +922,30 @@ the UAE's Box 6 for registrants who account for import VAT in the return
   there drops the base (its items' base 0), and its reversals of new
   import entries leave the lines' bases out (their items, negated from the
   original's, are right). Import entries are not entered while the rollout
-  is under way (a step for the release notes; no release runbook exists yet). **Not yet:** the base on the posted
-  event (`journal_entry_posted` lines), and a customs declaration as a
+  is under way (a step for the release notes; no release runbook exists yet). **Not yet:** a customs declaration as a
   document of its own (GTS, phase 4).
+- **As built (batch 95, the posted event; decided by default):**
+  `JournalEntryPosted`'s lines (api/asyncapi.yaml, additive) carry what
+  the entry's tax items are written from, each absent where the line has
+  none: `tax_jurisdiction`, the subdivision the line's tax is levied in
+  (§7: a UAE sale's emirate, on its base and its tax lines alike), and
+  `tax_base_tc`/`tax_base_lc`, an import's declared base in transaction
+  and local currency, signed as the amounts are, so a reversal's are the
+  original's negated (`ledger.addTax`; ledger `TestPostedEventTax`). They
+  are the line's own columns, as `GET /v1/journal-entries/{id}` shows
+  them, not the tax items: an item sums lines and has no line number,
+  and the event is per line. A base line's own amount is its base, so a
+  sale's lines declare none; the item per code and jurisdiction stays the
+  return's (§11). No name of a supplier or customer is added (product
+  owner 2026-11-05): the lines keep the partner's id alone. The
+  analytical store's journal dataset takes both columns (ADR-0044 As
+  built batch 95), its semantic layer the dimension `tax_jurisdiction`
+  of `revenue` and `income`, so sales are read by emirate; no metric
+  sums the declared bases yet (a governed metric of them, VAT 201 box
+  6's values in analytics, is its own step). Walkthrough step 41
+  (`step_uae`): a webhook subscriber receives the Dubai sale's event,
+  its revenue and tax lines naming AE-DU, and the customs declaration's,
+  its lines declaring AED 10,000.00; and revenue by tax jurisdiction.
 
 ### 10. Tax registrations and periods
 A company has **tax registrations** in the configuration (T61g): authority

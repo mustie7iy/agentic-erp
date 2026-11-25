@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -118,13 +119,26 @@ func (r *Reader) setup(req Request, c compiled, files map[string][]string) []stm
 // view selects a dataset's contract columns from its files, the tenant's
 // rows alone and, for a dataset by company, the scope's companies alone. A
 // dataset without files is an empty relation of the same columns.
+//
+// The contract grows by nullable columns alone (ADR-0044), and an
+// appended dataset keeps the files written before a column existed: the
+// files are read by name, and each nullable column comes from an empty
+// relation of the contract's nullable columns, so a file without it gives
+// null, even when no file has it yet. A column that is not nullable must
+// be in the files, or the view does not bind.
 func view(d *datasets.Dataset, files []string, byCompany bool) string {
 	cols := make([]string, len(d.Columns))
+	var nullable, names []string
 	for i, c := range d.Columns {
 		name := pgx.Identifier{c.Name}.Sanitize()
 		cols[i] = name
+		names = append(names, regexp.QuoteMeta(c.Name))
+		typed := "CAST(NULL AS " + duckTypes[c.Type] + ") AS " + name
 		if len(files) == 0 {
-			cols[i] = "CAST(NULL AS " + duckTypes[c.Type] + ") AS " + name
+			cols[i] = typed
+		}
+		if c.Nullable {
+			nullable = append(nullable, typed)
 		}
 	}
 	q := "CREATE TEMP VIEW " + pgx.Identifier{d.Dataset}.Sanitize() + " AS SELECT " + strings.Join(cols, ", ")
@@ -132,8 +146,15 @@ func view(d *datasets.Dataset, files []string, byCompany bool) string {
 		return q + " WHERE false"
 	}
 	// No columns from the path: the cache directory's segments must never
-	// stand in for the file's tenant_id.
-	q += " FROM read_parquet(" + list(files) + ", hive_partitioning = false) WHERE tenant_id = (SELECT tenant_id FROM scope_tenant)"
+	// stand in for the file's tenant_id. Only the contract's columns leave
+	// the files, those a file has (COLUMNS by an anchored pattern of their
+	// names), so a column it holds beside them reaches not even the union.
+	from := "SELECT COLUMNS('" + strings.ReplaceAll("^("+strings.Join(names, "|")+")$", "'", "''") + "') FROM read_parquet(" + list(files) +
+		", hive_partitioning = false, union_by_name = true)"
+	if len(nullable) > 0 {
+		from = "SELECT " + strings.Join(nullable, ", ") + " WHERE false UNION ALL BY NAME " + from
+	}
+	q += " FROM (" + from + ") WHERE tenant_id = (SELECT tenant_id FROM scope_tenant)"
 	if byCompany && d.Column("company") != nil {
 		q += " AND company IN (SELECT company FROM scope_company)"
 	}

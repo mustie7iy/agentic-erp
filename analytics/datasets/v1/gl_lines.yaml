@@ -34,3 +34,14 @@ columns:
   - {name: currency, type: string, role: currency}
   - {name: exponent, type: int32, role: exponent}
   - {name: posted_xid, type: xid8, role: watermark}
+  # The country subdivision (ISO 3166-2) the line's tax is levied in, where
+  # its code's component levies its lines' subdivision: a UAE sale's emirate
+  # (AE-DU), on its base and tax lines alike (ADR-0049 §7); the semantic
+  # dimension tax_jurisdiction, so sales are read by emirate. The line's
+  # declared tax base in local currency, an import's from its customs
+  # declaration (§9), in the line's currency and exponent: carried for the
+  # store's readers, summed by no metric yet (role measure). Both added for
+  # ADR-0049 §9's follow-up; files written before them are read with both
+  # null (the reader's view, ADR-0044 As built).
+  - {name: tax_jurisdiction, type: string, role: dimension, nullable: true}
+  - {name: tax_base_minor, type: int64, role: measure, nullable: true}

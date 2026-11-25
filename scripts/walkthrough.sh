@@ -5222,6 +5222,60 @@ uae_year_end_adjustment() {
   done
 }
 
+# uae_ledger_hook has Sam subscribe step 35's webhook subscriber to the
+# ledger's JournalEntryPosted while Carla posts the quarter's sales and
+# imports, the subscriber verifying with its secret in place of the
+# treasury's (kept in hook/secret.treasury); it sets the caller's hook.
+uae_ledger_hook() {
+  as sam
+  say "Maple's tax analytics wants each posting's lines as they are posted: Sam subscribes its endpoint to the ledger's"
+  say "JournalEntryPosted, whose lines carry the emirate and the declared tax base (ADR-0049 §9 As built, batch 95):"
+  api 201 '"subscription to \(.event_types | join(", ")) at \(.url): \(.status)"' createWebhookSubscription \
+    -body "{\"url\": \"https://$HOOK_ADDR/tax/events\", \"description\": \"Maple tax analytics\", \"event_types\": [\"ledger.journal_entry_posted\"]}"
+  hook=$(field .id)
+  cp "$WORK/hook/secret" "$WORK/hook/secret.treasury"
+  field .secret >"$WORK/hook/secret"
+}
+
+# uae_ledger_events HOOK SALE IMPORT shows the lines of the Dubai sale's
+# and the customs declaration's JournalEntryPosted as the subscriber
+# received them, once every delivery of the subscription is delivered;
+# then Sam deletes it and the treasury's secret is back.
+uae_ledger_events() {
+  local hook=$1 sale=$2 imported=$3 i file entry delivery lines='"\(.line_no) \(.amount_tc.amount) \(.amount_tc.currency)\(if .tax_code then " \(.tax_code)" else "" end)\(if .tax_jurisdiction then " in \(.tax_jurisdiction)" else "" end)\(if .tax_base_tc then ", declared base \(.tax_base_tc.amount) \(.tax_base_tc.currency) (\(.tax_base_lc.amount) \(.tax_base_lc.currency))" else "" end)"'
+  as sam
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listWebhookDeliveries -p "id=$hook"
+    if [ "$(field '[.items[] | select(.subject == "'"$sale"'" or .subject == "'"$imported"'")] | length')" = 2 ] &&
+      [ "$(field '[.items[] | select(.status != "delivered")] | length')" = 0 ]; then break; fi
+    sleep 0.25
+  done
+  expect "the sale's and the import's events, delivered (after $i checks)" \
+    "$(field '[.items[] | select((.subject == "'"$sale"'" or .subject == "'"$imported"'") and .status == "delivered")] | length')" 2
+  say "What the endpoint received of the Dubai sale's and the customs declaration's events (no partner's name, product"
+  say "owner 2026-11-05): each line's amount and code, the emirate it is levied in and the declared base, in transaction"
+  say "and local currency, both AED here:"
+  for entry in "$sale" "$imported"; do
+    delivery=$(field '.items[] | select(.subject == "'"$entry"'") | .id')
+    for file in "$WORK"/hook/received/delivery-*.json; do
+      [ -e "$file" ] || break # none received: the glob is left as written, and the check below says so
+      if [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ]; then break; fi
+    done
+    [ -s "$file" ] && [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ] || fail "the endpoint did not receive delivery $delivery"
+    jq -r '"  \(.event.type) of entry \(.event.data.document_number), verified \(.verified)", (.event.data.lines[] | "    line " + '"$lines"')' "$file" | sed 's/^/   /'
+    cp "$file" "$WORK/event-$entry.json"
+  done
+  expect "the sale's lines in Dubai" "$(jq -r '[.event.data.lines[] | select(.tax_jurisdiction == "AE-DU") | .amount_tc.amount] | join(" ")' "$WORK/event-$sale.json")" "-10000.00 -500.00"
+  expect "the sale's lines declaring a base" "$(jq -r '[.event.data.lines[] | select(has("tax_base_tc"))] | length' "$WORK/event-$sale.json")" 0
+  expect "the import's declared bases" \
+    "$(jq -r '[.event.data.lines[] | "\(.tax_base_tc.amount) \(.tax_base_tc.currency)/\(.tax_base_lc.amount)"] | join(", ")' "$WORK/event-$imported.json")" \
+    "10000.00 AED/10000.00, 10000.00 AED/10000.00"
+  expect "the import's lines in no emirate" "$(jq -r '[.event.data.lines[] | select(has("tax_jurisdiction"))] | length' "$WORK/event-$imported.json")" 0
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$hook"
+  api 200 '"  subscription \(.description): \(.status)"' deleteWebhookSubscription -p "id=$hook" -if-match "$ETAG"
+  mv "$WORK/hook/secret.treasury" "$WORK/hook/secret"
+}
+
 # uae_return AE SUPPLIER EXPENSE is step 41's VAT 201 (T61k) of legal
 # entity AE's latest quarter ended: Carla posts its sales in Dubai and Abu
 # Dhabi, a zero-rated export, an exempt supply and the import VAT of a
@@ -5232,7 +5286,7 @@ uae_year_end_adjustment() {
 # computes the draft and drills box 1b down, prepares the return,
 # Fiona approves it and Carla records it filed.
 uae_return() {
-  local ae=$1 supplier=$2 expense=$3 registration start end bank sales vat input ret request
+  local ae=$1 supplier=$2 expense=$3 registration start end bank sales vat input ret request hook dubai imported
   as carla
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   bank=$(field '.items[] | select(.number == "1000") | .id')
@@ -5266,7 +5320,10 @@ uae_return() {
   say "Its sales for $start to $end, entered today with the quarter's last day as their tax date (P6): standard-rated"
   say "sales name the emirate of the establishment that made them (S5 levies the line's emirate, ADR-0049 §7), so the"
   say "VAT 201 reports them by emirate (boxes 1a-1g); a zero-rated export (Z0) and an exempt supply (E0):"
+  uae_ledger_hook
+  as carla
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Dubai branch" "$(uae_line "$bank" 10500.00), $(uae_line "$sales" -10000.00 S5 AE-DU), $(uae_line "$vat" -500.00 S5 AE-DU)")"
+  dubai=$(field .id)
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Abu Dhabi branch" "$(uae_line "$bank" 4200.00), $(uae_line "$sales" -4000.00 S5 AE-AZ), $(uae_line "$vat" -200.00 S5 AE-AZ)")"
   say "A sale keyed with a mistyped emirate, AE-DB for Dubai, is refused: S5 accepts the seven emirates alone (the"
   say "emirate guard), so its VAT cannot fall outside boxes 1a-1g unreported:"
@@ -5277,6 +5334,15 @@ uae_return() {
   say "Goods imported through customs: the declaration's AED 10,000.00, its import VAT of 500.00 accounted for in the"
   say "return, owed and recovered (IM5, ADR-0049 §9), an entry of tax lines that name the declared value:"
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Customs declaration: import VAT" "$(uae_line "$input" 500.00 IM5 "" 10000.00), $(uae_line "$vat" -500.00 IM5 "" 10000.00)")"
+  imported=$(field .id)
+  uae_ledger_events "$hook" "$dubai" "$imported"
+  as carla
+  say "The analytical store reads the same lines (ADR-0044 As built batch 95): Carla asks revenue by tax jurisdiction, so"
+  say "the quarter's sales come by emirate, the export and the exempt supply under none:"
+  api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value // "" | if . == "" then "none" else . end): \(.[1].value) \(.[1].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"revenue\"], \"by\": [\"tax_jurisdiction\"], \"companies\": [\"$AE\"]}"
+  expect "revenue by emirate" "$(field '[.rows[] | "\(.[0].value // "" | if . == "" then "none" else . end) \(.[1].value)"] | sort | join(", ")')" \
+    "AE-AZ 4000.00, AE-DU 10000.00, none 4500.00"
   as alex
   say "Alex posts the supplier's invoices of the quarter's last day: mobile phones bought for resale, AED 2,000.00 under"
   say "the domestic reverse charge (DR5: Maple Gulf owes and recovers the 100.00), and staff entertainment, AED 1,000.00"

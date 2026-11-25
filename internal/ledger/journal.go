@@ -598,6 +598,21 @@ func addCenters(line map[string]any, l Line) {
 	}
 }
 
+// addTax adds the line's declared tax base, in transaction and local
+// currency (an import's from its customs declaration, ADR-0049 §9), and
+// the subdivision its tax is levied in (an emirate, §7) to its event line,
+// each absent when the line has none: the values its tax items were
+// written from. The database sets both bases or neither
+// (journal_line_tax_base).
+func addTax(line map[string]any, l Line, e Entry) {
+	if l.TaxBase != nil && l.TaxBaseLC != nil {
+		line["tax_base_tc"], line["tax_base_lc"] = money.EventAmount(*l.TaxBase, e.CurrencyTC, e.ExpTC), money.EventAmount(*l.TaxBaseLC, e.CurrencyLC, e.ExpLC)
+	}
+	if l.TaxJurisdiction != nil {
+		line["tax_jurisdiction"] = *l.TaxJurisdiction
+	}
+}
+
 func postedEvent(e Entry) outbox.Event {
 	lines := make([]map[string]any, len(e.Lines))
 	for i, l := range e.Lines {
@@ -613,6 +628,7 @@ func postedEvent(e Entry) outbox.Event {
 		if l.SpecialGL != nil {
 			line["special_gl"] = *l.SpecialGL
 		}
+		addTax(line, l, e)
 		addCenters(line, l)
 		if l.TradingPartnerID != nil {
 			line["trading_partner_id"] = *l.TradingPartnerID
