@@ -82,8 +82,8 @@ func checkCounts(d CountDocument, entries []CountEntry, r refs) ([]counting, err
 		case seen[en.ItemNo]:
 			return nil, problem.Invalid("inventory.duplicate_item", at+"item_no", fmt.Sprintf("Item %d is entered once in a request.", en.ItemNo))
 		case it.Counted != nil:
-			return nil, problem.Conflict("inventory.item_counted", fmt.Sprintf("Item %d of count document %s is counted already (%s %s); a recount is "+
-				"a new document.", en.ItemNo, d.Number, *it.Counted, r.materials[it.MaterialID].BaseUnit))
+			return nil, problem.Conflict("inventory.item_counted", fmt.Sprintf("Item %d of count document %s is counted already (%s %s); send it for a "+
+				"recount first (:recount).", en.ItemNo, d.Number, *it.Counted, r.materials[it.MaterialID].BaseUnit))
 		}
 		seen[en.ItemNo] = true
 		base, err := countedQuantity(at+"quantity", r.materials[it.MaterialID], en.Quantity, en.Unit)

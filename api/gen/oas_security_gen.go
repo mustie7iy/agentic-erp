@@ -633,6 +633,7 @@ var operationRolesOidc = map[string][]string{
 	RealiseMemoRecordOperation:                           []string{},
 	ReconcileMigrationRunOperation:                       []string{},
 	RecordAgentToolCallOperation:                         []string{},
+	RecountPhysicalInventoryItemsOperation:               []string{},
 	RedateCostCenterOperation:                            []string{},
 	RedateProfitCenterOperation:                          []string{},
 	RedeliverWebhookDeliveryOperation:                    []string{},

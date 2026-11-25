@@ -546,12 +546,13 @@ channels:
   inventory:
     address: 'erp.{cell}.inventory.{tenant}.{event}'
     title: Inventory management events
-    description: Goods movements posted as material documents and their reversals, and price changes of materials (ADR-0082 §7, §8).
+    description: Goods movements posted as material documents and their reversals, price changes of materials, and recounts of physical inventory items (ADR-0082 §7, §8, As built S2d2).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       MaterialDocumentPosted: {$ref: '#/components/messages/MaterialDocumentPosted'}
       MaterialPriceChanged: {$ref: '#/components/messages/MaterialPriceChanged'}
+      PhysicalInventoryRecountRequested: {$ref: '#/components/messages/PhysicalInventoryRecountRequested'}
   shipping:
     address: 'erp.{cell}.shipping.{tenant}.{event}'
     title: Shipping events
@@ -933,6 +934,7 @@ operations:
     messages:
       - $ref: '#/channels/inventory/messages/MaterialDocumentPosted'
       - $ref: '#/channels/inventory/messages/MaterialPriceChanged'
+      - $ref: '#/channels/inventory/messages/PhysicalInventoryRecountRequested'
   publishShippingEvents:
     action: send
     title: Shipping publishes
@@ -5327,6 +5329,35 @@ components:
         - name: revalued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001402, source: /erp/eu-1/inventory, type: com.example.erp.inventory.material_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001441, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {price_change_id: 0192a000-0000-7000-8000-000000001442, valuation_id: 0192a000-0000-7000-8000-000000001441, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', price_control: standard, old_price: {amount: '0.50', currency: CAD}, new_price: {amount: '0.55', currency: CAD}, price_unit: 1, quantity: '1000', revaluation: {amount: '50.00', currency: CAD}, posting_date: '2026-11-20', journal_entry_id: 0192a000-0000-7000-8000-000000001443, journal_entry_year: 2026, journal_entry_number: PR1, version: 3}
+    PhysicalInventoryRecountRequested:
+      name: PhysicalInventoryRecountRequested
+      title: Physical inventory recount requested
+      summary: Counted items of a physical inventory count document were sent for a recount.
+      description: |
+        Emitted when counted items of a count document are sent for a
+        recount (ADR-0082 As built S2d2; SAP MI11, from memory), for
+        whoever counts them again (a counting device or a warehouse
+        system): the document, its company, plant and storage location by
+        id and number or code, its status after it (`counting`), and each
+        item recounted with its material by id and number and the count
+        set aside, by its number among the item's counts, as it was
+        counted and by whom (a person's id, never a name). The item's next
+        count is `count_no` + 1. Nothing is posted: the stock moves only by
+        the material documents its differences post, which publish
+        MaterialDocumentPosted. `GET /v1/physical-inventory-documents/{id}`
+        returns the document at `version` or later. Not offered to
+        webhooks until a consumer asks. Subject is the count document id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.inventory.physical_inventory_recount_requested.v1}
+      payload: {$ref: '#/components/schemas/PhysicalInventoryRecountRequestedV1'}
+      examples:
+        - name: recount
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001403, source: /erp/eu-1/inventory, type: com.example.erp.inventory.physical_inventory_recount_requested.v1, subject: 0192a000-0000-7000-8000-000000001451, time: '2026-11-25T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {count_document_id: 0192a000-0000-7000-8000-000000001451, number: PI1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, status: counting, items: [{item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, count_no: 1, counted_quantity: {value: '91', unit: EA}, counted_at: '2026-11-25T09:40:00Z', counted_by: 0192a000-0000-7000-8000-000000000102}], version: 3}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -7118,6 +7149,35 @@ components:
         journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
         journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
         version: {type: integer, description: "The valuation's version after the change."}
+    PhysicalInventoryRecountRequestedV1:
+      type: object
+      required: [count_document_id, number, legal_entity_id, legal_entity_code, fiscal_year, plant_id, plant_code, storage_location_id, storage_location_code, status, items, version]
+      properties:
+        count_document_id: {$ref: '#/components/schemas/Uuid', description: '`inventory.count_document.id`.'}
+        number: {type: string, description: "The count document's number in its company's physical_inventory range of its fiscal year."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: "The plant's company."}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        fiscal_year: {type: integer, description: 'The fiscal year its number is of.'}
+        plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant: `tenancy.org_unit.id`.'}
+        plant_code: {type: string, description: "The plant's code."}
+        storage_location_id: {$ref: '#/components/schemas/Uuid', description: 'The storage location counted: `tenancy.org_unit.id`.'}
+        storage_location_code: {type: string, description: "The storage location's code."}
+        status: {type: string, description: "The document's status after it. Open enum: counting, counted, pending_approval, posted, rejected, withdrawn."}
+        items:
+          type: array
+          description: 'The items sent for a recount, by item number.'
+          items:
+            type: object
+            required: [item_no, material_id, material_number, count_no, counted_quantity, counted_at, counted_by]
+            properties:
+              item_no: {type: integer, description: "The item's number in the document."}
+              material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+              material_number: {type: string, description: "The material's number."}
+              count_no: {type: integer, description: "The number of the count set aside among the item's counts, from 1."}
+              counted_quantity: {$ref: '#/components/schemas/Quantity', description: "What it counted, in the material's base unit."}
+              counted_at: {type: string, format: date-time, description: 'When it was entered.'}
+              counted_by: {$ref: '#/components/schemas/Uuid', description: 'Who entered it: `identity.principal.id`.'}
+        version: {type: integer, description: "The count document's version after it."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

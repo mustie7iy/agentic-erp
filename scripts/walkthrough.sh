@@ -15255,8 +15255,11 @@ step_dispute_resolution() {
 # counts the brackets and the bolts of Toronto's main store. The count
 # document freezes their book quantities and blocks their postings there
 # until it is closed; a second count of the brackets there is refused. He
-# enters the bracket's count, which is not entered twice, and the bolts'
-# in a second entry; the document is then counted. First, S2c2 (ADR-0082
+# enters the bracket's count, which is not entered twice; Ines doubts it
+# and sends the brackets for a recount (S2d2, ADR-0082 As built S2d2),
+# which keeps Wade's first count, and Wade counts them again; then the
+# bolts' in a further entry; the document is then counted, and only the
+# latest count is posted; a posted document is not recounted. First, S2c2 (ADR-0082
 # As built S2c2): Ines plans cycle counting at the plant, indicator A
 # every 90 days for the brackets and C every 365 for the bolts; never
 # counted, both are due at the main store, and Wade's count document is
@@ -15264,7 +15267,7 @@ step_dispute_resolution() {
 # due again until their intervals have passed.
 step_count() {
   local loss brackets ind_a ind_c due
-  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
+  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once until the brackets are sent for a recount, their first count kept and the latest posted; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
   local doc book
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   as ines
@@ -15309,13 +15312,27 @@ step_count() {
   say "A material is counted at a storage location by one open document at a time:"
   refused 409 inventory.count_open createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
       \"items\": [{\"material_id\": \"$MATERIAL\"}]}"
-  say "Wade finds $((book - 8)) brackets on the shelves, 8 fewer than the book, and enters them (SAP MI04):"
+  say "Wade finds $((book - 9)) brackets on the shelves, 9 fewer than the book, and enters them (SAP MI04):"
   QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
   api 200 '"\(.status): " + ([.items[] | "item \(.item_no) \(.counted_quantity.value // "-")"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
-    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 8))\", \"unit\": \"EA\"}}]}"
-  say "An item is counted once; a recount is a new document:"
+    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 9))\", \"unit\": \"EA\"}}]}"
+  say "An item is counted once, until it is sent for a recount:"
   refused 409 inventory.item_counted enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
     -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
+  as ines
+  say "Ines doubts a loss of 9 and sends the brackets for a recount (S2d2; SAP MI11, from memory): Wade's count is kept as"
+  say "the item's first count, and the item is open to be counted again; the bolts, not counted yet, are not recounted:"
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  api 200 '"\(.status): " + ([.items[] | "item \(.item_no) count \(.count_no): \(.counted_quantity.value // "-"), earlier [\([.earlier_counts[] | "#\(.count_no) \(.counted_quantity.value)"] | join(", "))]"] | join("; "))' \
+    recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 1}]}'
+  expect "the brackets sent for a recount" "$(field '.items[0] | "\(.count_no) \(.counted_quantity.value // "-") \([.earlier_counts[].counted_quantity.value] | join(","))"')" "2 - $((book - 9))"
+  refused 409 inventory.item_not_counted recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 2}]}'
+  as wade
+  say "Wade recounts and finds $((book - 8)), 8 fewer; the document shows the brackets' counts in order:"
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  api 200 '"\(.status): " + ([.items[] | "item \(.item_no) count \(.count_no): \(.counted_quantity.value // "-")"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
+    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 8))\", \"unit\": \"EA\"}}]}"
+  expect "the brackets' counts in order" "$(field '.items[0] | [(.earlier_counts[].counted_quantity.value), .counted_quantity.value] | join(" "))')" "$((book - 9)) $((book - 8))"
   QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
   book=$(field '.items[1].book_quantity.value')
   say "He counts the bolts as the book has them, $book:"
@@ -15330,6 +15347,9 @@ step_count() {
     postPhysicalInventoryDifferences -p "id=$doc" -if-match "$ETAG"
   expect "the count document" "$(field .status)" posted
   loss=$(field '.items[0].material_document_id')
+  say "Only the latest count is posted, and a posted document's items are not recounted:"
+  refused 409 inventory.count_invalid_status recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 1}]}'
+
   api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(QUIET=1 api 200 '' getMaterialDocument -p "id=$loss"; field .journal_entry_id)"
   expect "the main store's brackets, the count" "$(stock_at "$MAIN_STORE")" "$((brackets - 8)) EA"
   say "The count's material document is not reversed; a new count corrects the stock:"

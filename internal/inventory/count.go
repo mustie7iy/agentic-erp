@@ -50,7 +50,9 @@ func init() {
 
 // CountItem is an item of a count document (SAP ISEG): a material, its
 // book quantity in its base unit as the document was created and, once
-// counted, the quantity counted in the base unit and as it was entered.
+// counted, the quantity counted in the base unit and as it was entered;
+// Recounts are how often it was sent for a recount, its earlier counts
+// kept in Earlier in count order (S2d2).
 type CountItem struct {
 	ItemNo     int16      `json:"item_no"`
 	MaterialID uuid.UUID  `json:"material_id"`
@@ -64,11 +66,31 @@ type CountItem struct {
 	// Difference (counted less book), Amount, the value it moved in the
 	// document's currency, and the material document that moved it, once
 	// the document is posted (S2d).
-	Difference             *string      `json:"difference"`
-	Amount                 *money.Minor `json:"amount"`
-	MaterialDocumentID     *uuid.UUID   `json:"material_document_id"`
-	MaterialDocumentNumber *string      `json:"material_document_number"`
+	Difference             *string        `json:"difference"`
+	Amount                 *money.Minor   `json:"amount"`
+	MaterialDocumentID     *uuid.UUID     `json:"material_document_id"`
+	MaterialDocumentNumber *string        `json:"material_document_number"`
+	Recounts               int16          `json:"recounts"`
+	Earlier                []EarlierCount `json:"earlier_counts"`
 }
+
+// EarlierCount is an item's count set aside by a recount (S2d2; SAP MI11,
+// from memory): its number among the item's counts, from 1, what it
+// counted in the base unit and as entered, when and by whom, and when and
+// by whom it was sent for the recount.
+type EarlierCount struct {
+	CountNo     int16     `json:"count_no"`
+	Counted     string    `json:"counted_quantity"`
+	Entry       string    `json:"entry_quantity"`
+	EntryUnit   string    `json:"entry_unit"`
+	CountedAt   time.Time `json:"counted_at"`
+	CountedBy   uuid.UUID `json:"counted_by"`
+	RecountedAt time.Time `json:"recounted_at"`
+	RecountedBy uuid.UUID `json:"recounted_by"`
+}
+
+// CountNo is the number of the item's latest count, the one Counted gives.
+func (it CountItem) CountNo() int16 { return it.Recounts + 1 }
 
 // CountDocument is a count document (SAP IKPF) of a plant's storage
 // location with its items in item order.
@@ -114,7 +136,11 @@ const countSelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number, d.
 				'counted_quantity', trim_scale(i.counted_quantity)::text, 'entry_quantity', trim_scale(i.entry_quantity)::text,
 				'entry_unit', i.entry_uom_code, 'counted_at', i.counted_at, 'counted_by', i.counted_by, 'open', i.open,
 				'difference', trim_scale(i.difference)::text, 'amount', i.amount, 'material_document_id', i.material_document_id,
-				'material_document_number', m.number) ORDER BY i.item_no)
+				'material_document_number', m.number, 'recounts', i.recounts, 'earlier_counts', coalesce((SELECT json_agg(json_build_object('count_no', r.count_no,
+					'counted_quantity', trim_scale(r.counted_quantity)::text, 'entry_quantity', trim_scale(r.entry_quantity)::text, 'entry_unit', r.entry_uom_code,
+					'counted_at', r.counted_at, 'counted_by', r.counted_by, 'recounted_at', r.recounted_at, 'recounted_by', r.recounted_by) ORDER BY r.count_no)
+					FROM inventory.count_item_recount r WHERE r.tenant_id = i.tenant_id AND r.count_document_id = i.count_document_id AND r.item_no = i.item_no),
+					'[]')) ORDER BY i.item_no)
 			FROM inventory.count_item i LEFT JOIN inventory.material_document m ON m.tenant_id = i.tenant_id AND m.id = i.material_document_id
 			WHERE i.tenant_id = d.tenant_id AND i.count_document_id = d.id) AS items
 	FROM inventory.count_document d
@@ -388,15 +414,22 @@ func insertCount(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in CountInp
 // its number, company, location, status and items, each naming its
 // material by id and number with its book quantity and, once counted, the
 // quantity counted and, once posted, its difference, value and material
-// document; the approval request and the value it asked for (S2d). A
-// count document publishes no event: the stock moves only by the material
+// document; the approval request and the value it asked for (S2d); each
+// item's count number (S2d2). A count document's steps publish no event
+// but a recount (recordRecount): the stock moves only by the material
 // documents its differences post, which publish MaterialDocumentPosted.
 func recordCount(ctx context.Context, action string, d CountDocument, r refs) error {
+	return audit.Record(ctx, action, "inventory.count_document", d.ID, countDetail(d, r)) // its error names the action
+}
+
+// countDetail is a count document as its audit records give it.
+func countDetail(d CountDocument, r refs) map[string]any {
 	items := make([]map[string]any, len(d.Items))
 	for i, it := range d.Items {
 		m := r.materials[it.MaterialID]
 		item := map[string]any{"item_no": it.ItemNo, "material_id": it.MaterialID, "material_number": m.Number, "unit": m.BaseUnit,
-			"book_quantity": it.Book, "counted_quantity": it.Counted, "difference": it.Difference, "material_document_id": it.MaterialDocumentID}
+			"book_quantity": it.Book, "counted_quantity": it.Counted, "count_no": it.CountNo(), "difference": it.Difference,
+			"material_document_id": it.MaterialDocumentID}
 		if it.Amount != nil {
 			item["difference_value"] = money.EventAmount(*it.Amount, d.Currency, d.Exponent)
 		}
@@ -408,5 +441,5 @@ func recordCount(ctx context.Context, action string, d CountDocument, r refs) er
 	if d.DifferenceValue != nil {
 		detail["difference_value"] = money.EventAmount(*d.DifferenceValue, d.Currency, d.Exponent)
 	}
-	return audit.Record(ctx, action, "inventory.count_document", d.ID, detail) // its error names the action
+	return detail
 }

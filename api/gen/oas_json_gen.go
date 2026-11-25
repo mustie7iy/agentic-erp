@@ -231995,6 +231995,200 @@ func (s *PhysicalInventoryDocumentPage) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *PhysicalInventoryEarlierCount) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PhysicalInventoryEarlierCount) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("count_no")
+		e.Int32(s.CountNo)
+	}
+	{
+		e.FieldStart("counted_quantity")
+		s.CountedQuantity.Encode(e)
+	}
+	{
+		e.FieldStart("entry_quantity")
+		s.EntryQuantity.Encode(e)
+	}
+	{
+		e.FieldStart("counted_at")
+		json.EncodeDateTime(e, s.CountedAt)
+	}
+	{
+		e.FieldStart("counted_by")
+		json.EncodeUUID(e, s.CountedBy)
+	}
+	{
+		e.FieldStart("recounted_at")
+		json.EncodeDateTime(e, s.RecountedAt)
+	}
+	{
+		e.FieldStart("recounted_by")
+		json.EncodeUUID(e, s.RecountedBy)
+	}
+}
+
+var jsonFieldsNameOfPhysicalInventoryEarlierCount = [7]string{
+	0: "count_no",
+	1: "counted_quantity",
+	2: "entry_quantity",
+	3: "counted_at",
+	4: "counted_by",
+	5: "recounted_at",
+	6: "recounted_by",
+}
+
+// Decode decodes PhysicalInventoryEarlierCount from json.
+func (s *PhysicalInventoryEarlierCount) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PhysicalInventoryEarlierCount to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "count_no":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.CountNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"count_no\"")
+			}
+		case "counted_quantity":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				if err := s.CountedQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"counted_quantity\"")
+			}
+		case "entry_quantity":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.EntryQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"entry_quantity\"")
+			}
+		case "counted_at":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.CountedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"counted_at\"")
+			}
+		case "counted_by":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CountedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"counted_by\"")
+			}
+		case "recounted_at":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.RecountedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"recounted_at\"")
+			}
+		case "recounted_by":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.RecountedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"recounted_by\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PhysicalInventoryEarlierCount")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b01111111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfPhysicalInventoryEarlierCount) {
+					name = jsonFieldsNameOfPhysicalInventoryEarlierCount[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PhysicalInventoryEarlierCount) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PhysicalInventoryEarlierCount) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *PhysicalInventoryItem) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -232071,9 +232265,21 @@ func (s *PhysicalInventoryItem) encodeFields(e *jx.Encoder) {
 			s.MaterialDocumentNumber.Encode(e)
 		}
 	}
+	{
+		e.FieldStart("count_no")
+		e.Int32(s.CountNo)
+	}
+	{
+		e.FieldStart("earlier_counts")
+		e.ArrStart()
+		for _, elem := range s.EarlierCounts {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
 }
 
-var jsonFieldsNameOfPhysicalInventoryItem = [13]string{
+var jsonFieldsNameOfPhysicalInventoryItem = [15]string{
 	0:  "item_no",
 	1:  "material_id",
 	2:  "material_number",
@@ -232087,6 +232293,8 @@ var jsonFieldsNameOfPhysicalInventoryItem = [13]string{
 	10: "difference_value",
 	11: "material_document_id",
 	12: "material_document_number",
+	13: "count_no",
+	14: "earlier_counts",
 }
 
 // Decode decodes PhysicalInventoryItem from json.
@@ -232236,6 +232444,36 @@ func (s *PhysicalInventoryItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"material_document_number\"")
 			}
+		case "count_no":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.CountNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"count_no\"")
+			}
+		case "earlier_counts":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				s.EarlierCounts = make([]PhysicalInventoryEarlierCount, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem PhysicalInventoryEarlierCount
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.EarlierCounts = append(s.EarlierCounts, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"earlier_counts\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -232247,7 +232485,7 @@ func (s *PhysicalInventoryItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00011111,
-		0b00000000,
+		0b01100000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -232385,6 +232623,208 @@ func (s *PhysicalInventoryItemInput) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *PhysicalInventoryItemInput) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *PhysicalInventoryRecount) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PhysicalInventoryRecount) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("items")
+		e.ArrStart()
+		for _, elem := range s.Items {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfPhysicalInventoryRecount = [1]string{
+	0: "items",
+}
+
+// Decode decodes PhysicalInventoryRecount from json.
+func (s *PhysicalInventoryRecount) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PhysicalInventoryRecount to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "items":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				s.Items = make([]PhysicalInventoryRecountInput, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem PhysicalInventoryRecountInput
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PhysicalInventoryRecount")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfPhysicalInventoryRecount) {
+					name = jsonFieldsNameOfPhysicalInventoryRecount[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PhysicalInventoryRecount) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PhysicalInventoryRecount) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *PhysicalInventoryRecountInput) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *PhysicalInventoryRecountInput) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("item_no")
+		e.Int32(s.ItemNo)
+	}
+}
+
+var jsonFieldsNameOfPhysicalInventoryRecountInput = [1]string{
+	0: "item_no",
+}
+
+// Decode decodes PhysicalInventoryRecountInput from json.
+func (s *PhysicalInventoryRecountInput) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PhysicalInventoryRecountInput to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "item_no":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.ItemNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"item_no\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode PhysicalInventoryRecountInput")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfPhysicalInventoryRecountInput) {
+					name = jsonFieldsNameOfPhysicalInventoryRecountInput[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PhysicalInventoryRecountInput) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PhysicalInventoryRecountInput) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -252750,6 +253190,234 @@ func (s *RecordAgentToolCallUnprocessableEntity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *RecordAgentToolCallUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RecountPhysicalInventoryItemsBadRequest as json.
+func (s *RecountPhysicalInventoryItemsBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RecountPhysicalInventoryItemsBadRequest from json.
+func (s *RecountPhysicalInventoryItemsBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RecountPhysicalInventoryItemsBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RecountPhysicalInventoryItemsBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RecountPhysicalInventoryItemsBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RecountPhysicalInventoryItemsBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RecountPhysicalInventoryItemsForbidden as json.
+func (s *RecountPhysicalInventoryItemsForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RecountPhysicalInventoryItemsForbidden from json.
+func (s *RecountPhysicalInventoryItemsForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RecountPhysicalInventoryItemsForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RecountPhysicalInventoryItemsForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RecountPhysicalInventoryItemsForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RecountPhysicalInventoryItemsForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RecountPhysicalInventoryItemsNotFound as json.
+func (s *RecountPhysicalInventoryItemsNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RecountPhysicalInventoryItemsNotFound from json.
+func (s *RecountPhysicalInventoryItemsNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RecountPhysicalInventoryItemsNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RecountPhysicalInventoryItemsNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RecountPhysicalInventoryItemsNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RecountPhysicalInventoryItemsNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RecountPhysicalInventoryItemsPreconditionFailed as json.
+func (s *RecountPhysicalInventoryItemsPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RecountPhysicalInventoryItemsPreconditionFailed from json.
+func (s *RecountPhysicalInventoryItemsPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RecountPhysicalInventoryItemsPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RecountPhysicalInventoryItemsPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RecountPhysicalInventoryItemsPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RecountPhysicalInventoryItemsPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RecountPhysicalInventoryItemsPreconditionRequired as json.
+func (s *RecountPhysicalInventoryItemsPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RecountPhysicalInventoryItemsPreconditionRequired from json.
+func (s *RecountPhysicalInventoryItemsPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RecountPhysicalInventoryItemsPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RecountPhysicalInventoryItemsPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RecountPhysicalInventoryItemsPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RecountPhysicalInventoryItemsPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes RecountPhysicalInventoryItemsUnprocessableEntity as json.
+func (s *RecountPhysicalInventoryItemsUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes RecountPhysicalInventoryItemsUnprocessableEntity from json.
+func (s *RecountPhysicalInventoryItemsUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RecountPhysicalInventoryItemsUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = RecountPhysicalInventoryItemsUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RecountPhysicalInventoryItemsUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RecountPhysicalInventoryItemsUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

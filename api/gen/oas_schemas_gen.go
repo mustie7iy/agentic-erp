@@ -29073,6 +29073,7 @@ func (*ConflictHeaders) publishRfqRes()                                  {}
 func (*ConflictHeaders) realiseMemoRecordRes()                           {}
 func (*ConflictHeaders) reconcileMigrationRunRes()                       {}
 func (*ConflictHeaders) recordAgentToolCallRes()                         {}
+func (*ConflictHeaders) recountPhysicalInventoryItemsRes()               {}
 func (*ConflictHeaders) redateCostCenterRes()                            {}
 func (*ConflictHeaders) redateProfitCenterRes()                          {}
 func (*ConflictHeaders) redeliverWebhookDeliveryRes()                    {}
@@ -48786,6 +48787,7 @@ func (s *EnterPhysicalInventoryCountOKHeaders) SetResponse(val PhysicalInventory
 
 func (*EnterPhysicalInventoryCountOKHeaders) enterPhysicalInventoryCountRes()      {}
 func (*EnterPhysicalInventoryCountOKHeaders) postPhysicalInventoryDifferencesRes() {}
+func (*EnterPhysicalInventoryCountOKHeaders) recountPhysicalInventoryItemsRes()    {}
 
 type EnterPhysicalInventoryCountPreconditionFailed Problem
 
@@ -95236,11 +95238,12 @@ type PhysicalInventoryDocument struct {
 	StorageLocationName string `json:"storage_location_name"`
 	// The company's date it was created on.
 	DocumentDate time.Time `json:"document_date"`
-	// `counting` until every item is counted, then `counted`; `pending_approval` while its differences
-	// wait for approval; `posted` once they are posted; `rejected` or `withdrawn` when their approval was
-	// refused or withdrawn, nothing posted. The posting block holds until it is `posted`, `rejected` or
-	// `withdrawn`. Open enumeration: clients must accept and preserve values not listed here; values may
-	// be added within /v1.
+	// `counting` until every item is counted, then `counted`, and `counting` again while an item sent for
+	// a recount waits for it (S2d2); `pending_approval` while its differences wait for approval; `posted`
+	// once they are posted; `rejected` or `withdrawn` when their approval was refused or withdrawn,
+	// nothing posted. The posting block holds until it is `posted`, `rejected` or `withdrawn`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Status string `json:"status"`
 	// The approval request (`GET /v1/approval-requests/{id}`) of differences above the company's tolerance
 	// (S2d); absent when none was asked.
@@ -95583,6 +95586,96 @@ func (s *PhysicalInventoryDocumentPage) SetNextPageToken(val OptString) {
 
 func (*PhysicalInventoryDocumentPage) listPhysicalInventoryDocumentsRes() {}
 
+// An earlier count of a count document's item, sent for a recount (S2d2; SAP MI11, from memory): kept
+// as it was counted, never posted.
+// Ref: #/components/schemas/PhysicalInventoryEarlierCount
+type PhysicalInventoryEarlierCount struct {
+	// Its number among the item's counts, from 1.
+	CountNo int32 `json:"count_no"`
+	// The quantity it counted, in the material's base unit.
+	CountedQuantity Quantity `json:"counted_quantity"`
+	// The quantity as it was entered, in the unit it was entered in.
+	EntryQuantity Quantity `json:"entry_quantity"`
+	// When it was entered.
+	CountedAt time.Time `json:"counted_at"`
+	// Who entered it.
+	CountedBy uuid.UUID `json:"counted_by"`
+	// When the item was sent for a recount, which set this count aside.
+	RecountedAt time.Time `json:"recounted_at"`
+	// Who sent it for the recount.
+	RecountedBy uuid.UUID `json:"recounted_by"`
+}
+
+// GetCountNo returns the value of CountNo.
+func (s *PhysicalInventoryEarlierCount) GetCountNo() int32 {
+	return s.CountNo
+}
+
+// GetCountedQuantity returns the value of CountedQuantity.
+func (s *PhysicalInventoryEarlierCount) GetCountedQuantity() Quantity {
+	return s.CountedQuantity
+}
+
+// GetEntryQuantity returns the value of EntryQuantity.
+func (s *PhysicalInventoryEarlierCount) GetEntryQuantity() Quantity {
+	return s.EntryQuantity
+}
+
+// GetCountedAt returns the value of CountedAt.
+func (s *PhysicalInventoryEarlierCount) GetCountedAt() time.Time {
+	return s.CountedAt
+}
+
+// GetCountedBy returns the value of CountedBy.
+func (s *PhysicalInventoryEarlierCount) GetCountedBy() uuid.UUID {
+	return s.CountedBy
+}
+
+// GetRecountedAt returns the value of RecountedAt.
+func (s *PhysicalInventoryEarlierCount) GetRecountedAt() time.Time {
+	return s.RecountedAt
+}
+
+// GetRecountedBy returns the value of RecountedBy.
+func (s *PhysicalInventoryEarlierCount) GetRecountedBy() uuid.UUID {
+	return s.RecountedBy
+}
+
+// SetCountNo sets the value of CountNo.
+func (s *PhysicalInventoryEarlierCount) SetCountNo(val int32) {
+	s.CountNo = val
+}
+
+// SetCountedQuantity sets the value of CountedQuantity.
+func (s *PhysicalInventoryEarlierCount) SetCountedQuantity(val Quantity) {
+	s.CountedQuantity = val
+}
+
+// SetEntryQuantity sets the value of EntryQuantity.
+func (s *PhysicalInventoryEarlierCount) SetEntryQuantity(val Quantity) {
+	s.EntryQuantity = val
+}
+
+// SetCountedAt sets the value of CountedAt.
+func (s *PhysicalInventoryEarlierCount) SetCountedAt(val time.Time) {
+	s.CountedAt = val
+}
+
+// SetCountedBy sets the value of CountedBy.
+func (s *PhysicalInventoryEarlierCount) SetCountedBy(val uuid.UUID) {
+	s.CountedBy = val
+}
+
+// SetRecountedAt sets the value of RecountedAt.
+func (s *PhysicalInventoryEarlierCount) SetRecountedAt(val time.Time) {
+	s.RecountedAt = val
+}
+
+// SetRecountedBy sets the value of RecountedBy.
+func (s *PhysicalInventoryEarlierCount) SetRecountedBy(val uuid.UUID) {
+	s.RecountedBy = val
+}
+
 // An item of a count document (SAP ISEG): a material, its book quantity frozen as the document was
 // created and, once counted, the quantity counted.
 // Ref: #/components/schemas/PhysicalInventoryItem
@@ -95618,6 +95711,12 @@ type PhysicalInventoryItem struct {
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// That document's number; absent with it.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
+	// The number of the item's latest count, the one `counted_quantity` gives and its difference is posted
+	// from: 1 until it is sent for a recount, one more at each recount (S2d2).
+	CountNo int32 `json:"count_no"`
+	// The item's earlier counts, each sent for a recount, in the order they were counted (by `count_no`),
+	// before its latest; empty when it was never recounted (S2d2).
+	EarlierCounts []PhysicalInventoryEarlierCount `json:"earlier_counts"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -95685,6 +95784,16 @@ func (s *PhysicalInventoryItem) GetMaterialDocumentNumber() OptString {
 	return s.MaterialDocumentNumber
 }
 
+// GetCountNo returns the value of CountNo.
+func (s *PhysicalInventoryItem) GetCountNo() int32 {
+	return s.CountNo
+}
+
+// GetEarlierCounts returns the value of EarlierCounts.
+func (s *PhysicalInventoryItem) GetEarlierCounts() []PhysicalInventoryEarlierCount {
+	return s.EarlierCounts
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *PhysicalInventoryItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -95750,6 +95859,16 @@ func (s *PhysicalInventoryItem) SetMaterialDocumentNumber(val OptString) {
 	s.MaterialDocumentNumber = val
 }
 
+// SetCountNo sets the value of CountNo.
+func (s *PhysicalInventoryItem) SetCountNo(val int32) {
+	s.CountNo = val
+}
+
+// SetEarlierCounts sets the value of EarlierCounts.
+func (s *PhysicalInventoryItem) SetEarlierCounts(val []PhysicalInventoryEarlierCount) {
+	s.EarlierCounts = val
+}
+
 // A material to count.
 // Ref: #/components/schemas/PhysicalInventoryItemInput
 type PhysicalInventoryItemInput struct {
@@ -95765,6 +95884,40 @@ func (s *PhysicalInventoryItemInput) GetMaterialID() uuid.UUID {
 // SetMaterialID sets the value of MaterialID.
 func (s *PhysicalInventoryItemInput) SetMaterialID(val uuid.UUID) {
 	s.MaterialID = val
+}
+
+// Counted items of a count document to recount.
+// Ref: #/components/schemas/PhysicalInventoryRecount
+type PhysicalInventoryRecount struct {
+	// The items to recount, each once.
+	Items []PhysicalInventoryRecountInput `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *PhysicalInventoryRecount) GetItems() []PhysicalInventoryRecountInput {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *PhysicalInventoryRecount) SetItems(val []PhysicalInventoryRecountInput) {
+	s.Items = val
+}
+
+// An item to recount.
+// Ref: #/components/schemas/PhysicalInventoryRecountInput
+type PhysicalInventoryRecountInput struct {
+	// The item's number in the document.
+	ItemNo int32 `json:"item_no"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *PhysicalInventoryRecountInput) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *PhysicalInventoryRecountInput) SetItemNo(val int32) {
+	s.ItemNo = val
 }
 
 type PickOutboundDeliveryBadRequest Problem
@@ -103578,6 +103731,30 @@ func (*RecordAgentToolCallPreconditionRequired) recordAgentToolCallRes() {}
 type RecordAgentToolCallUnprocessableEntity Problem
 
 func (*RecordAgentToolCallUnprocessableEntity) recordAgentToolCallRes() {}
+
+type RecountPhysicalInventoryItemsBadRequest Problem
+
+func (*RecountPhysicalInventoryItemsBadRequest) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsForbidden Problem
+
+func (*RecountPhysicalInventoryItemsForbidden) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsNotFound Problem
+
+func (*RecountPhysicalInventoryItemsNotFound) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsPreconditionFailed Problem
+
+func (*RecountPhysicalInventoryItemsPreconditionFailed) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsPreconditionRequired Problem
+
+func (*RecountPhysicalInventoryItemsPreconditionRequired) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsUnprocessableEntity Problem
+
+func (*RecountPhysicalInventoryItemsUnprocessableEntity) recountPhysicalInventoryItemsRes() {}
 
 type RedateCostCenterBadRequest Problem
 
@@ -127308,6 +127485,7 @@ func (*TooManyRequestsHeaders) publishRfqRes()                                  
 func (*TooManyRequestsHeaders) realiseMemoRecordRes()                           {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()                       {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()                         {}
+func (*TooManyRequestsHeaders) recountPhysicalInventoryItemsRes()               {}
 func (*TooManyRequestsHeaders) redateCostCenterRes()                            {}
 func (*TooManyRequestsHeaders) redateProfitCenterRes()                          {}
 func (*TooManyRequestsHeaders) redeliverWebhookDeliveryRes()                    {}
@@ -128314,6 +128492,7 @@ func (*UnauthorizedHeaders) publishRfqRes()                                  {}
 func (*UnauthorizedHeaders) realiseMemoRecordRes()                           {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()                       {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()                         {}
+func (*UnauthorizedHeaders) recountPhysicalInventoryItemsRes()               {}
 func (*UnauthorizedHeaders) redateCostCenterRes()                            {}
 func (*UnauthorizedHeaders) redateProfitCenterRes()                          {}
 func (*UnauthorizedHeaders) redeliverWebhookDeliveryRes()                    {}

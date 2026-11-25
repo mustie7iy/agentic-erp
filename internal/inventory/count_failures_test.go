@@ -34,6 +34,8 @@ func TestCountDatabaseFailures(t *testing.T) {
 	_, largeTag := e.Must(200, "GET", counts+"/"+large, "", "")
 	pending := uuid.MustParse(e.counted(t, []string{mustMaterial(t, e)}, "50"))
 	e.postDiffs(t, pending.String(), 200)
+	recount := uuid.MustParse(e.counted(t, []string{mustMaterial(t, e)}, "1"))
+	_, recountTag := e.Must(200, "GET", counts+"/"+recount.String(), "", "")
 	a := inventory.Approvals{Endpoints: h}
 	calls := map[string]func(ctx context.Context) error{
 		"post differences": func(ctx context.Context) error {
@@ -57,6 +59,11 @@ func TestCountDatabaseFailures(t *testing.T) {
 		},
 		"list": func(ctx context.Context) error {
 			_, err := h.ListPhysicalInventoryDocuments(ctx, gen.ListPhysicalInventoryDocumentsParams{})
+			return err
+		},
+		"recount": func(ctx context.Context) error {
+			_, err := h.RecountPhysicalInventoryItems(ctx, &gen.PhysicalInventoryRecount{Items: []gen.PhysicalInventoryRecountInput{{ItemNo: 1}}},
+				gen.RecountPhysicalInventoryItemsParams{ID: recount, IfMatch: recountTag})
 			return err
 		},
 		"enter a count": func(ctx context.Context) error {
