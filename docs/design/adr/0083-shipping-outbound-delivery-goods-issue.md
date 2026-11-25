@@ -350,5 +350,18 @@ owner):
 - **Unchanged.** Trade compliance is not asked again (the stock comes
   back). The permission is the goods issue's (`shipping.goods_issue.post`):
   the warehouse clerk who posts it reverses it (no separation of duties
-  for the pilot, product owner 2026-11-04). The count agent's never list
-  holds the operation.
+  for the pilot, product owner 2026-11-04). The count planning and demand
+  forecasting agents' never lists hold the operation (the demand agent's
+  added in batch 94S's integration: its `TestNever` checks every write
+  named `GoodsIssue`).
+- **With S2f1, S2g1 and S2c2** (batch 94S integration). A batch- or
+  serial-managed material never reaches a delivery's goods issue: a
+  delivery refuses one at creation (422 `shipping.material_not_usable`),
+  a material's batch and serial management is fixed once created, and
+  the 601 is not a tracked movement type; so no 602 carries a batch or a
+  serial number, and none needs refusing. S2f1 lifted the refusal for the
+  purchase order's goods receipt (101/102) only. A reversal is a movement,
+  not a count: a location it gives stock back to is due for a count again
+  by cycle counting's indicators, with its last posted count unchanged
+  (`TestReversalCountsDue`); an open count of the material there blocks
+  the reversal (409 `inventory.posting_blocked`).

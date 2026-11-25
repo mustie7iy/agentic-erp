@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestInventoryPermissions (S1c, migration 000376, S1d, 000377, S2c, 000406, S2d, 000407, and S2c2, 000464;
+// TestInventoryPermissions (S1c, migration 000376, S1d, 000377, S2c, 000406, S2d, 000407, and S2c2, 000475;
 // ADR-0082 §7-§8): the permissions of inventory are seeded and are no
 // approval permissions.
 func TestInventoryPermissions(t *testing.T) {

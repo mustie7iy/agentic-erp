@@ -5735,7 +5735,7 @@
      {
       "s": "D",
       "t": "Cycle counting indicators: a plant's indicators (A, B, C, D or the tenant's own) with a count interval in days, a material's indicator at the plant, the counts due listed and created as count documents, the count planning agent counting by them",
-      "r": "S2c2 · docs/design/plan-supply-chain.md §S2c2 · ADR-0082 As built S2c2 · ADR-0072 As built S2e · db/migrations/000464 · inventory.cycle_count_indicator, .cycle_count_material · POST/GET /v1/cycle-count-indicators, GET/PATCH /v1/cycle-count-indicators/{id} · POST/GET /v1/cycle-count-materials, GET/PATCH /v1/cycle-count-materials/{id} · GET /v1/cycle-counts-due · inventory.count_plan.write · countagent listCycleCountMaterials · TestCycleCountIndicators, TestCycleCountMaterials, TestCycleCountsDue, TestCycleCountLocks, TestPlanIndicators · walkthrough step_count",
+      "r": "S2c2 · docs/design/plan-supply-chain.md §S2c2 · ADR-0082 As built S2c2 · ADR-0072 As built S2e · db/migrations/000475 · inventory.cycle_count_indicator, .cycle_count_material · POST/GET /v1/cycle-count-indicators, GET/PATCH /v1/cycle-count-indicators/{id} · POST/GET /v1/cycle-count-materials, GET/PATCH /v1/cycle-count-materials/{id} · GET /v1/cycle-counts-due · inventory.count_plan.write · countagent listCycleCountMaterials · TestCycleCountIndicators, TestCycleCountMaterials, TestCycleCountsDue, TestCycleCountLocks, TestPlanIndicators · walkthrough step_count",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
@@ -5790,7 +5790,7 @@
      },
      {
       "s": "T",
-      "t": "later: batch variants: batches in the delivery's goods issue, stock transport orders, counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a batch-managed material until then), internal batch numbers, batch dates changed, batch status, stock by batch as at a date, transfer to another batch (309), classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: batch variants: batches in the delivery's goods issue and its reversal (602), stock transport orders (an intercompany one's 643 goods issue included, which still refuses a batch-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a batch-managed material until then), internal batch numbers, batch dates changed, batch status, stock by batch as at a date, transfer to another batch (309), classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2f, Later",
       "src": "baseline",
       "c": []
@@ -5804,7 +5804,7 @@
      },
      {
       "s": "T",
-      "t": "later: serial number variants: serial numbers in the delivery's goods issue, stock transport orders, counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a serial-managed material until then), serial number profiles per plant and other serial number usages, serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: serial number variants: serial numbers in the delivery's goods issue and its reversal (602), stock transport orders (an intercompany one's 643 goods issue included, which still refuses a serial-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a serial-managed material until then), serial number profiles per plant and other serial number usages, serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2g, Later",
       "src": "baseline",
       "c": []
@@ -5919,6 +5919,13 @@
       "t": "Reversing the goods issue of an outbound delivery whose quantities are not billed posts a 602 at the value its 601 took, giving the stock and its value back and taking back the cost of goods sold; the sales order's items are no longer delivered by it and are open again; a billed delivery is refused until its billing document is cancelled",
       "r": "S2b3 · docs/design/plan-supply-chain.md §S2b3 · ADR-0083 As built S2b3 · db/migrations/000471, 000472 · reverseOutboundDeliveryGoodsIssue · inventory.Endpoints.ReverseForDelivery · sales.Endpoints.ReverseIssue · sales.delivery_reversal · SalesOrderDeliveryReversed · sales.delivery_billed · shipping.goods_issue_reversed · TestGoodsIssueReversal · walkthrough step_goods_issue (goods_issue_reversal, step 143)",
       "src": "po:2026-11-17 · adr:ADR-0083",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: a goods issue reversal on the goods issue's day, in a company whose time zone was moved back since, may be dated before the delivery's goods issue and answer 500 from sales.delivery_reversal's date rule instead of a declared problem (unconfirmed: found in review, not reproduced through the API)",
+      "r": "reverseOutboundDeliveryGoodsIssue · sales.delivery_reversal (delivery_reversal_date trigger, migration 000471) · internal/sales/issue_reversal.go · ADR-0083 As built S2b3",
+      "src": "review:batch94",
       "c": []
      }
     ]

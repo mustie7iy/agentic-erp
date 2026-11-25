@@ -1634,8 +1634,9 @@ A later slice adds its row here and its section under "As built".
   `createSalesOrderUpload`, `confirmSalesOrder`,
   `releaseSalesOrderCreditBlock`, `changeSalesOrder`, `cancelSalesOrder`,
   `confirmSalesDelivery`, `createOutboundDelivery`,
-  `pickOutboundDelivery`, `createReturnsOrder`, `confirmReturnsOrder`),
-  the replenishment agent's never list of requisitions and purchase
+  `pickOutboundDelivery`, `releaseOutboundDeliveryTradeComplianceBlock`,
+  `reverseOutboundDeliveryGoodsIssue` (batch 94S), `createReturnsOrder`,
+  `confirmReturnsOrder`), the replenishment agent's never list of requisitions and purchase
   orders (their changes, `createRfq`, `createScheduleLine`,
   `callOffScheduleLine`, which creates an order, and `createGrIrClearing`
   included) and planning (`startMrpRun`, `createMaterialPlan`,

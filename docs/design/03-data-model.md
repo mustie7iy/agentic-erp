@@ -7055,7 +7055,7 @@ erDiagram
   the line and `movement_serial_counted` on each serial number added to
   one, deferred constraint triggers, as the serial numbers are written
   after their lines; one added to a committed line is refused too).
-- S2c2 (migration 000464): `inventory.cycle_count_indicator` (SAP T159C,
+- S2c2 (migration 000475): `inventory.cycle_count_indicator` (SAP T159C,
   from memory): a plant's cycle counting indicator, its company and plant,
   its `code` one to four capitals or digits
   (`cycle_count_indicator_code_check`) once per plant

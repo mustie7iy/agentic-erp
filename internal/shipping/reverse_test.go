@@ -312,6 +312,43 @@ func TestReversalOutsideTheContract(t *testing.T) {
 	}
 }
 
+// countsDue are the counts due at P1 today as "location material
+// indicator last count", "never" for a location never counted.
+func (e env) countsDue(t *testing.T) []string {
+	t.Helper()
+	page, _ := e.Must(200, "GET", "/v1/cycle-counts-due?plant_id="+e.p1.String(), "", "")
+	var out []string
+	for _, d := range rows(t, page, "items") {
+		last, ok := d["last_count_number"].(string)
+		if !ok {
+			last = "never"
+		}
+		out = append(out, fmt.Sprintf("%v %v %v %s", d["storage_location_code"], d["material_id"] == e.bracket, d["indicator_code"], last))
+	}
+	return out
+}
+
+// TestReversalCountsDue (S2b3 with S2c2; batch 94S integration): a
+// location the goods issue emptied holds no stock, so no count of it is
+// due; its reversal gives the stock back, and the count is due again,
+// with no last count: a movement is no count.
+func TestReversalCountsDue(t *testing.T) {
+	e := setup(t)
+	indicator, _ := e.Must(201, "POST", "/v1/cycle-count-indicators", mustJSON(t, map[string]any{"plant_id": e.p1, "code": "A", "interval_days": 90}), "")
+	e.Must(201, "POST", "/v1/cycle-count-materials", mustJSON(t, map[string]any{"material_id": e.bracket, "indicator_id": indicator["id"]}), "")
+	if got, want := e.countsDue(t), []string{"S1 true A never"}; !slices.Equal(got, want) {
+		t.Fatalf("due with 200 EA at S1: got %v, want %v", got, want)
+	}
+	d, tag := e.shipped(t, e.order(t, false, e.ofMaterial(e.bracket, "10 BOX")), "1 10 BOX")
+	if got := e.countsDue(t); len(got) != 0 {
+		t.Errorf("due with S1 emptied by the goods issue: got %v, want none", got)
+	}
+	e.reverse(t, d["id"].(string), tag)
+	if got, want := e.countsDue(t), []string{"S1 true A never"}; !slices.Equal(got, want) {
+		t.Errorf("due after the reversal: got %v, want %v", got, want)
+	}
+}
+
 // salesReversal is sales' record of a reversal of the outbound delivery
 // of the order, from the plant, by a 602 that does not exist.
 func salesReversal(order, delivery, plant uuid.UUID) sales.IssueReversal {

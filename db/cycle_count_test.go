@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -26,7 +27,7 @@ func (s cycleScene) assigned() []stmt {
 	return []stmt{s.code(s.indicator, s.plant, "A", 90), step(cycleMaterial, s.tenant, id(), s.company, s.plant, s.material, s.indicator)}
 }
 
-// TestCycleCountRules (S2c2, migration 000464; ADR-0082 As built S2c2): an
+// TestCycleCountRules (S2c2, migration 000475; ADR-0082 As built S2c2): an
 // indicator's code is one to four capital letters or digits, once at a
 // plant, and its interval 1 to 366 days; a material has one indicator at
 // a plant, one of that plant. What an indicator is of (its plant, code
@@ -120,4 +121,32 @@ func TestCycleCountRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCycleCountDownRefused (S2c2, migration 000475): the down refuses,
+// rather than drops, cycle counting indicators (06 §6.4: a down
+// migration loses no data), reading every tenant's rows: a migrating
+// role held to row-level security fails it rather than finding none.
+func TestCycleCountDownRefused(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000475_cycle_count").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	s := cycleScene{tenant: id(), company: id(), plant: id(), indicator: id()}
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), s.code(s.indicator, s.plant, "A", 90),
+		step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT migrator`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := asMigrator(tx); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "row-level security")
+	if err := exec(tx, `ROLLBACK TO SAVEPOINT migrator`); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "cycle counting indicators exist")
 }
