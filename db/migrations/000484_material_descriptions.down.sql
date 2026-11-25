@@ -1,6 +1,6 @@
 -- Further descriptions and defaults in another language than English,
 -- which the previous version cannot hold, are refused (06 §6.4: a down
--- migration loses no data); otherwise the down drops what 000480 added.
+-- migration loses no data); otherwise the down drops what 000484 added.
 SET LOCAL row_security = off; -- the guard reads every tenant's rows: a role held to row-level security fails here, not on zero rows (06 §6.4)
 DO $$
 BEGIN

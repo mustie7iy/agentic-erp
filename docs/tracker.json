@@ -5616,7 +5616,7 @@
      {
       "s": "D",
       "t": "A master data specialist describes a material in further languages beside its default description (Arabic for the UAE pilot), governed as its other fields are; a read asks for a language (language) and gets the description in it, else the default, naming the language answered; the SAP load takes MAKT's other languages",
-      "r": "S1a2 · docs/design/plan-supply-chain.md §S1a2 · ADR-0082 As built S1a2 · db/migrations/000480, 000481 · materials.material.description_language, materials.material_description · internal/materials/descriptions.go · internal/platform/langtag · GET /v1/materials, GET /v1/materials/{id} language · MaterialCreate.description_language, .descriptions · MaterialUpdate.descriptions · Material.description_language, .default_language, .descriptions · materials.unknown_language, materials.duplicate_language · MaterialChanged.description_language, .descriptions · internal/integration materialDescriptions (MAKT-SPRAS) · walkthrough step_material (step 122), migrated_materials",
+      "r": "S1a2 · docs/design/plan-supply-chain.md §S1a2 · ADR-0082 As built S1a2 · db/migrations/000484, 000485 · materials.material.description_language, materials.material_description · internal/materials/descriptions.go · internal/platform/langtag · GET /v1/materials, GET /v1/materials/{id} language · MaterialCreate.description_language, .descriptions · MaterialUpdate.descriptions · Material.description_language, .default_language, .descriptions · materials.unknown_language, materials.duplicate_language · MaterialChanged.description_language, .descriptions · internal/integration materialDescriptions (MAKT-SPRAS) · walkthrough step_material (step 122), migrated_materials",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
@@ -6029,7 +6029,7 @@
      {
       "s": "D",
       "t": "Lot sizing procedures: a material's planning data at a plant sizes a run's proposals lot for lot, in fixed lots or up to a maximum stock level, within a minimum and maximum lot size and rounded to a rounding value, an item per lot",
-      "r": "S2k2 · docs/design/plan-supply-chain.md §S2k2 · ADR-0084 As built S2k2 · db/migrations/000482 · mrp.material_plan lot_size, fixed_lot_size, maximum_stock_level, minimum_lot_size, maximum_lot_size, rounding_value · mrp.run_line lot_size, proposed, lots · internal/mrp/lotsize.go · createMaterialPlan, updateMaterialPlan, MrpRunLine · mrp.invalid_lot_size, mrp.too_many_lots · TestLots, TestLotSizingChecks, TestTooManyLots, TestPlanningRunLotSizing, TestMRPLotSizing · walkthrough step_mrp (step 152)",
+      "r": "S2k2 · docs/design/plan-supply-chain.md §S2k2 · ADR-0084 As built S2k2 · db/migrations/000486 · mrp.material_plan lot_size, fixed_lot_size, maximum_stock_level, minimum_lot_size, maximum_lot_size, rounding_value · mrp.run_line lot_size, proposed, lots · internal/mrp/lotsize.go · createMaterialPlan, updateMaterialPlan, MrpRunLine · mrp.invalid_lot_size, mrp.too_many_lots · TestLots, TestLotSizingChecks, TestTooManyLots, TestPlanningRunLotSizing, TestMRPLotSizing · walkthrough step_mrp (step 152)",
       "src": "po:2026-11-17 · adr:ADR-0084",
       "c": []
      },
@@ -6043,7 +6043,7 @@
      {
       "s": "D",
       "t": "The replenishment agent suggests a supplier by its lead time and on-time share at the plant, measured in SQL from posted purchase orders and goods receipts over a stated window (GET /v1/supplier-delivery-performance, procurement's published read), and names the measures it used; it still only proposes",
-      "r": "S2l1 · docs/design/plan-supply-chain.md §S2l (S2l1) · ADR-0082 As built S2l1 · ADR-0072 As built S2l1 · migrations 000483-000484 · internal/procurement/delivery_performance.go · internal/replenishmentagent · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
+      "r": "S2l1 · docs/design/plan-supply-chain.md §S2l (S2l1) · ADR-0082 As built S2l1 · ADR-0072 As built S2l1 · migrations 000487-000488 · internal/procurement/delivery_performance.go · internal/replenishmentagent · evals/replenishment · walkthrough step_replenishment_agent (step 153)",
       "src": "po:2026-11-17 · adr:ADR-0072 · adr:ADR-0082",
       "c": []
      },

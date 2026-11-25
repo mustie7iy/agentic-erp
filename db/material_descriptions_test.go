@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestMaterialDescriptionRules (S1a2, migrations 000480 and 000481;
+// TestMaterialDescriptionRules (S1a2, migrations 000484 and 000485;
 // ADR-0082 As built S1a2): a material's default description is in a
 // language of the stored form (a language, an optional script and an
 // optional region, in canonical case), 'en' when the insert names none,
@@ -104,7 +104,7 @@ func TestMaterialDescriptionRules(t *testing.T) {
 	})
 }
 
-// TestMaterialDescriptionTriggersAsOwner (S1a2, migration 000480): past
+// TestMaterialDescriptionTriggersAsOwner (S1a2, migration 000484): past
 // the grants, as the owner, a material's default description language
 // stays as created and a further description is never in it, even one
 // removed or given back by clearing its mark.
@@ -133,12 +133,12 @@ func TestMaterialDescriptionTriggersAsOwner(t *testing.T) {
 	}
 }
 
-// TestMaterialDescriptionLanguageBackfilled: 000480 gives every material
-// created before it the default description language en, and 000481
+// TestMaterialDescriptionLanguageBackfilled: 000484 gives every material
+// created before it the default description language en, and 000485
 // validates its check.
 func TestMaterialDescriptionLanguageBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, "000480_material_descriptions")
+	migrateBefore(t, conn, "000484_material_descriptions")
 	tenant, material := id(), id()
 	inTenant(t, conn, tenant, func(tx pgx.Tx) error {
 		return all(tx, step(`INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type,
@@ -158,17 +158,17 @@ func TestMaterialDescriptionLanguageBackfilled(t *testing.T) {
 		t.Errorf("language: got %q, want en", language)
 	}
 	if !validated {
-		t.Error("the check: got not validated, want 000481 to validate it")
+		t.Error("the check: got not validated, want 000485 to validate it")
 	}
 }
 
-// TestMaterialDescriptionDownRefused (S1a2, migration 000480): the down
+// TestMaterialDescriptionDownRefused (S1a2, migration 000484): the down
 // refuses, rather than drops, a further description (one removed too:
 // its history) and a default in another language than en, which the
 // previous version cannot hold (06 §6.4).
 func TestMaterialDescriptionDownRefused(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000480_material_descriptions").Down
+	down := migrationNamed(t, "000484_material_descriptions").Down
 	in := func(tenant, material uuid.UUID, language string) stmt {
 		return step(`INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, description_language, base_uom_code, material_type,
 			material_group, status, created_by, updated_by) VALUES ($1, $2, 'MA1', $1, 'Bracket', $3, 'EA', 'trading_good', 'B', 'active', $1, $1)`,

@@ -2231,9 +2231,9 @@ The suppliers' delivery performance of a material at a plant (S2l1,
 ADR-0082 As built S2l1, `GET /v1/supplier-delivery-performance`) is read
 from the order items of the material, through
 `purchase_order_item_by_material` (`tenant_id, material_id`, partial:
-items of a material; migration 000483), and leaves out a receipt a
+items of a material; migration 000487), and leaves out a receipt a
 reversal names, found through `goods_movement_by_reversal` (`tenant_id,
-reversal_of_id`, partial: reversals; migration 000484); no column is
+reversal_of_id`, partial: reversals; migration 000488); no column is
 added.
 
 Stock transport orders within a company (S2h, migration 000418; ADR-0082
@@ -6772,7 +6772,7 @@ erDiagram
   `blocked` (`material_status_check`) and the version at least 1
   (`material_version_check`). The number, company, base unit and type do
   not change (`material_fixed`, a trigger). The description is the
-  default one (S1a2, migrations 000480 and 000481), in
+  default one (S1a2, migrations 000484 and 000485), in
   `description_language`, a BCP 47 tag of a language with an optional
   script and region in canonical case
   (`material_description_language_check`), `en` when an insert names none
@@ -6799,7 +6799,7 @@ erDiagram
   1,000,000 (`unit_conversion_numerator_check`,
   `unit_conversion_denominator_check`). The application updates the
   factors and the removal mark (`unit_conversion_removed_check`) alone.
-- `materials.material_description` (S1a2, migration 000480): a further
+- `materials.material_description` (S1a2, migration 000484): a further
   description (SAP MAKT) of a material that exists
   (`material_description_material_fkey`), once per language
   (`material_description_pkey`), in a tag of the default's form
@@ -7261,7 +7261,7 @@ erDiagram
 
 ## 3.37 Material requirements planning (`mrp`)
 
-ADR-0084, S2k (migration 000436; lot sizing, migration 000482). Materials' planning data at plants and
+ADR-0084, S2k (migration 000436; lot sizing, migration 000486). Materials' planning data at plants and
 planning runs per plant: the context reads tenancy's plants, materials,
 the ledger's accounts, sales' demand, inventory's stock and prices and
 procurement's receipts and requisitions through ports, writes
@@ -7309,7 +7309,7 @@ erDiagram
     numeric receipts
     numeric shortage "above 0 exactly with a requisition"
     text lot_size "the plan's procedure"
-    numeric proposed "the shortage or more; null before 000482"
+    numeric proposed "the shortage or more; null before 000486"
     integer lots "with a requisition: its items"
     uuid requisition_id "procurement"
     text requisition_number }
@@ -7354,7 +7354,7 @@ erDiagram
   sizing procedure it sized by (`run_line_lot_size_check`) and what it
   proposed, the shortage or more, above zero exactly with a shortage, in
   one lot or more exactly then (`run_line_lots`); a line written before
-  000482 names neither, read as the shortage in one lot.
+  000486 names neither, read as the shortage in one lot.
   Insert-only (`run_line_immutable`).
 - `mrp.proposal`: a requisition a run proposed (`proposal_run_fkey`), with
   its number (`proposal_requisition_number_check`) and the version it was

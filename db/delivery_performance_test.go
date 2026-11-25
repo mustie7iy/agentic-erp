@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestDeliveryPerformanceIndexes (S2l1, migrations 000483-000484;
+// TestDeliveryPerformanceIndexes (S2l1, migrations 000487-000488;
 // ADR-0082 As built S2l1): the suppliers' delivery performance finds a
 // material's order items and a receipt's reversal by index, each partial
 // to the rows that have one, and both are valid (built concurrently, a

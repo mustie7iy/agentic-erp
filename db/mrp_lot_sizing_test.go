@@ -32,7 +32,7 @@ func (s mrpScene) lotLine(shortage string, proposed, lots any, procedure string)
 	return step(mrpLotLine, s.tenant, s.run, s.material, shortage, req, number, procedure, proposed, lots)
 }
 
-// TestMRPLotSizing (migration 000482; ADR-0084 As built, lot sizing): a
+// TestMRPLotSizing (migration 000486; ADR-0084 As built, lot sizing): a
 // plan's lot sizing is a known procedure; its fixed lot size and maximum
 // stock level are given exactly with their procedures, the level not
 // below the reorder point; a fixed lot is not bounded or rounded; every
@@ -111,13 +111,13 @@ func TestMRPLotSizing(t *testing.T) {
 	}
 }
 
-// TestMRPLotSizingDownRefused (S2k2, migration 000482): the down refuses,
+// TestMRPLotSizingDownRefused (S2k2, migration 000486): the down refuses,
 // rather than drops, lot sizing the previous version cannot hold: a plan
 // sized otherwise than lot for lot, or bounded or rounded, and a run line
 // that proposed other than its shortage in one lot (06 §6.4).
 func TestMRPLotSizingDownRefused(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000482_mrp_lot_sizing").Down
+	down := migrationNamed(t, "000486_mrp_lot_sizing").Down
 	for name, rows := range map[string]func(s mrpScene) []stmt{
 		"a fixed plan":              func(s mrpScene) []stmt { return []stmt{s.lotPlan("fixed", "70", nil, nil, nil, nil)} },
 		"a plan to the maximum":     func(s mrpScene) []stmt { return []stmt{s.lotPlan("replenish_to_maximum", nil, "50", nil, nil, nil)} },

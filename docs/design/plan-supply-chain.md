@@ -196,8 +196,8 @@ its description in that language, or the default one when it has none.
   approval as the material's other fields do and is audited with the
   texts before and after; materials created before keep their
   description as their default, in `en`.
-- **As built** (2026-11-24): ADR-0082 As built S1a2, migrations 000480
-  and 000481, walkthrough step 122.
+- **As built** (2026-11-24): ADR-0082 As built S1a2, migrations 000484
+  and 000485, walkthrough step 122.
 
 **Later for Material master:** changing a material's default language,
 documents and outputs taking the material's description in their
@@ -1090,7 +1090,7 @@ pack size.
   multiples of the rounding value; all in the base unit. A run sizes each
   shortage by it, an item per lot of the material's one requisition, at
   most 100 lots (409 `mrp.too_many_lots` fails the run); its line names
-  the procedure, what it proposed and in how many lots. Migration 000482;
+  the procedure, what it proposed and in how many lots. Migration 000486;
   `createMaterialPlan`, `updateMaterialPlan` (merge patch, `null` removes
   a quantity), `MrpRunLine` additive.
 - **Walkthrough:** extends `step_mrp` (step 152): a washer planned at
