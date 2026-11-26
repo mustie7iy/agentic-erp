@@ -4207,29 +4207,32 @@ type Invoker interface {
 	// then, each read from its leading ledger's asset history sheet totals and translated by the rules a
 	// run translates by: the closing values at the company's closing rate of period 12 (the closing rate a
 	// run shows, `ConsolidationRunMember.closing_rate`), the opening values at the closing rate of the
-	// period before the year's first (period 12 of the year before), and each period's movements at that
-	// period's closing rate, of the same rate type (`consolidation.rate_type`); a special period's (13-16)
-	// at period 12's. A member first consolidated in the fiscal year opens at its first period: what it
-	// held and moved before that is its opening, at the closing rate of the period before its first, where
-	// a run measures its acquisition (ADR-0059 §9). Each column of each company and class is translated
-	// once, rounded half away from zero to the group currency's minor unit, and `exchange_differences`
-	// (cost) and `exchange_differences_accumulated` (accumulated depreciation) are the net exchange
-	// differences on translation: the closing value less the opening value and the year's translated
-	// movements, so every row, company and total reconciles to the cent. A company in the group currency
-	// is at rate 1 and has no exchange differences. A rate is read only where an amount needs it: a
-	// company without opening values needs no opening rate, a period without movements none of its own.
-	// Rows are by class code over every company, a class with neither an opening value nor a movement in
-	// the year at any company having none; `companies` gives each company's rates and its totals, which
-	// sum to `totals`. Signs as the company's sheet (`getAssetHistorySheet`): accumulated depreciation,
-	// with accumulated impairment, negative. Refused as a run of the year's period 12 would be: a group
-	// that does not exist or whose parent or a member the caller may not act in is unknown (404
-	// `consolidation.group_unknown`, ADR-0059 §12: the sheet is the group's whole, never part of it); a
-	// parent not in the group currency, a member on another calendar or not incorporated and wholly owned,
-	// a fiscal year the parent has no period 12 in, and a needed rate missing or stale are 422. Besides
-	// `consolidation.read` the caller needs `ledger.entry.read` and `assets.asset.read`
-	// (`x-also-permissions`), so the sheet gives nothing the companies' own sheets would refuse. Exact at
-	// the read and from one database state (a repeatable-read snapshot), so the rows, companies and totals
-	// agree whatever posts meanwhile.
+	// period before the year's first (period 12 of the year before), the profit and loss columns
+	// (`depreciation`, `impairment_losses`, `impairment_reversals`) at their booked group amounts, each
+	// posting's own rate, as a run translates income and expenses, and each period's other movements (of
+	// cost, and what retirements and transfers took of accumulated depreciation) at that period's closing
+	// rate, of the same rate type (`consolidation.rate_type`); a special period's (13-16) at period 12's.
+	// A member first consolidated in the fiscal year opens at its first period: what it held and moved
+	// before that is its opening, at the closing rate of the period before its first, where a run measures
+	// its acquisition (ADR-0059 §9). Each column of each company and class is translated once, rounded
+	// half away from zero to the group currency's minor unit, and `exchange_differences` (cost) and
+	// `exchange_differences_accumulated` (accumulated depreciation) are the net exchange differences on
+	// translation: the closing value less the opening value and the year's translated movements, so every
+	// row, company and total reconciles to the cent. A company in the group currency is at rate 1, its
+	// profit and loss columns its local amounts, and has no exchange differences. A rate is read only
+	// where an amount needs it: a company without opening values needs no opening rate, a period without
+	// movements of cost or of what retirements and transfers took none of its own. Rows are by class code
+	// over every company, a class with neither an opening value nor a movement in the year at any company
+	// having none; `companies` gives each company's rates and its totals, which sum to `totals`. Signs as
+	// the company's sheet (`getAssetHistorySheet`): accumulated depreciation, with accumulated impairment,
+	// negative. Refused as a run of the year's period 12 would be: a group that does not exist or whose
+	// parent or a member the caller may not act in is unknown (404 `consolidation.group_unknown`, ADR-0059
+	// §12: the sheet is the group's whole, never part of it); a parent not in the group currency, a
+	// member on another calendar or not incorporated and wholly owned, a fiscal year the parent has no
+	// period 12 in, and a needed rate missing or stale are 422. Besides `consolidation.read` the caller
+	// needs `ledger.entry.read` and `assets.asset.read` (`x-also-permissions`), so the sheet gives nothing
+	// the companies' own sheets would refuse. Exact at the read and from one database state (a
+	// repeatable-read snapshot), so the rows, companies and totals agree whatever posts meanwhile.
 	//
 	// GET /v1/consolidation-groups/{code}/asset-history-sheet
 	GetConsolidatedAssetHistorySheet(ctx context.Context, params GetConsolidatedAssetHistorySheetParams) (GetConsolidatedAssetHistorySheetRes, error)
@@ -46209,29 +46212,32 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 // then, each read from its leading ledger's asset history sheet totals and translated by the rules a
 // run translates by: the closing values at the company's closing rate of period 12 (the closing rate a
 // run shows, `ConsolidationRunMember.closing_rate`), the opening values at the closing rate of the
-// period before the year's first (period 12 of the year before), and each period's movements at that
-// period's closing rate, of the same rate type (`consolidation.rate_type`); a special period's (13-16)
-// at period 12's. A member first consolidated in the fiscal year opens at its first period: what it
-// held and moved before that is its opening, at the closing rate of the period before its first, where
-// a run measures its acquisition (ADR-0059 §9). Each column of each company and class is translated
-// once, rounded half away from zero to the group currency's minor unit, and `exchange_differences`
-// (cost) and `exchange_differences_accumulated` (accumulated depreciation) are the net exchange
-// differences on translation: the closing value less the opening value and the year's translated
-// movements, so every row, company and total reconciles to the cent. A company in the group currency
-// is at rate 1 and has no exchange differences. A rate is read only where an amount needs it: a
-// company without opening values needs no opening rate, a period without movements none of its own.
-// Rows are by class code over every company, a class with neither an opening value nor a movement in
-// the year at any company having none; `companies` gives each company's rates and its totals, which
-// sum to `totals`. Signs as the company's sheet (`getAssetHistorySheet`): accumulated depreciation,
-// with accumulated impairment, negative. Refused as a run of the year's period 12 would be: a group
-// that does not exist or whose parent or a member the caller may not act in is unknown (404
-// `consolidation.group_unknown`, ADR-0059 §12: the sheet is the group's whole, never part of it); a
-// parent not in the group currency, a member on another calendar or not incorporated and wholly owned,
-// a fiscal year the parent has no period 12 in, and a needed rate missing or stale are 422. Besides
-// `consolidation.read` the caller needs `ledger.entry.read` and `assets.asset.read`
-// (`x-also-permissions`), so the sheet gives nothing the companies' own sheets would refuse. Exact at
-// the read and from one database state (a repeatable-read snapshot), so the rows, companies and totals
-// agree whatever posts meanwhile.
+// period before the year's first (period 12 of the year before), the profit and loss columns
+// (`depreciation`, `impairment_losses`, `impairment_reversals`) at their booked group amounts, each
+// posting's own rate, as a run translates income and expenses, and each period's other movements (of
+// cost, and what retirements and transfers took of accumulated depreciation) at that period's closing
+// rate, of the same rate type (`consolidation.rate_type`); a special period's (13-16) at period 12's.
+// A member first consolidated in the fiscal year opens at its first period: what it held and moved
+// before that is its opening, at the closing rate of the period before its first, where a run measures
+// its acquisition (ADR-0059 §9). Each column of each company and class is translated once, rounded
+// half away from zero to the group currency's minor unit, and `exchange_differences` (cost) and
+// `exchange_differences_accumulated` (accumulated depreciation) are the net exchange differences on
+// translation: the closing value less the opening value and the year's translated movements, so every
+// row, company and total reconciles to the cent. A company in the group currency is at rate 1, its
+// profit and loss columns its local amounts, and has no exchange differences. A rate is read only
+// where an amount needs it: a company without opening values needs no opening rate, a period without
+// movements of cost or of what retirements and transfers took none of its own. Rows are by class code
+// over every company, a class with neither an opening value nor a movement in the year at any company
+// having none; `companies` gives each company's rates and its totals, which sum to `totals`. Signs as
+// the company's sheet (`getAssetHistorySheet`): accumulated depreciation, with accumulated impairment,
+// negative. Refused as a run of the year's period 12 would be: a group that does not exist or whose
+// parent or a member the caller may not act in is unknown (404 `consolidation.group_unknown`, ADR-0059
+// §12: the sheet is the group's whole, never part of it); a parent not in the group currency, a
+// member on another calendar or not incorporated and wholly owned, a fiscal year the parent has no
+// period 12 in, and a needed rate missing or stale are 422. Besides `consolidation.read` the caller
+// needs `ledger.entry.read` and `assets.asset.read` (`x-also-permissions`), so the sheet gives nothing
+// the companies' own sheets would refuse. Exact at the read and from one database state (a
+// repeatable-read snapshot), so the rows, companies and totals agree whatever posts meanwhile.
 //
 // GET /v1/consolidation-groups/{code}/asset-history-sheet
 func (c *Client) GetConsolidatedAssetHistorySheet(ctx context.Context, params GetConsolidatedAssetHistorySheetParams) (GetConsolidatedAssetHistorySheetRes, error) {

@@ -23,13 +23,16 @@ type ConsolidationReads struct{}
 // local currency, by the history sheet's columns (ADR-0057 §9, signed as
 // the sheet shows them): of every fiscal year before the year read
 // (Period 0), whose cost and accumulated depreciation are the class's
-// opening values, or of one period of that year (1-16).
+// opening values, or of one period of that year (1-16), whose profit and
+// loss columns also carry their booked group amounts (the *GC fields;
+// zero for Period 0).
 type ClassTotal struct {
-	Class                                               string
-	Period                                              int16
-	Acquisitions, Retirements, Transfers                money.Minor
-	Depreciation, ImpairmentLosses, ImpairmentReversals money.Minor
-	RetirementsAccumulated, TransfersAccumulated        money.Minor
+	Class                                                     string
+	Period                                                    int16
+	Acquisitions, Retirements, Transfers                      money.Minor
+	Depreciation, ImpairmentLosses, ImpairmentReversals       money.Minor
+	RetirementsAccumulated, TransfersAccumulated              money.Minor
+	DepreciationGC, ImpairmentLossesGC, ImpairmentReversalsGC money.Minor
 }
 
 // ClassTotals are the company's class totals in the ledger before the
@@ -43,16 +46,17 @@ func (ConsolidationReads) ClassTotals(ctx context.Context, legalEntity, ledgerID
 		return nil, err
 	}
 	rows, _ := tx.Query(ctx, `SELECT class_code, 0::smallint, sum(acquisitions), sum(retired_cost), sum(transferred_cost), sum(depreciation),
-			sum(impairment_losses), sum(impairment_reversals), sum(retired_accumulated), sum(transferred_accumulated)
+			sum(impairment_losses), sum(impairment_reversals), sum(retired_accumulated), sum(transferred_accumulated), 0, 0, 0
 		FROM assets.class_year_total WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year < $3 GROUP BY class_code
 		UNION ALL
 		SELECT class_code, fiscal_period, acquisitions, retired_cost, transferred_cost, depreciation, impairment_losses, impairment_reversals,
-			retired_accumulated, transferred_accumulated
+			retired_accumulated, transferred_accumulated, depreciation_gc, impairment_losses_gc, impairment_reversals_gc
 		FROM assets.class_period_total WHERE legal_entity_id = $1 AND ledger_id = $2 AND fiscal_year = $3
 		ORDER BY 1, 2`, legalEntity, ledgerID, year)
 	var out []ClassTotal
 	var c ClassTotal
 	_, err = pgx.ForEachRow(rows, []any{&c.Class, &c.Period, &c.Acquisitions, &c.Retirements, &c.Transfers, &c.Depreciation, &c.ImpairmentLosses,
-		&c.ImpairmentReversals, &c.RetirementsAccumulated, &c.TransfersAccumulated}, func() error { out = append(out, c); return nil })
+		&c.ImpairmentReversals, &c.RetirementsAccumulated, &c.TransfersAccumulated, &c.DepreciationGC, &c.ImpairmentLossesGC, &c.ImpairmentReversalsGC},
+		func() error { out = append(out, c); return nil })
 	return out, errs.Wrapf(err, "assets: class totals of %s in %d", legalEntity, year)
 }

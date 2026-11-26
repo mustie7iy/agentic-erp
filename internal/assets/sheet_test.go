@@ -232,11 +232,15 @@ func totalsDiffer(t *testing.T, tenant uuid.UUID) int {
 			coalesce(sum(cost) FILTER (WHERE kind LIKE 'transfer%'), 0) AS t, coalesce(sum(accumulated) FILTER (WHERE kind = 'depreciation'), 0) AS d,
 			coalesce(sum(accumulated) FILTER (WHERE kind = 'retirement'), 0) AS ra, coalesce(sum(accumulated) FILTER (WHERE kind LIKE 'transfer%'), 0) AS ta,
 			coalesce(sum(accumulated) FILTER (WHERE kind = 'impairment'), 0) AS il,
-			coalesce(sum(accumulated) FILTER (WHERE kind = 'impairment_reversal'), 0) AS ir
+			coalesce(sum(accumulated) FILTER (WHERE kind = 'impairment_reversal'), 0) AS ir,
+			coalesce(sum(accumulated_gc) FILTER (WHERE kind = 'depreciation'), 0) AS dg,
+			coalesce(sum(accumulated_gc) FILTER (WHERE kind = 'impairment'), 0) AS ilg,
+			coalesce(sum(accumulated_gc) FILTER (WHERE kind = 'impairment_reversal'), 0) AS irg
 		FROM assets.movement WHERE tenant_id = $1 GROUP BY 1, 2, 3, 4, 5),
 		q AS (SELECT legal_entity_id, ledger_id, fiscal_year, fiscal_period, class_code, acquisitions::numeric, retired_cost::numeric,
 			transferred_cost::numeric, depreciation::numeric, retired_accumulated::numeric, transferred_accumulated::numeric, impairment_losses::numeric,
-			impairment_reversals::numeric FROM assets.class_period_total WHERE tenant_id = $1)
+			impairment_reversals::numeric, depreciation_gc::numeric, impairment_losses_gc::numeric, impairment_reversals_gc::numeric
+			FROM assets.class_period_total WHERE tenant_id = $1)
 		SELECT (SELECT count(*) FROM ((SELECT * FROM m EXCEPT SELECT * FROM y) UNION ALL (SELECT * FROM y EXCEPT SELECT * FROM m)) a)
 			+ (SELECT count(*) FROM ((SELECT * FROM c EXCEPT SELECT * FROM k) UNION ALL (SELECT * FROM k EXCEPT SELECT * FROM c)) b)
 			+ (SELECT count(*) FROM ((SELECT * FROM p EXCEPT SELECT * FROM q) UNION ALL (SELECT * FROM q EXCEPT SELECT * FROM p)) d)

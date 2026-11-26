@@ -30469,8 +30469,9 @@ type ConsolidatedAssetHistorySheetCompany struct {
 	ClosingRate string `json:"closing_rate"`
 	// The day the closing rate is valid from; absent at rate 1.
 	ClosingRateValidFrom OptDate `json:"closing_rate_valid_from"`
-	// The rates its movements were translated at, one per period with a movement, by period (a special
-	// period's being period 12's closing rate); none in the group currency.
+	// The rates its movements other than depreciation and impairment (which are at their booked group
+	// amounts) were translated at, one per period with such a movement, by period (a special period's
+	// being period 12's closing rate); none in the group currency.
 	PeriodRates []ConsolidatedAssetHistorySheetRate `json:"period_rates"`
 	Totals      ConsolidatedAssetHistorySheetValues `json:"totals"`
 }
@@ -30585,7 +30586,8 @@ func (s *ConsolidatedAssetHistorySheetCompany) SetTotals(val ConsolidatedAssetHi
 	s.Totals = val
 }
 
-// The rate a company's movements of one period were translated at: the period's closing rate.
+// The rate a company's movements of cost, and what retirements and transfers took of accumulated
+// depreciation, of one period were translated at: the period's closing rate.
 // Ref: #/components/schemas/ConsolidatedAssetHistorySheetRate
 type ConsolidatedAssetHistorySheetRate struct {
 	// The fiscal period (1-16).

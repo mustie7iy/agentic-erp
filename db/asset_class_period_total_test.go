@@ -17,15 +17,17 @@ import (
 
 // periodMovementSQL writes a movement of an asset (seq 2) in a ledger,
 // fiscal year and period (a special period on period 12's dates): kind,
-// cost, accumulated depreciation and its document's kind.
+// cost, accumulated depreciation (twice that in group currency) and its
+// document's kind.
 const periodMovementSQL = `INSERT INTO assets.movement (tenant_id, id, asset_id, seq, legal_entity_id, ledger_id, class_code, kind, value_date, posting_date,
-		fiscal_year, fiscal_period, cost, accumulated, document_kind, document_id, created_by)
+		fiscal_year, fiscal_period, cost, accumulated, accumulated_gc, document_kind, document_id, created_by)
 	SELECT $1, gen_random_uuid(), $2, 2, a.legal_entity_id, $3, a.class_code, $4, make_date($5, least($6, 12), 1), make_date($5, least($6, 12), 1), $5, $6,
-		$7, $8, $9, gen_random_uuid(), $10 FROM assets.asset a WHERE a.id = $2`
+		$7, $8, $8 * 2, $9, gen_random_uuid(), $10 FROM assets.asset a WHERE a.id = $2`
 
 // TestAssetClassPeriodTotalsBackfilled: 000473 totals the movements
 // written before it, each kind in its column, per company, ledger, fiscal
-// year, period and class.
+// year, period and class, the profit and loss columns with their group
+// amounts.
 func TestAssetClassPeriodTotalsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
 	migrateBefore(t, conn, "000473_asset_class_period_totals")
@@ -72,22 +74,24 @@ func TestAssetClassPeriodTotalsBackfilled(t *testing.T) {
 	var got []string
 	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {
 		rows, _ := tx.Query(context.Background(), `SELECT class_code, ledger_id, fiscal_year, fiscal_period, acquisitions, retired_cost, transferred_cost,
-				depreciation, retired_accumulated, transferred_accumulated, impairment_losses, impairment_reversals
+				depreciation, retired_accumulated, transferred_accumulated, impairment_losses, impairment_reversals, depreciation_gc, impairment_losses_gc,
+				impairment_reversals_gc
 			FROM assets.class_period_total ORDER BY 1, 3, 4, ledger_id = $1 DESC`, f.ledger)
 		var class string
 		var ledger uuid.UUID
 		var year, period int16
-		var sums [8]int64
+		var sums [11]int64
 		_, err := pgx.ForEachRow(rows, []any{&class, &ledger, &year, &period, &sums[0], &sums[1], &sums[2], &sums[3], &sums[4], &sums[5], &sums[6],
-			&sums[7]}, func() error {
+			&sums[7], &sums[8], &sums[9], &sums[10]}, func() error {
 			got = append(got, fmt.Sprintf("%s %s %d/%d: %v", class, names[ledger], year, period, sums))
 			return nil
 		})
 		return err
 	})
-	want := []string{"LAND 0L 2026/13: [0 0 300 0 0 -45 0 0]", "MACHINES 0L 2025/3: [1200 0 0 0 0 0 0 0]", "MACHINES 0L 2026/1: [0 0 0 -10 0 0 0 0]",
-		"MACHINES 0L 2026/2: [0 -300 0 -15 45 0 0 0]", "MACHINES 2L 2026/2: [1200 0 0 0 0 0 0 0]", "MACHINES 0L 2026/12: [0 0 0 0 0 0 -20 0]",
-		"MACHINES 0L 2026/13: [0 0 -300 0 0 45 0 0]"}
+	want := []string{"LAND 0L 2026/13: [0 0 300 0 0 -45 0 0 0 0 0]", "MACHINES 0L 2025/3: [1200 0 0 0 0 0 0 0 0 0 0]",
+		"MACHINES 0L 2026/1: [0 0 0 -10 0 0 0 0 -20 0 0]", "MACHINES 0L 2026/2: [0 -300 0 -15 45 0 0 0 -30 0 0]",
+		"MACHINES 2L 2026/2: [1200 0 0 0 0 0 0 0 0 0 0]", "MACHINES 0L 2026/12: [0 0 0 0 0 0 -20 0 0 -40 0]",
+		"MACHINES 0L 2026/13: [0 0 -300 0 0 45 0 0 0 0 0]"}
 	if g, w := strings.Join(got, "; "), strings.Join(want, "; "); g != w {
 		t.Errorf("class period totals:\ngot  %s\nwant %s", g, w)
 	}

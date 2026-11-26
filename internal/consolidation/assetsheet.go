@@ -2,6 +2,7 @@ package consolidation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math/big"
@@ -23,10 +24,13 @@ import (
 // The consolidated asset history sheet (ADR-0057 §9 and As built, the
 // consolidated sheet; ADR-0059 §7; the accounting specialist's B14,
 // po:2026-11-09): a group's asset history sheet for a fiscal year in the
-// group currency, its companies' class totals translated by the rates a
-// run reads (rateOf): the closing values at the closing rate of the year's
-// period 12, the opening values at that of the period before the opening,
-// each period's movements at that period's, and the net exchange
+// group currency, its companies' class totals translated as a run
+// translates (ADR-0059 §7, rateOf): the closing values, balances, at the
+// closing rate of the year's period 12 and the opening values at that of
+// the period before the opening; the profit and loss columns
+// (depreciation, impairment losses and their reversals) at their booked
+// group amounts; the other movements, of cost and of what retirements and
+// transfers took, at their period's closing rate; and the net exchange
 // differences on translation the rest, per column, so every row reconciles
 // to the cent.
 
@@ -41,13 +45,22 @@ type AssetColumns struct {
 	RetirementsAccumulated, TransfersAccumulated        money.Minor
 }
 
+// AssetBooked are an asset class's profit and loss columns at their
+// booked group amounts (the movements' group amounts, each posting's own
+// rate): depreciation, impairment losses and their reversals.
+type AssetBooked struct {
+	Depreciation, ImpairmentLosses, ImpairmentReversals money.Minor
+}
+
 // AssetClassTotal is an asset class's sums in a company's leading ledger:
 // of every fiscal year before the one read (Period 0), its opening values,
-// or of one period of that year (1-16).
+// or of one period of that year (1-16), with its booked profit and loss
+// columns (none for Period 0).
 type AssetClassTotal struct {
 	Class  string
 	Period int16
 	AssetColumns
+	Booked AssetBooked
 }
 
 // Assets reads the assets context's class totals (ADR-0057 As built, the
@@ -62,6 +75,25 @@ func (a AssetColumns) plus(o AssetColumns) AssetColumns {
 		Depreciation: a.Depreciation + o.Depreciation, ImpairmentLosses: a.ImpairmentLosses + o.ImpairmentLosses,
 		ImpairmentReversals: a.ImpairmentReversals + o.ImpairmentReversals, RetirementsAccumulated: a.RetirementsAccumulated + o.RetirementsAccumulated,
 		TransfersAccumulated: a.TransfersAccumulated + o.TransfersAccumulated}
+}
+
+func (b AssetBooked) plus(o AssetBooked) AssetBooked {
+	return AssetBooked{Depreciation: b.Depreciation + o.Depreciation, ImpairmentLosses: b.ImpairmentLosses + o.ImpairmentLosses,
+		ImpairmentReversals: b.ImpairmentReversals + o.ImpairmentReversals}
+}
+
+// balances are the columns that move the class's balances alone, which
+// are translated at a rate: the cost columns and what retirements and
+// transfers took of accumulated depreciation, its profit and loss columns
+// left out.
+func (a AssetColumns) balances() AssetColumns {
+	a.Depreciation, a.ImpairmentLosses, a.ImpairmentReversals = 0, 0, 0
+	return a
+}
+
+// profitAndLoss are the profit and loss columns in local currency.
+func (a AssetColumns) profitAndLoss() AssetBooked {
+	return AssetBooked{Depreciation: a.Depreciation, ImpairmentLosses: a.ImpairmentLosses, ImpairmentReversals: a.ImpairmentReversals}
 }
 
 // cost and accumulated are what the columns change of cost and of
@@ -89,22 +121,25 @@ func (s sheetColumns) plus(o sheetColumns) sheetColumns {
 
 // classLocal is a company's class in local currency: its opening values
 // (as columns summed) and the year's movements from the opening on, by
-// period.
+// period, with their booked profit and loss columns summed.
 type classLocal struct {
 	opening AssetColumns
 	periods map[int16]AssetColumns
+	booked  AssetBooked
 }
 
 // opened reports whether the class opens with a value: a cost or an
 // accumulated depreciation (as the company's sheet shows a class).
 func (l classLocal) opened() bool { return l.opening.cost() != 0 || l.opening.accumulated() != 0 }
 
-// sheetCompany is a company's part of the sheet: the rates it was
-// translated at (opening nil without opening values; periods those with
-// movements, none in the group currency), its classes' translated
-// columns, by class code, and their totals.
+// sheetCompany is a company's part of the sheet: whether it is in the
+// group currency, the rates it was translated at (opening nil without
+// opening values; periods those with movements of its balances, none in
+// the group currency), its classes' translated columns, by class code, and
+// their totals.
 type sheetCompany struct {
 	c       includedCompany
+	inGroup bool
 	opening *Rate
 	periods map[int16]Rate
 	classes map[string]sheetColumns
@@ -127,7 +162,7 @@ func (e *Endpoints) GetConsolidatedAssetHistorySheet(ctx context.Context, params
 	}
 	t, err := e.targetOf(ctx, tx, doc, params.Code, params.FiscalYear, 12)
 	if err != nil {
-		return nil, err
+		return nil, onFiscalYear(err)
 	}
 	start, err := e.yearStart(ctx, t)
 	if err != nil {
@@ -140,10 +175,25 @@ func (e *Endpoints) GetConsolidatedAssetHistorySheet(ctx context.Context, params
 	companies := make([]sheetCompany, len(t.included))
 	for i, c := range t.included {
 		if companies[i], err = e.sheetOf(ctx, tx, t, c, expGC); err != nil {
-			return nil, err
+			return nil, onFiscalYear(err)
 		}
 	}
 	return assetSheet(doc, t, start, companies, expGC), nil
+}
+
+// onFiscalYear puts a run's refusal of a period on the sheet's parameter:
+// the sheet has a fiscal year, and the run's period it stands for is the
+// year's 12th or one of its months.
+func onFiscalYear(err error) error {
+	var p *problem.Problem
+	if errors.As(err, &p) {
+		for i := range p.Errors {
+			if p.Errors[i].Field == "period" {
+				p.Errors[i].Field = "fiscal_year"
+			}
+		}
+	}
+	return err
 }
 
 // yearStart is the first day of the parent's fiscal year: its period 1's
@@ -185,7 +235,7 @@ func localOf(totals []AssetClassTotal, open int16) map[string]*classLocal {
 		if x.Period < open {
 			l.opening = l.opening.plus(x.AssetColumns)
 		} else {
-			l.periods[x.Period] = l.periods[x.Period].plus(x.AssetColumns)
+			l.periods[x.Period], l.booked = l.periods[x.Period].plus(x.AssetColumns), l.booked.plus(x.Booked)
 		}
 	}
 	return out
@@ -204,11 +254,12 @@ func (e *Endpoints) sheetOf(ctx context.Context, tx pgx.Tx, t target, c included
 	}
 	open := c.openingPeriod(t.year)
 	local := localOf(totals, open)
-	s := sheetCompany{c: c, periods: map[int16]Rate{}, classes: map[string]sheetColumns{}}
+	s := sheetCompany{c: c, inGroup: c.co.LocalCurrency == t.currency, periods: map[int16]Rate{}, classes: map[string]sheetColumns{}}
 	if err := e.ratesOf(ctx, t, &s, local, open); err != nil {
 		return sheetCompany{}, err
 	}
-	for class, l := range local {
+	for _, class := range slices.Sorted(maps.Keys(local)) {
+		l := local[class]
 		v, err := s.translate(*l, expLC, expGC)
 		if err != nil {
 			return sheetCompany{}, fmt.Errorf("consolidation: translate the asset class %s of %s: %w", class, c.co.Code, err)
@@ -224,16 +275,17 @@ func (e *Endpoints) sheetOf(ctx context.Context, tx pgx.Tx, t target, c included
 // amount needs it: the opening rate when a class has opening values (the
 // closing rate of the period before the opening period; for a member first
 // consolidated in the year that is where a run measures its acquisition,
-// measurePeriod), and each period's own closing rate for its movements,
-// period 12's and a special period's the run's closing rate. A company in
-// the group currency is at rate 1 throughout and lists no period rates.
+// measurePeriod), and each period's own closing rate for its movements of
+// the balances (AssetColumns.balances), period 12's and a special
+// period's the run's closing rate. A company in the group currency is at
+// rate 1 throughout and lists no period rates.
 func (e *Endpoints) ratesOf(ctx context.Context, t target, s *sheetCompany, local map[string]*classLocal, open int16) error {
 	co := s.c.co
 	opening, periods := false, map[int16]bool{}
 	for _, l := range local {
 		opening = opening || l.opened()
 		for p, m := range l.periods {
-			periods[p] = periods[p] || m != (AssetColumns{})
+			periods[p] = periods[p] || m.balances() != (AssetColumns{})
 		}
 	}
 	if opening {
@@ -245,7 +297,7 @@ func (e *Endpoints) ratesOf(ctx context.Context, t target, s *sheetCompany, loca
 		}
 		s.opening = &r
 	}
-	if co.LocalCurrency == t.currency {
+	if s.inGroup {
 		return nil
 	}
 	for _, p := range slices.Sorted(maps.Keys(periods)) {
@@ -283,18 +335,20 @@ func (x *translator) at(a money.Minor, r *big.Rat) money.Minor {
 	return v
 }
 
-// columnsAt are the columns at the rate, each translated once.
+// columnsAt are the balances' columns at the rate, each translated once.
 func (x *translator) columnsAt(a AssetColumns, r *big.Rat) AssetColumns {
 	return AssetColumns{Acquisitions: x.at(a.Acquisitions, r), Retirements: x.at(a.Retirements, r), Transfers: x.at(a.Transfers, r),
-		Depreciation: x.at(a.Depreciation, r), ImpairmentLosses: x.at(a.ImpairmentLosses, r), ImpairmentReversals: x.at(a.ImpairmentReversals, r),
 		RetirementsAccumulated: x.at(a.RetirementsAccumulated, r), TransfersAccumulated: x.at(a.TransfersAccumulated, r)}
 }
 
 // translate is a class's columns in the group currency: the opening cost
 // and accumulated depreciation at the opening rate, each period's
-// movements at the period's rate (1 in the group currency), the closing
-// values at the closing rate, and the exchange differences what is left of
-// the closing values after the opening and the movements.
+// movements of the balances at the period's rate, the profit and loss
+// columns at their booked group amounts, the closing values at the closing
+// rate, and the exchange differences what is left of the closing values
+// after the opening and the movements. A company in the group currency is
+// at rate 1 throughout, its profit and loss columns its local amounts (its
+// booked group amounts are those, at rate 1), so it has no differences.
 func (s sheetCompany) translate(l classLocal, expLC, expGC int) (sheetColumns, error) {
 	x := &translator{expLC: expLC, expGC: expGC}
 	closing := l.opening
@@ -302,14 +356,21 @@ func (s sheetCompany) translate(l classLocal, expLC, expGC int) (sheetColumns, e
 	if s.opening != nil {
 		v.OpeningCost, v.OpeningAccumulated = x.at(l.opening.cost(), s.opening.Rate), x.at(l.opening.accumulated(), s.opening.Rate)
 	}
+	var local AssetBooked // the profit and loss columns in local currency
 	for _, p := range slices.Sorted(maps.Keys(l.periods)) {
 		rate := one()
 		if r, ok := s.periods[p]; ok {
 			rate = r.Rate
 		}
-		v.AssetColumns = v.AssetColumns.plus(x.columnsAt(l.periods[p], rate))
-		closing = closing.plus(l.periods[p])
+		m := l.periods[p]
+		v.AssetColumns = v.AssetColumns.plus(x.columnsAt(m.balances(), rate))
+		local, closing = local.plus(m.profitAndLoss()), closing.plus(m)
 	}
+	booked := l.booked
+	if s.inGroup {
+		booked = local
+	}
+	v.Depreciation, v.ImpairmentLosses, v.ImpairmentReversals = booked.Depreciation, booked.ImpairmentLosses, booked.ImpairmentReversals
 	v.ClosingCost, v.ClosingAccumulated = x.at(closing.cost(), s.c.rate.Rate), x.at(closing.accumulated(), s.c.rate.Rate)
 	v.ExchangeCost = v.ClosingCost - v.OpeningCost - v.cost()
 	v.ExchangeAccu = v.ClosingAccumulated - v.OpeningAccumulated - v.accumulated()

@@ -2876,7 +2876,8 @@ internal/app over `assets.ConsolidationReads.ClassTotals`) and its rates
 through its own `rateOf` and `periodRate` (no second copy of the rate
 rule). The assets context keeps a new total for it,
 `assets.class_period_total` (per company, ledger, fiscal year, period and
-class, the year totals' columns), written by `keepTotals` in every
+class, the year totals' columns and the booked group amounts of its
+profit and loss columns), written by `keepTotals` in every
 posting's transaction after the class year rows and before the asset
 rows, each in key order (no new lock order: a period row two postings
 share belongs to a class year row they share), and backfilled from the
@@ -2889,23 +2890,31 @@ Decided by default (ADR-0053 d), for the product owner to overrule:
   the run's 422s apply (parent currency, calendar, structure, period,
   rates). Alternative: sum the companies the caller may read (as the
   group liquidity forecast does), rejected for ADR-0059 §12's reason.
-- **Rates (ADR-0059 §7's rule, its rate type).** Closing values at the
+- **Rates (ADR-0059 §7's method).** Closing values, balances, at the
   company's closing rate of period 12 (the rate a run of that period
   shows); opening values at the closing rate of the period before the
-  opening (period 12 of the year before); each period's movements, every
-  column, at that period's own closing rate, the rate a run of that
-  period would translate its balances at (with the default `average`
-  rate type, the period's rate, IAS 21.40's practical approximation, from
-  memory); a special period's (13-16) at period 12's. A rate is read only
-  where an amount needs it, so a company without opening values needs no
-  opening rate and a period without movements no rate of its own; a
-  needed one missing or stale is refused (422 `consolidation.rate_missing`,
-  `consolidation.rate_stale`, `consolidation.period_unknown`). Not the
-  movements' booked group amounts: a retirement's and a transfer's are
+  opening (period 12 of the year before). The profit and loss columns,
+  depreciation, impairment losses and their reversals, at their booked
+  group amounts (each posting's own rate, the movements' `accumulated_gc`,
+  kept per period in `class_period_total`): §7 translates income and
+  expenses so, with no period average rate, so the sheet's depreciation
+  is the consolidated profit and loss's. The other movements, of cost
+  (acquisitions, retirements, transfers) and what retirements and
+  transfers took of accumulated depreciation, which move balances alone,
+  at their period's own closing rate, the rate a run of that period
+  translates its balances at; a special period's (13-16) at period 12's.
+  Not their booked group amounts: a retirement's and a transfer's are
   shares of historical group amounts, which would put the rate change
   since the acquisition into the disposal line rather than the exchange
-  difference. Alternative: each movement at its posting date's rate
-  (needs a total per posting date, or the movements read).
+  difference. A rate is read only where an amount needs it, so a company
+  without opening values needs no opening rate and a period without such
+  movements no rate of its own; a needed one missing or stale is refused
+  (422 `consolidation.rate_missing`, `consolidation.rate_stale`,
+  `consolidation.period_unknown`, on `fiscal_year`). Alternative: each
+  balance movement at its posting date's rate (needs a total per posting
+  date, or the movements read); for the specialist (from memory): whether
+  a disposal at its period's closing rate, of the `average` type, is the
+  practice.
 - **The exchange differences are the rest**, per company, class and
   column: the closing value at the closing rate less the opening value
   and the year's translated movements, so every row, company and total
@@ -2916,7 +2925,9 @@ Decided by default (ADR-0053 d), for the product owner to overrule:
   rounding from the consolidated balance sheet's, which translates per
   account and trading partner (§7).
 - **A company in the group currency** (the parent always, ADR-0059 §3) is
-  at rate 1 for every column, so it has no exchange differences and its
+  at rate 1 for every column, its profit and loss columns its local
+  amounts (its booked group amounts are those), so it has no exchange
+  differences and its
   rows are its own sheet's in the leading ledger; its `opening_rate` is 1
   when it has opening values, and it lists no period rates.
 - **A member first consolidated in the fiscal year** opens at its first

@@ -2587,9 +2587,10 @@ read of this context: the companies a run of the year's period 12
 includes (`targetOf`, its refusals included), each company's class totals
 read through a new port, `Assets` (the assets context's
 `ConsolidationReads`, adapted in internal/app; no import between the two
-leaves), translated by §7's rates: closing values at period 12's closing
+leaves), translated by §7's method: closing values at period 12's closing
 rate, opening values at the closing rate of the period before the
-opening, each period's movements at its own (`periodRate`, which
+opening, depreciation and impairment at their booked group amounts, each
+period's other movements at its own closing rate (`periodRate`, which
 `measurePeriod` now calls), and the net exchange differences on
 translation the rest per column. ADR-0057's As built records the
 decisions; nothing a run computes or stores changed.

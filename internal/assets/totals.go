@@ -28,6 +28,14 @@ const totalsOf = `coalesce(sum(m.cost) FILTER (WHERE m.kind = 'acquisition'), 0)
 	FROM assets.asset a JOIN assets.movement m ON m.tenant_id = a.tenant_id AND m.asset_id = a.id AND m.seq = a.last_seq
 	WHERE a.id = ANY($1)`
 
+// bookedOf extends totalsOf's sums, for the class period totals, with the
+// booked group amounts of the profit and loss columns: the accumulated_gc
+// of depreciation, impairment losses and their reversals (As built, the
+// consolidated sheet).
+const bookedOf = `coalesce(sum(m.accumulated_gc) FILTER (WHERE m.kind = 'depreciation'), 0),
+		coalesce(sum(m.accumulated_gc) FILTER (WHERE m.kind = 'impairment'), 0),
+		coalesce(sum(m.accumulated_gc) FILTER (WHERE m.kind = 'impairment_reversal'), 0), `
+
 // addedTo adds the sums of a totals row being inserted to the row there.
 const addedTo = `acquisitions = t.acquisitions + EXCLUDED.acquisitions, retired_cost = t.retired_cost + EXCLUDED.retired_cost,
 		transferred_cost = t.transferred_cost + EXCLUDED.transferred_cost, depreciation = t.depreciation + EXCLUDED.depreciation,
@@ -62,10 +70,13 @@ func keepTotals(ctx context.Context, tx pgx.Tx, assets ...uuid.UUID) error {
 		return fmt.Errorf("assets: class year totals of %d assets: %w", len(assets), err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO assets.class_period_total AS t (tenant_id, legal_entity_id, ledger_id, fiscal_year, fiscal_period, class_code,
-			acquisitions, retired_cost, transferred_cost, depreciation, retired_accumulated, transferred_accumulated, impairment_losses, impairment_reversals)
-		SELECT m.tenant_id, m.legal_entity_id, m.ledger_id, m.fiscal_year, m.fiscal_period, m.class_code, `+totalsOf+`
+			depreciation_gc, impairment_losses_gc, impairment_reversals_gc, acquisitions, retired_cost, transferred_cost, depreciation,
+			retired_accumulated, transferred_accumulated, impairment_losses, impairment_reversals)
+		SELECT m.tenant_id, m.legal_entity_id, m.ledger_id, m.fiscal_year, m.fiscal_period, m.class_code, `+bookedOf+totalsOf+`
 		GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 2, 3, 4, 5, 6
-		ON CONFLICT (tenant_id, legal_entity_id, ledger_id, fiscal_year, fiscal_period, class_code) DO UPDATE SET `+addedTo, assets); err != nil {
+		ON CONFLICT (tenant_id, legal_entity_id, ledger_id, fiscal_year, fiscal_period, class_code) DO UPDATE SET `+addedTo+`,
+			depreciation_gc = t.depreciation_gc + EXCLUDED.depreciation_gc, impairment_losses_gc = t.impairment_losses_gc + EXCLUDED.impairment_losses_gc,
+			impairment_reversals_gc = t.impairment_reversals_gc + EXCLUDED.impairment_reversals_gc`, assets); err != nil {
 		return fmt.Errorf("assets: class period totals of %d assets: %w", len(assets), err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO assets.year_total AS t (tenant_id, ledger_id, asset_id, fiscal_year, legal_entity_id, class_code, acquisitions,

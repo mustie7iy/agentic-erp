@@ -57,7 +57,8 @@ func (consolidationAssets) ClassTotals(ctx context.Context, company uuid.UUID, y
 	for i, x := range ts {
 		out[i] = consolidation.AssetClassTotal{Class: x.Class, Period: x.Period, AssetColumns: consolidation.AssetColumns{Acquisitions: x.Acquisitions,
 			Retirements: x.Retirements, Transfers: x.Transfers, Depreciation: x.Depreciation, ImpairmentLosses: x.ImpairmentLosses,
-			ImpairmentReversals: x.ImpairmentReversals, RetirementsAccumulated: x.RetirementsAccumulated, TransfersAccumulated: x.TransfersAccumulated}}
+			ImpairmentReversals: x.ImpairmentReversals, RetirementsAccumulated: x.RetirementsAccumulated, TransfersAccumulated: x.TransfersAccumulated},
+			Booked: consolidation.AssetBooked{Depreciation: x.DepreciationGC, ImpairmentLosses: x.ImpairmentLossesGC, ImpairmentReversals: x.ImpairmentReversalsGC}}
 	}
 	return out, err
 }
