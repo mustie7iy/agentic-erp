@@ -1263,8 +1263,14 @@ A later slice adds its row here and its section under "As built".
   the year: the list is in creation order, and a goods receipt or a
   stock take-over is posted on the day its caller names, review:batch88),
   and count documents
-  (`listPhysicalInventoryDocuments`), all by `plant_id`. Any of them the
-  agent may not read stops it there.
+  (`listPhysicalInventoryDocuments`), all by `plant_id`, and, since S2c2
+  (2026-11-24), the materials' cycle counting indicators at the plant
+  (`listCycleCountMaterials`, also among its reads): a material with one
+  is due by its indicator's interval rather than its class's, and its
+  line adds `, cycle counting indicator <code> every <n> days` after its
+  class (ADR-0082 As built S2c2). Any of them the agent may not read
+  stops it there. Its never list holds the four writes of the indicators
+  too, as does the demand forecasting agent's (S2m).
 - **What is due is computed, not judged** (as T110a's failing objects):
   each material in stock at a storage location of the plant gets its
   class, movements and last count there, and a line, `Count <material
@@ -1294,8 +1300,12 @@ A later slice adds its row here and its section under "As built".
   document: `postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`,
   `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`,
   `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`, batch 88;
+  `reverseOutboundDeliveryGoodsIssue`, S2b3; cycle counting's
+  `createCycleCountIndicator`, `updateCycleCountIndicator`,
+  `createCycleCountMaterial`, `updateCycleCountMaterial`, S2c2;
   `TestNever` keeps it whole against the contract's writes named
-  `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt` or `GoodsIssue`),
+  `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt`, `GoodsIssue` or
+  `CycleCount`),
   none among its tools, and each `x-agent: false` but the purchase order
   receipt's two (`postGoodsReceipt`, `reverseGoodsReceipt`, open to
   agents by the contract, not to this one): it never creates a count
@@ -1628,18 +1638,19 @@ A later slice adds its row here and its section under "As built".
   `createSalesOrderUpload`, `confirmSalesOrder`,
   `releaseSalesOrderCreditBlock`, `changeSalesOrder`, `cancelSalesOrder`,
   `confirmSalesDelivery`, `createOutboundDelivery`,
-  `pickOutboundDelivery`, `createReturnsOrder`, `confirmReturnsOrder`),
-  the replenishment agent's never list of requisitions and purchase
+  `pickOutboundDelivery`, `releaseOutboundDeliveryTradeComplianceBlock`,
+  `reverseOutboundDeliveryGoodsIssue` (batch 94S), `createReturnsOrder`,
+  `confirmReturnsOrder`), the replenishment agent's never list of requisitions and purchase
   orders (their changes, `createRfq`, `createScheduleLine`,
   `callOffScheduleLine`, which creates an order, and `createGrIrClearing`
   included) and planning (`startMrpRun`, `createMaterialPlan`,
   `updateMaterialPlan`): it never changes stock, orders or planning (the
   brief's acceptance). `TestNever` keeps it whole against the contract's
   writes named `MaterialDocument`, `GoodsReceipt`, `GoodsIssue`,
-  `StockTransport`, `PhysicalInventory`, `SalesOrder`, `SalesDelivery`,
-  `OutboundDelivery`, `ReturnsOrder`, `ReturnReceipt`, `Requisition`,
-  `PurchaseOrder`, `ScheduleLine`, `GrIrClearing`, `MrpRun` and
-  `MaterialPlan`.
+  `StockTransport`, `PhysicalInventory`, `CycleCount`, `SalesOrder`,
+  `SalesDelivery`, `OutboundDelivery`, `ReturnsOrder`, `ReturnReceipt`,
+  `Requisition`, `PurchaseOrder`, `ScheduleLine`, `GrIrClearing`, `MrpRun`
+  and `MaterialPlan`.
 - `listSalesOrders` gains optional `plant_id` (the orders delivering from
   the plant; an order that names none matches none) and `material_id`
   (the orders with a standing item of the material, each answered whole;

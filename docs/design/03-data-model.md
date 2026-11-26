@@ -1825,7 +1825,10 @@ erDiagram
     int item_no PK
     uuid purchase_order_id
     int po_item_no
-    numeric quantity }
+    numeric quantity
+    uuid batch_id "S2f1: inventory.batch, by id"
+    text batch_number "S2f1"
+    text_array serial_numbers "S2g1" }
   rfq { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1927,6 +1930,13 @@ supplier, with its `reason` (required on a 122 and only there,
 reverses a 101 (migration 000064, T47b): each reverses only its own kind
 (trigger `goods_movement_reversal_type`), and each moves its quantity its
 own way, 101 and 123 in, 102 and 122 out (`goods_movement_item_sign`).
+
+A stock item's item names what its material document's line moved (S2f1,
+S2g1, migrations 000473 and 000474): the batch of a batch-managed material
+by id and number together (`goods_movement_item_batch`), and the serial
+numbers of a serial-managed material's units, one to 1000
+(`goods_movement_item_serial_numbers`); a reversal's item names its
+original's. The batch is the inventory context's (§3.35), by id.
 `check_receipt` keeps the received quantity, the net of every movement,
 between zero and the tolerance, so a return never exceeds what was
 received (409 `procurement.return_exceeds_receipts`) and a 123 never
@@ -5872,6 +5882,12 @@ erDiagram
   what was ordered (`sales_order_item_quantities`). Insert-only;
   `delivery_item_by_order_item` serves an order item's deliveries
   (`sales.Orders`).
+- `sales.delivery_reversal` (S2b3, migration 000471): the reversal of a
+  goods issue's delivery by its goods issue's reversal (602), once per
+  delivery, on or after its day; it takes the delivery's quantities off
+  the order items' `delivered_quantity`, which `sales.Orders` gives as a
+  negated delivery on the reversal's day. Its rules are listed with
+  shipping's S2b3 (§3.36).
 - `sales.billing_document` (T79a, migration 000293): what is billed of
   one order, numbered once per company
   (`billing_document_number_once`), with its billing date and a net
@@ -6120,7 +6136,7 @@ erDiagram
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
   `CustomerSalesDataChanged`,
   `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`,
-  `ReturnsOrderChanged`, `ReturnReceived`).
+  `ReturnsOrderChanged`, `ReturnReceived`, `SalesOrderDeliveryReversed`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
   `.write`, `.confirm` and `.credit_release` (T77b);
   `sales.delivery.confirm`; `sales.billing.read`,
@@ -7060,12 +7076,26 @@ erDiagram
   the line and `movement_serial_counted` on each serial number added to
   one, deferred constraint triggers, as the serial numbers are written
   after their lines; one added to a committed line is refused too).
+- S2c2 (migration 000475): `inventory.cycle_count_indicator` (SAP T159C,
+  from memory): a plant's cycle counting indicator, its company and plant,
+  its `code` one to four capitals or digits
+  (`cycle_count_indicator_code_check`) once per plant
+  (`cycle_count_indicator_code_once`) and its `interval_days`, 1 to 366
+  (`cycle_count_indicator_interval_check`), `version`; the application
+  updates its interval and version alone. `inventory.cycle_count_material`
+  (SAP MARC-ABCIN, from memory): a material's indicator at a plant, once
+  per plant and material (`cycle_count_material_once`), an indicator of
+  that plant (`cycle_count_material_indicator_fkey`, to
+  `cycle_count_indicator_plant`), `version`; the application updates its
+  indicator and version alone. Neither is deleted. The counts due are
+  read, not stored (`GET /v1/cycle-counts-due`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
   `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
   `inventory.count.post` and the approval permission
-  `inventory.difference.approve` (S2d), `inventory.batch.write` (S2f).
+  `inventory.difference.approve` (S2d), `inventory.batch.write` (S2f),
+  `inventory.count_plan.write` (S2c2).
 
 ## 3.36 Shipping (`shipping`)
 
@@ -7091,10 +7121,12 @@ erDiagram
     text customer_number
     uuid plant_id "tenancy"
     uuid storage_location_id "tenancy"
-    text status "created, goods_issued"
+    text status "created, goods_issued, goods_issue_reversed"
     date goods_issue_date "once issued"
     uuid material_document_id "inventory: the 601, once issued"
     text currency "the costs', once issued"
+    date goods_issue_reversal_date "once reversed (S2b3)"
+    uuid reversal_material_document_id "inventory: the 602, once reversed"
     integer version }
   outbound_delivery_item { uuid outbound_delivery_id PK
     integer item_no PK
@@ -7193,6 +7225,29 @@ erDiagram
   (`delivery_item_cost`, `delivery_item_cost_currency_fkey`).
 - Permissions `shipping.delivery.read`, `.write` and
   `shipping.goods_issue.post`.
+- S2b3 (migrations 000471, 000472; ADR-0083 As built S2b3): a delivery
+  whose goods issue is reversed is `goods_issue_reversed`
+  (`outbound_delivery_status_check`), keeping its goods issue's day,
+  material document and currency (`outbound_delivery_goods_issue`) and
+  naming the reversal's day, on or after the goods issue's, and its
+  material document (602), the number of 1 to 40 characters, all three
+  exactly when reversed (`goods_issue_reversal_date`,
+  `reversal_material_document_id`, `reversal_material_document_number`;
+  `outbound_delivery_goods_issue_reversal`,
+  `outbound_delivery_reversal_material_document_number_check`); a
+  goods-issued delivery changes to it by its status and those columns
+  alone, and a reversed one by nothing but its shipment
+  (`outbound_delivery_issued_fixed`). `sales.delivery_reversal`: the
+  reversal of a goods issue's sales delivery
+  (`delivery_reversal_delivery_fkey`), once (`delivery_reversal_pkey`),
+  dated on or after the delivery (`delivery_reversal_date`, a trigger),
+  of a goods issue's delivery only (`delivery_reversal_of_goods_issue`),
+  naming the 602 (`delivery_reversal_material_document_number_check`);
+  insert-only (`delivery_reversal_immutable`); it takes its delivery's
+  item quantities off the order items' `delivered_quantity`, never below
+  what is billed (`sales_order_item_quantities`), and moves the order's
+  version, only a confirmed order's (`delivery_order_confirmed`; the
+  security definer trigger `delivery_reversal_delivered`).
 
 ## 3.37 Material requirements planning (`mrp`)
 

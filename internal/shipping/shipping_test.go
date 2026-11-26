@@ -25,7 +25,8 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 var perms = []string{"materials.material.read", "materials.material.write", "tenancy.org.manage", "inventory.movement.post", "inventory.stock.read",
 	"inventory.valuation.read", "inventory.valuation.write", "ledger.entry.read", "sales.order.read", "sales.order.write", "sales.order.confirm",
 	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "shipping.delivery.read", "shipping.delivery.write", "shipping.goods_issue.post",
-	"inventory.count.write", "shipping.trade_compliance.release"}
+	"inventory.count.write", "shipping.trade_compliance.release", "sales.billing.post",
+	"inventory.count_plan.write"}
 
 const deliveries = "/v1/outbound-deliveries"
 
@@ -62,15 +63,18 @@ func setup(t *testing.T) env {
 }
 
 // valued gives company 2000 a customer reconciliation account, the
-// inventory accounts of valuation class 3000 and of class 3100, which
-// names no cost of goods sold account.
+// inventory accounts of valuation class 3000, of class 3100, which names
+// no cost of goods sold account, and of class 3200, which names price
+// difference and revaluation accounts too.
 func valued(c *config.Config) {
 	de := c.Company("2000")
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true},
 		config.Account{Number: "150000", Name: "Inventory", Type: config.Asset}, config.Account{Number: "391000", Name: "Initial entries", Type: config.Equity},
-		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense}, config.Account{Number: "519000", Name: "Cost of goods sold", Type: config.Expense})
+		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense}, config.Account{Number: "519000", Name: "Cost of goods sold", Type: config.Expense},
+		config.Account{Number: "231000", Name: "Price differences", Type: config.Expense}, config.Account{Number: "232000", Name: "Revaluation", Type: config.Expense})
 	de.AccountDetermination.Inventory = []config.InventoryAccounts{{ValuationClass: "3000", Stock: "150000", InitialEntry: "391000", Consumption: "515000",
-		CostOfGoodsSold: "519000"}, {ValuationClass: "3100", Stock: "150000", InitialEntry: "391000"}}
+		CostOfGoodsSold: "519000"}, {ValuationClass: "3100", Stock: "150000", InitialEntry: "391000"}, {ValuationClass: "3200", Stock: "150000",
+		InitialEntry: "391000", CostOfGoodsSold: "519000", PriceDifference: "231000", Revaluation: "232000"}}
 }
 
 // orgUnit creates an active org unit of the company through the API.

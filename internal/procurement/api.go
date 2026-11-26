@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -181,7 +182,8 @@ func receiptToAPI(g GoodsReceipt) gen.GoodsReceipt {
 	}
 	for i, it := range g.Items {
 		out.Items[i] = gen.GoodsReceiptItem{ItemNo: gen.NewOptInt32(it.No), PurchaseOrderID: it.PurchaseOrderID, PoItemNo: it.POItemNo,
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}}
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, BatchID: apitypes.OptUUID(it.BatchID), BatchNumber: apitypes.OptString(it.BatchNumber),
+			SerialNumbers: it.SerialNumbers}
 	}
 	return out
 }
@@ -738,7 +740,12 @@ func (e *Endpoints) PostGoodsReceipt(ctx context.Context, req *gen.GoodsReceiptC
 		Reference: apitypes.Ptr[string](req.Reference), MovementType: req.MovementType.Value, Reason: apitypes.Ptr[string](req.Reason),
 		Items: make([]ReceiptItem, len(req.Items))}
 	for i, it := range req.Items {
-		in.Items[i] = ReceiptItem{No: int32(i + 1), PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.PoItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
+		in.Items[i] = ReceiptItem{No: int32(i + 1), PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.PoItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit,
+			SerialNumbers: it.SerialNumbers}
+		if b, ok := it.Batch.Get(); ok {
+			in.Items[i].Batch = &inventory.ReceiptBatch{Number: b.Number, ManufactureDate: apitypes.Ptr[time.Time](b.ManufactureDate),
+				ExpiryDate: apitypes.Ptr[time.Time](b.ExpiryDate)}
+		}
 	}
 	g, err := e.postReceipt(ctx, in, true)
 	if err != nil {

@@ -541,6 +541,55 @@ period.
   cost; rows and totals add up.
 - **As built** (2026-11-19): ADR-0083 As built S2b2, walkthrough step 143.
 
+#### S2b3 Goods issue reversal of a delivery not billed (602)
+
+The first item of the leaf "later: goods issue variants" (lane
+gireverse, 2026-11-24); what is left of it stays a leaf: partial goods
+issue, picking by wave or bin.
+
+**Capability.** A warehouse clerk reverses the goods issue of an
+outbound delivery whose quantities are not billed (SAP VL09, from
+memory): its stock comes back to the storage location at the value the
+goods issue took, the cost of goods sold is taken back, and the sales
+order's items are no longer delivered by it, open again for another
+delivery.
+
+- **Adds:** `POST /v1/outbound-deliveries/{id}:reverseGoodsIssue`
+  (`If-Match`, human-only); inventory's
+  `Endpoints.ReverseForDelivery`, which posts the 601's reversal, a 602
+  naming it, through the reversal inventory already has (its lines
+  negated, each at what its 601 line took); sales'
+  `Endpoints.ReverseIssue`, which records the reversal of the goods
+  issue's sales delivery (`sales.delivery_reversal`) under the order's
+  row lock and the availability check's locks of its materials at the
+  plant (`database.LockTenant` `sales.availability`, the leaf
+  src review:batch86), so a check never counts the stock given back
+  against the demand before it; the delivery's status
+  `goods_issue_reversed`, naming the 602; the event
+  SalesOrderDeliveryReversed.
+- **Decided by default (ADR-0083 As built S2b3):** the delivery ends
+  reversed and changes no more, its quantities open again on the order
+  for a new delivery (SAP takes the delivery back to before its goods
+  issue, from memory; this version has no deletion of a delivery, so a
+  delivery taken back could hold its quantities for good); the reversal
+  posts on the company's date today; a delivery is billed when reversing
+  it would leave an order item billed beyond what stays delivered (409
+  `sales.delivery_billed`: the billing document is cancelled first);
+  the reversal needs the goods issue's permission; trade compliance is
+  not asked again. The reversal counts in the period of its date:
+  cost of sales by profitability segment falls by its cost there, and a
+  point-in-time revenue obligation scheduled by deliveries by its share.
+- **Walkthrough:** `step_goods_issue`: step 143's billed delivery is
+  refused; a further delivery of one bracket is issued and reversed: the
+  stock and its value come back, the cost of goods sold is credited, the
+  order's item is open again and the order is cancelled.
+- **Acceptance:** the reversal posts once, at the issue's value; the
+  stock, the valuation and the cost of goods sold are as before the
+  issue; a billed delivery is refused; the order item's delivered
+  quantity falls by what was issued.
+- **As built** (2026-11-24): ADR-0083 As built S2b3, migrations 000471
+  and 000472, walkthrough step 143 (`goods_issue_reversal`).
+
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
 delivery notes, returns deliveries (stock posting of T85b's returns),
@@ -653,8 +702,55 @@ last count) for an inventory controller to decide.
   session. Never: every write of count documents and goods movements.
   Suite `evals/count_planning`; walkthrough `step_count_agent`.
 
+### S2c2 Cycle counting indicators (count variants, first slice)
+
+**Capability.** An inventory controller gives a plant its cycle counting
+indicators (A, B, C, D or the tenant's own, each with a count interval in
+days) and a material at the plant its indicator, reads the counts due and
+creates count documents from them.
+
+- **Adds** (lane cyclecount, 2026-11-24; the tracker's "later: count
+  variants" split, its first item; decided by default, ADR-0082 As built
+  S2c2): `inventory.cycle_count_indicator` (SAP T159C, a plant's
+  indicators, from memory): a code of one to four capital letters or
+  digits, unique at the plant, and an interval of 1 to 366 days (a
+  material is counted at least once a year), changed at its version;
+  `inventory.cycle_count_material` (SAP MARC-ABCIN, from memory): a
+  material's indicator at a plant, one per material and plant, of that
+  plant, changed to another of the plant at its version. The material is
+  one a count document takes: the tenant's, not pending, kept in stock,
+  extended to the plant, neither batch- nor serial-managed (counts refuse
+  those, As built S2f, S2g). No indicator is created for a plant by
+  itself: the controller creates the plant's. `POST`, `GET`, `GET /{id}`,
+  `PATCH` of `/v1/cycle-count-indicators` and `/v1/cycle-count-materials`
+  (permission `inventory.count_plan.write`; reads under
+  `inventory.stock.read`), audited, no event; human-only.
+- **The counts due** (`GET /v1/cycle-counts-due?plant_id=`, SAP MICN,
+  from memory): each material with an indicator at the plant, at each
+  storage location of the plant where it has stock now (as `listStock`
+  lists it and the agent reads it), that no open count holds there and that was never counted there
+  (a posted count; a rejected or withdrawn one is none) or whose last
+  posted count there is its indicator's interval or more before the
+  company's date today. Each names its material, storage location,
+  indicator and interval, its last count (document, number, date) and
+  the day it fell due; never counted first, then the longest due.
+  Creating a count is the normal `POST /v1/physical-inventory-documents`
+  with a storage location's materials as listed; they then leave the list
+  until the count is posted, and fall due again an interval after it.
+- **The count planning agent** (S2e) reads the indicators
+  (`listCycleCountMaterials`): a material with one at the plant is due by
+  its interval instead of its class's, and its line names it; the others
+  keep the class computed per run.
+- **Walkthrough:** extends `step_count`. **Acceptance:** a material
+  counted within its interval is not due; one never counted is; a count
+  created from the list takes it off the list.
+- **Later:** an indicator taken off a material, indicators set from the
+  ABC analysis (SAP MIBC), float time and a share of counts per period,
+  counts due per storage location's own indicator, a calendar of planned
+  counts.
+
 **Later for Physical inventory and cycle counting:** cycle counting
-indicators on the plant data, sampling inventory, counts on handling units
+indicators on the plant data (first slice S2c2), sampling inventory, counts on handling units
 or bins (EWM), freeze of the book quantity at a past date.
 
 ### S2f Batches
@@ -688,6 +784,23 @@ storage location's.
   **Later:** batches in those flows, a batch created at goods receipt,
   internal batch numbers, changing a batch's dates, batch status, stock
   by batch as at a date, transfer to another batch (309).
+- **S2f1 Batches in the purchase order's goods receipt** (lane grbatch,
+  2026-11-24; split from the batch variants, decided by default, ADR-0082
+  As built S2f1). **Adds:** a purchase order's stock item of a
+  batch-managed material (refused at ordering until now); `batch` on the
+  items of `POST /v1/goods-receipts` (its number, and for a new batch its
+  manufacture date and optional expiry date), the batch created by the
+  receipt when the material has none of that number (SAP MIGO creating a
+  batch at goods receipt, from memory), the goods receipt's items naming
+  the batch by id and number, its reversal (102) taking the batch's stock
+  back. **Acceptance:** a batch-managed stock item's receipt without a
+  batch is refused; a receipt naming a new batch creates it with its
+  dates, one naming an existing batch adds to its stock, and stock by
+  batch still adds up to the storage location's. **Later:** the batch
+  variants left (the delivery's goods issue, stock transport orders,
+  counts, the SAP take-over, a WMS-reported receipt naming a batch,
+  internal batch numbers, changing a batch's dates, batch status, stock
+  by batch as at a date, 309, FEFO, classification, where-used, recall).
 
 ### S2g Serial numbers
 
@@ -710,6 +823,19 @@ and its history. **Acceptance:** a serial number is in stock at most once.
   yet refuse a serial-managed material where they refuse a batch-managed
   one (S2f). **Later:** serial numbers in those flows, profiles per plant
   and other serial number usages.
+- **S2g1 Serial numbers in the purchase order's goods receipt** (lane
+  grbatch, 2026-11-24; split from the serial number variants, decided by
+  default, ADR-0082 As built S2f1). **Adds:** a purchase order's stock
+  item of a serial-managed material; `serial_numbers` on the items of
+  `POST /v1/goods-receipts`, one per unit of the base unit, each created
+  by the receipt as a 501's are; the goods receipt's items naming them;
+  its reversal (102) taking them out of stock again. **Acceptance:** a
+  serial-managed stock item's receipt names one serial number per unit,
+  none in stock already; its reversal leaves them in no stock. **Later:**
+  the serial number variants left (the delivery's goods issue, stock
+  transport orders, counts, the SAP take-over, a WMS-reported receipt
+  naming serial numbers, profiles per plant, other usages, maintenance
+  and service, serialization at delivery only).
 
 **Later for Batch and serial number management:** batch classification
 and determination (FEFO), where-used lists, recall, serial numbers in

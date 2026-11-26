@@ -28,9 +28,10 @@ import (
 // there (inventory.batch_stock, SAP MCHB) as it adds to the location's,
 // so the batches at a location add up to its stock. A posting locks the
 // batch stock rows its lines move after the location's stock rows, in
-// one order, and refuses a line that takes a batch below zero. The
-// movement types that carry no batch yet (a purchase order's goods
-// receipt, a delivery's goods issue, a stock transport order's, a
+// one order, and refuses a line that takes a batch below zero. A purchase
+// order's goods receipt names its batch by number, created by the receipt
+// when it is new (S2f1, receiptBatches). The movement types that carry no
+// batch yet (a delivery's goods issue, a stock transport order's, a
 // count's) refuse a batch-managed material.
 
 func init() {
@@ -68,7 +69,10 @@ type BatchInput struct {
 	ExpiryDate      *time.Time
 }
 
-const batchSelect = `SELECT id, material_id, number, manufacture_date, expiry_date, created_at, created_by FROM inventory.batch`
+// batchColumns are what scanBatch reads of a batch.
+const batchColumns = `id, material_id, number, manufacture_date, expiry_date, created_at, created_by`
+
+const batchSelect = `SELECT ` + batchColumns + ` FROM inventory.batch`
 
 func scanBatch(row pgx.Row) (Batch, error) {
 	var b Batch
@@ -124,12 +128,7 @@ func (e *Endpoints) AddBatch(ctx context.Context, in BatchInput) (Batch, materia
 	if err != nil {
 		return Batch{}, materials.Material{}, err
 	}
-	detail := map[string]any{"material_id": m.ID, "material_number": m.Number, "number": b.Number,
-		"manufacture_date": b.ManufactureDate.Format(time.DateOnly), "expiry_date": nil}
-	if b.ExpiryDate != nil {
-		detail["expiry_date"] = b.ExpiryDate.Format(time.DateOnly)
-	}
-	return b, m, audit.Record(ctx, "inventory.batch.create", "inventory.batch", b.ID, detail) // its error names the action
+	return b, m, audit.Record(ctx, "inventory.batch.create", "inventory.batch", b.ID, batchDetail(b, m)) // its error names the action
 }
 
 // readBatches reads the batches the items name, by id; a request's

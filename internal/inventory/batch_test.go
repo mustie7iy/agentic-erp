@@ -15,7 +15,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
-	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -257,14 +256,6 @@ func TestBatchRefusals(t *testing.T) {
 	}
 	h, m := endpoints(t), uuid.MustParse(e.sealant)
 	calls := map[string]func(ctx context.Context) error{
-		"purchase order receipt": func(ctx context.Context) error {
-			_, err := h.ReceiveForOrder(ctx, inventory.OrderReceipt{Company: e.DE, Day: time.Now(), Reference: "GR1", Items: []inventory.OrderItem{{MaterialID: m,
-				PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}}},
-				func([]ledger.GRIRStock) (ledger.Entry, []ledger.StockPosted, error) {
-					return ledger.Entry{}, nil, errors.New("not posted")
-				})
-			return err
-		},
 		"delivery": func(ctx context.Context) error {
 			_, err := h.IssueForDelivery(ctx, "OD1", []inventory.DeliveryItem{{MaterialID: m, PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}})
 			return err

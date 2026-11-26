@@ -1811,6 +1811,34 @@ type Invoker interface {
 	//
 	// POST /v1/customer-sales-data
 	CreateCustomerSalesData(ctx context.Context, request *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (CreateCustomerSalesDataRes, error)
+	// CreateCycleCountIndicator invokes createCycleCountIndicator operation.
+	//
+	// Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
+	// code (A, B, C, D or the tenant's own, one to four capital letters or digits) and the interval in
+	// days, 1 to 366, between counts of a material that carries it (`createCycleCountMaterial`). The plant
+	// is an active plant of a company the caller may act in (422 `inventory.plant_invalid`); a code is
+	// used once at a plant (409 `inventory.cycle_count_indicator_exists`). Audited. A retry with the same
+	// `Idempotency-Key` answers the indicator created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/cycle-count-indicators
+	CreateCycleCountIndicator(ctx context.Context, request *CycleCountIndicatorCreate, params CreateCycleCountIndicatorParams) (CreateCycleCountIndicatorRes, error)
+	// CreateCycleCountMaterial invokes createCycleCountMaterial operation.
+	//
+	// Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP
+	// MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant
+	// falls due once the indicator's interval has passed since its last posted count there
+	// (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422
+	// `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422
+	// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
+	// `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
+	// neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
+	// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
+	// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
+	// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/cycle-count-materials
+	CreateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (CreateCycleCountMaterialRes, error)
 	// CreateDisputeCase invokes createDisputeCase operation.
 	//
 	// Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more
@@ -4436,6 +4464,21 @@ type Invoker interface {
 	//
 	// GET /v1/customer-sales-data/{id}
 	GetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (GetCustomerSalesDataRes, error)
+	// GetCycleCountIndicator invokes getCycleCountIndicator operation.
+	//
+	// A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code
+	// and its interval in days. One of a company the caller cannot act in is not found.
+	//
+	// GET /v1/cycle-count-indicators/{id}
+	GetCycleCountIndicator(ctx context.Context, params GetCycleCountIndicatorParams) (GetCycleCountIndicatorRes, error)
+	// GetCycleCountMaterial invokes getCycleCountMaterial operation.
+	//
+	// A material's cycle counting indicator at a plant (ADR-0082 As built S2c2): its plant and company by
+	// code, its material by number and description, and its indicator by code with its interval. One of a
+	// company the caller cannot act in is not found.
+	//
+	// GET /v1/cycle-count-materials/{id}
+	GetCycleCountMaterial(ctx context.Context, params GetCycleCountMaterialParams) (GetCycleCountMaterialRes, error)
 	// GetDepreciationRun invokes getDepreciationRun operation.
 	//
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -6404,6 +6447,37 @@ type Invoker interface {
 	//
 	// GET /v1/customer-sales-data
 	ListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (ListCustomerSalesDataRes, error)
+	// ListCycleCountIndicators invokes listCycleCountIndicators operation.
+	//
+	// The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
+	// built S2c2; SAP T159C, from memory), each as `getCycleCountIndicator` gives it, in the order they
+	// were created. Filtered by plant and by code. Sortable by: `created_at`.
+	//
+	// GET /v1/cycle-count-indicators
+	ListCycleCountIndicators(ctx context.Context, params ListCycleCountIndicatorsParams) (ListCycleCountIndicatorsRes, error)
+	// ListCycleCountMaterials invokes listCycleCountMaterials operation.
+	//
+	// The cycle counting indicators of materials at the plants of the companies the caller may act in
+	// (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
+	// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+	//
+	// GET /v1/cycle-count-materials
+	ListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (ListCycleCountMaterialsRes, error)
+	// ListCycleCountsDue invokes listCycleCountsDue operation.
+	//
+	// The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
+	// memory): each material with a cycle counting indicator at the plant, at each storage location of the
+	// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
+	// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
+	// posted count there is its indicator's interval or more days before today. Each names its material,
+	// storage location, indicator and interval, its last count and the day it fell due. Never counted
+	// first, then the longest due. A count document of a storage location's materials as listed
+	// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
+	// posted, an interval before they fall due again. The plant is an active plant of a company the caller
+	// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+	//
+	// GET /v1/cycle-counts-due
+	ListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (ListCycleCountsDueRes, error)
 	// ListDepreciationRuns invokes listDepreciationRuns operation.
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -7866,16 +7940,17 @@ type Invoker interface {
 	//
 	// Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read
 	// (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409
-	// `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the
-	// delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was
-	// recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422
-	// `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`)
-	// and, with what the delivery's other items picked of the material, at most what the storage location
-	// holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both
-	// quantities). Picking reserves no stock: the goods issue takes it. The picking status follows:
-	// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
-	// between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key`
-	// answers the delivery as it left it. Human-only (`x-agent: false`).
+	// `shipping.goods_issued`, or `shipping.goods_issue_reversed` once reversed, S2b3). Each item named
+	// (`item_no`, once, 422 `shipping.item_repeated`; one the delivery has, 422 `shipping.unknown_item`)
+	// takes the quantity picked of it, which replaces what was recorded before: zero or more (422
+	// `shipping.invalid_quantity`), in the item's unit (422 `shipping.unit_mismatch`), at most its
+	// delivery quantity (422 `shipping.exceeds_delivery_quantity`) and, with what the delivery's other
+	// items picked of the material, at most what the storage location holds of it now in the material's
+	// base unit (422 `shipping.insufficient_stock`, naming both quantities). Picking reserves no stock:
+	// the goods issue takes it. The picking status follows: `not_picked` while nothing is picked, `picked`
+	// when every item is picked in full, `partly_picked` between. Audited, and published as
+	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/outbound-deliveries/{id}:pick
 	PickOutboundDelivery(ctx context.Context, request *OutboundDeliveryPick, params PickOutboundDeliveryParams) (PickOutboundDeliveryRes, error)
@@ -8101,9 +8176,20 @@ type Invoker interface {
 	// with `reason`) of goods received on released or closed orders: never more than was received (409
 	// `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 	// item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-	// are reversals. A batch-managed material's stock item is refused (422
-	// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
-	// material's too (422 `inventory.serial_not_supported`, S2g).
+	// are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built
+	// S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the
+	// receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given
+	// (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it
+	// expires before it was made), audited as `createBatch` is; dates given for an existing batch are its
+	// own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a
+	// serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1;
+	// 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in
+	// stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are.
+	// Another material's item names neither (422 `inventory.batch_not_allowed`,
+	// `inventory.serial_not_allowed`), and an item that is no stock item neither (422
+	// `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial
+	// numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of
+	// stock again.
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -8175,11 +8261,12 @@ type Invoker interface {
 	//
 	// Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 	// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
-	// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-	// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
-	// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
-	// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
-	// quantity leaves the delivery's storage location as one material document of movement type `601`
+	// refused (409 `shipping.goods_issued`; reversed, `shipping.goods_issue_reversed`, S2b3: a new
+	// delivery takes what is open again), as is one with nothing picked (409 `shipping.nothing_picked`),
+	// and one a trade compliance service screens whose screening is `pending` or `blocked` (409
+	// `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the service's release
+	// or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked quantity leaves
+	// the delivery's storage location as one material document of movement type `601`
 	// (`material_document_id`), posted on the company's date today in its time zone and numbered from its
 	// `material_document` range, its `reference` the delivery's number: the material active and kept there
 	// (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
@@ -8751,16 +8838,16 @@ type Invoker interface {
 	//
 	// Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
 	// at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
-	// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
-	// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
-	// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
-	// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
-	// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
-	// later answer of the service still counts: a block it reports after the release blocks the delivery
-	// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
-	// apart from posting the goods issue. Nothing is posted. Audited, and published as
-	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-	// Human-only (`x-agent: false`).
+	// posted (409 `shipping.goods_issued`, or `shipping.goods_issue_reversed`, S2b3): a delivery whose
+	// `trade_compliance` is `pending` (the service has not answered, or its screening request could not be
+	// sent) or `blocked` (the service refused it) becomes `released`, naming who released it
+	// (`released_by`, `released_by_name`) and when, and its goods issue may be posted; the service's
+	// reason code and when it answered are kept. A delivery that is not screened, or is released already,
+	// is refused (409 `shipping.not_trade_compliance_blocked`). A later answer of the service still
+	// counts: a block it reports after the release blocks the delivery again. Releasing is a trade
+	// compliance officer's decision (`shipping.trade_compliance.release`), apart from posting the goods
+	// issue. Nothing is posted. Audited, and published as OutboundDeliveryChanged. A retry with the same
+	// `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`).
 	//
 	// POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
 	ReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params ReleaseOutboundDeliveryTradeComplianceBlockParams) (ReleaseOutboundDeliveryTradeComplianceBlockRes, error)
@@ -9343,6 +9430,32 @@ type Invoker interface {
 	//
 	// POST /v1/material-documents/{id}:reverse
 	ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error)
+	// ReverseOutboundDeliveryGoodsIssue invokes reverseOutboundDeliveryGoodsIssue operation.
+	//
+	// Reverses an outbound delivery's goods issue (ADR-0083 As built S2b3; SAP VL09, from memory), once,
+	// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is not
+	// posted is refused (409 `shipping.goods_issue_not_posted`), as is one reversed already (409
+	// `shipping.goods_issue_reversed`). Its goods issue's material document is reversed by one of movement
+	// type `602` (`reversal_material_document_id`), posted on the company's date today in its time zone,
+	// naming the 601 (`reversal_of_id`) and, as its `reference`, the delivery's number: each line gives
+	// back to the storage location what its 601 line issued, at the value it took (at a standard price
+	// changed since, the difference on the valuation class's price difference account), posted in one WA
+	// journal entry from the cost of goods sold account back to the stock account; no open physical
+	// inventory count document may count the material there (409 `inventory.posting_blocked`, S2c), and
+	// the ledger's refusals apply (such as 422 `ledger.period_not_open`). The order's delivery by the
+	// goods issue is reversed (`listSalesDeliveries`: its `reversal_date` and
+	// `reversal_material_document_id`): each order item's `delivered_quantity` falls by what the goods
+	// issue delivered, which is open again for another delivery, unless the order item is billed beyond
+	// what then stays delivered (409 `sales.delivery_billed`): its billing document is cancelled first
+	// (`cancelBillingDocument`). The reversal waits for, and is waited for by, the availability check of
+	// its materials at the plant, so a check never counts the stock given back against the demand before
+	// it. Trade compliance is not asked again. The delivery is `goods_issue_reversed` and changes no more
+	// but for its shipment. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
+	// SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key` answers the delivery as it left
+	// it. Human-only (`x-agent: false`); the goods issue's permission.
+	//
+	// POST /v1/outbound-deliveries/{id}:reverseGoodsIssue
+	ReverseOutboundDeliveryGoodsIssue(ctx context.Context, params ReverseOutboundDeliveryGoodsIssueParams) (ReverseOutboundDeliveryGoodsIssueRes, error)
 	// ReverseSupplierInvoice invokes reverseSupplierInvoice operation.
 	//
 	// Posts a reversal of the invoice's journal entry; the status becomes `reversed` and
@@ -10111,6 +10224,24 @@ type Invoker interface {
 	//
 	// PATCH /v1/customer-sales-data/{id}
 	UpdateCustomerSalesData(ctx context.Context, request *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (UpdateCustomerSalesDataRes, error)
+	// UpdateCycleCountIndicator invokes updateCycleCountIndicator operation.
+	//
+	// Changes an indicator's interval at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As
+	// built S2c2); an interval it already has is 422 `inventory.nothing_to_change`. Its plant and code do
+	// not change. The counts due of the materials that carry it (`listCycleCountsDue`) follow it at once.
+	// JSON Merge Patch. Audited with the interval before and after. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/cycle-count-indicators/{id}
+	UpdateCycleCountIndicator(ctx context.Context, request *CycleCountIndicatorUpdate, params UpdateCycleCountIndicatorParams) (UpdateCycleCountIndicatorRes, error)
+	// UpdateCycleCountMaterial invokes updateCycleCountMaterial operation.
+	//
+	// Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
+	// ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
+	// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
+	// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/cycle-count-materials/{id}
+	UpdateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (UpdateCycleCountMaterialRes, error)
 	// UpdateDisputeCase invokes updateDisputeCase operation.
 	//
 	// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
@@ -25627,6 +25758,282 @@ func (c *Client) sendCreateCustomerSalesData(ctx context.Context, request *Custo
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateCustomerSalesDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateCycleCountIndicator invokes createCycleCountIndicator operation.
+//
+// Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
+// code (A, B, C, D or the tenant's own, one to four capital letters or digits) and the interval in
+// days, 1 to 366, between counts of a material that carries it (`createCycleCountMaterial`). The plant
+// is an active plant of a company the caller may act in (422 `inventory.plant_invalid`); a code is
+// used once at a plant (409 `inventory.cycle_count_indicator_exists`). Audited. A retry with the same
+// `Idempotency-Key` answers the indicator created. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-indicators
+func (c *Client) CreateCycleCountIndicator(ctx context.Context, request *CycleCountIndicatorCreate, params CreateCycleCountIndicatorParams) (CreateCycleCountIndicatorRes, error) {
+	res, err := c.sendCreateCycleCountIndicator(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCycleCountIndicator(ctx context.Context, request *CycleCountIndicatorCreate, params CreateCycleCountIndicatorParams) (res CreateCycleCountIndicatorRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCycleCountIndicator"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-indicators"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCycleCountIndicatorOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-count-indicators"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCycleCountIndicatorRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCycleCountIndicatorOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCycleCountIndicatorResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateCycleCountMaterial invokes createCycleCountMaterial operation.
+//
+// Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP
+// MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant
+// falls due once the indicator's interval has passed since its last posted count there
+// (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422
+// `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422
+// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
+// `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
+// neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
+// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
+// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
+// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/cycle-count-materials
+func (c *Client) CreateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (CreateCycleCountMaterialRes, error) {
+	res, err := c.sendCreateCycleCountMaterial(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (res CreateCycleCountMaterialRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCycleCountMaterial"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-materials"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCycleCountMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-count-materials"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCycleCountMaterialRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCycleCountMaterialOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCycleCountMaterialResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -48665,6 +49072,271 @@ func (c *Client) sendGetCustomerSalesData(ctx context.Context, params GetCustome
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCustomerSalesDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCycleCountIndicator invokes getCycleCountIndicator operation.
+//
+// A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code
+// and its interval in days. One of a company the caller cannot act in is not found.
+//
+// GET /v1/cycle-count-indicators/{id}
+func (c *Client) GetCycleCountIndicator(ctx context.Context, params GetCycleCountIndicatorParams) (GetCycleCountIndicatorRes, error) {
+	res, err := c.sendGetCycleCountIndicator(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCycleCountIndicator(ctx context.Context, params GetCycleCountIndicatorParams) (res GetCycleCountIndicatorRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCycleCountIndicator"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-indicators/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCycleCountIndicatorOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/cycle-count-indicators/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCycleCountIndicatorOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCycleCountIndicatorResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCycleCountMaterial invokes getCycleCountMaterial operation.
+//
+// A material's cycle counting indicator at a plant (ADR-0082 As built S2c2): its plant and company by
+// code, its material by number and description, and its indicator by code with its interval. One of a
+// company the caller cannot act in is not found.
+//
+// GET /v1/cycle-count-materials/{id}
+func (c *Client) GetCycleCountMaterial(ctx context.Context, params GetCycleCountMaterialParams) (GetCycleCountMaterialRes, error) {
+	res, err := c.sendGetCycleCountMaterial(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCycleCountMaterial(ctx context.Context, params GetCycleCountMaterialParams) (res GetCycleCountMaterialRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCycleCountMaterial"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-materials/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCycleCountMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/cycle-count-materials/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCycleCountMaterialOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCycleCountMaterialResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -79446,6 +80118,656 @@ func (c *Client) sendListCustomerSalesData(ctx context.Context, params ListCusto
 	return result, nil
 }
 
+// ListCycleCountIndicators invokes listCycleCountIndicators operation.
+//
+// The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
+// built S2c2; SAP T159C, from memory), each as `getCycleCountIndicator` gives it, in the order they
+// were created. Filtered by plant and by code. Sortable by: `created_at`.
+//
+// GET /v1/cycle-count-indicators
+func (c *Client) ListCycleCountIndicators(ctx context.Context, params ListCycleCountIndicatorsParams) (ListCycleCountIndicatorsRes, error) {
+	res, err := c.sendListCycleCountIndicators(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCycleCountIndicators(ctx context.Context, params ListCycleCountIndicatorsParams) (res ListCycleCountIndicatorsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCycleCountIndicators"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-indicators"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCycleCountIndicatorsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-count-indicators"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Code.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCycleCountIndicatorsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCycleCountIndicatorsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCycleCountMaterials invokes listCycleCountMaterials operation.
+//
+// The cycle counting indicators of materials at the plants of the companies the caller may act in
+// (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
+// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+//
+// GET /v1/cycle-count-materials
+func (c *Client) ListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (ListCycleCountMaterialsRes, error) {
+	res, err := c.sendListCycleCountMaterials(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (res ListCycleCountMaterialsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCycleCountMaterials"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-materials"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCycleCountMaterialsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-count-materials"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "indicator_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "indicator_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IndicatorID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCycleCountMaterialsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCycleCountMaterialsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCycleCountsDue invokes listCycleCountsDue operation.
+//
+// The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
+// memory): each material with a cycle counting indicator at the plant, at each storage location of the
+// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
+// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
+// posted count there is its indicator's interval or more days before today. Each names its material,
+// storage location, indicator and interval, its last count and the day it fell due. Never counted
+// first, then the longest due. A count document of a storage location's materials as listed
+// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
+// posted, an interval before they fall due again. The plant is an active plant of a company the caller
+// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+//
+// GET /v1/cycle-counts-due
+func (c *Client) ListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (ListCycleCountsDueRes, error) {
+	res, err := c.sendListCycleCountsDue(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (res ListCycleCountsDueRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCycleCountsDue"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-counts-due"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCycleCountsDueOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-counts-due"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.PlantID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "storage_location_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "storage_location_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.StorageLocationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "indicator_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "indicator_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IndicatorID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCycleCountsDueOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCycleCountsDueResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListDepreciationRuns invokes listDepreciationRuns operation.
 //
 // The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -109708,16 +111030,17 @@ func (c *Client) sendPauseWebhookSubscription(ctx context.Context, params PauseW
 //
 // Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read
 // (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409
-// `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the
-// delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was
-// recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422
-// `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`)
-// and, with what the delivery's other items picked of the material, at most what the storage location
-// holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both
-// quantities). Picking reserves no stock: the goods issue takes it. The picking status follows:
-// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
-// between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key`
-// answers the delivery as it left it. Human-only (`x-agent: false`).
+// `shipping.goods_issued`, or `shipping.goods_issue_reversed` once reversed, S2b3). Each item named
+// (`item_no`, once, 422 `shipping.item_repeated`; one the delivery has, 422 `shipping.unknown_item`)
+// takes the quantity picked of it, which replaces what was recorded before: zero or more (422
+// `shipping.invalid_quantity`), in the item's unit (422 `shipping.unit_mismatch`), at most its
+// delivery quantity (422 `shipping.exceeds_delivery_quantity`) and, with what the delivery's other
+// items picked of the material, at most what the storage location holds of it now in the material's
+// base unit (422 `shipping.insufficient_stock`, naming both quantities). Picking reserves no stock:
+// the goods issue takes it. The picking status follows: `not_picked` while nothing is picked, `picked`
+// when every item is picked in full, `partly_picked` between. Audited, and published as
+// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/outbound-deliveries/{id}:pick
 func (c *Client) PickOutboundDelivery(ctx context.Context, request *OutboundDeliveryPick, params PickOutboundDeliveryParams) (PickOutboundDeliveryRes, error) {
@@ -111191,9 +112514,20 @@ func (c *Client) sendPostExpenseReport(ctx context.Context, request OptExpenseRe
 // with `reason`) of goods received on released or closed orders: never more than was received (409
 // `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the
 // item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections
-// are reversals. A batch-managed material's stock item is refused (422
-// `inventory.batch_not_supported`): a goods receipt carries no batch yet (S2f); a serial-managed
-// material's too (422 `inventory.serial_not_supported`, S2g).
+// are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built
+// S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the
+// receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given
+// (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it
+// expires before it was made), audited as `createBatch` is; dates given for an existing batch are its
+// own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a
+// serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1;
+// 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in
+// stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are.
+// Another material's item names neither (422 `inventory.batch_not_allowed`,
+// `inventory.serial_not_allowed`), and an item that is no stock item neither (422
+// `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial
+// numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of
+// stock again.
 //
 // POST /v1/goods-receipts
 func (c *Client) PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error) {
@@ -111667,11 +113001,12 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 //
 // Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
-// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
-// `shipping.nothing_picked`), and one a trade compliance service screens whose screening is `pending`
-// or `blocked` (409 `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the
-// service's release or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked
-// quantity leaves the delivery's storage location as one material document of movement type `601`
+// refused (409 `shipping.goods_issued`; reversed, `shipping.goods_issue_reversed`, S2b3: a new
+// delivery takes what is open again), as is one with nothing picked (409 `shipping.nothing_picked`),
+// and one a trade compliance service screens whose screening is `pending` or `blocked` (409
+// `shipping.trade_compliance_block`, S2s; its `trade_compliance`): it waits for the service's release
+// or a person's (`releaseOutboundDeliveryTradeComplianceBlock`). Each item's picked quantity leaves
+// the delivery's storage location as one material document of movement type `601`
 // (`material_document_id`), posted on the company's date today in its time zone and numbered from its
 // `material_document` range, its `reference` the delivery's number: the material active and kept there
 // (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there
@@ -117276,16 +118611,16 @@ func (c *Client) sendReleaseInternalOrder(ctx context.Context, params ReleaseInt
 //
 // Releases an outbound delivery's trade compliance block by hand (S2s; ADR-0082 As built S2s), once,
 // at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not
-// posted (409 `shipping.goods_issued`): a delivery whose `trade_compliance` is `pending` (the service
-// has not answered, or its screening request could not be sent) or `blocked` (the service refused it)
-// becomes `released`, naming who released it (`released_by`, `released_by_name`) and when, and its
-// goods issue may be posted; the service's reason code and when it answered are kept. A delivery that
-// is not screened, or is released already, is refused (409 `shipping.not_trade_compliance_blocked`). A
-// later answer of the service still counts: a block it reports after the release blocks the delivery
-// again. Releasing is a trade compliance officer's decision (`shipping.trade_compliance.release`),
-// apart from posting the goods issue. Nothing is posted. Audited, and published as
-// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it.
-// Human-only (`x-agent: false`).
+// posted (409 `shipping.goods_issued`, or `shipping.goods_issue_reversed`, S2b3): a delivery whose
+// `trade_compliance` is `pending` (the service has not answered, or its screening request could not be
+// sent) or `blocked` (the service refused it) becomes `released`, naming who released it
+// (`released_by`, `released_by_name`) and when, and its goods issue may be posted; the service's
+// reason code and when it answered are kept. A delivery that is not screened, or is released already,
+// is refused (409 `shipping.not_trade_compliance_blocked`). A later answer of the service still
+// counts: a block it reports after the release blocks the delivery again. Releasing is a trade
+// compliance officer's decision (`shipping.trade_compliance.release`), apart from posting the goods
+// issue. Nothing is posted. Audited, and published as OutboundDeliveryChanged. A retry with the same
+// `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`).
 //
 // POST /v1/outbound-deliveries/{id}:releaseTradeComplianceBlock
 func (c *Client) ReleaseOutboundDeliveryTradeComplianceBlock(ctx context.Context, params ReleaseOutboundDeliveryTradeComplianceBlockParams) (ReleaseOutboundDeliveryTradeComplianceBlockRes, error) {
@@ -123347,6 +124682,183 @@ func (c *Client) sendReverseMaterialDocument(ctx context.Context, params Reverse
 
 	stage = "DecodeResponse"
 	result, err := decodeReverseMaterialDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReverseOutboundDeliveryGoodsIssue invokes reverseOutboundDeliveryGoodsIssue operation.
+//
+// Reverses an outbound delivery's goods issue (ADR-0083 As built S2b3; SAP VL09, from memory), once,
+// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is not
+// posted is refused (409 `shipping.goods_issue_not_posted`), as is one reversed already (409
+// `shipping.goods_issue_reversed`). Its goods issue's material document is reversed by one of movement
+// type `602` (`reversal_material_document_id`), posted on the company's date today in its time zone,
+// naming the 601 (`reversal_of_id`) and, as its `reference`, the delivery's number: each line gives
+// back to the storage location what its 601 line issued, at the value it took (at a standard price
+// changed since, the difference on the valuation class's price difference account), posted in one WA
+// journal entry from the cost of goods sold account back to the stock account; no open physical
+// inventory count document may count the material there (409 `inventory.posting_blocked`, S2c), and
+// the ledger's refusals apply (such as 422 `ledger.period_not_open`). The order's delivery by the
+// goods issue is reversed (`listSalesDeliveries`: its `reversal_date` and
+// `reversal_material_document_id`): each order item's `delivered_quantity` falls by what the goods
+// issue delivered, which is open again for another delivery, unless the order item is billed beyond
+// what then stays delivered (409 `sales.delivery_billed`): its billing document is cancelled first
+// (`cancelBillingDocument`). The reversal waits for, and is waited for by, the availability check of
+// its materials at the plant, so a check never counts the stock given back against the demand before
+// it. Trade compliance is not asked again. The delivery is `goods_issue_reversed` and changes no more
+// but for its shipment. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
+// SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key` answers the delivery as it left
+// it. Human-only (`x-agent: false`); the goods issue's permission.
+//
+// POST /v1/outbound-deliveries/{id}:reverseGoodsIssue
+func (c *Client) ReverseOutboundDeliveryGoodsIssue(ctx context.Context, params ReverseOutboundDeliveryGoodsIssueParams) (ReverseOutboundDeliveryGoodsIssueRes, error) {
+	res, err := c.sendReverseOutboundDeliveryGoodsIssue(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReverseOutboundDeliveryGoodsIssue(ctx context.Context, params ReverseOutboundDeliveryGoodsIssueParams) (res ReverseOutboundDeliveryGoodsIssueRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseOutboundDeliveryGoodsIssue"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outbound-deliveries/{id}:reverseGoodsIssue"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReverseOutboundDeliveryGoodsIssueOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/outbound-deliveries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":reverseGoodsIssue"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReverseOutboundDeliveryGoodsIssueOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReverseOutboundDeliveryGoodsIssueResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -130211,6 +131723,330 @@ func (c *Client) sendUpdateCustomerSalesData(ctx context.Context, request *Custo
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateCustomerSalesDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateCycleCountIndicator invokes updateCycleCountIndicator operation.
+//
+// Changes an indicator's interval at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As
+// built S2c2); an interval it already has is 422 `inventory.nothing_to_change`. Its plant and code do
+// not change. The counts due of the materials that carry it (`listCycleCountsDue`) follow it at once.
+// JSON Merge Patch. Audited with the interval before and after. Human-only (`x-agent: false`).
+//
+// PATCH /v1/cycle-count-indicators/{id}
+func (c *Client) UpdateCycleCountIndicator(ctx context.Context, request *CycleCountIndicatorUpdate, params UpdateCycleCountIndicatorParams) (UpdateCycleCountIndicatorRes, error) {
+	res, err := c.sendUpdateCycleCountIndicator(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateCycleCountIndicator(ctx context.Context, request *CycleCountIndicatorUpdate, params UpdateCycleCountIndicatorParams) (res UpdateCycleCountIndicatorRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateCycleCountIndicator"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-indicators/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateCycleCountIndicatorOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/cycle-count-indicators/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateCycleCountIndicatorRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateCycleCountIndicatorOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateCycleCountIndicatorResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateCycleCountMaterial invokes updateCycleCountMaterial operation.
+//
+// Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
+// ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
+// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
+// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+//
+// PATCH /v1/cycle-count-materials/{id}
+func (c *Client) UpdateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (UpdateCycleCountMaterialRes, error) {
+	res, err := c.sendUpdateCycleCountMaterial(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (res UpdateCycleCountMaterialRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateCycleCountMaterial"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-materials/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateCycleCountMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/cycle-count-materials/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateCycleCountMaterialRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateCycleCountMaterialOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateCycleCountMaterialResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

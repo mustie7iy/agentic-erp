@@ -120,12 +120,13 @@ const (
 // session and recommendations answered by their bodies. It keeps every
 // request it was sent.
 type fakeAPI struct {
-	mu        sync.Mutex
-	calls     []string
-	refuse    string // a path answered 403
-	inactive  bool   // P100 is blocked
-	stock     string // replaces the stock
-	documents string // replaces the documents
+	mu         sync.Mutex
+	calls      []string
+	refuse     string // a path answered 403
+	inactive   bool   // P100 is blocked
+	stock      string // replaces the stock
+	documents  string // replaces the documents
+	indicators string // the materials' cycle counting indicators; none when empty
 }
 
 func (a *fakeAPI) answer(path string) (int, string) {
@@ -149,6 +150,8 @@ func (a *fakeAPI) answer(path string) (int, string) {
 		return 200, cmpOr(a.documents, documents)
 	case "/v1/physical-inventory-documents":
 		return 200, counts
+	case "/v1/cycle-count-materials":
+		return 200, cmpOr(a.indicators, `{"items": []}`)
 	}
 	return 200, `{"items": []}`
 }
@@ -280,8 +283,28 @@ func TestPlan(t *testing.T) {
 	if got, want := res.Names[pl], "P100 Toronto plant"; got != want {
 		t.Errorf("the plant's name: got %q, want %q", got, want)
 	}
-	if got := a.sent("plant_id=" + pl); len(got) != 6 {
-		t.Errorf("reads of the plant: got %v, want the stock, materials, documents and counts before the session and the model's two", got)
+	if got := a.sent("plant_id=" + pl); len(got) != 7 {
+		t.Errorf("reads of the plant: got %v, want the stock, materials, indicators, documents and counts before the session and the model's two", got)
+	}
+}
+
+// TestPlanIndicators: a material with a cycle counting indicator at the
+// plant is due by its indicator's interval rather than its class's, and
+// its line names the indicator (ADR-0082 As built S2c2): the one counted
+// ten days ago is due every 7 days, A counted 100 days ago is not due
+// every 365; the others keep their class's.
+func TestPlanIndicators(t *testing.T) {
+	model := llmtest.New(t, llmtest.Final("Nothing proposed."))
+	a := &fakeAPI{indicators: `{"items": [{"material_id": "` + fresh + `", "indicator_code": "W", "interval_days": 7},
+		{"material_id": "` + matA + `", "indicator_code": "Y", "interval_days": 365}]}`}
+	if _, err := agentOn(t, a, model).Plan(context.Background(), "3000", "P100"); err != nil {
+		t.Fatal(err)
+	}
+	fresh := "Count MA9 at P100/SL01 (material " + fresh + ", storage location " + main + "): class C, cycle counting indicator W every 7 days, " +
+		"0 movements since 2025-11-22, last counted on 2026-11-11 (PI5)"
+	want := "Due for a count, ranked, each with its line:\\n" + lineB + "\\n" + lineC + "\\n" + lineN + "\\n" + fresh + "\\nYou may"
+	if !strings.Contains(model.Requests[0], want) {
+		t.Errorf("prompt: got %s, want %q", model.Requests[0], want)
 	}
 }
 
@@ -363,6 +386,7 @@ func TestPlanRefusals(t *testing.T) {
 		"the materials":       {client(t, &fakeAPI{refuse: "/v1/materials"}), "3000", "P100", "the materials of plant P100"},
 		"the documents":       {client(t, &fakeAPI{refuse: "/v1/material-documents"}), "3000", "P100", "the material documents of plant P100"},
 		"the counts":          {client(t, &fakeAPI{refuse: "/v1/physical-inventory-documents"}), "3000", "P100", "the count documents of plant P100"},
+		"the indicators":      {client(t, &fakeAPI{refuse: "/v1/cycle-count-materials"}), "3000", "P100", "the cycle counting indicators of plant P100"},
 		"another currency":    {client(t, &fakeAPI{documents: euro}), "3000", "P100", "an amount in EUR beside CAD"},
 		"another fraction":    {client(t, &fakeAPI{documents: `{"items": [` + doc("2026-11-20", "201", line(matA, main, pl, "-8.00", false), line(matA, main, pl, "-8.5", false)) + `]}`}), "3000", "P100", `amount "-8.5" must have exactly 2 decimals`},
 		"a material too much": {client(t, &fakeAPI{documents: huge}), "3000", "P100", "the consumption of material " + matA},
@@ -405,7 +429,7 @@ func TestNever(t *testing.T) {
 		if op.Method == http.MethodGet {
 			continue
 		}
-		for _, of := range []string{"PhysicalInventory", "MaterialDocument", "GoodsReceipt", "GoodsIssue"} {
+		for _, of := range []string{"PhysicalInventory", "CycleCount", "MaterialDocument", "GoodsReceipt", "GoodsIssue"} {
 			if strings.Contains(id, of) && !slices.Contains(countagent.Never, id) {
 				t.Errorf("never list: got %v, want it to hold %s", countagent.Never, id)
 			}
