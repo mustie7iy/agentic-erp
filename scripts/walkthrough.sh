@@ -15333,7 +15333,7 @@ step_count() {
   QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
   api 200 '"\(.status): " + ([.items[] | "item \(.item_no) count \(.count_no): \(.counted_quantity.value // "-")"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
     -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 8))\", \"unit\": \"EA\"}}]}"
-  expect "the brackets' counts in order" "$(field '.items[0] | [(.earlier_counts[].counted_quantity.value), .counted_quantity.value] | join(" "))')" "$((book - 9)) $((book - 8))"
+  expect "the brackets' counts in order" "$(field '.items[0] | [(.earlier_counts[].counted_quantity.value), .counted_quantity.value] | join(" ")')" "$((book - 9)) $((book - 8))"
   QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
   book=$(field '.items[1].book_quantity.value')
   say "He counts the bolts as the book has them, $book:"
