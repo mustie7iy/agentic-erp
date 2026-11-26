@@ -120,7 +120,7 @@ func writeCounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, name string
 		nos[i], counted[i], entry[i], units[i] = c.itemNo, c.counted, c.entry, c.unit
 	}
 	if _, err := tx.Exec(ctx, `UPDATE inventory.count_item i SET counted_quantity = x.c::numeric, entry_quantity = x.e::numeric, entry_uom_code = x.u,
-			counted_at = now(), counted_by = $2, counted_by_name = $7
+			counted_at = now(), counted_by = $2, counted_by_name = nullif($7, '')
 		FROM unnest($3::smallint[], $4::text[], $5::text[], $6::text[]) AS x (n, c, e, u)
 		WHERE i.count_document_id = $1 AND i.item_no = x.n AND i.counted_quantity IS NULL`, d.ID, p.ID, nos, counted, entry, units, name); err != nil {
 		return CountDocument{}, fmt.Errorf("inventory: counts of count document %s: %w", d.Number, err)
