@@ -2858,6 +2858,14 @@ Decided by default (ADR-0053 d), for the product owner to overrule:
 Not built (out of the leaf): the consolidated sheet in presentation
 currency, IAS 16.73(a)-(c) notes text, goodwill impairment, testing for
 impairment, IFRS 5.15's measurement of an asset held for sale.
+Checked in batch 95F's integration against the specialist's B14 list: the
+sheet already had opening accumulated depreciation (`opening_accumulated`)
+and the year's depreciation (`depreciation`, the fiscal year's postings
+alone) before this leaf, and disposals show cost and accumulated
+depreciation removed (`retirements`, `retirements_accumulated`); this leaf
+adds impairment losses and reversals. Left for later leaves: net exchange
+differences on translation (the consolidated sheet) and acquisitions
+through business combinations.
 
 **B10, step 1 (the order item and the tax borne recorded on price
 difference lines, po:2026-11-10; migration 000263).** The specialist's
