@@ -20,7 +20,7 @@ func (s countScene) earlier(item, no int) stmt {
 // cleared takes the item's count off and raises its recounts by one.
 func (s countScene) cleared(item int) stmt {
 	return step(`UPDATE inventory.count_item SET counted_quantity = NULL, entry_quantity = NULL, entry_uom_code = NULL, counted_at = NULL,
-		counted_by = NULL, recounts = recounts + 1 WHERE count_document_id = $1 AND item_no = $2`, s.count, item)
+		counted_by = NULL, counted_by_name = NULL, recounts = recounts + 1 WHERE count_document_id = $1 AND item_no = $2`, s.count, item)
 }
 
 // TestRecountRules (S2d2, migration 000476; ADR-0082 As built S2d2): an
@@ -69,7 +69,7 @@ func TestRecountRules(t *testing.T) {
 		{"an earlier count of no item", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
 				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 2, 1, 9, 9, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
-		}, "count_item_recount_check"},
+		}, "count_item_recount_item_fkey"},
 		{"an earlier count numbered 0", func(s countScene) []stmt {
 			return append(counted(s), step(`INSERT INTO inventory.count_item_recount (tenant_id, count_document_id, item_no, count_no, counted_quantity,
 				entry_quantity, entry_uom_code, counted_at, counted_by, recounted_by, recounted_by_name) VALUES ($1, $2, 1, 0, 9, 9, 'EA', now(), $1, $1, 'Ines')`, s.tenant, s.count))
@@ -157,8 +157,8 @@ func TestRecountTriggersAsOwner(t *testing.T) {
 		st   stmt
 		want string
 	}{
-		"an earlier count changed": {step(`UPDATE inventory.count_item_recount SET counted_quantity = 1 WHERE count_document_id = $1`, s.count), "forbid_mutation"},
-		"an earlier count deleted": {step(`DELETE FROM inventory.count_item_recount WHERE count_document_id = $1`, s.count), "forbid_mutation"},
+		"an earlier count changed": {step(`UPDATE inventory.count_item_recount SET counted_quantity = 1 WHERE count_document_id = $1`, s.count), "is insert-only"},
+		"an earlier count deleted": {step(`DELETE FROM inventory.count_item_recount WHERE count_document_id = $1`, s.count), "is insert-only"},
 		"a count taken off":        {s.cleared(1), "count_item_once"},
 		"a counted document reopened": {step(`UPDATE inventory.count_document SET status = 'counting', version = 3 WHERE id = $1`, s.count),
 			"count_document_status_flow"},
@@ -227,7 +227,11 @@ func TestRecountDownRefusedNames(t *testing.T) {
 	s := newCountScene()
 	if err := all(tx, append(append([]stmt{step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String())}, s.received()[:3]...),
 		s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"), s.counted(1),
-		step(`SELECT set_config('app.tenant_id', '', true)`))...); err != nil {
+		step(`SELECT set_config('app.tenant_id', '', true)`),
+		// Other tests' earlier counts would meet the first guard; in this
+		// transaction alone, rolled back, there are none.
+		step(`ALTER TABLE inventory.count_item_recount DISABLE TRIGGER count_item_recount_insert_only`),
+		step(`DELETE FROM inventory.count_item_recount`))...); err != nil {
 		t.Fatal(err)
 	}
 	failsWith(t, exec(tx, down), "counts name who entered them")

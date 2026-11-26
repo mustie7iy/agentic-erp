@@ -26522,6 +26522,7 @@ paths:
       x-agent: false
       x-problem-codes:
         - inventory.count_invalid_status
+        - inventory.count_open
         - inventory.duplicate_item
         - inventory.item_not_counted
         - inventory.recount_limit
