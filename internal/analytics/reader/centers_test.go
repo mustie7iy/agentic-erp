@@ -47,7 +47,7 @@ func TestCenterColumns(t *testing.T) {
 	gl.Files = append(gl.Files, e.put(part(e.a, "gl_lines", "2026-04", newer), newer))
 	m.Datasets["gl_lines"] = gl
 	e.keys[e.a] = e.publish(e.a, m)
-	// The tenant's other lines, 157 in all, carry no center.
+	// The tenant's other lines, adding up to 157 (1.57 EUR), carry no center.
 	for name, c := range map[string]struct {
 		plan Plan
 		want map[string]money.Minor
