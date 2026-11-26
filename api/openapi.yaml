@@ -17733,6 +17733,7 @@ paths:
         - consolidation.period_unknown
         - consolidation.rate_missing
         - consolidation.rate_stale
+        - consolidation.special_period
         - consolidation.structure_unsupported
       parameters:
         - name: code
