@@ -1890,14 +1890,16 @@ default, for the product owner to overrule:
   its level" holds for every write of `closing` but the proposals
   (`x-agent: false`), for posting (`postJournalEntry`, refused to agents in
   the ledger's code; `postParkedJournalEntry`) and reversing
-  (`reverseJournalEntry`), for the period lock and unlock, and for the
-  runs above that are `x-agent: false`. It does not hold for the rest:
+  (`reverseJournalEntry`), for the period lock and unlock, for the runs
+  above that are `x-agent: false` and for approving or rejecting an
+  approval request. It does not hold for the rest:
   `openFiscalPeriod`, `closeFiscalPeriod`, `postSupplierInvoice`,
   `clearSupplierInvoiceDownPayments`, `postGoodsReceipt` and
   `createClearing` are open to an agent at level 2 holding their
   permissions (the close agent is level 1, and its walkthrough role holds
   none of them); and `parkJournalEntry`, `updateParkedJournalEntry` and
-  `cancelParkedJournalEntry` are `x-autonomy: propose`, so a level-1
+  `cancelParkedJournalEntry` are `x-autonomy: propose` (as is
+  `cancelApprovalRequest`, kept from it by its role and tools), so a level-1
   agent holding `ledger.entry.park`, which `proposeAccrual` needs, can
   change or cancel the parked entry of its own accrual proposal, which
   no person has taken on (T35's owner rule, `internal/ledger` parked.go

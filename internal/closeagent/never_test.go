@@ -45,7 +45,7 @@ func TestNever(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s: not in the contract", id)
 			}
-			if op.Method != http.MethodGet && !(slices.Contains(proposing, id) && op.Proposes) {
+			if op.Method != http.MethodGet && (!slices.Contains(proposing, id) || !op.Proposes) {
 				t.Errorf("%s: got %s, want a read or one of the proposals %v", id, op.Method, proposing)
 			}
 		})

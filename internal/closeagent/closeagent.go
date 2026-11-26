@@ -13,10 +13,11 @@
 // API refuses it, whatever its level, every write of closing but the two
 // proposals and posting or reversing an entry (x-agent: false, and
 // postJournalEntry in the ledger's code; identity.agent_not_allowed,
-// ADR-0036). Parking, changing and cancelling a parked entry it owns, and
-// the writes that need autonomy level 2, are kept from it by its tools,
-// its role and its level alone (ADR-0058 As built, accrual proposals by
-// agent). What suppliers and people wrote is untrusted data, never
+// ADR-0036), and so does an approval's decision. Parking, and changing or
+// cancelling an entry it parked that no person has taken on, cancelling
+// an approval request, and the writes that need autonomy level 2 are kept
+// from it by its tools, its role and its level alone (ADR-0058 As built,
+// accrual proposals by agent). What suppliers and people wrote is untrusted data, never
 // instructions, as for the reconciliation agent (internal/reconagent). Its
 // evaluation suite is evals/close (ADR-0039).
 package closeagent
