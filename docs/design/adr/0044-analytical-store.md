@@ -1342,11 +1342,12 @@ T56i2 and the plan metrics (`plan_amount`, `plan_variance`) T56i3.
   entry read, which analytics' journal metrics hold too.
 - *Isolation.* The reader's and parity's isolation tests are unchanged
   and pass; the reader's view is unchanged.
-- *Walkthrough.* Step 79 (`step_plan_version`, `plan_actuals_analytics`)
-  asks expenses on account 6000 in the month by cost center and finds
-  CC-1100's and CC-1300's actuals equal to the plan against actual
-  report's, the API's read being the authoritative figure (lineage,
-  above).
+- *Walkthrough.* Step 79 (`step_plan_version`, `center_actuals_analytics`)
+  asks CC-1100's expenses of the year by account and cost center and
+  finds each account's figure equal to the cost center's actual report
+  (`GET /v1/cost-center-balances`), the API's read being the
+  authoritative figure (lineage, above): the settlement, distribution and
+  assessment of steps 51-53 among them.
 - *Evidence.* extract `TestCenterColumns`,
   `TestJournalExtractedAgainForCenters` (a manifest naming batch 95's
   columns extracted again); reader `TestCenterColumns`; store `TestParity`

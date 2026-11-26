@@ -3707,7 +3707,7 @@
        {
         "s": "D",
         "t": "Analytics: actuals by cost center, profit center and segment: the journal dataset carries each line's centers by code and the semantic layer's revenue, income and expenses are broken down and filtered by them, the store's answer the database's; isolation tests unchanged and passing",
-        "r": "T56i1 · analytics/datasets/v1/gl_lines.yaml cost_center, profit_center, segment (additive; the journal extracted again once, as batch 95's tax columns) · semantic dimensions cost_center, profit_center, segment of revenue, income and expenses · extract TestCenterColumns, TestJournalExtractedAgainForCenters · reader TestCenterColumns · store TestParity · ADR-0044 As built T56i1 · ADR-0050 §7 As built T56i1 · walkthrough step 79 (step_plan_version, plan_actuals_analytics)",
+        "r": "T56i1 · analytics/datasets/v1/gl_lines.yaml cost_center, profit_center, segment (additive; the journal extracted again once, as batch 95's tax columns) · semantic dimensions cost_center, profit_center, segment of revenue, income and expenses · extract TestCenterColumns, TestJournalExtractedAgainForCenters · reader TestCenterColumns · store TestParity · ADR-0044 As built T56i1 · ADR-0050 §7 As built T56i1 · walkthrough step 79 (step_plan_version, center_actuals_analytics: CC-1100 by account against GET /v1/cost-center-balances)",
         "src": "split:T56i · adr:ADR-0050",
         "c": []
        },
