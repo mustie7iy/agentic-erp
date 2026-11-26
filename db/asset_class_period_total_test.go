@@ -22,7 +22,7 @@ import (
 const periodMovementSQL = `INSERT INTO assets.movement (tenant_id, id, asset_id, seq, legal_entity_id, ledger_id, class_code, kind, value_date, posting_date,
 		fiscal_year, fiscal_period, cost, accumulated, accumulated_gc, document_kind, document_id, created_by)
 	SELECT $1, gen_random_uuid(), $2, 2, a.legal_entity_id, $3, a.class_code, $4, make_date($5, least($6, 12), 1), make_date($5, least($6, 12), 1), $5, $6,
-		$7, $8, $8 * 2, $9, gen_random_uuid(), $10 FROM assets.asset a WHERE a.id = $2`
+		$7, $8::bigint, $8::bigint * 2, $9, gen_random_uuid(), $10 FROM assets.asset a WHERE a.id = $2`
 
 // TestAssetClassPeriodTotalsBackfilled: 000473 totals the movements
 // written before it, each kind in its column, per company, ledger, fiscal
