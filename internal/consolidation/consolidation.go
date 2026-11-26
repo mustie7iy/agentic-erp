@@ -53,6 +53,13 @@
 // under a lock of the period's runs. A run is stale once a company's
 // period version moved since it read its figures. The investment's
 // elimination follows in T68h.
+//
+// The consolidated asset history sheet (ADR-0057 As built, the
+// consolidated sheet; po:2026-11-09, B14) is a read of a group and fiscal
+// year (GetConsolidatedAssetHistorySheet, assetsheet): the assets
+// context's class totals of each company a run of the year's period 12
+// includes, read through the Assets port and translated at the run's
+// rates, with the net exchange differences on translation.
 package consolidation
 
 import (
@@ -192,6 +199,7 @@ type Endpoints struct {
 	Settings  Settings
 	Companies Companies
 	Ledger    Ledger
+	Assets    Assets
 	People    People
 	Runs      Runs
 	Pages     *pagination.Codec

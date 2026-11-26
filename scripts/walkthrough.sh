@@ -6328,7 +6328,7 @@ year_end_sign_off() {
 # through this period in the leading ledger by step 29's run, gets a
 # shorter useful life and a residual value from the next period on.
 step_asset_estimate() {
-  heading "Step 44 — A change in estimate and an impairment: the lathe's useful life and residual value changed from the next period on, the periods booked untouched; an impairment loss and its partial reversal"
+  heading "Step 44 — A change in estimate and an impairment: the lathe's useful life and residual value changed from the next period on, the periods booked untouched; an impairment loss and its partial reversal; the group's asset history sheet in its presentation currency"
   as carla
   say "At the year-end review Carla finds the lathe will last five years in all, not ten, and fetch CAD 500.00 at"
   say "the end (IAS 16.51). Its depreciation is booked through this period in the leading ledger, so its terms there"
@@ -6393,7 +6393,43 @@ step_asset_estimate() {
   sheet_reconciles "by asset, the lathe impaired"
   api 200 '"the lathe'"'"'s impairments: \([.items[] | "\(.kind) \(.amount.amount)"] | join(", "))"' listAssetImpairments -p "asset_id=$lathe"
   expect "the lathe's impairments" "$(field '[.items[].kind] | join(" ")')" "loss reversal"
+  asset_sheet_consolidated
   passed
+}
+
+# asset_sheet_consolidated is the group's asset history sheet in its
+# presentation currency (po:2026-11-09, B14; ADR-0057 As built, the
+# consolidated sheet), part of step_asset_estimate: Tom records the
+# dollar's rate of 31 December at the month-end's 1.40 (step 9), so the
+# year's period 12 has a closing rate and no amount changes; Carla reads
+# the group MAPLE's sheet for the year: Maple, in the group currency, at
+# rate 1 with no exchange differences, its rows its own sheet's by class;
+# Acme Corp US, which holds no assets, at its closing rate with nothing to
+# translate; every row, company and the totals reconcile, the net
+# exchange differences on translation included.
+asset_sheet_consolidated() {
+  local cols own
+  as tom
+  say "The group's sheet in its presentation currency translates each company's closing values at its closing rate of"
+  say "the year's period 12. Tom records the dollar's rate of 31 December, the month-end's 1.40 again:"
+  usd_rate "$YEAR-12-31" 1.40
+  as carla
+  say "Carla reads the group MAPLE's asset history sheet for $YEAR in CAD (IAS 16.73(e)): per class over Maple and Acme"
+  say "Corp US, the opening values at the previous period's closing rate, each period's movements at its own, the"
+  say "closing values at period 12's, and the net exchange differences on translation the rest (ADR-0057 As built):"
+  api 200 '"group \(.group_code) \(.group_name), \(.fiscal_year) (\(.start_date) to \(.end_date)) in \(.currency) at \(.rate_type) rates",
+    (.companies[] | "  \(.role) \(.company_code) \(.company_name) (\(.local_currency)): closing rate \(.closing_rate), \(.period_rates | length) period rates; net book value \(.totals.opening_net_book_value.amount) -> \(.totals.closing_net_book_value.amount), exchange differences \(.totals.exchange_differences.amount) and \(.totals.exchange_differences_accumulated.amount)"),
+    (.items[] | "  \(.class_code) \(.class_name // ""): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) + exchange \(.exchange_differences.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + \(.impairment_losses.amount) + \(.impairment_reversals.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) + exchange \(.exchange_differences_accumulated.amount) = \(.closing_accumulated.amount)")' \
+    getConsolidatedAssetHistorySheet -p code=MAPLE -p "fiscal_year=$YEAR"
+  expect "the companies and their closing rates" "$(field '[.companies[] | "\(.role) \(.company_code) \(.closing_rate) \(.period_rates | length)"] | join(", ")')" \
+    "parent $CC 1 0, member 1000 1.4 0"
+  expect "no exchange differences in the group currency" \
+    "$(field '[(.items[], .totals, .companies[].totals) | .exchange_differences.amount, .exchange_differences_accumulated.amount] | unique | join(" ")')" 0.00
+  cols='.opening_cost, .acquisitions, .retirements, .transfers, .closing_cost, .opening_accumulated, .depreciation, .impairment_losses, .impairment_reversals, .retirements_accumulated, .transfers_accumulated, .closing_accumulated'
+  sheet_reconciles "the group's sheet"
+  own="$(field "[.items[] | [.class_code, ($cols | .amount)] | join(\" \")] | join(\", \")")"
+  QUIET=1 api 200 '' getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "the group's rows, Maple's own sheet's" "$own" "$(field "[.items[] | [.class_code, ($cols | .amount)] | join(\" \")] | join(\", \")")"
 }
 
 # step_asset_held_for_sale is depreciation stopped at classification as
@@ -18937,13 +18973,16 @@ step_cash_orders() {
 # reconcile from opening to closing for cost and for accumulated
 # depreciation, impairment losses and their reversals included (ADR-0057
 # As built, impairment), and each net book value is its cost plus its
-# accumulated depreciation.
+# accumulated depreciation; for the group's sheet in its presentation
+# currency, its companies' totals too and the net exchange differences on
+# translation among the columns (As built, the consolidated sheet).
 sheet_reconciles() {
   expect "$1: rows and totals that do not reconcile from opening to closing" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
-    [(.items[], .totals) | select(
-      (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) != (.closing_cost | c)
+    def x(f): (f // {amount: "0"}) | c;
+    [(.items[], .totals, .companies[]?.totals) | select(
+      (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) + x(.exchange_differences) != (.closing_cost | c)
       or (.opening_accumulated | c) + (.depreciation | c) + (.impairment_losses | c) + (.impairment_reversals | c) + (.retirements_accumulated | c)
-        + (.transfers_accumulated | c) != (.closing_accumulated | c)
+        + (.transfers_accumulated | c) + x(.exchange_differences_accumulated) != (.closing_accumulated | c)
       or (.opening_cost | c) + (.opening_accumulated | c) != (.opening_net_book_value | c)
       or (.closing_cost | c) + (.closing_accumulated | c) != (.closing_net_book_value | c))] | length')" 0
 }

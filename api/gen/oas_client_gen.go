@@ -3759,8 +3759,9 @@ type Invoker interface {
 	// the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed
 	// (none are posted), acquisitions through business combinations (none are recorded), and net exchange
 	// differences on translation, which belong to a consolidated sheet in the group's presentation
-	// currency; the sheet is one company's in its local currency. An asset classified as held for sale
-	// stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired.
+	// currency (`getConsolidatedAssetHistorySheet`); the sheet is one company's in its local currency. An
+	// asset classified as held for sale stays on its row, its depreciation stopped
+	// (`AssetTerms.held_for_sale`), until it is retired.
 	//
 	// GET /v1/asset-history-sheet
 	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
@@ -4196,6 +4197,42 @@ type Invoker interface {
 	//
 	// GET /v1/connectors/{id}
 	GetConnector(ctx context.Context, params GetConnectorParams) (GetConnectorRes, error)
+	// GetConsolidatedAssetHistorySheet invokes getConsolidatedAssetHistorySheet operation.
+	//
+	// The asset history sheet of a consolidation group for a fiscal year in the group's presentation
+	// currency (ADR-0057 §9 and As built, the consolidated sheet; ADR-0059 §7; IAS 16.73(e)(viii), the
+	// accounting specialist's B14, po:2026-11-09): per asset class, the reconciliation of cost and
+	// accumulated depreciation from the year's opening to its closing over the companies a consolidation
+	// run of the year's last regular period (12) includes, the parent and each member consolidated by
+	// then, each read from its leading ledger's asset history sheet totals and translated by the rules a
+	// run translates by: the closing values at the company's closing rate of period 12 (the closing rate a
+	// run shows, `ConsolidationRunMember.closing_rate`), the opening values at the closing rate of the
+	// period before the year's first (period 12 of the year before), and each period's movements at that
+	// period's closing rate, of the same rate type (`consolidation.rate_type`); a special period's (13-16)
+	// at period 12's. A member first consolidated in the fiscal year opens at its first period: what it
+	// held and moved before that is its opening, at the closing rate of the period before its first, where
+	// a run measures its acquisition (ADR-0059 §9). Each column of each company and class is translated
+	// once, rounded half away from zero to the group currency's minor unit, and `exchange_differences`
+	// (cost) and `exchange_differences_accumulated` (accumulated depreciation) are the net exchange
+	// differences on translation: the closing value less the opening value and the year's translated
+	// movements, so every row, company and total reconciles to the cent. A company in the group currency
+	// is at rate 1 and has no exchange differences. A rate is read only where an amount needs it: a
+	// company without opening values needs no opening rate, a period without movements none of its own.
+	// Rows are by class code over every company, a class with neither an opening value nor a movement in
+	// the year at any company having none; `companies` gives each company's rates and its totals, which
+	// sum to `totals`. Signs as the company's sheet (`getAssetHistorySheet`): accumulated depreciation,
+	// with accumulated impairment, negative. Refused as a run of the year's period 12 would be: a group
+	// that does not exist or whose parent or a member the caller may not act in is unknown (404
+	// `consolidation.group_unknown`, ADR-0059 §12: the sheet is the group's whole, never part of it); a
+	// parent not in the group currency, a member on another calendar or not incorporated and wholly owned,
+	// a fiscal year the parent has no period 12 in, and a needed rate missing or stale are 422. Besides
+	// `consolidation.read` the caller needs `ledger.entry.read` and `assets.asset.read`
+	// (`x-also-permissions`), so the sheet gives nothing the companies' own sheets would refuse. Exact at
+	// the read and from one database state (a repeatable-read snapshot), so the rows, companies and totals
+	// agree whatever posts meanwhile.
+	//
+	// GET /v1/consolidation-groups/{code}/asset-history-sheet
+	GetConsolidatedAssetHistorySheet(ctx context.Context, params GetConsolidatedAssetHistorySheetParams) (GetConsolidatedAssetHistorySheetRes, error)
 	// GetConsolidatedStatement invokes getConsolidatedStatement operation.
 	//
 	// A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e):
@@ -41110,8 +41147,9 @@ func (c *Client) sendGetAssetAcquisition(ctx context.Context, params GetAssetAcq
 // the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed
 // (none are posted), acquisitions through business combinations (none are recorded), and net exchange
 // differences on translation, which belong to a consolidated sheet in the group's presentation
-// currency; the sheet is one company's in its local currency. An asset classified as held for sale
-// stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired.
+// currency (`getConsolidatedAssetHistorySheet`); the sheet is one company's in its local currency. An
+// asset classified as held for sale stays on its row, its depreciation stopped
+// (`AssetTerms.held_for_sale`), until it is retired.
 //
 // GET /v1/asset-history-sheet
 func (c *Client) GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error) {
@@ -46154,6 +46192,186 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 
 	stage = "DecodeResponse"
 	result, err := decodeGetConnectorResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetConsolidatedAssetHistorySheet invokes getConsolidatedAssetHistorySheet operation.
+//
+// The asset history sheet of a consolidation group for a fiscal year in the group's presentation
+// currency (ADR-0057 §9 and As built, the consolidated sheet; ADR-0059 §7; IAS 16.73(e)(viii), the
+// accounting specialist's B14, po:2026-11-09): per asset class, the reconciliation of cost and
+// accumulated depreciation from the year's opening to its closing over the companies a consolidation
+// run of the year's last regular period (12) includes, the parent and each member consolidated by
+// then, each read from its leading ledger's asset history sheet totals and translated by the rules a
+// run translates by: the closing values at the company's closing rate of period 12 (the closing rate a
+// run shows, `ConsolidationRunMember.closing_rate`), the opening values at the closing rate of the
+// period before the year's first (period 12 of the year before), and each period's movements at that
+// period's closing rate, of the same rate type (`consolidation.rate_type`); a special period's (13-16)
+// at period 12's. A member first consolidated in the fiscal year opens at its first period: what it
+// held and moved before that is its opening, at the closing rate of the period before its first, where
+// a run measures its acquisition (ADR-0059 §9). Each column of each company and class is translated
+// once, rounded half away from zero to the group currency's minor unit, and `exchange_differences`
+// (cost) and `exchange_differences_accumulated` (accumulated depreciation) are the net exchange
+// differences on translation: the closing value less the opening value and the year's translated
+// movements, so every row, company and total reconciles to the cent. A company in the group currency
+// is at rate 1 and has no exchange differences. A rate is read only where an amount needs it: a
+// company without opening values needs no opening rate, a period without movements none of its own.
+// Rows are by class code over every company, a class with neither an opening value nor a movement in
+// the year at any company having none; `companies` gives each company's rates and its totals, which
+// sum to `totals`. Signs as the company's sheet (`getAssetHistorySheet`): accumulated depreciation,
+// with accumulated impairment, negative. Refused as a run of the year's period 12 would be: a group
+// that does not exist or whose parent or a member the caller may not act in is unknown (404
+// `consolidation.group_unknown`, ADR-0059 §12: the sheet is the group's whole, never part of it); a
+// parent not in the group currency, a member on another calendar or not incorporated and wholly owned,
+// a fiscal year the parent has no period 12 in, and a needed rate missing or stale are 422. Besides
+// `consolidation.read` the caller needs `ledger.entry.read` and `assets.asset.read`
+// (`x-also-permissions`), so the sheet gives nothing the companies' own sheets would refuse. Exact at
+// the read and from one database state (a repeatable-read snapshot), so the rows, companies and totals
+// agree whatever posts meanwhile.
+//
+// GET /v1/consolidation-groups/{code}/asset-history-sheet
+func (c *Client) GetConsolidatedAssetHistorySheet(ctx context.Context, params GetConsolidatedAssetHistorySheetParams) (GetConsolidatedAssetHistorySheetRes, error) {
+	res, err := c.sendGetConsolidatedAssetHistorySheet(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetConsolidatedAssetHistorySheet(ctx context.Context, params GetConsolidatedAssetHistorySheetParams) (res GetConsolidatedAssetHistorySheetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getConsolidatedAssetHistorySheet"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/consolidation-groups/{code}/asset-history-sheet"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetConsolidatedAssetHistorySheetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/consolidation-groups/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/asset-history-sheet"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetConsolidatedAssetHistorySheetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetConsolidatedAssetHistorySheetResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

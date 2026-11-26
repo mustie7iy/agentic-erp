@@ -913,6 +913,10 @@ type GetConnectorRes interface {
 	getConnectorRes()
 }
 
+type GetConsolidatedAssetHistorySheetRes interface {
+	getConsolidatedAssetHistorySheetRes()
+}
+
 type GetConsolidatedStatementRes interface {
 	getConsolidatedStatementRes()
 }

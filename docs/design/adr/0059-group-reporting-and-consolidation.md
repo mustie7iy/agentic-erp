@@ -2578,3 +2578,18 @@ so counted it.
 - **Not caught earlier** because the layer that measures budgets
   (`make ci-local`, 06 §6.5) passed with the test at 5-7 minutes: nothing
   looks at a budget test's total time, only at what it measures.
+
+**The consolidated asset history sheet (po:2026-11-09, B14; ADR-0057 As
+built, the consolidated sheet).** `getConsolidatedAssetHistorySheet`
+(`GET /v1/consolidation-groups/{code}/asset-history-sheet`) is the
+group's asset history sheet for a fiscal year in the group currency, a
+read of this context: the companies a run of the year's period 12
+includes (`targetOf`, its refusals included), each company's class totals
+read through a new port, `Assets` (the assets context's
+`ConsolidationReads`, adapted in internal/app; no import between the two
+leaves), translated by §7's rates: closing values at period 12's closing
+rate, opening values at the closing rate of the period before the
+opening, each period's movements at its own (`periodRate`, which
+`measurePeriod` now calls), and the net exchange differences on
+translation the rest per column. ADR-0057's As built records the
+decisions; nothing a run computes or stores changed.
