@@ -209,9 +209,10 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
-	Schemas       extensions.Schemas    // the tenant's custom field schemas (configuration context)
-	References    extensions.References // what custom fields refer to (partner context)
-	Rules         rules.Source          // the tenant's validation rules (configuration context)
+	Schemas       extensions.Schemas     // the tenant's custom field schemas (configuration context)
+	References    extensions.References  // what custom fields refer to (partner context)
+	CostObjects   extensions.CostObjects // the centers cost object custom fields name (ledger context)
+	Rules         rules.Source           // the tenant's validation rules (configuration context)
 	Rates         Rates
 	Approvals     Opener
 	Payments      Payments
@@ -446,7 +447,18 @@ type checked struct {
 
 // extensions checks a supplier invoice's custom fields (ADR-0046).
 func (e *Endpoints) extensions() extensions.Writes {
-	return extensions.Writes{Entity: "supplier_invoice", Schemas: e.Schemas, References: e.References}
+	return extensions.Writes{Entity: "supplier_invoice", Schemas: e.Schemas, References: e.References, CostObjects: e.CostObjects}
+}
+
+// invoiceDocument is what an invoice's cost object custom fields are
+// checked against: its company on the date its items' assignments are
+// (invoiceCheck.assignments), the posting date, else the invoice date. The
+// post checks them again on the date it posts.
+func invoiceDocument(le uuid.UUID, invoiceDate time.Time, postingDate *time.Time) extensions.Document {
+	if postingDate != nil {
+		invoiceDate = *postingDate
+	}
+	return extensions.Document{Company: le, Date: invoiceDate}
 }
 
 // ruleWrites evaluates a supplier invoice's validation rules (ADR-0046).
@@ -516,7 +528,7 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	}
 	schema := in.extensionsSchema
 	if !in.held {
-		if schema, err = e.extensions().Check(ctx, in.Extensions); err != nil {
+		if schema, err = e.extensions().Check(ctx, invoiceDocument(le.ID, in.InvoiceDate, in.PostingDate), in.Extensions); err != nil {
 			return checked{}, err
 		}
 	}

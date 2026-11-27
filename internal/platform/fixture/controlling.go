@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -106,4 +107,26 @@ func (e Env) applyControlling(tb testing.TB, doc *config.Config) {
 	}
 	pgtest.Exec(tb, `UPDATE ledger.period_status SET status = 'open', version = version + 1 WHERE tenant_id = $1 AND period <= 12 AND status <> 'open'`,
 		e.Tenant.ID)
+}
+
+// CostObjectFields adds two optional cost object custom fields to the
+// purchase order's and the supplier invoice's schemas (ADR-0046 As built
+// T56k), for fixture.NewWith: cost_center names a cost center, profit_center
+// a profit center.
+func CostObjectFields(doc *config.Config) {
+	for _, entity := range []string{"purchase_order", "supplier_invoice"} {
+		s := doc.Extensions[entity]
+		s.Properties["cost_center"] = extensions.Property{Type: "string", Format: "cost_object", CostObject: "cost_center", PII: extensions.PIINone}
+		s.Properties["profit_center"] = extensions.Property{Type: "string", Format: "cost_object", CostObject: "profit_center", PII: extensions.PIINone}
+	}
+}
+
+// ForeignProfitCenter creates and approves a profit center assigned to
+// company 1000 only, valid from 2026, and returns its id.
+func (e Env) ForeignProfitCenter(tb testing.TB) uuid.UUID {
+	tb.Helper()
+	pc, _ := e.Must(201, "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PCUS", "name": "PC US", "responsible": "Jane Doe",
+		"legal_entity_ids": [%q], "valid_from": "2026-01-01", "reason": "r"}`, e.US), "")
+	e.Approve(tb, pc["pending_change_id"].(string))
+	return uuid.MustParse(pc["id"].(string))
 }

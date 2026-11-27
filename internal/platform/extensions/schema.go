@@ -24,6 +24,16 @@ const (
 // (ADR-0046: the purchase requisition and the legal entity follow).
 var Entities = []string{"business_partner", "purchase_order", "supplier_invoice"}
 
+// documents are the entities whose rows belong to a company and carry a
+// date, which a cost object field is checked against (Document); a
+// business partner has neither, so its schema takes no cost object field.
+var documents = []string{"purchase_order", "supplier_invoice"}
+
+// The cost objects a cost object field may name (x-cost-object): the
+// ledger's centers (ADR-0050 §6: "a cost or profit center, checked on
+// write against the ledger").
+var costObjectKinds = map[string]Kind{"cost_center": CostCenter, "profit_center": ProfitCenter}
+
 // Schema is a tenant's custom field schema for one entity: the restricted
 // subset of JSON Schema that ADR-0046 allows, a flat object of typed
 // fields. It is read strictly, so a keyword outside the subset ($ref,
@@ -48,6 +58,9 @@ type Property struct {
 	Title       string   `yaml:"title,omitempty" json:"title,omitempty"`
 	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
 	PII         PII      `yaml:"x-pii" json:"x-pii"`
+	// CostObject is what a field of format cost_object names, cost_center
+	// or profit_center, and only such a field has one.
+	CostObject string `yaml:"x-cost-object,omitempty" json:"x-cost-object,omitempty"`
 }
 
 // Kind is the type of a compiled field.
@@ -64,6 +77,13 @@ const (
 	Boolean Kind = "boolean" // type boolean
 	Enum    Kind = "enum"    // type string with enum
 	Partner Kind = "partner" // type string, format partner: a business partner's id
+	// type string, format cost_object, x-cost-object cost_center: the id of
+	// a cost center of the document's company valid on its date
+	CostCenter Kind = "cost_center"
+	// type string, format cost_object, x-cost-object profit_center: the id
+	// of a profit center assigned to the document's company, valid on its
+	// date
+	ProfitCenter Kind = "profit_center"
 )
 
 // PII is a field's privacy class: personal and sensitive values are masked
@@ -108,7 +128,7 @@ type Issue struct {
 // read, so a document with issues can still be compared; it is valid only
 // when there are none.
 func Compile(entity string, s Schema) (*Compiled, []Issue) {
-	c := &compiler{}
+	c := &compiler{entity: entity}
 	if !slices.Contains(Entities, entity) {
 		c.issue("", "custom fields are not supported on %q; supported: %v", entity, Entities)
 	}
@@ -134,7 +154,10 @@ func Compile(entity string, s Schema) (*Compiled, []Issue) {
 	return out, c.issues
 }
 
-type compiler struct{ issues []Issue }
+type compiler struct {
+	entity string
+	issues []Issue
+}
 
 func (c *compiler) issue(path, format string, a ...any) {
 	c.issues = append(c.issues, Issue{Path: path, Message: fmt.Sprintf(format, a...)})
@@ -193,9 +216,11 @@ var formats = map[[2]string]Kind{
 }
 
 func (c *compiler) kind(p string, d Property) Kind {
-	if d.Type == "string" && d.Format == "cost_object" { // ADR-0046: allowed once cost objects exist (T56)
-		c.issue(p+".format", "cost object references are refused until cost objects exist (T56)")
-		return ""
+	if d.Type == "string" && d.Format == "cost_object" {
+		return c.costObject(p, d)
+	}
+	if d.CostObject != "" {
+		c.issue(p+".x-cost-object", "only a field of format cost_object names a cost object")
 	}
 	k, ok := formats[[2]string{d.Type, d.Format}]
 	if !ok {
@@ -210,6 +235,22 @@ func (c *compiler) kind(p string, d Property) Kind {
 		return k
 	}
 	return Enum
+}
+
+// costObject is the kind of a cost object field: the center its
+// x-cost-object names, on an entity whose rows have a company and a date.
+func (c *compiler) costObject(p string, d Property) Kind {
+	k, ok := costObjectKinds[d.CostObject]
+	if !ok {
+		c.issue(p+".x-cost-object", "must be cost_center or profit_center")
+	}
+	if !slices.Contains(documents, c.entity) {
+		c.issue(p+".format", "a cost object is checked against a document's company and date; %s has neither", c.entity)
+	}
+	if d.Enum != nil {
+		c.issue(p+".enum", "only a string without a format lists values")
+	}
+	return k
 }
 
 func (c *compiler) maxLength(p string, k Kind, n int) int {

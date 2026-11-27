@@ -36,7 +36,10 @@ needs.
   (at most 100 values), and a reference to a business partner or a cost
   object, whose existence is checked on write. No floats anywhere. Until
   cost objects exist (T56) the schema compiler refuses a cost object field
-  (coordinator, 2026-10-20); T56 lifts the refusal.
+  (coordinator, 2026-10-20); T56 lifts the refusal (amended by T56k: a
+  cost object field names a cost center or a profit center of the
+  document's company, valid on the document's date; see "As built T56k"
+  below).
 - **Limits.** At most 50 fields per entity and 16 KiB of extensions per row.
 - **Privacy.** Every field declares `x-pii: none | personal | sensitive`.
   Personal and sensitive values are masked in logs, traces and events,
@@ -211,6 +214,52 @@ needs.
   migration run's report names the refusing rule of each refused row.
   Money reads as the object `rules.Money`, no longer a map of strings as
   in T58f: no tenant had activated rules before the change.
+
+### As built T56k: cost object fields (amendment)
+- **Declaration.** A cost object field is `type: string`, `format:
+  cost_object`, with the keyword `x-cost-object` naming what its value is
+  the id of: `cost_center` or `profit_center`, the cost objects ADR-0050
+  §6 names ("a cost or profit center, checked on write against the
+  ledger"). `x-cost-object` is required on such a field and refused on any
+  other; no `enum` or `maxLength` (the value is an id). Internal orders
+  (ADR-0064 §2), the second real cost object of the posting, are not a
+  value of `x-cost-object` in this step: ADR-0046 and ADR-0050 name the
+  centers only (decided by default; listed for the product owner).
+- **Entities.** Only the purchase order and the supplier invoice take one:
+  a cost object is valid for a company on a date, and a business partner
+  has neither, so the compiler refuses one on `business_partner` (a
+  configuration finding, `extensions.business_partner.properties.<key>.format`).
+- **Check on write.** The value is the center's id (as a partner
+  reference is the partner's id; a cost center code is unique only within
+  its company). The ledger judges it in the request's transaction
+  (`ledger.CostObjectReferences`, its published API, behind the
+  `extensions.CostObjects` port) as a posting judges a center (ADR-0050
+  §5): known as a center of the field's kind, active, of the document's
+  company (a cost center's legal entity; a profit center assigned to the
+  company), with a period covering the document's date. The date is the
+  one the document's own item assignments are checked on: a purchase
+  order's order date (on create, update and change request), a supplier
+  invoice's posting date, else its invoice date, at entry and update, and
+  again on the posting date when it posts. Anything else is 422
+  `request.invalid_extension` with the field error `extensions.<key>` and
+  a code: `invalid_type` (not an id), `not_found`, `not_active`,
+  `not_in_company`, `not_valid_on_date`, in that order; a pending profit
+  center is not active, not another company's (its companies are assigned
+  at its approval). No new problem code: the field errors are those of the
+  existing one, which every write of the two entities declares.
+- **Locks are not read.** A center's locks for actual costs, revenue or
+  plan hold back postings, and a custom field posts nothing; it is a
+  statistical reference beside the item's account assignment, which stays
+  the first-class field (ADR-0050 §6). The centers are read without row
+  locks, as `ledger.CheckAssignments` reads a document's items: a center
+  change committed after the write applies from the document's next write
+  and, for an invoice, its posting, which checks again.
+- **No migration.** The fields live in `extensions` (ADR-0009); masking,
+  events, rules (a cost object reads as a string in CEL), tiers (a field's
+  other `x-cost-object` is a retyping, tier 2) and `GET
+  /v1/schemas/{entity}` treat them as any field. Wiring that gives the
+  check no reader, or a document without a company or a date, fails closed
+  (500), never passes the reference unchecked.
 
 ### Agents
 Agents may propose custom fields and rules as change requests. They never

@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -413,7 +414,7 @@ func (e *Endpoints) createOrder(ctx context.Context, in NewOrder) (PurchaseOrder
 	if in.Extensions == nil {
 		in.Extensions = map[string]any{}
 	}
-	schema, err := e.extensions().Check(ctx, in.Extensions)
+	schema, err := e.extensions().Check(ctx, extensions.Document{Company: le.ID, Date: in.OrderDate}, in.Extensions)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}
@@ -556,7 +557,7 @@ func (e *Endpoints) updateOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	org, contract, supplier, currency, orderDate, term, ext := f.org, f.contract, f.supplier, f.currency, f.orderDate, o.PaymentTermCode, f.ext
 	// Every update checks the order's extensions as it leaves them
 	// (ADR-0046: a narrowed field applies from the next write).
-	schema, err := e.extensions().Check(ctx, ext)
+	schema, err := e.extensions().Check(ctx, extensions.Document{Company: o.LegalEntityID, Date: orderDate}, ext)
 	if err != nil {
 		return PurchaseOrder{}, err
 	}

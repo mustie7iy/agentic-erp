@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -278,7 +279,7 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	}
 	// The extensions the change leaves the order with are checked now, on
 	// every proposal, and their schema version is applied with them.
-	schema, err := e.extensions().Check(ctx, pr.Extensions)
+	schema, err := e.extensions().Check(ctx, extensions.Document{Company: o.LegalEntityID, Date: pr.OrderDate}, pr.Extensions)
 	if err != nil {
 		return ChangeProposal{}, 0, err
 	}

@@ -105,9 +105,10 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
-	Schemas       extensions.Schemas    // the tenant's custom field schemas (configuration context)
-	References    extensions.References // what custom fields refer to (partner context)
-	Rules         rules.Source          // the tenant's validation rules (configuration context)
+	Schemas       extensions.Schemas     // the tenant's custom field schemas (configuration context)
+	References    extensions.References  // what custom fields refer to (partner context)
+	CostObjects   extensions.CostObjects // the centers cost object custom fields name (ledger context)
+	Rules         rules.Source           // the tenant's validation rules (configuration context)
 	Approvals     Opener
 	Invoices      Invoices
 	Postings      Postings
@@ -172,7 +173,7 @@ func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]ru
 
 // extensions checks a purchase order's custom fields (ADR-0046).
 func (e *Endpoints) extensions() extensions.Writes {
-	return extensions.Writes{Entity: "purchase_order", Schemas: e.Schemas, References: e.References}
+	return extensions.Writes{Entity: "purchase_order", Schemas: e.Schemas, References: e.References, CostObjects: e.CostObjects}
 }
 
 // Postings posts the WE entries of goods movements on orders valued

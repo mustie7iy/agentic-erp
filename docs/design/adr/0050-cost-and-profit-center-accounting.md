@@ -717,7 +717,11 @@ As built in T56d, T56d2 and T56d4 (migrations 000155-000160; the commit-time che
 - Custom fields (ADR-0046) gain the `cost_object` reference type (a cost
   or profit center, checked on write against the ledger), lifting the
   refusal; it is for extra statistical references, not the posting
-  assignment, which is a first-class field.
+  assignment, which is a first-class field. As built in T56k (ADR-0046 "As built T56k"):
+  `format: cost_object` with `x-cost-object: cost_center | profit_center`
+  on the purchase order and the supplier invoice, its id judged by
+  `ledger.CostObjectReferences` for the document's company and date as a
+  posting judges a center, its locks aside.
 
 As built in T56e (migrations 000161-000162; the capture agent's proposals are T56e2):
 - **Items.** `requisition_item` and `purchase_order_item` gain
@@ -1723,7 +1727,7 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56h | **SAP migration** (split: T56h1 centers and segments, built, see §10 as built; T56h2 hierarchies and categories; T56h3 OKB9 defaults; T56h4 ACDOCA's centers and center totals) | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |
 | T56i | **Analytics** (split: T56i1 the journal's centers and their dimensions, built, see §7 as built; T56i2 the centers' and hierarchies' snapshots, built, see §7 as built; T56i3 the plan metrics) | Dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing |
 | T56j | **Controlling agent** | Proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks |
-| T56k | **Cost object custom fields** | ADR-0046's `cost_object` reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended |
+| T56k | **Cost object custom fields** (built, see §6 and ADR-0046 as built T56k) | ADR-0046's `cost_object` reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended |
 | T56l | **Document splitting** (deferred, P3) | Not built now; if needed later, its own ADR amendment first, from a fiscal year start |
 
 T56a-T56h are the pilot's must-haves (T56g because the tracker's exit
