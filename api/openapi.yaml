@@ -6485,6 +6485,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: reference
+          in: query
+          required: false
+          description: "Only entries whose external reference is exactly this one, in any status unless `status` narrows it: how the controlling agent finds a reposting it proposed for a journal line before (ADR-0050 §12, As built T56j1)."
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
         - name: owned_by
           in: query
           required: false
@@ -44150,6 +44158,7 @@ components:
             - replenishment
             - count_planning
             - demand_forecast
+            - controlling
           maxLength: 50
         model:
           type: string
