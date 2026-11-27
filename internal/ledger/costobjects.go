@@ -14,10 +14,12 @@ import (
 
 // CostObjectReferences answers for the custom fields that name a center
 // (extensions.CostObjects; ADR-0046 As built T56k): whether a document of a
-// company dated a day may name it. It judges a center as a posting on that
-// day does (validCostCenter, profitCenterState): known, the company's (a
-// profit center assigned to it), active and with a period covering the
-// day, read without locks, as CheckAssignments reads a document's items:
+// company dated a day may name it. It asks what a posting on that day asks
+// (validCostCenter, profitCenterState): known, active, the company's (a
+// profit center assigned to it) and with a period covering the day, but
+// judges activity before the company, unlike centerState, so a pending
+// profit center, assigned to its companies only at approval, is named not
+// active rather than another company's (costObjectState). It reads without locks, as CheckAssignments reads a document's items:
 // the document's next write and its posting check again. The centers'
 // locks are not read: they hold back postings of actual costs, revenue or
 // plan, and a custom field posts nothing.

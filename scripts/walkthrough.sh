@@ -18053,25 +18053,28 @@ step_custom_fields() {
   cc=$(field '.items[0].id')
   QUIET=1 api 200 '' listProfitCenters -p code=PC-MTL
   pc=$(field '.items[0].id')
-  say "Ben orders a desk lamp for the finance office, which CC-1100 and the Montreal office's PC-MTL benefit from:"
-  api 201 '"purchase order \(.document_number // .id): \(.status), custom fields: \(.extensions | to_entries | map("\(.key) \(.value)") | join(", "))"' \
-    createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$cc\", \"benefiting_profit_center\": \"$pc\"}")"
+  say "Ben orders a desk lamp for the finance office on account 6000, its item assigned to CC-1100, which with the"
+  say "Montreal office's PC-MTL is also named as benefiting from the order:"
+  api 201 '"purchase order \(.document_number // .id): \(.status), custom fields: \(.extensions | to_entries | map("\(.key) \(.value)") | join(", "))", (.items[] | "  item \(.item_no): cost center \(.cost_center_id)")' \
+    createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$cc\", \"benefiting_profit_center\": \"$pc\"}" "$cc")"
   expect "the order's benefiting cost center" "$(field .extensions.benefiting_cost_center)" "$cc"
   expect "the order's benefiting profit center" "$(field .extensions.benefiting_profit_center)" "$pc"
+  expect "the item's own cost center" "$(field '.items[0].cost_center_id')" "$cc"
   say "A profit center is not a cost center, so PC-MTL in the cost center field is refused:"
-  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$pc\"}")"
+  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$pc\"}" "$cc")"
   expect "the field error" "$(field '.errors | map("\(.field) \(.code)") | join(", ")')" "extensions.benefiting_cost_center not_found"
   say "CC-1100 is valid from 1 January $YEAR, so an order dated the day before cannot name it:"
-  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$((YEAR - 1))-12-31" "{\"benefiting_cost_center\": \"$cc\"}")"
+  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$((YEAR - 1))-12-31" "{\"benefiting_cost_center\": \"$cc\"}" "$cc")"
   expect "the field error" "$(field '.errors | map("\(.field) \(.code)") | join(", ")')" "extensions.benefiting_cost_center not_valid_on_date"
   passed
 }
 
-# cost_object_order DATE EXTENSIONS is the body of Ben's order of a desk
-# lamp on DATE with the custom fields EXTENSIONS (step_custom_fields).
+# cost_object_order DATE EXTENSIONS CENTER is the body of Ben's order of a
+# desk lamp on DATE with the custom fields EXTENSIONS, its item on account
+# 6000 assigned to cost center CENTER (step_custom_fields).
 cost_object_order() {
-  printf '{"legal_entity_id": "%s", "supplier_id": "%s", "currency": "CAD", "order_date": "%s", "payment_term_code": "NT30", "extensions": %s, "items": [{"description": "Desk lamp", "quantity": {"value": "1", "unit": "EA"}, "unit_price": {"amount": "80.00", "currency": "CAD"}, "account_id": "%s", "tax_code": "PBC"}]}' \
-    "$LE" "$SUPPLIER" "$1" "$2" "$(account 1690)"
+  printf '{"legal_entity_id": "%s", "supplier_id": "%s", "currency": "CAD", "order_date": "%s", "payment_term_code": "NT30", "extensions": %s, "items": [{"description": "Desk lamp", "quantity": {"value": "1", "unit": "EA"}, "unit_price": {"amount": "80.00", "currency": "CAD"}, "account_id": "%s", "cost_center_id": "%s", "tax_code": "PBC"}]}' \
+    "$LE" "$SUPPLIER" "$1" "$2" "$(account 6000)" "$3"
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it
