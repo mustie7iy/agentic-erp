@@ -265,9 +265,8 @@ func TestReversalTakesTheAvailabilityLock(t *testing.T) {
 	d, tag := e.Must(201, "POST", deliveries, e.create(order), "")
 	_, tag = e.Must(200, "POST", deliveries+"/"+d["id"].(string)+":pick", pick("1 1 BOX", "2 2 EA"), tag)
 	_, tag = e.issued(t, d["id"].(string), tag)
-	free := func(material string) bool { return e.availabilityFree(t, material) }
 	for _, m := range []string{e.bracket, bolt} {
-		if !free(m) {
+		if !e.availabilityFree(t, m) {
 			t.Fatalf("the lock of %s before the reversal: got taken, want free", m)
 		}
 	}
@@ -277,7 +276,7 @@ func TestReversalTakesTheAvailabilityLock(t *testing.T) {
 			return err
 		}
 		for _, m := range []string{e.bracket, bolt} {
-			if free(m) {
+			if e.availabilityFree(t, m) {
 				t.Errorf("the lock of %s during the reversal: got free, want held by the reversal", m)
 			}
 		}
