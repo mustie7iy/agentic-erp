@@ -1646,6 +1646,84 @@ or account the ledger does not hold. Additive: the new fields of the two
 reports are required, a plan line's center names are given with its
 center.
 
+As built T56j1 (the controlling agent: repostings; batch 97): agent type
+`controlling` (`autonomy.Types`, the profile's open enumeration),
+`internal/controllingagent`, `erp agent repost -company CODE -year YYYY
+-period P` on `erp-default`, suite `evals/controlling`, walkthrough step
+164 (`step_controlling_agent`). It follows ADR-0072's common rules (§2 reads with its own token, §4
+no amount of its own, §5 a never list, §6 command, suite and walkthrough)
+but proposes by parking, as §5 "Corrections" says, not by a
+recommendation. Decided by default (for the product owner's review):
+- **The model names, the code builds.** The model reads the period's
+  journal, the entries, the accounts, the centers and their balances and
+  the parked entries (`Reads`) and proposes with a tool of the agent's own,
+  `proposeReposting`: the journal entry, the line's number, the cost center
+  (or, for a line with a profit center alone, the profit center) it belongs
+  on, and a reason. The agent's code reads the entry itself
+  (`getJournalEntry`), holds the proposal to it and parks the entry it
+  builds from what the API returned (`parkJournalEntry`, which the model is
+  not offered; both calls are recorded in the session). No table,
+  endpoint or event is added: a parked entry is how an agent proposes an
+  entry (`parkJournalEntry`), and a person posts it, changes it or cancels
+  it as any other.
+- **What is reposted.** A line of a journal entry of the run's company and
+  fiscal period in the leading ledger, neither reversed nor a reversal,
+  with a cost center or a profit center, on no internal order (its cost is
+  the order's, settled to its receiver, ADR-0064 §3), in local currency
+  (`ErrSource`). A line with a cost center moves to another cost center; a
+  line with a profit center alone to another profit center or to a cost
+  center (`ErrTarget`). The ledger checks the rest as for any parked entry
+  (a center not valid, locked or of another company is its 422).
+- **The whole line, dated as posted.** The entry has two lines on the
+  line's account: its whole local amount off its center and onto the one
+  proposed, in the company's currency, dated (document and posting date)
+  as the line was posted, into its special period if it was one (ADR-0060
+  §3), header text the reason, line texts naming the line; no tax code,
+  partner, quantity or trading partner (a reposting moves cost between
+  centers and nothing else). The local amount moves exactly; the group
+  amount is converted again at the posting date's rate, so where group and
+  local currency differ a few cents of group currency may stay on the old
+  center (the line took its entry's rounding difference, or the rate was
+  corrected since), as with a manual reposting. The agent computes no amount (ADR-0072 §4):
+  a part of a line is a person's, who changes the parked entry before
+  posting it, as they change its date when the line's period has been
+  closed since (SAP's KB11N reposts any amount in an open period, from
+  memory).
+- **The ledgers of the line's posting.** The reposting posts to every
+  ledger the company keeps when the line's posting has a copy in each
+  (its posting group, ADR-0045), to the leading ledger alone when it has
+  none (a ledger-specific posting); a posting in some of them only is left
+  to a person (`ErrLedgers`).
+- **Once per line.** The entry's reference names the line, `RP <fiscal
+  year> <document type> <document number>/<line>` (at most 40 characters,
+  else `ErrSource`); a line for which any parked entry of the company
+  carries that reference, in any status (posted, it moved the line;
+  rejected or cancelled, a person decided against it), is not proposed
+  again (`ErrTwice`), nor twice in one run. `listParkedJournalEntries`
+  gains the filter `reference` (exact, additive) for it. The check is a
+  read, not a lock: two runs on one company at the same moment could each
+  park the line once, and a person sees both under one reference; agents
+  are started by a person (ADR-0072 §6), so this is accepted rather than
+  serialised.
+- **Never.** Every write of a journal entry but that parking (posting,
+  reversing, changing, cancelling or posting a parked entry), of the
+  centers, segments, hierarchies and their changes, of controlling's plans,
+  orders, allocations and key figures, of entry templates and fiscal
+  periods, every decision of an approval and every change request
+  (`controllingagent.Never`, `TestNever`). The API refuses an agent posting
+  a parked entry, reversing, deciding an approval and locking a center or a
+  plan category (`x-agent: false`) and posting a manual entry (the ledger's
+  code); changing or cancelling an entry it parked that no person has taken
+  on is kept from it by its tools alone, as for the close agent, a gap that
+  waits for the product owner with that agent's (review:batch96).
+- **Not in this slice** (T56j, what T56j1 leaves): the lines on the
+  company's default profit center, which the agent cannot tell without
+  reading the configuration (`default_profit_center`); cost centers
+  proposed on captured invoices and parked entries (assignments); new
+  centers and hierarchy changes as change requests; explanations of plan
+  against actual variances. Its certification on a live model is its own
+  leaf (ADR-0039).
+
 ## Alternatives
 - **Centers in the configuration document** (tiered change requests, like
   the chart of accounts). Strong control and simulation for free, but a
@@ -1726,7 +1804,7 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |
 | T56h | **SAP migration** (split: T56h1 centers and segments, built, see §10 as built; T56h2 hierarchies and categories; T56h3 OKB9 defaults; T56h4 ACDOCA's centers and center totals) | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |
 | T56i | **Analytics** (split: T56i1 the journal's centers and their dimensions, built, see §7 as built; T56i2 the centers' and hierarchies' snapshots, built, see §7 as built; T56i3 the plan metrics) | Dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing |
-| T56j | **Controlling agent** | Proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks |
+| T56j | **Controlling agent** (split: T56j1 repostings, built, see §12 as built) | Proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks |
 | T56k | **Cost object custom fields** (built, see §6 and ADR-0046 as built T56k) | ADR-0046's `cost_object` reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended |
 | T56l | **Document splitting** (deferred, P3) | Not built now; if needed later, its own ADR amendment first, from a fiscal year start |
 
