@@ -24,14 +24,17 @@ import (
 // S&OP plan versions (ADR-0084 As built S2n): a planner starts a review
 // of a company, a draft version counted on the company's day
 // (sopreview.go), sets the consensus of its lines at its version, and
-// fixes it, after which neither the version nor its lines change (the
-// database refuses it). Each step is audited; the version's row lock
-// orders a change of consensus against fixing.
+// fixes it, or submits it for approval where the company's plans are
+// approved (sopapprove.go, As built S2n2), after which neither the version
+// nor its lines change (the database refuses it). Each step is audited;
+// the version's row lock orders a change of consensus against fixing and
+// submitting.
 
 // Plan version statuses.
 const (
-	SopDraft = "draft"
-	SopFixed = "fixed"
+	SopDraft     = "draft"
+	SopSubmitted = "submitted" // its approval request pending (S2n2)
+	SopFixed     = "fixed"
 )
 
 // SopPlan is a stored S&OP plan version with its lines.
@@ -43,6 +46,7 @@ type SopPlan struct {
 	Months                  int16
 	FixedAt                 *time.Time
 	FixedBy                 *uuid.UUID
+	ApprovalRequestID       *uuid.UUID // its latest approval request (S2n2)
 	Version                 int32
 	CreatedAt, UpdatedAt    time.Time
 	CreatedBy, UpdatedBy    uuid.UUID
@@ -66,14 +70,14 @@ func (l SopLine) Key() string { return l.Group + "/" + l.Unit + "/" + l.Month.Fo
 // sopPath is a version's resource path.
 func sopPath(id uuid.UUID) string { return "/v1/sop-plans/" + id.String() }
 
-const sopSelect = `SELECT id, legal_entity_id, number, status, as_of, first_day, last_day, months, fixed_at, fixed_by, version, created_at, updated_at,
-		created_by, updated_by
+const sopSelect = `SELECT id, legal_entity_id, number, status, as_of, first_day, last_day, months, fixed_at, fixed_by, approval_request_id, version,
+		created_at, updated_at, created_by, updated_by
 	FROM mrp.sop_plan`
 
 func scanSop(row pgx.Row) (SopPlan, error) {
 	var p SopPlan
-	err := row.Scan(&p.ID, &p.LegalEntityID, &p.Number, &p.Status, &p.AsOf, &p.FirstDay, &p.LastDay, &p.Months, &p.FixedAt, &p.FixedBy, &p.Version,
-		&p.CreatedAt, &p.UpdatedAt, &p.CreatedBy, &p.UpdatedBy)
+	err := row.Scan(&p.ID, &p.LegalEntityID, &p.Number, &p.Status, &p.AsOf, &p.FirstDay, &p.LastDay, &p.Months, &p.FixedAt, &p.FixedBy,
+		&p.ApprovalRequestID, &p.Version, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy, &p.UpdatedBy)
 	return p, errs.Wrapf(err, "scan S&OP plan")
 }
 
@@ -216,7 +220,8 @@ func writeSopLines(ctx context.Context, tx pgx.Tx, tenant, plan uuid.UUID, lines
 }
 
 // draft reads a version under its row lock at the caller's version (412
-// otherwise) and refuses one fixed already (409 mrp.sop_plan_fixed).
+// otherwise) and refuses one fixed already (409 mrp.sop_plan_fixed) or
+// waiting for its approval (409 mrp.sop_plan_submitted).
 func draft(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32) error) (SopPlan, error) {
 	p, err := loadSop(ctx, tx, id, true)
 	if err != nil {
@@ -224,6 +229,10 @@ func draft(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32) err
 	}
 	if err := ifMatch(p.Version); err != nil {
 		return SopPlan{}, err
+	}
+	if p.Status == SopSubmitted {
+		return SopPlan{}, problem.Conflict("mrp.sop_plan_submitted", fmt.Sprintf("S&OP plan %d waits for its approval (GET "+
+			"/v1/approval-requests/%s); its requester withdraws the request (:cancel) to change it.", p.Number, p.ApprovalRequestID))
 	}
 	if p.Status != SopDraft {
 		return SopPlan{}, problem.Conflict("mrp.sop_plan_fixed", fmt.Sprintf("S&OP plan %d is %s, so it changes no more; start a new review "+
@@ -272,7 +281,8 @@ func (p SopPlan) changes(consensus map[string]string) ([]consensusChange, error)
 }
 
 // SetConsensus sets the consensus of a draft version's lines by key at
-// its version (412 otherwise; 409 mrp.sop_plan_fixed once fixed), each
+// its version (412 otherwise; 409 mrp.sop_plan_fixed once fixed,
+// mrp.sop_plan_submitted while submitted), each
 // checked (changes). Audited with each line's consensus before and after.
 func (e *Endpoints) SetConsensus(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, consensus map[string]string) (SopPlan, error) {
 	tx, p, err := reqctx.Request(ctx)
@@ -309,8 +319,10 @@ func (e *Endpoints) SetConsensus(ctx context.Context, id uuid.UUID, ifMatch func
 }
 
 // FixSop fixes a draft version at its version (412 otherwise; 409
-// mrp.sop_plan_fixed once fixed): fixed, naming who fixed it and when,
-// it changes no more. Audited.
+// mrp.sop_plan_fixed once fixed, mrp.sop_plan_submitted while
+// submitted): fixed, naming who fixed it and when, it changes no more.
+// Where the company's plans are approved, a planner does not fix one (409
+// mrp.sop_approval_required): it is submitted (SubmitSop). Audited.
 func (e *Endpoints) FixSop(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (SopPlan, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -320,16 +332,37 @@ func (e *Endpoints) FixSop(ctx context.Context, id uuid.UUID, ifMatch func(int32
 	if err != nil {
 		return SopPlan{}, err
 	}
-	// fixed_at is the instant, as created_at is, by the database's clock;
-	// the company's day (as_of) is a business date, by e.Now.
-	if _, err := tx.Exec(ctx, `UPDATE mrp.sop_plan SET status = 'fixed', fixed_at = now(), fixed_by = $2, version = version + 1, updated_by = $2
-		WHERE id = $1`, id, p.ID); err != nil {
-		return SopPlan{}, fmt.Errorf("mrp: fix S&OP plan %d: %w", before.Number, err)
-	}
-	out, err := loadSop(ctx, tx, id, false)
+	code, err := e.sopCompany(ctx, before)
 	if err != nil {
 		return SopPlan{}, err
 	}
-	return out, audit.Record(ctx, "mrp.sop_plan.fix", "mrp.sop_plan", id, map[string]any{"legal_entity_id": before.LegalEntityID,
-		"number": before.Number, "lines": len(before.Lines)})
+	needed, err := e.Requests.Required(ctx, sopRequest(before, code))
+	if err != nil {
+		return SopPlan{}, fmt.Errorf("mrp: approval of S&OP plan %d: %w", before.Number, err)
+	}
+	if needed {
+		return SopPlan{}, problem.Conflict("mrp.sop_approval_required", fmt.Sprintf("Company %s's S&OP plans are approved before they are fixed "+
+			"(companies[].sop_approval); submit plan %d (POST /v1/sop-plans/%s:submit).", code, before.Number, id))
+	}
+	return fixSop(ctx, tx, p.ID, before, nil)
+}
+
+// fixSop fixes a draft or submitted version, by whom: the planner, or the
+// approver of the approval's last step, which request names. Audited.
+func fixSop(ctx context.Context, tx pgx.Tx, by uuid.UUID, before SopPlan, request *uuid.UUID) (SopPlan, error) {
+	// fixed_at is the instant, as created_at is, by the database's clock;
+	// the company's day (as_of) is a business date, by e.Now.
+	if _, err := tx.Exec(ctx, `UPDATE mrp.sop_plan SET status = 'fixed', fixed_at = now(), fixed_by = $2, version = version + 1, updated_by = $2
+		WHERE id = $1`, before.ID, by); err != nil {
+		return SopPlan{}, fmt.Errorf("mrp: fix S&OP plan %d: %w", before.Number, err)
+	}
+	out, err := loadSop(ctx, tx, before.ID, false)
+	if err != nil {
+		return SopPlan{}, err
+	}
+	detail := map[string]any{"legal_entity_id": before.LegalEntityID, "number": before.Number, "lines": len(before.Lines)}
+	if request != nil {
+		detail["approval_request_id"] = *request
+	}
+	return out, audit.Record(ctx, "mrp.sop_plan.fix", "mrp.sop_plan", before.ID, detail)
 }

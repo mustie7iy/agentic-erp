@@ -18,7 +18,9 @@ import (
 // Change is a merge patch of a material: nil fields stay. Description is
 // the default description; Descriptions replaces the further ones, Plants
 // the material's plants in the companies the caller may act in, Units its
-// alternative units; an empty list clears them.
+// alternative units with their measures; an empty list clears them.
+// BaseMeasures replaces the base unit's measures, empty ones removing
+// them (S1a3).
 type Change struct {
 	Description  *string
 	Descriptions *[]Description
@@ -26,30 +28,33 @@ type Change struct {
 	Status       *string
 	Plants       *[]PlantInput
 	Units        *[]UnitInput
+	BaseMeasures *Measures
 }
 
 // view is what a change compares: the material's texts and status, its
 // further descriptions by language, its plants in the caller's companies
-// with their storage locations, and its units with their factors, each in
-// a stated order.
+// with their storage locations, its units with their factors and
+// measures, and the base unit's measures, each in a stated order.
 type view struct {
 	Description, Group, Status string
 	Descriptions               map[string]string
 	Plants                     map[uuid.UUID][]uuid.UUID
 	Units                      map[string][2]int32
+	UnitMeasures               map[string]Measures
+	Base                       Measures
 }
 
 // viewOf is a material as the caller's change sees it.
 func viewOf(m Material, access authz.Access) view {
 	v := view{Description: m.Description, Group: m.Group, Status: m.Status, Descriptions: descriptionDetail(m.Descriptions),
-		Plants: map[uuid.UUID][]uuid.UUID{}, Units: map[string][2]int32{}}
+		Plants: map[uuid.UUID][]uuid.UUID{}, Units: map[string][2]int32{}, UnitMeasures: map[string]Measures{}, Base: m.BaseMeasures}
 	for _, p := range m.Plants {
 		if access.Allows(p.LegalEntityID) {
 			v.Plants[p.PlantID] = p.StorageLocations
 		}
 	}
 	for _, u := range m.Units {
-		v.Units[u.Code] = [2]int32{u.Numerator, u.Denominator}
+		v.Units[u.Code], v.UnitMeasures[u.Code] = [2]int32{u.Numerator, u.Denominator}, u.Measures
 	}
 	return v
 }
@@ -88,11 +93,15 @@ func (ch Change) apply(v view) (view, []string) {
 		set("plants", !maps.EqualFunc(to.Plants, v.Plants, slices.Equal))
 	}
 	if ch.Units != nil {
-		to.Units = map[string][2]int32{}
+		to.Units, to.UnitMeasures = map[string][2]int32{}, map[string]Measures{}
 		for _, u := range *ch.Units {
-			to.Units[u.Code] = [2]int32{u.Numerator, u.Denominator}
+			to.Units[u.Code], to.UnitMeasures[u.Code] = [2]int32{u.Numerator, u.Denominator}, u.Measures
 		}
-		set("alternative_units", !maps.Equal(to.Units, v.Units))
+		set("alternative_units", !maps.Equal(to.Units, v.Units) || !maps.Equal(to.UnitMeasures, v.UnitMeasures))
+	}
+	if ch.BaseMeasures != nil {
+		set("base_unit_measures", *ch.BaseMeasures != v.Base)
+		to.Base = *ch.BaseMeasures
 	}
 	return to, fields
 }
@@ -101,13 +110,17 @@ func (ch Change) apply(v view) (view, []string) {
 // a material's storage locations are read in.
 func byBytes(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }
 
-// detail is the view's fields as an audit record names them.
+// detail is the view's fields as an audit record names them; the
+// alternative units' measures come with the units.
 func (v view) detail(fields []string) map[string]any {
 	all := map[string]any{"description": v.Description, "descriptions": v.Descriptions, "material_group": v.Group, "status": v.Status,
-		"plants": slices.SortedFunc(maps.Keys(v.Plants), byBytes), "alternative_units": v.Units}
+		"plants": slices.SortedFunc(maps.Keys(v.Plants), byBytes), "alternative_units": v.Units, "base_unit_measures": v.Base}
 	out := map[string]any{}
 	for _, f := range fields {
 		out[f] = all[f]
+	}
+	if slices.Contains(fields, "alternative_units") {
+		out["alternative_unit_measures"] = v.UnitMeasures
 	}
 	return out
 }
@@ -190,6 +203,7 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 			return Requested{}, nil, view{}, view{}, err
 		}
 	}
+	ch = ch.canonical()
 	before := viewOf(m, access)
 	to, fields := ch.apply(before)
 	if len(fields) == 0 {
@@ -198,15 +212,9 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 	if err := problem.RequireText("description", to.Description); err != nil {
 		return Requested{}, nil, view{}, view{}, err
 	}
-	req := Requested{Description: ch.Description, Descriptions: ch.Descriptions, Group: ch.Group, Status: ch.Status}
-	if ch.Units != nil {
-		if err := checkUnits(ctx, tx, m.BaseUnit, *ch.Units); err != nil {
-			return Requested{}, nil, view{}, view{}, err
-		}
-		req.Units = &[]RequestedUnit{}
-		for _, u := range *ch.Units {
-			*req.Units = append(*req.Units, RequestedUnit(u))
-		}
+	req, err := requestedUnits(ctx, tx, m, ch)
+	if err != nil {
+		return Requested{}, nil, view{}, view{}, err
 	}
 	if ch.Plants != nil {
 		companies, err := e.checkPlants(ctx, *ch.Plants)
@@ -216,6 +224,61 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 		req.Plants, req.Scope = requestedPlants(*ch.Plants, companies), &Scope{All: access.All, Companies: append([]uuid.UUID{}, access.IDs...)}
 	}
 	return req.only(fields), fields, before, to, nil
+}
+
+// canonical is the change with its measures written as they are kept, so
+// it compares with the material's (Measures.canonical); the request's
+// units stay as given.
+func (ch Change) canonical() Change {
+	if ch.Units != nil {
+		units := canonicalUnits(*ch.Units)
+		ch.Units = &units
+	}
+	if ch.BaseMeasures != nil {
+		base := ch.BaseMeasures.canonical()
+		ch.BaseMeasures = &base
+	}
+	return ch
+}
+
+// requestedUnits is what a change asks for with its units and measures
+// checked as a creation's are, its GTINs against other materials'
+// (checkMeasures).
+func requestedUnits(ctx context.Context, tx pgx.Tx, m Material, ch Change) (Requested, error) {
+	req := Requested{Description: ch.Description, Descriptions: ch.Descriptions, Group: ch.Group, Status: ch.Status, BaseMeasures: ch.BaseMeasures}
+	var units []UnitInput
+	if ch.Units != nil {
+		if err := checkUnits(ctx, tx, m.BaseUnit, *ch.Units); err != nil {
+			return Requested{}, err
+		}
+		units, req.Units = *ch.Units, &[]RequestedUnit{}
+		for _, u := range units {
+			*req.Units = append(*req.Units, RequestedUnit(u))
+		}
+	}
+	if ch.Units != nil || ch.BaseMeasures != nil {
+		um := measuresOf(m.BaseUnit, ch.BaseMeasures, units)
+		um.kept = keptGTINs(m, ch.BaseMeasures == nil, ch.Units == nil)
+		if err := checkMeasures(ctx, tx, m.ID, um); err != nil {
+			return Requested{}, err
+		}
+	}
+	return req, nil
+}
+
+// keptGTINs are the GTINs of the material's units a change leaves as
+// they are, by GTIN with the unit carrying it.
+func keptGTINs(m Material, base, alternatives bool) map[string]string {
+	out := map[string]string{}
+	if base && m.BaseMeasures.GTIN != "" {
+		out[m.BaseMeasures.GTIN] = m.BaseUnit
+	}
+	for _, u := range m.Units {
+		if alternatives && u.Measures.GTIN != "" {
+			out[u.Measures.GTIN] = u.Code
+		}
+	}
+	return out
 }
 
 // only keeps what the change sets of the fields it changes: a field it
@@ -239,6 +302,9 @@ func (r Requested) only(fields []string) Requested {
 	}
 	if !slices.Contains(fields, "alternative_units") {
 		r.Units = nil
+	}
+	if !slices.Contains(fields, "base_unit_measures") {
+		r.BaseMeasures = nil
 	}
 	return r
 }
@@ -277,8 +343,8 @@ func (e *Endpoints) block(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m 
 
 // write writes what a change asks for on the material: its texts and
 // status, then its further descriptions, its plants in the change's scope
-// and its units, those it no longer names marked removed and those it
-// names written.
+// and its units and measures, those it no longer names marked removed and
+// those it names written.
 func write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req Requested) error {
 	description, group, status := m.Description, m.Group, m.Status
 	for _, f := range []struct{ to, from *string }{{&description, req.Description}, {&group, req.Group}, {&status, req.Status}} {
@@ -300,19 +366,39 @@ func write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req R
 			return err
 		}
 	}
-	if req.Units == nil {
+	return replaceUnits(ctx, tx, p, m, req)
+}
+
+// replaceUnits replaces what a change gives of the material's units: the
+// GTINs it removes and writes locked at once (lockGTINs), the measures it
+// replaces marked removed, then its alternative units, then the measures
+// written, each of a unit the material has by then (unit_measure_of_unit).
+func replaceUnits(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req Requested) error {
+	if req.Units == nil && req.BaseMeasures == nil {
 		return nil
 	}
-	codes := []string{} // never nil: ANY of a NULL array matches nothing, and NOT of it keeps all
-	units := make([]UnitInput, len(*req.Units))
-	for i, u := range *req.Units {
-		codes, units[i] = append(codes, u.Code), UnitInput(u)
+	if err := lockGTINs(ctx, tx, append(m.gtins(req.BaseMeasures != nil, req.Units != nil), req.gtins()...)); err != nil {
+		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE materials.unit_conversion SET removed_at = now(), removed_by = $3
-		WHERE material_id = $1 AND removed_at IS NULL AND NOT uom_code = ANY($2)`, m.ID, codes, p.ID); err != nil {
-		return fmt.Errorf("materials: remove alternative units of material %s: %w", m.Number, err)
+	if _, err := removeMeasures(ctx, tx, p, m, req.BaseMeasures != nil, req.Units != nil); err != nil {
+		return err
 	}
-	return writeUnits(ctx, tx, p, m.ID, units)
+	var units []UnitInput
+	if req.Units != nil {
+		codes := []string{} // never nil: ANY of a NULL array matches nothing, and NOT of it keeps all
+		units = make([]UnitInput, len(*req.Units))
+		for i, u := range *req.Units {
+			codes, units[i] = append(codes, u.Code), UnitInput(u)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE materials.unit_conversion SET removed_at = now(), removed_by = $3
+			WHERE material_id = $1 AND removed_at IS NULL AND NOT uom_code = ANY($2)`, m.ID, codes, p.ID); err != nil {
+			return fmt.Errorf("materials: remove alternative units of material %s: %w", m.Number, err)
+		}
+		if err := writeUnits(ctx, tx, p, m.ID, units); err != nil {
+			return err
+		}
+	}
+	return writeMeasures(ctx, tx, p, m.ID, measuresOf(m.BaseUnit, req.BaseMeasures, units))
 }
 
 // replacePlants replaces the material's plants in the scope's companies:

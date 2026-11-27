@@ -2062,7 +2062,8 @@ the specialist):
   document takes there (the checks are the count's, `refs.countable`):
   the tenant's, not pending, kept in stock, extended to the plant,
   neither batch- nor serial-managed. Taking an indicator off a material
-  is Later, as removing a material's MRP data is (ADR-0084 §4).
+  was Later, as removing a material's MRP data is (ADR-0084 §4); S2c3
+  built it.
 - **The counts due** (`GET /v1/cycle-counts-due`, computed, not stored):
   on the plant's company's date today, each material with an indicator
   at each storage location of the plant where it has stock now (as
@@ -2094,9 +2095,117 @@ the specialist):
   (`TestCycleCountLocks`, both orders).
 
 **Later:** an indicator taken off a material, indicators set from the
-ABC analysis (SAP MIBC), float time and a share of counts per period,
-counts due per storage location's own indicator, a calendar of planned
-counts; the tracker's "later: count variants".
+ABC analysis (SAP MIBC; both S2c3), float time and a share of counts per
+period, counts due per storage location's own indicator, a calendar of
+planned counts; the tracker's "later: count variants".
+
+### S2c3 (2026-11-27)
+
+Two items of the tracker's "later: count variants" leaf
+(plan-supply-chain.md §S2c3): an indicator taken off a material, and
+indicators set from the ABC analysis. Decided by default from SAP's
+cycle counting (MM02 clearing MARC-ABCIN and MIBC, both from memory, for
+the specialist) and from S2e's rule, which the count planning agent
+already applies:
+
+- **Taken off** (`POST /v1/cycle-count-materials/{id}:remove`, If-Match):
+  04 §4.3 has no hard deletes, so a material's indicator is kept as
+  `removed` (`status`, migration 000496; `updated_at`/`updated_by` say
+  when and by whom) and never changes again (trigger
+  `cycle_count_material_removed`, which holds the owner too). A material
+  has one *active* indicator at a plant: `cycle_count_material_once`
+  becomes a partial unique index of the same name, so a material may be
+  given one again, a new row, and the constraint's problem stays 409
+  `inventory.cycle_count_material_exists`. A removed one is 409
+  `inventory.cycle_count_material_removed` to `:remove` and `PATCH`. The
+  counts due read active indicators only; `listCycleCountMaterials`
+  lists both, filtered by `status`; the count planning agent reads
+  `status=active`, so a material whose indicator was taken off is due by
+  its class's interval again, as before S2c2. Audited
+  (`inventory.cycle_count_material.remove`), no event.
+- **The ABC analysis** (`GET /v1/cycle-count-abc-analysis?plant_id=&from=&to=`,
+  `x-snapshot`, computed in SQL, stored nowhere): a material's
+  consumption value at the plant is S2e's, the window's material
+  documents of `201`, `551` and `601` less `202`, `552` and `602` by
+  posting date, and a net return is none; in the order of that value,
+  the greatest first, ties by material id, a material is A while those
+  before it make up less than `a` percent of the plant's consumption
+  value, B while less than `a` + `b`, else C, as is one with none (S2e's
+  comparison, exact in numeric). The shares are the company's
+  `cycle_count_abc_shares` (`a`, `b`; each at least 1, together at most
+  99, so C keeps a share; tier 2, operational: nothing is posted), by
+  default 80 and 15, S2e's. The materials listed are those a count
+  document takes at the plant (`refs.countable`) with stock there now or
+  consumption in the window; the others' consumption is reported as
+  excluded and stays in the total, so the classes' shares are of the
+  whole plant, as the agent's are. Materials neither stocked nor consumed
+  are not listed and keep whatever indicator they have. Each line
+  proposes the plant's indicator whose code is its class's (A, B or C);
+  a class with lines and no such indicator is 422
+  `inventory.abc_indicator_missing` (indicators are the controller's,
+  S2c2). The window ends on or before the company's date today and spans
+  at most 366 days (422 `inventory.abc_window_invalid`); at most 1,000
+  materials are listed (422 `inventory.abc_too_many_materials`, the
+  answer's `maxItems`). The answer carries the plant's total, the
+  classes' and the excluded consumption in the company's currency (they
+  add up to the total), each line's change (`create`, `change`, `none`)
+  against the material's active indicator, and `preview_token`.
+- **Previewed, then applied as previewed**
+  (`POST /v1/cycle-count-abc-applications`, a create: 04 §4.3's
+  collection custom methods answer 202 with an Operation, and the apply
+  is short and synchronous). No preview is stored; the token is a
+  SHA-256 of everything the analysis shows that applying it depends on
+  (plant, window, shares, currency, totals, and per line the material,
+  value, class, proposed indicator, change and the active indicator's
+  id, indicator and version). The apply takes the plant's advisory lock
+  (`inventory.cycle_count_abc`, so applies of a plant wait for each
+  other), locks the listed materials' active indicators by themselves in
+  id order (`FOR NO KEY UPDATE`), computes the analysis again and, only
+  when its digest is the token, gives or changes each line's indicator
+  through the same code as `createCycleCountMaterial` and
+  `updateCycleCountMaterial`, audited as they are with `abc_analysis`
+  (the application, window, token, class, consumption) in the detail;
+  otherwise 409 `inventory.abc_preview_stale` and nothing is applied. An
+  analysis whose lines change nothing is 422
+  `inventory.abc_nothing_to_apply`, nothing kept (batch 97S integration,
+  review nit: a record of no change would say nothing the audit of the
+  indicators does not). An apply never takes an indicator off. A concurrent
+  `createCycleCountMaterial` of a listed material is refused by the
+  unique index (409 `inventory.cycle_count_material_exists`). The
+  application is kept, insert-only (`inventory.cycle_count_abc_application`
+  with its `cycle_count_abc_change` rows, migration 000496; audited
+  `inventory.cycle_count_abc_application.create`): plant, window, shares,
+  total, token, who applied it and when, and each change in the
+  analysis's order with the indicator before and the material's
+  indicator row it made or changed; read by id with its changes and
+  listed by plant, the latest first, each counting its changes
+  (`change_count`) rather than listing them, so a page of 500 holds no
+  500,000 changes (batch 97S integration), the person's name as it is
+  now (identity's People port, stored nowhere).
+- **Locks.** A row lock is taken by itself before the read that joins the
+  indicator (`loadCycleMaterial`, and the apply's): a `FOR NO KEY UPDATE
+  OF m` in the join, after waiting for a writer that moved the row to
+  another indicator, rechecked it against the indicator read before and
+  found no row (404); `TestABCLocks` covers an apply and a removal in
+  either order and two applies.
+- **People only.** Both operations are `inventory.count_plan.write`'s
+  and `x-agent: false`, on the never lists of the count planning and
+  demand forecasting agents (ADR-0072 As built S2e, S2m).
+- **With recounts (S2d2) and the counts due (S2c2)** (batch 97S
+  integration). An indicator is the material's at the plant and a count
+  document a count of its stock; neither waits for the other. An apply
+  while the material's count document is counted moves its indicator and
+  leaves the document as it is; the indicator then taken off, the
+  document is still sent back for a recount, counted again and posted at
+  the latest count (`TestABCWithAnOpenCount`). A removed indicator is not
+  due by it (`TestCycleCountRemove`). Nothing of S1a3 meets S2c3: no
+  table, code path or problem code is shared between them.
+
+**Later:** float time and a share of counts per period, counts due per
+storage location's own indicator, a calendar of planned counts; the
+count planning agent's own classes from `cycle_count_abc_shares` (it
+keeps S2e's fixed 80 and 95, S2e's Later); the tracker's "later: count
+variants".
 
 ### S2m (2026-11-22)
 
@@ -2726,6 +2835,127 @@ language; documents and outputs (sales and purchasing items, e-invoices)
 taking the description in their partner's language; the duplicate check
 across languages; a later SAP run's new or changed descriptions of a
 material an earlier run created.
+
+### S1a3 Dimensions, weights and GTINs (2026-11-26)
+
+The next item of "later: material master variants" (plan-supply-chain.md
+§S1a3, lane matdims): each unit of measure a material is kept in carries
+its dimensions, weights and GTIN, as SAP keeps them per unit in MARM
+(from memory).
+
+- **Per unit, base and alternative (decided by default).** SAP holds the
+  measures per unit of measure (MARM: BRGEW, GEWEI, VOLUM, VOLEH, LAENG,
+  BREIT, HOEHE, MEABM, EAN11; MARA's copy of the base unit's, with NTGEW,
+  from memory), because a box of 20 weighs and measures otherwise than
+  20 brackets and has a GTIN of its own (GS1's packaging levels). The
+  platform does the same: `base_unit_measures` on the material and
+  `measures` on each alternative unit. The net weight is kept on any
+  unit, not only the base unit as SAP does: one shape for every unit,
+  and a box's net weight is meaningful. Alternative: the base unit only
+  (MARA); refused, as shipping and warehouse consumers need the
+  packaging level's.
+- **Values (decided by default).** Decimal strings above zero of up to
+  ten digits and three decimals (`numeric(13,3)`; SAP's QUAN 13,3, from
+  memory), never floats, so a value is stored as given and never rounded
+  (a fourth decimal is a 400 of the contract, refused by the application
+  for the migration's path); answered without trailing zeros
+  (`trim_scale`), and a request's `2.50` compares equal to `2.5`. One
+  unit per kind, as SAP's GEWEI, VOLEH and MEABM: the weights in a unit of
+  mass, the volume in one of volume, the length, width and height in one
+  of length (`ref.unit_of_measure.dimension`); a unit is given with a
+  value and only then; the net weight is no more than the gross (SAP's
+  check, from memory). No unit is added to `ref.unit_of_measure`: kg, l
+  and m with three decimals hold grams, millilitres and millimetres; the
+  tenant's own units are the leaf "later: units of measure variants".
+- **GTIN (decided by default).** 8, 12, 13 or 14 digits ending in the GS1
+  mod 10 check digit (`internal/platform/gtin`, new: no helper checked one;
+  GS1 General Specifications, from memory), stored as given and compared
+  as GS1 compares them, right-justified in 14 digits, so a GTIN-12 and its
+  GTIN-13 with a leading zero are one number. A GTIN names one unit of one
+  material in the tenant (`unit_measure_gtin_once`, 409
+  `materials.gtin_taken`), whatever that material's status: a blocked
+  material still is the item its GTIN names, and GS1 does not reuse a
+  GTIN for another item; a material whose create change is rejected or
+  withdrawn never came to be, so its GTINs are freed: its measures are
+  marked removed and its version moves, audited
+  (`materials.material.release`) and published as MaterialChanged, so a
+  reader holding its ETag or event sees them go. The brief's "among active materials" is read as "among
+  materials that exist": a pending create holds its GTIN while it waits,
+  so two requests cannot both take one. SAP makes a second EAN of a
+  material a warning by default (from memory); the platform refuses,
+  since a scanner or an e-invoice line resolving a GTIN must find one
+  unit. Alternative: unique among active materials only; refused, a
+  blocked material's GTIN would then name two items.
+- **Governed (S1b).** A change of `base_unit_measures`, or of an
+  alternative unit's `measures` with `alternative_units`, is an `update`
+  change waiting for its approval, audited with the measures before and
+  after (`base_unit_measures`, `alternative_unit_measures`). A GTIN is
+  checked against other materials, and against the material's units the
+  change keeps (422 `materials.duplicate_gtin`), when the change is
+  requested and,
+  by the unique index, when it is applied: of two changes asking for one
+  GTIN, the second's approval is refused 409 `materials.gtin_taken` and
+  the material stays as it was. A change replaces the measures in scope
+  as a whole: those are marked removed before any is written again, so a
+  GTIN moved between two units of the material in one change is never on
+  two at once. **Locks (ADR-0008):** every writer takes the advisory locks
+  of the GTINs it removes and writes, at once and in key order, before it
+  touches any row (`lockGTINs`); the SAP run takes all its GTINs after its
+  material numbers (`Migration.LockGTINs`), as a request draws its number
+  before it writes its measures. Two writers taking GTINs in opposite
+  orders then wait in one order instead of deadlocking
+  (`TestGTINsInOppositeOrder`).
+- **Data (migration 000495).** `materials.unit_measure`, one row per
+  unit with measures, of the base unit or an alternative unit the
+  material has (`unit_measure_of_unit`), each unit of its kind
+  (`unit_measure_dimension`); the checks above in the database too. The
+  previous version neither reads nor writes it; an alternative unit it
+  removes takes its measures with it (`unit_conversion_measures_removed`),
+  so no GTIN stays held by a unit no material has. The down migration
+  refuses while any row exists, removed ones too (06 §6.4).
+- **Reads.** `getMaterial` and `listMaterials` give every unit's measures
+  with the units' names (`weight_unit_name`, …); `listMaterials?gtin=`
+  finds the material whose unit carries a GTIN. MaterialChanged carries
+  `base_unit_measures` and each alternative unit's `measures`, not
+  required (ADR-0041).
+- **SAP (S2o's load).** MARA's BRGEW, NTGEW, GEWEI, VOLUM, VOLEH and
+  EAN11 become the base unit's, with its own MARM row's LAENG, BREIT,
+  HOEHE and MEABM; each alternative unit takes its MARM row's (no net
+  weight). Measures are optional master data, so what the platform
+  cannot hold is left out with a warning and never holds the material
+  back: a quantity of more than three decimals or ten digits, a unit that
+  is none of the platform's of its kind (SAP's CM or MM, say), weights
+  whose net is above the gross, an EAN that is no GTIN, a GTIN two units
+  of the extract share (left out of both: which is right is SAP's to
+  settle). Zero is SAP's none. A GTIN another material of the tenant
+  carries refuses the material, as a request is refused. The
+  reconciliation compares each unit's measures. A later run does not
+  change the measures of a material an earlier run created (the leaf's
+  remainder).
+- **Walkthrough:** step 122 (`step_material`): the bracket's and the
+  box's GTINs, weights, volume and size approved, the bracket found by
+  its GTIN in 13 digits; a GTIN taken, a net weight above the gross and a
+  wrong check digit refused.
+
+- **With descriptions by language (S1a2) and the delivery's batches
+  (S2f2)** (batch 97S integration). Descriptions and measures are fields
+  of the same change: one naming the descriptions leaves every unit's
+  measures, and one naming the measures leaves the descriptions, each
+  recording only its own field (`TestDescriptionsAndMeasures`). A
+  batch-managed material with a GTIN and weights is found by its GTIN,
+  ordered, confirmed, delivered and issued from its batch as any
+  batch-managed material is: nothing in the order, the delivery or the
+  goods issue reads the measures yet (the material master variants'
+  remainder; `TestMeasuredBatchIssued`).
+
+**Later for dimensions, weights and GTINs:** units the tenant adds (cm,
+mm, lb; the units of measure leaf) and conversion between units of one
+kind; a delivery's or shipment's gross weight and volume computed from
+its items' units (shipping); GTINs on documents and e-invoice lines and
+the purchase order's or the sales order's item found by GTIN; GTIN types
+beyond GS1's four lengths (SAP's NUMTP, internal EAN ranges); several
+GTINs per unit (SAP's MEAN); a later SAP run's new or changed measures of
+a material an earlier run created.
 
 ### S2l1: suppliers' delivery performance (2026-11-24)
 

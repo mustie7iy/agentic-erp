@@ -11,7 +11,8 @@ import (
 
 // TestMRPPermissions (S2k, migration 000436; ADR-0084 §5; S2n, migration
 // 000447): the permissions of material requirements planning and S&OP
-// are seeded and are no approval permissions.
+// are seeded and are no approval permissions, but S&OP's approval (S2n2,
+// 000494).
 func TestMRPPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'mrp.%' AND NOT is_approval ORDER BY code`)
@@ -24,6 +25,10 @@ func TestMRPPermissions(t *testing.T) {
 	}
 	if got, want := strings.Join(codes, " "), "mrp.plan.read mrp.plan.write mrp.run.start mrp.sop.read mrp.sop.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
+	}
+	var approval bool
+	if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = 'mrp.sop.approve'`).Scan(&approval); err != nil || !approval {
+		t.Errorf("mrp.sop.approve: got approval %v (%v), want an approval permission (S2n2, 000494)", approval, err)
 	}
 }
 

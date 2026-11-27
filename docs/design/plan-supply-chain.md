@@ -199,13 +199,75 @@ its description in that language, or the default one when it has none.
 - **As built** (2026-11-24): ADR-0082 As built S1a2, migrations 000484
   and 000485, walkthrough step 122.
 
+#### S1a3 Dimensions, weights and GTINs
+
+The second item of the leaf "later: material master variants" (lane
+matdims, 2026-11-26); what is left of it stays a leaf (Later, below).
+
+**Capability.** A master data specialist records, for each unit of
+measure a material is kept in, its base unit and each alternative unit,
+its gross and net weight, volume, length, width and height and its GTIN
+(SAP MARM per unit, MARA's copy for the base unit, from memory); a person,
+an integration or a scanner reading materials finds a material by a
+unit's GTIN.
+
+- **Reuses:** S1a's material and its units (`unit_conversion`), S1b's
+  material changes (the measures are governed as any other field),
+  `ref.unit_of_measure` and its dimensions, S2o's SAP load of MARA and
+  MARM.
+- **Adds:** `materials.unit_measure` (one row per unit with measures,
+  removed by its mark as a unit is) and `materials.gtin_valid`;
+  `internal/platform/gtin`; `base_unit_measures` on `MaterialCreate`,
+  `MaterialUpdate`, `Material` and `MaterialChangeRequested`, `measures`
+  on `MaterialUnitInput` and `MaterialUnit`; the query parameter `gtin`
+  of `listMaterials`; the problem codes `materials.invalid_measures`,
+  `materials.invalid_gtin`, `materials.duplicate_gtin` and
+  `materials.gtin_taken`; MaterialChanged's `base_unit_measures` and
+  `alternative_units[].measures`; ADR-0082 As built S1a3.
+- **Decided by default (ADR-0082 As built S1a3):** measures per unit,
+  base and alternative, as MARM keeps them, a net weight on any unit;
+  decimal strings above zero of up to ten digits and three decimals in
+  one unit of mass, one of volume and one of length, a unit given with a
+  value and only then, the net no more than the gross; no new units of
+  measure; a GTIN of GS1's four lengths with its check digit, compared in
+  14 digits, naming one unit of one material in the tenant whatever its
+  status, freed when a create change is rejected or withdrawn; a GTIN
+  checked when a change is requested and again when it is applied.
+- **SAP:** MARA's BRGEW, NTGEW, GEWEI, VOLUM, VOLEH and EAN11 and the
+  base unit's MARM dimensions; each alternative unit's MARM BRGEW, GEWEI,
+  VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM and EAN11 (from memory); what
+  the platform cannot hold is left out with a warning, a GTIN two units
+  share is left out of both.
+- **Walkthrough:** `step_material`: the bracket's and the box's GTINs,
+  weights, volume and size are given by a change Priya approves; a list
+  finds the bracket by its GTIN written in 13 digits; the box's GTIN on a
+  new material, a net weight above the gross and a wrong check digit are
+  refused.
+- **Acceptance:** each value is kept and answered as given, never as a
+  float, without trailing zeros; a unit of the wrong kind, a value without
+  its unit and a net weight above the gross are refused naming the field;
+  a GTIN is refused without its check digit, on two units of a request or
+  on another material's unit, a GTIN-12 and its GTIN-13 being one; a
+  change of the measures waits for its approval and is audited before and
+  after; an alternative unit removed takes its measures with it.
+- **As built** (2026-11-26): ADR-0082 As built S1a3, migration 000495,
+  walkthrough step 122. Batch 97S integration: a change naming the
+  descriptions (S1a2) leaves the measures and the reverse
+  (`TestDescriptionsAndMeasures`); a batch-managed material with a GTIN
+  is ordered, delivered and issued by batch, nothing reading its measures
+  yet (`TestMeasuredBatchIssued`).
+
 **Later for Material master:** changing a material's default language,
 documents and outputs taking the material's description in their
 partner's language, the duplicate check across languages, a later SAP
 run's new or changed descriptions of a material an earlier run created
 (the rest of descriptions by language, S1a2); the material's sales
 organisation and purchasing views (MVKE, EINA/EINE belong to S1f and
-sourcing); dimensions, weights and EAN/GTIN codes;
+sourcing); of dimensions, weights and GTINs (S1a3): a delivery's gross
+weight and volume from its items' units, GTINs on documents and e-invoice
+lines and items found by GTIN, GTIN types beyond GS1's four lengths and
+several GTINs per unit (SAP's NUMTP, MEAN), a later SAP run's new or
+changed measures of a material an earlier run created;
 material types and groups from configuration (T134, T023) instead of an
 open enumeration and a code; plant-specific status and MRP data (MARC
 fields beyond the assignment, S2k); external number assignment;
@@ -850,6 +912,46 @@ creates count documents from them.
   counts due per storage location's own indicator, a calendar of planned
   counts.
 
+### S2c3 Indicators taken off and set from the ABC analysis (count variants)
+
+**Capability.** An inventory controller takes a material's cycle
+counting indicator at a plant off, and sets the plant's materials'
+indicators from an ABC analysis of their consumption value: a preview
+first, then an apply of what the preview showed.
+
+- **Adds** (lane countoff, 2026-11-27; the tracker's "later: count
+  variants" split, its next two items; decided by default, ADR-0082 As
+  built S2c3): migration 000496, `status` on
+  `inventory.cycle_count_material` (`active`, `removed`) with one active
+  indicator per material and plant; `POST
+  /v1/cycle-count-materials/{id}:remove` (If-Match, once, audited);
+  `status` filter on `listCycleCountMaterials`; `GET
+  /v1/cycle-count-abc-analysis` (plant and window, computed in SQL from
+  posted material documents, S2e's consumption, classes by the company's
+  `cycle_count_abc_shares`, default 80 and 15, each line proposing the
+  plant's indicator of its class's code) and `POST
+  /v1/cycle-count-abc-applications` (the plant and window with the
+  preview's `preview_token`: computed again under the plant's lock and
+  applied only when unchanged, 409 `inventory.abc_preview_stale`
+  otherwise, 422 `inventory.abc_nothing_to_apply` when it changes
+  nothing; each change audited as the indicator's create or change;
+  the application kept with its changes, read with them and listed by
+  plant counting them);
+  both human-only, on the count planning and demand forecasting agents'
+  never lists; the count planning agent reads active indicators only.
+- **Walkthrough:** extends `step_count`. **Acceptance:** an indicator
+  taken off is kept as removed, not due by it, taken off once; the
+  analysis's lines and totals add up; applying it makes the preview's
+  changes and a second apply of it is refused as stale.
+- **Batch 97S integration:** an analysis that changes nothing is not
+  applied (422 `inventory.abc_nothing_to_apply`); the list counts an
+  application's changes; an apply while a count document of the material
+  is counted, and a recount once its indicator is off, each work
+  (`TestABCWithAnOpenCount`).
+- **Later:** float time and a share of counts per period, counts due per
+  storage location's own indicator, a calendar of planned counts, the
+  count planning agent's classes from the company's shares.
+
 **Later for Physical inventory and cycle counting:** cycle counting
 indicators on the plant data (first slice S2c2), sampling inventory, counts on handling units
 or bins (EWM), freeze of the book quantity at a past date.
@@ -1318,7 +1420,8 @@ plant from its goods issues and open orders and states its accuracy
 capacity by material group and month and fixes a consensus plan version.
 **Later for Demand forecasting and S&OP:** statistical models beyond the
 agent's, promotions, collaborative forecasts with customers, IBP's
-supply optimisation.
+supply optimisation, scenario comparison, capacity, approval tiers by a
+plan's value or deviation (the consensus plan's approval is S2n2).
 
 - **Detailed and as built** (lane sop, 2026-11-22; one slice, one leaf;
   decided by default, ADR-0082 As built S2n and ADR-0084 As built S2n):
@@ -1338,6 +1441,22 @@ supply optimisation.
   inventory's `PlantIssues`, sales' `PlantRequirementsDue` and
   procurement's `TransportReceipts` and `IntercompanyDue`, new in their published APIs.
   Migration 000447; walkthrough step 159 (`step_sop_review`).
+- **S2n2 approval of the consensus plan** (lane sopapprove, 2026-11-26;
+  the first item of "later: S&OP variants"; ADR-0084 As built S2n2).
+  **Adds:** `companies[].sop_approval.steps` (off by default),
+  `submitSopPlan`, status `submitted` and `approval_request_id`, object
+  type `sop_plan` with the approval permission `mrp.sop.approve`, problems
+  `mrp.sop_plan_submitted` and `mrp.sop_approval_required`; migration
+  000494. **Acceptance:** where a company names steps, a version is
+  submitted, not fixed; its consensus changes no more while it waits;
+  approved by distinct people step by step it is fixed by the last
+  approver; rejected or withdrawn it is a draft again; a company without
+  steps fixes as before. A planning run does not read the consensus plan
+  today, so nothing links runs to approved plans (confirmed on the merged
+  tree with S2k2 and S2j2 at the batch 97S integration; the product
+  owner is asked whether a run should). A version is never created
+  submitted (`sop_plan_created`). **Walkthrough:** step 159,
+  `step_sop_review`.
 
 ### S2o SAP migration of the material master (pilot)
 

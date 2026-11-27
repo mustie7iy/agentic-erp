@@ -194,6 +194,7 @@ func TestApprovalObjectsLocated(t *testing.T) {
 		approvals.TaxReturn: "/v1/tax-returns/", approvals.MaterialChange: "/v1/material-changes/",
 		approvals.CreditLimitChange:   "/v1/credit-limit-changes/",
 		approvals.InventoryDifference: "/v1/physical-inventory-documents/",
+		approvals.SopPlan:             "/v1/sop-plans/",
 	}
 	for kind := range approvals.ObjectPermissions {
 		t.Run(kind, func(t *testing.T) {

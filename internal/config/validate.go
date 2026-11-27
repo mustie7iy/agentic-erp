@@ -284,12 +284,16 @@ func (v *validator) company(p string, co *Company) {
 	if co.OverDeliveryPercent < 0 || co.OverDeliveryPercent > 100 {
 		v.err(p+".gr_over_delivery_percent", "must be 0-100")
 	}
+	if s := co.CycleCountABCShares; s != nil && (s.A < 1 || s.B < 1 || s.A+s.B > 99) {
+		v.err(p+".cycle_count_abc_shares", "a and b must each be at least 1 and together at most 99, leaving class C a share")
+	}
 	v.houseBanks(p, co)
 	v.paymentMethods(p, co)
 	v.cashIn(p, co, exp, known)
 	v.companyControlling(p, co)
 	v.operations(p, co)
 	v.closes(p, co, exp, known)
+	v.approvalSteps(p+".sop_approval", co.SopApproval.Steps)
 }
 
 // companyAmounts checks the company's tolerances and limits, read with

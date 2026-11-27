@@ -18,6 +18,9 @@ const (
 		stock, purchase_orders, stock_transports, proposals, consensus) VALUES ($1, $2, $3, $4, $5::date, $6::date, $7::date, 1, $8::numeric, $9::numeric,
 		10, 0, 5, 0, 3)`
 	sopFix = `UPDATE mrp.sop_plan SET status = 'fixed', fixed_at = now(), fixed_by = $1, version = version + 1 WHERE id = $2`
+	// S2n2, migration 000494.
+	sopSubmit = `UPDATE mrp.sop_plan SET status = 'submitted', approval_request_id = gen_random_uuid(), version = version + 1 WHERE id = $1`
+	sopDraft  = `UPDATE mrp.sop_plan SET status = 'draft', version = version + 1 WHERE id = $1`
 )
 
 // planned is the version numbered n, reviewed on 22 November 2026 for two
@@ -32,6 +35,16 @@ func (s sopScene) line(group, unit, forecast, orders string) stmt {
 }
 
 func (s sopScene) fixed() stmt { return step(sopFix, s.tenant, s.plan) }
+
+func (s sopScene) submitted() stmt { return step(sopSubmit, s.plan) }
+
+// created inserts the version numbered 1 with the status and approval
+// request given (batch 97S integration: sop_plan_created).
+func (s sopScene) created(status string, request any) stmt {
+	return step(`INSERT INTO mrp.sop_plan (tenant_id, id, legal_entity_id, number, status, approval_request_id, as_of, first_day, last_day, months,
+		created_by, updated_by) VALUES ($1, $2, $3, 1, $4, $5, '2026-11-22', '2026-11-23', '2026-12-31', 2, $1, $1)`, s.tenant, s.plan, s.company, status,
+		request)
+}
 
 // TestSopPlanRules (S2n, migration 000447; ADR-0084 As built S2n): a
 // version is numbered once per company, its horizon starts the day after
@@ -125,6 +138,35 @@ func TestSopPlanRules(t *testing.T) {
 		{"a line deleted", func(s sopScene) []stmt {
 			return []stmt{s.planned(1), s.line("FASTENERS", "EA", "1", "0"), step(`DELETE FROM mrp.sop_plan_line`)}
 		}, "permission denied"},
+		// S2n2, migration 000494: approval.
+		{"submitted", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted()} }, ""},
+		{"created submitted", func(s sopScene) []stmt { return []stmt{s.created("submitted", uuid.New())} }, "a version is created a draft"},
+		{"created a draft naming a request", func(s sopScene) []stmt { return []stmt{s.created("draft", uuid.New())} }, "a version is created a draft"},
+		{"submitted, then fixed", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), s.fixed()} }, ""},
+		{"submitted, then a draft again", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan)} }, ""},
+		{"a submitted version changed", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.submitted(), step(`UPDATE mrp.sop_plan SET version = version + 1`)}
+		}, "it waits for its approval"},
+		{"a submitted version's consensus changed", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.line("FASTENERS", "EA", "1", "0"), s.submitted(), step(`UPDATE mrp.sop_plan_line SET consensus = 7`)}
+		}, "its plan version is submitted"},
+		{"a line added to a submitted version", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.submitted(), s.line("FASTENERS", "EA", "1", "0")}
+		}, "its plan version is submitted"},
+		{"submitted again naming the rejected request", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan),
+				step(`UPDATE mrp.sop_plan SET status = 'submitted', version = version + 1`)}
+		}, "a submission names a new approval request"},
+		{"submitted again", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan), s.submitted()}
+		}, ""},
+		{"a request named by a draft", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), step(`UPDATE mrp.sop_plan SET approval_request_id = gen_random_uuid(), version = version + 1`)}
+		}, "only as it is submitted"},
+		{"a request changed as it goes back to draft", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.submitted(), step(`UPDATE mrp.sop_plan SET status = 'draft', approval_request_id = gen_random_uuid(),
+				version = version + 1`)}
+		}, "only as it is submitted"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -208,4 +250,67 @@ func TestSopPlanDownRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	failsWith(t, exec(tx, migrationNamed(t, "000447_sop_plan").Down), "S&OP plan versions exist")
+}
+
+// TestSopPlanApprovalTriggersAsOwner (S2n2, migration 000494): past the
+// grants, as the owner, a submitted version changes only as it is decided,
+// a draft names no request and none is created submitted; with the
+// triggers off, sop_plan_submitted still holds a submitted version to its
+// request.
+func TestSopPlanApprovalTriggersAsOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	for name, c := range map[string]struct {
+		run  func(s sopScene) []stmt
+		want string
+	}{
+		"a submitted version changed": {func(s sopScene) []stmt {
+			return []stmt{s.submitted(), step(`UPDATE mrp.sop_plan SET updated_at = now() WHERE id = $1`, s.plan)}
+		}, "it waits for its approval"},
+		"a draft naming a request": {func(s sopScene) []stmt {
+			return []stmt{step(`UPDATE mrp.sop_plan SET approval_request_id = gen_random_uuid() WHERE id = $1`, s.plan)}
+		}, "only as it is submitted"},
+		"created submitted": {func(s sopScene) []stmt { return []stmt{s.created("submitted", uuid.New())} }, "a version is created a draft"},
+		// sop_plan_submitted behind the triggers, which refuse first.
+		"submitted without its request": {func(s sopScene) []stmt {
+			return []stmt{step(`SET LOCAL session_replication_role = replica`), s.created("submitted", nil)}
+		}, "sop_plan_submitted"},
+		"a submitted version's consensus": {func(s sopScene) []stmt {
+			return []stmt{s.submitted(), step(`UPDATE mrp.sop_plan_line SET consensus = 9 WHERE plan_id = $1`, s.plan)}
+		}, "its plan version is submitted"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := sopScene{tenant: id(), plan: id(), company: id()}
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", s.tenant.String()); err != nil {
+				t.Fatal(err)
+			}
+			if err := all(tx, s.planned(1), s.line("FASTENERS", "EA", "1", "0")); err != nil {
+				t.Fatal(err)
+			}
+			failsWith(t, all(tx, c.run(s)...), c.want)
+		})
+	}
+}
+
+// TestSopPlanApprovalDownRefused: 000494's down migration refuses to drop
+// a submitted version or one naming an approval request (06 §6.4), which
+// the previous version cannot hold, whichever tenant holds them.
+func TestSopPlanApprovalDownRefused(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000494_sop_plan_approval").Down
+	for name, rows := range map[string]func(s sopScene) []stmt{
+		"a submitted version":           func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted()} },
+		"a rejected one, a draft again": func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan)} },
+		"one fixed by approval":         func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), s.fixed()} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := sopScene{tenant: id(), plan: id(), company: id()}
+			downRefused(t, down, s.tenant, rows(s), "S&OP plan versions submitted for approval exist")
+		})
+	}
 }

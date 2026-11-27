@@ -101,6 +101,9 @@ var tierRules = []struct {
 	// postings and returns carry: tier 3 (ADR-0049 §3), as rates were.
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|release_dual_limit|service_posting_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
+	// The ABC shares decide which cycle counting indicators an analysis
+	// proposes, which a person then applies; nothing is posted (S2c3).
+	{rx(`^companies\[\*\]\.cycle_count_abc_shares`), TierOperational},
 	// A payment tolerance decides what an incoming payment writes off to
 	// the profit and loss account (T75f): tier 3, as the accounts it posts
 	// to are.
@@ -213,6 +216,10 @@ var tierRules = []struct {
 	{rx(`^pricing\.condition_types\[\*\]\.name$`), TierCosmetic},
 	{rx(`^pricing\.price_groups\[\*\]\.name$`), TierCosmetic},
 	{rx(`^pricing(\.|$)`), TierOperational},
+	// Who approves a company's S&OP plan versions posts nothing: it routes
+	// their approval, as purchasing's approval tiers route requisitions
+	// (ADR-0084 As built S2n2).
+	{rx(`^companies\[\*\]\.sop_approval(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }

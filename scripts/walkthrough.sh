@@ -1805,7 +1805,9 @@ migrated_down_payment() {
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
 # 5126 scrapping, 5196 price differences, 5197 revaluation, 5198
 # inventory differences, S2d, 5016 cost of goods sold, S2b1; no pack ships
-# them), the inventory difference tolerance of CAD 50.00 (S2d), and two
+# them), the inventory difference tolerance of CAD 50.00 (S2d), the
+# approval of its S&OP plan versions by the process owner and then the
+# controller (S2n2, ADR-0084 As built S2n2), and two
 # codes of tax alone for the return's adjustments (kind adjustment, rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
 # instalment paid (line 110) on 2300.
@@ -1860,6 +1862,7 @@ PILOT_SETTINGS='
         "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197", "difference": "5198",
         "cost_of_goods_sold": "5016"}]
     | .inventory_difference_tolerance = "50.00"
+    | .sop_approval = {"steps": [{"role": "process_owner", "approvals": 1}, {"role": "controller", "approvals": 1}]}
     | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
         "overpayment_percent": "0.5"}
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
@@ -13964,9 +13967,14 @@ material_request() {
 # bracket is described in Arabic too, the UAE pilot's second language, and
 # read in Arabic, in ar-AE and in French (its English default answered);
 # the zinc-plated change carries the new Arabic text and a French one; a
-# further description in the default's language is refused.
+# further description in the default's language is refused. Dimensions,
+# weights and GTINs (S1a3): Mira's change gives each bracket its GTIN and
+# weights and the box its GTIN, weight, volume and size, approved by
+# Priya; a list finds the bracket by its GTIN written in 13 digits; the
+# box's GTIN on another material, a net weight above the gross and a GTIN
+# whose check digit is wrong are refused.
 step_material() {
-  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; blocked at once"
+  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; the bracket's and the box's GTINs, weights and size approved, the bracket found by its GTIN, a GTIN taken, a net weight above the gross and a wrong check digit refused; blocked at once"
   local plant main spares other far material number
   local arabic="دعامة مشغولة M10" zinc="دعامة مشغولة M10، مطلية بالزنك"
   as ada
@@ -14044,13 +14052,38 @@ step_material() {
     "en Machined bracket M10, zinc plated; ar $zinc; fr Équerre usinée M10, zinguée"
   QUIET=1 api 200 '' getMaterial -p "id=$material" -p language=fr-CA
   expect "the bracket in fr-CA" "$(field '"\(.description_language) \(.description)"')" "fr Équerre usinée M10, zinguée"
+  say "Mira records how the bracket is packed (S1a3): each bracket's GTIN, weighing 120 g gross and 110 g net, and the"
+  say "box's GTIN, 2.5 kg, 0.012 m³ and 30 by 20 by 20 cm, given as decimals in kilograms, cubic metres and metres; the"
+  say "change waits for Priya as the material's other fields do:"
+  QUIET=1 api 200 '' getMaterial -p "id=$material"
+  api 200 '"material \(.number): version \(.version), change \(.pending_change_number) pending"' updateMaterial -p "id=$material" -if-match "$ETAG" \
+    -body '{"base_unit_measures": {"gtin": "036000291452", "gross_weight": "0.120", "net_weight": "0.11", "weight_unit": "KG"},
+      "alternative_units": [{"unit": "BOX", "numerator": 20, "denominator": 1, "measures": {"gtin": "10036000291459", "gross_weight": "2.5", "weight_unit": "KG",
+        "volume": "0.012", "volume_unit": "M3", "length": "0.3", "width": "0.2", "height": "0.2", "dimension_unit": "M"}}], "reason": "Packaging data from the supplier"}'
+  approve priya "$(material_request "$material")" "Matches the supplier's data sheet."
+  as mira
+  say "A scanner reads the bracket's GTIN in its 13-digit form, which finds the same GTIN (GS1 compares them in 14 digits):"
+  api 200 '.items[] | "material \(.number) \(.description): each GTIN \(.base_unit_measures.gtin), \(.base_unit_measures.gross_weight) \(.base_unit_measures.weight_unit_name) gross, \(.base_unit_measures.net_weight) net", (.alternative_units[] | "  \(.unit) GTIN \(.measures.gtin): \(.measures.gross_weight) \(.measures.weight_unit), \(.measures.volume) \(.measures.volume_unit), \(.measures.length) x \(.measures.width) x \(.measures.height) \(.measures.dimension_unit_name)")' \
+    listMaterials -p gtin=0036000291452
+  expect "the bracket by its GTIN" "$(field '[.items[] | .id] | join(" ")')" "$material"
+  expect "the bracket's measures" "$(field '.items[0] | "\(.base_unit_measures.gross_weight) \(.base_unit_measures.net_weight) \(.alternative_units[0].measures.gtin) \(.alternative_units[0].measures.height)"')" \
+    "0.12 0.11 10036000291459 0.2"
+  say "The box's GTIN names the bracket's box, so no other material may carry it; a net weight above the gross and a"
+  say "GTIN whose check digit is wrong are refused:"
+  refused 409 materials.gtin_taken createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"base_unit_measures\": {\"gtin\": \"10036000291459\"}}"
+  refused 422 materials.invalid_measures createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"base_unit_measures\": {\"gross_weight\": \"0.1\", \"net_weight\": \"0.2\", \"weight_unit\": \"KG\"}}"
+  expect "the refused weight's field" "$(field '.errors[0].field')" "base_unit_measures.net_weight"
+  refused 422 materials.invalid_gtin createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"base_unit_measures\": {\"gtin\": \"036000291453\"}}"
   say "Her first version is stale now:"
   refused 412 request.version_mismatch updateMaterial -p "id=$material" -if-match '"1"' -body '{"material_group": "FASTENERS"}'
   say "A batch of brackets is found faulty; Mira blocks the bracket, which needs no approval and applies at once, at"
   say "the version she reads again:"
   QUIET=1 api 200 '' getMaterial -p "id=$material"
   api 200 '"material \(.number): \(.status), version \(.version)"' updateMaterial -p "id=$material" -if-match "$ETAG" -body '{"status": "blocked", "reason": "Faulty batch"}'
-  expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 4"
+  expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 5"
   QUIET=1 api 200 '' listMaterials -p "plant_id=$plant" -p status=blocked
   expect "Toronto's blocked materials" "$(field '[.items[] | .number] | join(" ")')" "$number"
   MATERIAL=$material PLANT=$plant MAIN_STORE=$main SPARES_STORE=$spares
@@ -15503,10 +15536,13 @@ step_dispute_resolution() {
 # every 90 days for the brackets and C every 365 for the bolts; never
 # counted, both are due at the main store, and Wade's count document is
 # made from that list, which then leaves them out; counted, they are not
-# due again until their intervals have passed.
+# due again until their intervals have passed. Last, S2c3 (ADR-0082 As
+# built S2c3): Ines takes the bolts' indicator off, once, and sets the
+# plant's indicators from its ABC analysis over the year, previewed and
+# then applied as previewed, once.
 step_count() {
-  local loss brackets ind_a ind_c due
-  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once until the brackets are sent for a recount, their first count kept and the latest posted; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
+  local loss brackets ind_a ind_c due bolts from token apply
+  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once until the brackets are sent for a recount, their first count kept and the latest posted; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed; the bolts' indicator taken off, once; the ABC analysis of the plant previewed and applied as indicators, a stale preview refused"
   local doc book
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   as ines
@@ -15616,6 +15652,47 @@ step_count() {
   say "Counted today, the brackets fall due again in 90 days and the bolts in 365; nothing is due at the main store:"
   api 200 '"  \(.items | length) counts due"' listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
   expect "the counts due once counted" "$(field '.items | length')" 0
+  say "Ines takes the bolts' indicator C off (S2c3; SAP MM02, from memory): kept as removed, they are counted by no"
+  say "indicator at the plant from then on, and the count planning agent counts them by their class's interval; once:"
+  QUIET=1 api 200 '' listCycleCountMaterials -p "plant_id=$PLANT" -p "material_id=$BOLT" -p status=active
+  bolts=$(field '.items[0].id')
+  QUIET=1 api 200 '' getCycleCountMaterial -p "id=$bolts"
+  api 200 '"\(.material_number) \(.material_description) at \(.plant_code): indicator \(.indicator_code), \(.status)"' \
+    removeCycleCountMaterial -p "id=$bolts" -if-match "$ETAG"
+  expect "the bolts' indicator" "$(field '"\(.status) \(.version)"')" "removed 2"
+  refused 409 inventory.cycle_count_material_removed removeCycleCountMaterial -p "id=$bolts" -if-match "$ETAG"
+  say "She runs the ABC analysis of the Toronto plant over the year (S2c3; SAP MIBC, from memory): each material's"
+  say "consumption value from its issues, scrappings and deliveries less their reversals; A the materials making up the"
+  say "first 80 percent, B the next 15, C the rest, each proposed the plant's indicator of its class. She adds B, every"
+  say "180 days, and previews it; nothing is stored:"
+  api 201 '"indicator \(.code) at \(.plant_code): every \(.interval_days) days"' createCycleCountIndicator \
+    -body "{\"plant_id\": \"$PLANT\", \"code\": \"B\", \"interval_days\": 180}"
+  from=$(date_add "$TODAY" -364)
+  api 200 '"ABC analysis of \(.plant_code) from \(.from) to \(.to): \(.total_consumption.amount) \(.total_consumption.currency) consumed, \(.changes) changes",
+      (.classes[] | "  class \(.class): \(.materials) materials, \(.consumption.amount)"), "  not counted: \(.excluded_materials) materials, \(.excluded_consumption.amount)",
+      (.lines[] | "  \(.material_number) \(.material_description): \(.consumption.amount), class \(.class), \(.before_indicator_code // "no indicator") to \(.indicator_code) (\(.change))")' \
+    getCycleCountAbcAnalysis -p "plant_id=$PLANT" -p "from=$from" -p "to=$TODAY"
+  expect "the bolts' line" "$(jq -r --arg m "$BOLT" '.lines[] | select(.material_id == $m) | .change' "$WORK/last.json")" create
+  expect "the brackets listed" "$(jq -r --arg m "$MATERIAL" '[.lines[] | select(.material_id == $m)] | length' "$WORK/last.json")" 1
+  token=$(field .preview_token)
+  apply="{\"plant_id\": \"$PLANT\", \"from\": \"$from\", \"to\": \"$TODAY\", \"preview_token\": \"$token\"}"
+  say "She applies it as previewed: each change made and audited, nothing else; the application is kept:"
+  api 201 '"applied by \(.created_by_name) at \(.plant_code), \(.changes | length) changes", (.changes[] | "  \(.line_no) \(.material_number): class \(.class), \(.before_indicator_code // "no indicator") to \(.indicator_code) (\(.change))")' \
+    createCycleCountAbcApplication -body "$apply"
+  expect "the analysis applied" "$(field '"\(.preview_token) \(.created_by_name)"')" "$token Ines Inventory"
+  expect "the bolts given an indicator" "$(jq -r --arg m "$BOLT" '.changes[] | select(.material_id == $m) | .change' "$WORK/last.json")" create
+  say "Applied, the preview is stale; nothing is applied twice:"
+  refused 409 inventory.abc_preview_stale createCycleCountAbcApplication -body "$apply"
+  say "Previewed again, it changes nothing, and an analysis that changes nothing is not applied:"
+  QUIET=1 api 200 '' getCycleCountAbcAnalysis -p "plant_id=$PLANT" -p "from=$from" -p "to=$TODAY"
+  expect "the changes once applied" "$(field .changes)" 0
+  refused 422 inventory.abc_nothing_to_apply createCycleCountAbcApplication -body \
+    "{\"plant_id\": \"$PLANT\", \"from\": \"$from\", \"to\": \"$TODAY\", \"preview_token\": \"$(field .preview_token)\"}"
+  say "The applications at the plant are listed, each counting its changes:"
+  api 200 '.items[] | "  applied \(.created_at) by \(.created_by_name): \(.change_count) changes"' listCycleCountAbcApplications -p "plant_id=$PLANT"
+  expect "the latest application listed" "$(field '"\(.items[0].change_count > 0) \(.items[0].changes == null)"')" "true true"
+  QUIET=1 api 200 '' listCycleCountMaterials -p "plant_id=$PLANT" -p "material_id=$BOLT" -p status=active
+  expect "the bolts' indicator from the analysis" "$(field '.items | length')" 1
   passed
 }
 
@@ -17926,11 +18003,18 @@ company_account() {
 # and receipts less the consensus, which starts as the forecast. Mira
 # agrees 20 for the third month, naming its line by key; a key that is no
 # line is refused. The demand forecasting agent's own review is refused
-# (x-agent: false). Mira fixes the version: it changes no more, and it is
-# Maple's consensus plan.
+# (x-agent: false). S2n2 (ADR-0084 As built S2n2): Maple's plans are
+# approved (companies[].sop_approval, step 1: the process owner, then the
+# controller), so Mira's fix is refused and she submits the version; while
+# it waits its consensus is refused, and so is the agent's submission.
+# Priya, the process owner, rejects it for its third month; a draft again,
+# Mira raises that month to 25 and submits it anew; Priya approves the
+# first step, cannot approve the controller's, and Carla approves it: the
+# version is fixed by Carla, changes no more, and is Maple's consensus
+# plan.
 step_sop_review() {
-  heading "Step 159 — S&OP review: Maple's demand forecast reviewed against supply by material group and month; the planner agrees the consensus and fixes the plan version, which changes no more; the forecasting agent's own review refused"
-  local plan key1 key3 stock open3 balanced
+  heading "Step 159 — S&OP review: Maple's demand forecast reviewed against supply by material group and month; the planner agrees the consensus and submits the plan version; the process owner rejects it, then approves it again submitted, and the controller's approval fixes it, so it changes no more; the forecasting agent's own review and submission refused"
+  local plan key1 key3 stock open3 balanced request carla tag
   [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
   as mira
   QUIET=1 api 200 '' listStock -p "material_id=$HINGE" -p page_size=500
@@ -17962,11 +18046,43 @@ step_sop_review() {
   say "Fixing the consensus is the planner's (x-agent: false): the demand forecasting agent's own review is refused:"
   refused 403 identity.agent_not_allowed createSopPlan -body "{\"legal_entity_id\": \"$LE\"}"
   as mira
-  say "Mira fixes the version as Maple's consensus plan; fixed, it changes no more:"
+  say "Maple's plans are approved before they are fixed (companies[].sop_approval: the process owner, then the"
+  say "controller, ADR-0084 As built S2n2), so Mira's fix is refused; she submits the version for approval:"
   QUIET=1 api 200 '' getSopPlan -p "id=$plan"
-  api 200 '"S&OP plan \(.number): \(.status) at \(.fixed_at)"' fixSopPlan -p "id=$plan" -if-match "$ETAG"
-  expect "the version fixed by Mira" "$(field '"\(.status) \(.fixed_by != null)"')" "fixed true"
-  refused 409 mrp.sop_plan_fixed updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  tag=$ETAG # a refusal changes no version; the next call names the one read
+  refused 409 mrp.sop_approval_required fixSopPlan -p "id=$plan" -if-match "$tag"
+  api 200 '"S&OP plan \(.number): \(.status), approval request \(.approval_request_id != null)"' submitSopPlan -p "id=$plan" -if-match "$tag"
+  request=$(field .approval_request_id) tag=$ETAG
+  say "While it waits, its consensus does not change, and the agent does not submit (x-agent: false):"
+  refused 409 mrp.sop_plan_submitted updateSopPlan -p "id=$plan" -if-match "$tag" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  as demand-agent
+  refused 403 identity.agent_not_allowed submitSopPlan -p "id=$plan" -if-match "$tag"
+  as priya
+  say "Priya, the process owner, rejects it: the third month is too low for the season. A draft again:"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  expect "the request's steps" "$(field '"\(.object_type) \(.steps | length) \(.object_resource)"')" "sop_plan 2 /v1/sop-plans/$plan"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$request" -if-match "$ETAG" \
+    -body '{"comment": "The third month is too low for the season."}'
+  as mira
+  QUIET=1 api 200 '' getSopPlan -p "id=$plan"
+  expect "the version after the rejection" "$(field '"\(.status) \(.approval_request_id)"')" "draft $request"
+  say "Mira raises the third month to 25 and submits it again:"
+  api 200 '.lines[] | select(.key == "'"$key3"'") | "  \(.key): consensus \(.consensus.value), projected \(.projected_stock.value) \(.unit)"' \
+    updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  api 200 '"S&OP plan \(.number): \(.status)"' submitSopPlan -p "id=$plan" -if-match "$ETAG"
+  request=$(field .approval_request_id)
+  approve priya "$request" "Agreed for supply."
+  say "The second step is the controller's: Priya, who holds no controller role, is refused; Carla approves it, and"
+  say "the version is fixed as Maple's consensus plan, by Carla; fixed, it changes no more:"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 403 workflow.role_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{"comment": "Again."}'
+  approve carla "$request" "Agreed for finance."
+  as mira
+  QUIET=1 api 200 '' getSopPlan -p "id=$plan"
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  expect "the version fixed by Carla, naming the approved request" "$(field '"\(.status) \(.fixed_by) \(.approval_request_id)"')" "fixed $carla $request"
+  expect "the third month's consensus" "$(field '.lines[] | select(.key == "'"$key3"'") | .consensus.value')" 25
+  refused 409 mrp.sop_plan_fixed updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"30\"}}"
   api 200 '.items[] | "  consensus plan: version \(.number), fixed \(.fixed_at)"' listSopPlans -p "legal_entity_id=$LE" -p status=fixed
   expect "Maple's fixed versions" "$(field '[.items[].id] | join(" ")')" "$plan"
   passed

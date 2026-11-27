@@ -60,7 +60,8 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // postings of other contexts that post one: a purchase order's goods
 // receipt, an outbound delivery's goods issue, a stock transport order's
 // issue and receipt, an intercompany order's goods issue, a return's
-// receipt) and count, with cycle counting's indicators (S2c2) and every
+// receipt) and count, with cycle counting's indicators (S2c2; taken off
+// or set from the ABC analysis, S2c3) and every
 // write of stock transport orders (their creation and cancellation);
 // every write of sales orders, returns orders and their deliveries (a
 // trade compliance block's release by hand and a goods issue's reversal
@@ -69,14 +70,16 @@ var Reads = []string{"getMaterial", "listMaterials", "listMaterialDocuments", "g
 // call-off, which creates an order, and the GR/IR clearing); every write
 // of an RFQ (created, published, awarded, cancelled, closed); a planning
 // run, materials' planning data and S&OP plan versions (S2n: the planner
-// reviews the forecast and fixes the consensus). Its tools hold none of
+// reviews the forecast and fixes the consensus, or submits it for approval,
+// S2n2). Its tools hold none of
 // them: they are reads and createRecommendation.
 var Never = []string{
 	"createMaterialDocument", "reverseMaterialDocument", "postGoodsReceipt", "reverseGoodsReceipt", "postOutboundDeliveryGoodsIssue",
 	"reverseOutboundDeliveryGoodsIssue",
 	"createStockTransportOrder", "cancelStockTransportOrder", "postStockTransportGoodsIssue", "postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue",
 	"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "recountPhysicalInventoryItems", "postPhysicalInventoryDifferences",
-	"createCycleCountIndicator", "updateCycleCountIndicator", "createCycleCountMaterial", "updateCycleCountMaterial",
+	"createCycleCountIndicator", "updateCycleCountIndicator", "createCycleCountMaterial", "updateCycleCountMaterial", "removeCycleCountMaterial",
+	"createCycleCountAbcApplication",
 	"createSalesOrder", "captureSalesOrder", "createSalesOrderUpload", "confirmSalesOrder", "releaseSalesOrderCreditBlock", "changeSalesOrder",
 	"cancelSalesOrder", "confirmSalesDelivery", "createOutboundDelivery", "pickOutboundDelivery", "releaseOutboundDeliveryTradeComplianceBlock",
 	"createReturnsOrder", "confirmReturnsOrder", "confirmReturnReceipt",
@@ -84,7 +87,7 @@ var Never = []string{
 	"createPurchaseOrder", "updatePurchaseOrder", "releasePurchaseOrder", "closePurchaseOrder", "cancelPurchaseOrder",
 	"createPurchaseOrderChange", "updatePurchaseOrderChange", "cancelPurchaseOrderChange", "submitPurchaseOrderChange",
 	"createRfq", "publishRfq", "awardRfq", "cancelRfq", "closeRfq", "createScheduleLine", "callOffScheduleLine", "createGrIrClearing",
-	"startMrpRun", "createMaterialPlan", "updateMaterialPlan", "createSopPlan", "updateSopPlan", "fixSopPlan"}
+	"startMrpRun", "createMaterialPlan", "updateMaterialPlan", "createSopPlan", "updateSopPlan", "fixSopPlan", "submitSopPlan"}
 
 const system = `You forecast a material's demand at the plants of a company, for a planner to decide.
 

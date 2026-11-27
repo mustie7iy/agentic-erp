@@ -25433,7 +25433,7 @@ paths:
       tags:
         - materials
       summary: List materials
-      description: "The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description, base unit, type, group and status, its plants and storage locations in the companies the caller may act in, and its alternative units. Filtered by number, plant, status, material type and material group; each `description` in the `language` asked for where the material has one, else its default (S1a2). Sortable by: `number`."
+      description: "The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description, base unit, type, group and status, its plants and storage locations in the companies the caller may act in, and its alternative units. Filtered by number, plant, status, material type, material group and a unit's GTIN (S1a3); each `description` in the `language` asked for where the material has one, else its default (S1a2). Sortable by: `number`."
       x-permission: materials.material.read
       x-problem-codes:
         - request.invalid_order_by
@@ -25482,6 +25482,14 @@ paths:
           schema:
             type: string
             maxLength: 9
+        - name: gtin
+          in: query
+          required: false
+          description: "Only the material one of whose units of measure, its base unit or an alternative unit, carries this GTIN (ADR-0082 As built S1a3), compared as GS1 compares GTINs, right-justified in 14 digits (`036000291452` finds `0036000291452`). A GTIN names at most one unit of one material in the tenant."
+          schema:
+            type: string
+            pattern: "^([0-9]{8}|[0-9]{12,14})$"
+            example: "4006381333931"
         - name: language
           in: query
           required: false
@@ -25514,7 +25522,7 @@ paths:
       tags:
         - materials
       summary: Create a material
-      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Its `description` is its default one, in `description_language` (`en` when absent); `descriptions` gives it further ones (S1a2), each in a BCP 47 language with known subtags in their canonical form (422 `materials.unknown_language`), each language once and none in the default's (422 `materials.duplicate_language`). The base unit, the material type and the default's language do not change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays `pending` and is used nowhere. The change lists the existing materials with the same description, white space and case aside, whatever their status, a pending one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is refused (409 `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
+      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Each unit of measure, the base unit (`base_unit_measures`) and each alternative unit (`measures`), may carry its dimensions, weights and GTIN (S1a3): every value a decimal above zero of up to ten digits and three decimals, never a number, given with its unit and the unit only with a value, a weight unit of mass, a volume unit of volume and a length unit of length, and a net weight no more than the gross (422 `materials.invalid_measures`; a unit no unit of measure, 422 `materials.unknown_unit`); a GTIN of 8, 12, 13 or 14 digits with its GS1 check digit (422 `materials.invalid_gtin`), on one unit of the request (422 `materials.duplicate_gtin`) and of no other material in the tenant, compared right-justified in 14 digits, whatever that material's status (409 `materials.gtin_taken`, naming it). Its `description` is its default one, in `description_language` (`en` when absent); `descriptions` gives it further ones (S1a2), each in a BCP 47 language with known subtags in their canonical form (422 `materials.unknown_language`), each language once and none in the default's (422 `materials.duplicate_language`). The base unit, the material type and the default's language do not change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays `pending` and is used nowhere, its GTINs free for another material. The change lists the existing materials with the same description, white space and case aside, whatever their status, a pending one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is refused (409 `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
@@ -25527,10 +25535,14 @@ paths:
         - materials.batch_managed_not_stocked
         - materials.change_pending
         - materials.duplicate_description
+        - materials.duplicate_gtin
         - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
+        - materials.gtin_taken
+        - materials.invalid_gtin
+        - materials.invalid_measures
         - materials.invalid_status
         - materials.number_taken
         - materials.plant_invalid
@@ -25639,7 +25651,7 @@ paths:
       tags:
         - materials
       summary: Request a change of a material
-      description: "Requests a change of a material's description, further descriptions, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; `descriptions` replaces its further descriptions, an empty list removing them (S1a2), and `description` sets its default one; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at once, a pending change or not (the material answered blocked, with a material change of kind `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a pending update approved later leaves the block in place. Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
+      description: "Requests a change of a material's description, further descriptions, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; `descriptions` replaces its further descriptions, an empty list removing them (S1a2), and `description` sets its default one; `base_unit_measures` replaces the base unit's dimensions, weights and GTIN, an empty object removing them, and each alternative unit's `measures` are replaced with `alternative_units` (S1a3); each is checked as `createMaterial` checks it, a GTIN also against the units the change keeps (422 `materials.duplicate_gtin`) and again when the change is applied (409 `materials.gtin_taken` on the approval when another material took it meanwhile). A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at once, a pending change or not (the material answered blocked, with a material change of kind `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a pending update approved later leaves the block in place. Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
@@ -25647,10 +25659,14 @@ paths:
         - ledger.no_exchange_rate
         - materials.base_unit_conversion
         - materials.change_pending
+        - materials.duplicate_gtin
         - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
+        - materials.gtin_taken
+        - materials.invalid_gtin
+        - materials.invalid_measures
         - materials.invalid_status
         - materials.nothing_to_change
         - materials.number_taken
@@ -27024,7 +27040,7 @@ paths:
       tags:
         - inventory
       summary: List materials' cycle counting indicators
-      description: "The cycle counting indicators of materials at the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`."
+      description: "The cycle counting indicators of materials at the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in the order they were created, those taken off (`removed`, S2c3) among them. Filtered by plant, material, indicator and status. Sortable by: `created_at`."
       x-permission: inventory.stock.read
       x-problem-codes:
         - request.invalid_order_by
@@ -27052,6 +27068,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only the materials' indicators of this status: `active` the ones materials are counted by, `removed` those taken off (S2c3)."
+          schema:
+            type: string
+            description: "A material's indicator's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [active, removed]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -27075,7 +27099,7 @@ paths:
       tags:
         - inventory
       summary: Give a material its cycle counting indicator at a plant
-      description: "Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant falls due once the indicator's interval has passed since its last posted count there (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422 `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`), neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422 `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited. A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`)."
+      description: "Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant falls due once the indicator's interval has passed since its last posted count there (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422 `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`), neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422 `inventory.serial_not_supported`), which counts do not take yet. A material has one active indicator at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it), and may be given one again once it is taken off (`removeCycleCountMaterial`). Audited. A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`)."
       x-permission: inventory.count_plan.write
       x-agent: false
       x-problem-codes:
@@ -27164,11 +27188,12 @@ paths:
       tags:
         - inventory
       summary: Change a material's cycle counting indicator
-      description: "Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge Patch. Audited with the indicator before and after. Human-only (`x-agent: false`)."
+      description: "Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it already has is 422 `inventory.nothing_to_change`; one taken off is not changed (409 `inventory.cycle_count_material_removed`). Its plant and material do not change. JSON Merge Patch. Audited with the indicator before and after. Human-only (`x-agent: false`)."
       x-permission: inventory.count_plan.write
       x-agent: false
       x-problem-codes:
         - inventory.cycle_count_material_exists
+        - inventory.cycle_count_material_removed
         - inventory.indicator_invalid
         - inventory.nothing_to_change
         - request.version_mismatch
@@ -27211,13 +27236,244 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-materials/{id}:remove":
+    post:
+      operationId: removeCycleCountMaterial
+      tags:
+        - inventory
+      summary: Take a material's cycle counting indicator off
+      description: "Takes a material's cycle counting indicator at a plant off at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c3; SAP MM02 clearing MARC-ABCIN, from memory), once (409 `inventory.cycle_count_material_removed` after). Nothing is deleted (04 §4.3): it is kept as `removed`, its `updated_at` and `updated_by` saying when and by whom, and is never changed again. From then on the material is no longer due by an indicator at the plant (`listCycleCountsDue` leaves it out; the count planning agent counts it by its own class's interval), and it may be given an indicator again (`createCycleCountMaterial`, a new one). One of a company the caller may not act in is not found (404). Audited. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_material_exists
+        - inventory.cycle_count_material_removed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The material's indicator, removed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-abc-analysis:
+    get:
+      operationId: getCycleCountAbcAnalysis
+      tags:
+        - inventory
+      summary: Preview the ABC analysis of a plant's materials
+      description: "The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3; SAP MIBC, from memory), computed on read from one database state and stored nowhere: each material's consumption value at the plant from `from` to `to` (the posting dates of the material documents of movement types `201`, `551` and `601` less their reversals `202`, `552` and `602`, in the company's currency; a net return is none); in the order of that value, the greatest first (ties by material id), a material is class A while the materials before it make up less than the company's `cycle_count_abc_shares.a` percent of the plant's consumption value (default 80), B while less than `a` + `b` percent (default 15 more), else C, as is one with none. The materials listed are those a count document takes (`createCycleCountMaterial`'s rules) with stock at the plant now or consumption in the window; the others' consumption is in `excluded_consumption`. Each line proposes the plant's indicator of its class's code (A, B or C) and says what applying the analysis would do: give the material that indicator (`create`), change the one it has (`change`) or nothing (`none`). The plant has an indicator of each class code its lines need (422 `inventory.abc_indicator_missing`). The window ends on or before the company's date today and spans at most 366 days (422 `inventory.abc_window_invalid`); at most 1,000 materials are listed (422 `inventory.abc_too_many_materials`). `preview_token` is what `createCycleCountAbcApplication` applies. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`)."
+      x-permission: inventory.stock.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.abc_indicator_missing
+        - inventory.abc_too_many_materials
+        - inventory.abc_window_invalid
+        - inventory.plant_invalid
+      parameters:
+        - name: plant_id
+          in: query
+          required: true
+          description: The plant.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: The window's first posting date.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The window's last posting date, on or before the company's date today."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: The analysis.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcAnalysis"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-abc-applications:
+    get:
+      operationId: listCycleCountAbcApplications
+      tags:
+        - inventory
+      summary: List the ABC analyses applied
+      description: "The ABC analyses applied at the plants of the companies the caller may act in (ADR-0082 As built S2c3), each as `getCycleCountAbcApplication` gives it but without its changes, which it counts (`change_count`; an application holds up to 1,000), the latest first. Filtered by plant. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the analyses applied at this plant.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the analyses applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcApplicationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCycleCountAbcApplication
+      tags:
+        - inventory
+      summary: Apply an ABC analysis as cycle counting indicators
+      description: "Applies the ABC analysis `getCycleCountAbcAnalysis` previewed for the plant and window (ADR-0082 As built S2c3; SAP MIBC's update, from memory): the analysis is computed again, and when it is the one previewed (its `preview_token`), each line's change is made, and nothing else: a material given its class's indicator at the plant, or the indicator it has changed to it, each audited as `createCycleCountMaterial` and `updateCycleCountMaterial` are, naming the analysis. When anything the preview showed has changed since (a consumption, a material's indicator, its version, the materials listed or the shares), nothing is applied: 409 `inventory.abc_preview_stale`, and a new preview shows the analysis as it is now. An apply never takes an indicator off. An analysis whose lines change nothing (its `changes` is 0) is not applied: 422 `inventory.abc_nothing_to_apply`, and nothing is kept. Applies of one plant wait for each other. The application is kept, never changed: the analysis's plant, window, shares, consumption total and token, and each change made with the material's indicator after it. The refusals of `getCycleCountAbcAnalysis` apply. A retry with the same `Idempotency-Key` answers the application created. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.abc_indicator_missing
+        - inventory.abc_nothing_to_apply
+        - inventory.abc_preview_stale
+        - inventory.abc_too_many_materials
+        - inventory.abc_window_invalid
+        - inventory.cycle_count_material_exists
+        - inventory.plant_invalid
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The analysis previewed.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CycleCountAbcApply"
+            examples:
+              toronto:
+                summary: The Toronto plant's analysis of the year
+                value:
+                  plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  from: "2025-11-25"
+                  to: "2026-11-24"
+                  preview_token: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+      responses:
+        "201":
+          description: "Created; the application."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcApplication"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-abc-applications/{id}":
+    get:
+      operationId: getCycleCountAbcApplication
+      tags:
+        - inventory
+      summary: Get an ABC analysis applied
+      description: "An ABC analysis applied at a plant (ADR-0082 As built S2c3): its plant and company by code, its window, shares, consumption total and preview token, who applied it and when (by id and name as it is now), and each change it made, its material by number and description, its consumption value and class, the indicator given with the one it replaced, and the material's indicator after it. One of a company the caller cannot act in is not found."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The application.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcApplication"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cycle-counts-due:
     get:
       operationId: listCycleCountsDue
       tags:
         - inventory
       summary: List the cycle counts due at a plant
-      description: "The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from memory): each material with a cycle counting indicator at the plant, at each storage location of the plant where it has stock now (as `listStock` lists it), that no open count document holds there and that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its indicator's interval or more days before today. Each names its material, storage location, indicator and interval, its last count and the day it fell due. Never counted first, then the longest due. A count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is posted, an interval before they fall due again. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`."
+      description: "The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from memory): each material with an active cycle counting indicator at the plant (one taken off, `removeCycleCountMaterial`, is none), at each storage location of the plant where it has stock now (as `listStock` lists it), that no open count document holds there and that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its indicator's interval or more days before today. Each names its material, storage location, indicator and interval, its last count and the day it fell due. Never counted first, then the longest due. A count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is posted, an interval before they fall due again. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`."
       x-permission: inventory.stock.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -28014,7 +28270,7 @@ paths:
             type: string
             maxLength: 20
             description: "Plan version status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: [draft, fixed]
+            x-extensible-enum: [draft, submitted, fixed]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -28069,7 +28325,7 @@ paths:
       tags:
         - mrp
       summary: Change the consensus of a draft S&OP plan version
-      description: "Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set to `null` is refused (400); a change to what every named line already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's consensus before and after. Human-only (`x-agent: false`)."
+      description: "Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set to `null` is refused (400); a change to what every named line already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`); a submitted one not while its approval request is pending (409 `mrp.sop_plan_submitted`: withdraw the request, `cancelApprovalRequest`, to change it). JSON Merge Patch. Audited with each line's consensus before and after. Human-only (`x-agent: false`)."
       x-permission: mrp.sop.write
       x-agent: false
       x-problem-codes:
@@ -28080,6 +28336,7 @@ paths:
         # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
         - mrp.sop_plan_concurrent
         - mrp.sop_plan_fixed
+        - mrp.sop_plan_submitted
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -28132,15 +28389,22 @@ paths:
       tags:
         - mrp
       summary: Fix an S&OP plan version as the consensus
-      description: "Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus included (the database refuses any change); the company's consensus plan is its fixed version with the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only (`x-agent: false`)."
+      description: "Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus included (the database refuses any change); the company's consensus plan is its fixed version with the highest number. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted 409 `mrp.sop_plan_submitted`. Where the company's plans are approved (its configuration's `sop_approval` names steps), a planner does not fix one: 409 `mrp.sop_approval_required`, submit it (`submitSopPlan`). Audited. Human-only (`x-agent: false`)."
       x-permission: mrp.sop.write
       x-agent: false
       x-problem-codes:
+        - config.not_bootstrapped
+        # ledger.no_exchange_rate and workflow.no_policy are listed because TestProblemCodes reads the approval engine's shared
+        # routing (steps), which answers them for amounts and purchase orders; a plan version's steps convert no amount, so not here.
+        - ledger.no_exchange_rate
+        - mrp.sop_approval_required
         # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
         # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
         - mrp.sop_plan_concurrent
         - mrp.sop_plan_fixed
+        - mrp.sop_plan_submitted
         - request.version_mismatch
+        - workflow.no_policy
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -28167,6 +28431,63 @@ paths:
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sop-plans/{id}:submit":
+    post:
+      operationId: submitSopPlan
+      tags:
+        - mrp
+      summary: Submit an S&OP plan version for approval
+      description: "Submits a `draft` plan version for approval at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n2): where its company's configuration names approval steps (`companies[].sop_approval`: each a role and the number of distinct approvers it needs, in order), an approval request is opened (object type `sop_plan`, `approval_request_id`; approvers hold `mrp.sop.approve` and the step's role, never the requester) and the version is `submitted`: its consensus changes no more while the request is pending (409 `mrp.sop_plan_submitted`); approved at its last step it becomes `fixed`, fixed by that approver; rejected or withdrawn it goes back to `draft`. Where the company names no steps (the default) it is fixed at once, as `fixSopPlan` fixes it. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted already 409 `mrp.sop_plan_submitted`; a step naming a role that is not active is 422 `workflow.unknown_role`. Audited. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        # ledger.no_exchange_rate and workflow.no_policy are listed because TestProblemCodes reads the approval engine's shared
+        # routing (steps), which answers them for amounts and purchase orders; a plan version's steps convert no amount, so not here.
+        - ledger.no_exchange_rate
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_fixed
+        - mrp.sop_plan_submitted
+        - request.version_mismatch
+        - workflow.no_policy
+        - workflow.request_pending
+        - workflow.unknown_role
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The submitted plan version, or the fixed one where the company's plans need no approval.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -37938,7 +38259,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409 `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is approved by a holder of the release role who did not propose the run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of `tax_manager` who did not prepare it, an S&OP plan version (`sop_plan`) becomes `fixed`, fixed by the approver of the last step). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409 `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is approved by a holder of the release role who did not propose the run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
       x-permission: workflow.request.decide
       x-agent: false
       x-problem-codes:
@@ -38042,8 +38363,12 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - materials.change_pending
+        - materials.gtin_taken
         - materials.invalid_status
         - materials.number_taken
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # as an S&OP plan version's approval writes it (sop_plan); a decision changes a version without numbering one.
+        - mrp.sop_plan_concurrent
         - partner.address_overlap
         - partner.bank_account_overlap
         - partner.change_pending
@@ -38179,6 +38504,7 @@ paths:
         credit_limit_change: credit.limit.approve
         inventory_difference: inventory.difference.approve
         tax_return: tax.return.approve
+        sop_plan: mrp.sop.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -38186,7 +38512,7 @@ paths:
       tags:
         - workflow
       summary: Reject an approval request
-      description: "Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions`. The object is rejected with it (for example a supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax return (`tax_return`) releases its tax items."
+      description: "Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions`. The object is rejected with it (for example a supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax return (`tax_return`) releases its tax items; a rejected S&OP plan version (`sop_plan`) goes back to `draft`, its consensus to be changed and submitted again."
       x-permission: workflow.request.decide
       x-agent: false
       x-problem-codes:
@@ -38265,7 +38591,16 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - materials.change_pending
+        # materials.gtin_taken: TestProblemCodes lists it as deciding a material change shares its write path; a rejected or
+        # withdrawn change only frees the GTINs of a material never created (ADR-0082 As built S1a3), so it is not expected here.
+        - materials.gtin_taken
         - materials.invalid_status
+        # materials.number_taken: listed as releasing a rejected create's GTINs moves the material's version (S1a3), an update
+        # TestProblemCodes reads with the material's unique number; the update changes no number, so it is not expected here.
+        - materials.number_taken
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # as an S&OP plan version's approval writes it (sop_plan); a decision changes a version without numbering one.
+        - mrp.sop_plan_concurrent
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
@@ -38348,13 +38683,14 @@ paths:
         credit_limit_change: credit.limit.approve
         inventory_difference: inventory.difference.approve
         tax_return: tax.return.approve
+        sop_plan: mrp.sop.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
       tags:
         - workflow
       summary: Cancel an approval request
-      description: "Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may cancel requests they raised (cancelling is not an approval decision). Recorded as a decision."
+      description: "Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may cancel requests they raised (cancelling is not an approval decision). Recorded as a decision. A withdrawn S&OP plan version (`sop_plan`) goes back to `draft`."
       x-permission: workflow.request.cancel
       x-autonomy: propose
       x-problem-codes:
@@ -38432,7 +38768,16 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - materials.change_pending
+        # materials.gtin_taken: TestProblemCodes lists it as deciding a material change shares its write path; a rejected or
+        # withdrawn change only frees the GTINs of a material never created (ADR-0082 As built S1a3), so it is not expected here.
+        - materials.gtin_taken
         - materials.invalid_status
+        # materials.number_taken: listed as releasing a rejected create's GTINs moves the material's version (S1a3), an update
+        # TestProblemCodes reads with the material's unique number; the update changes no number, so it is not expected here.
+        - materials.number_taken
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # as an S&OP plan version's approval writes it (sop_plan); a decision changes a version without numbering one.
+        - mrp.sop_plan_concurrent
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
@@ -41481,10 +41826,17 @@ paths:
         - materials.base_unit_conversion
         - materials.batch_managed_not_stocked
         - materials.change_pending
+        # materials.duplicate_gtin, .invalid_gtin and .invalid_measures are the material checks of Migration.CreateMaterial, which
+        # TestProblemCodes lists; the load leaves out, with a warning, the measures and GTINs the platform cannot hold or two units share
+        # (ADR-0082 As built S1a3), so it is not expected to reach them. materials.gtin_taken is reached: a GTIN another material carries.
+        - materials.duplicate_gtin
         - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
+        - materials.gtin_taken
+        - materials.invalid_gtin
+        - materials.invalid_measures
         - materials.number_taken
         - materials.plant_invalid
         - materials.serial_managed_not_stocked
@@ -68456,6 +68808,41 @@ components:
         unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The alternative unit: a unit of measure other than the base unit."}
         numerator: {type: integer, format: int32, minimum: 1, maximum: 1000000, description: "Base units per `denominator` of the alternative unit."}
         denominator: {type: integer, format: int32, minimum: 1, maximum: 1000000, description: "Alternative units the `numerator` base units are."}
+        measures: {$ref: "#/components/schemas/MaterialMeasures", description: "One of the alternative unit's dimensions, weights and GTIN (S1a3; SAP MARM); none when absent."}
+    MaterialMeasures:
+      type: object
+      description: "A unit of measure's dimensions, weights and GTIN (ADR-0082 As built S1a3; SAP MARM's BRGEW, GEWEI, VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM and EAN11, and MARA's NTGEW, from memory), each absent when unknown. Every value is a decimal string above zero of up to ten digits and three decimals, never a number, in the unit beside it: a weight unit of mass (`KG`, `G`, `T`), a volume unit of volume (`L`, `M3`), a length unit of length (`M`). A unit is given with its values and only then; the net weight is no more than the gross."
+      additionalProperties: false
+      properties:
+        gtin: {type: string, pattern: "^([0-9]{8}|[0-9]{12,14})$", description: "The unit's Global Trade Item Number (EAN/UPC): 8, 12, 13 or 14 digits ending in its GS1 check digit, of one unit of one material in the tenant.", example: "4006381333931"}
+        gross_weight: {type: string, maxLength: 14, pattern: "^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,3})?$", description: "What one of the unit weighs with its packaging, in `weight_unit`.", example: "2.5"}
+        net_weight: {type: string, maxLength: 14, pattern: "^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,3})?$", description: "What one of the unit weighs without its packaging, in `weight_unit`; no more than `gross_weight`.", example: "2.4"}
+        weight_unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The unit of mass both weights are in; given with a weight and only then.", example: KG}
+        volume: {type: string, maxLength: 14, pattern: "^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,3})?$", description: "The space one of the unit takes, in `volume_unit`.", example: "0.012"}
+        volume_unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The unit of volume `volume` is in; given with it and only then.", example: M3}
+        length: {type: string, maxLength: 14, pattern: "^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,3})?$", description: "One of the unit's length, in `dimension_unit`.", example: "0.3"}
+        width: {type: string, maxLength: 14, pattern: "^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,3})?$", description: "Its width, in `dimension_unit`.", example: "0.2"}
+        height: {type: string, maxLength: 14, pattern: "^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,3})?$", description: "Its height, in `dimension_unit`.", example: "0.2"}
+        dimension_unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The unit of length the length, width and height are in; given with one of them and only then.", example: M}
+      examples:
+        - {gtin: "10036000291459", gross_weight: "2.5", net_weight: "2.4", weight_unit: KG, volume: "0.012", volume_unit: M3, length: "0.3", width: "0.2", height: "0.2", dimension_unit: M}
+    MaterialUnitMeasures:
+      type: object
+      description: "A unit of measure's dimensions, weights and GTIN as a material gives them (ADR-0082 As built S1a3): each absent when unknown, a decimal string in its unit, written without trailing zeros, each unit with its name."
+      properties:
+        gtin: {type: string, description: "The unit's GTIN, as given.", readOnly: true}
+        gross_weight: {type: string, description: "What one of the unit weighs with its packaging, in `weight_unit`.", readOnly: true}
+        net_weight: {type: string, description: "What it weighs without its packaging, in `weight_unit`.", readOnly: true}
+        weight_unit: {type: string, description: "The unit of mass of the weights.", readOnly: true}
+        weight_unit_name: {type: string, description: "That unit's name.", readOnly: true}
+        volume: {type: string, description: "The space one of the unit takes, in `volume_unit`.", readOnly: true}
+        volume_unit: {type: string, description: "The unit of volume.", readOnly: true}
+        volume_unit_name: {type: string, description: "That unit's name.", readOnly: true}
+        length: {type: string, description: "Its length, in `dimension_unit`.", readOnly: true}
+        width: {type: string, description: "Its width, in `dimension_unit`.", readOnly: true}
+        height: {type: string, description: "Its height, in `dimension_unit`.", readOnly: true}
+        dimension_unit: {type: string, description: "The unit of length of the length, width and height.", readOnly: true}
+        dimension_unit_name: {type: string, description: "That unit's name.", readOnly: true}
     MaterialCreate:
       type: object
       description: "A material to create (ADR-0082 §4)."
@@ -68471,6 +68858,7 @@ components:
           items: {$ref: "#/components/schemas/MaterialDescription"}
           description: "Its further descriptions, one per language, none in the default's language (SAP's MAKT texts); none when absent."
         base_unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The unit stock and quantities of the material are kept in; it does not change."}
+        base_unit_measures: {$ref: "#/components/schemas/MaterialMeasures", description: "One of the base unit's dimensions, weights and GTIN (S1a3; SAP MARA); none when absent."}
         material_type:
           type: string
           maxLength: 20
@@ -68493,7 +68881,7 @@ components:
         serial_managed: {type: boolean, default: false, description: "Give the material a serial number profile (ADR-0082 As built S2g; SAP's serial number profile, from memory): every goods movement of it names the serial number of each unit it moves (`serial_numbers`), and each serial number is in stock at most once (`GET /v1/serial-numbers`). Only a material kept in stock has one (422 `materials.serial_managed_not_stocked` for `non_stock` and `service`). It does not change."}
     MaterialUpdate:
       type: object
-      description: "Merge patch of a material: its description, further descriptions, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
+      description: "Merge patch of a material: its description, further descriptions, material group, status, plants, alternative units or the base unit's measures. The number, the base unit and the material type do not change."
       additionalProperties: false
       properties:
         description: {type: string, minLength: 1, maxLength: 200, description: "What the material is: its default description, in its default language."}
@@ -68517,7 +68905,8 @@ components:
           type: array
           maxItems: 20
           items: {$ref: "#/components/schemas/MaterialUnitInput"}
-          description: "The material's alternative units, replacing those it has; an empty list removes them."
+          description: "The material's alternative units with their measures, replacing those it has; an empty list removes them."
+        base_unit_measures: {$ref: "#/components/schemas/MaterialMeasures", description: "The base unit's dimensions, weights and GTIN, replacing those it has (S1a3); an empty object removes them."}
         reason: {type: string, maxLength: 500, description: "Why it is changed, kept on the change for the approver."}
       examples:
         - material_group: FASTENERS
@@ -68557,18 +68946,19 @@ components:
     MaterialUnit:
       type: object
       description: "An alternative unit of measure of a material: one of it is `numerator` divided by `denominator` base units."
-      required: [unit, unit_name, numerator, denominator]
+      required: [unit, unit_name, numerator, denominator, measures]
       properties:
         unit: {type: string, description: "The alternative unit's code.", readOnly: true}
         unit_name: {type: string, description: "The unit's name.", readOnly: true}
         numerator: {type: integer, format: int32, description: "Base units per `denominator` of the alternative unit.", readOnly: true}
         denominator: {type: integer, format: int32, description: "Alternative units the `numerator` base units are.", readOnly: true}
+        measures: {$ref: "#/components/schemas/MaterialUnitMeasures", description: "One of the alternative unit's dimensions, weights and GTIN (S1a3); empty when it has none."}
     Material:
       description: "A material of the tenant's material master (materials, ADR-0082 §4). Its `version` moves with every change."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [number, legal_entity_id, company_code, description, description_language, default_language, descriptions, base_unit, base_unit_name, material_type, material_group, status, batch_managed, serial_managed, plants, alternative_units]
+          required: [number, legal_entity_id, company_code, description, description_language, default_language, descriptions, base_unit, base_unit_name, base_unit_measures, material_type, material_group, status, batch_managed, serial_managed, plants, alternative_units]
           properties:
             number: {type: string, description: "The material's number, unique in the tenant, from the `material` number range of the company that created it.", readOnly: true}
             legal_entity_id: {type: string, format: uuid, description: "The company whose range numbered the material.", readOnly: true}
@@ -68583,6 +68973,7 @@ components:
               readOnly: true
             base_unit: {type: string, description: "The base unit of measure.", readOnly: true}
             base_unit_name: {type: string, description: "The base unit's name.", readOnly: true}
+            base_unit_measures: {$ref: "#/components/schemas/MaterialUnitMeasures", description: "One of the base unit's dimensions, weights and GTIN (S1a3); empty when it has none."}
             material_type:
               type: string
               x-extensible-enum: [raw_material, semi_finished, finished_good, trading_good, non_stock, service]
@@ -68626,6 +69017,7 @@ components:
             - {language: ar, description: "دعامة مشغولة M10"}
           base_unit: EA
           base_unit_name: Each
+          base_unit_measures: {gtin: "036000291452", gross_weight: "0.12", net_weight: "0.11", weight_unit: KG, weight_unit_name: Kilogram}
           material_type: trading_good
           material_group: BRACKETS
           status: active
@@ -68638,7 +69030,7 @@ components:
               storage_locations:
                 - {storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62", code: SL01, name: Main store}
           alternative_units:
-            - {unit: BOX, unit_name: Box, numerator: 20, denominator: 1}
+            - {unit: BOX, unit_name: Box, numerator: 20, denominator: 1, measures: {gtin: "10036000291459", gross_weight: "2.5", weight_unit: KG, weight_unit_name: Kilogram}}
     MaterialPage:
       type: object
       description: One page of materials.
@@ -68683,6 +69075,7 @@ components:
           description: "The further descriptions, by language, replacing the material's: unlike `Material.descriptions`, the default description is not among them; it is `description`."
           readOnly: true
         base_unit: {type: string, description: "The base unit (a create's only).", readOnly: true}
+        base_unit_measures: {$ref: "#/components/schemas/MaterialMeasures", description: "The base unit's dimensions, weights and GTIN, replacing the material's (S1a3); an empty object removes them."}
         material_type: {type: string, description: "The material type (a create's only).", readOnly: true}
         batch_managed: {type: boolean, description: "Whether the material is managed in batches (a create's only).", readOnly: true}
         serial_managed: {type: boolean, description: "Whether the material has a serial number profile (a create's only).", readOnly: true}
@@ -68696,7 +69089,7 @@ components:
         alternative_units:
           type: array
           items: {$ref: "#/components/schemas/MaterialUnitInput"}
-          description: "The alternative units with their conversions."
+          description: "The alternative units with their conversions and measures."
           readOnly: true
     MaterialChange:
       description: "A governed change of a material (materials, ADR-0082 §9): created `pending` with its approval request (`workflow_request_id`), then `applied`, `rejected` or `cancelled` once; a block is `applied` when it is requested. Its `version` moves with each step."
@@ -69108,8 +69501,13 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, indicator_id, indicator_code, interval_days]
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, indicator_id, indicator_code, interval_days, status]
           properties:
+            status:
+              type: string
+              x-extensible-enum: [active, removed]
+              readOnly: true
+              description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `active`: the material is counted by the indicator at the plant; `removed`: taken off (`removeCycleCountMaterial`, S2c3), when and by whom its `updated_at` and `updated_by` say, never changed again. A material has one active indicator at a plant."
             plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
             plant_code: {type: string, description: "The plant's code.", readOnly: true}
             plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
@@ -69138,6 +69536,7 @@ components:
           indicator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
           indicator_code: A
           interval_days: 90
+          status: active
     CycleCountMaterialPage:
       type: object
       description: One page of materials' cycle counting indicators.
@@ -69179,6 +69578,156 @@ components:
           type: array
           items: {$ref: "#/components/schemas/CycleCountDue"}
           description: The counts due on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountAbcApply:
+      type: object
+      description: "An ABC analysis to apply, as `getCycleCountAbcAnalysis` previewed it."
+      required: [plant_id, from, to, preview_token]
+      additionalProperties: false
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        from: {type: string, format: date, description: "The window's first posting date."}
+        to: {type: string, format: date, description: "The window's last posting date."}
+        preview_token: {type: string, pattern: "^[0-9a-f]{64}$", minLength: 64, maxLength: 64, description: "The preview's `preview_token`."}
+    CycleCountAbcClass:
+      type: object
+      description: "A class of an ABC analysis: its materials listed and their consumption value, and the plant's indicator of its code."
+      required: [class, materials, consumption]
+      properties:
+        class: {type: string, x-extensible-enum: [A, B, C], description: "The class. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        materials: {type: integer, format: int32, description: "The materials listed in the class."}
+        consumption: {$ref: "#/components/schemas/Money", description: "Their consumption value."}
+        indicator_id: {type: string, format: uuid, description: "The plant's indicator of the class's code (`GET /v1/cycle-count-indicators/{id}`); absent when the plant has none, which a class without materials needs not."}
+        indicator_code: {type: string, description: "That indicator's code; absent with it."}
+        interval_days: {type: integer, format: int32, description: "That indicator's interval in days; absent with it."}
+    CycleCountAbcLine:
+      type: object
+      description: "A material of an ABC analysis: its consumption value and class, the plant's indicator of its class and what applying the analysis does."
+      required: [material_id, material_number, material_description, consumption, class, indicator_id, indicator_code, interval_days, change]
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        material_number: {type: string, description: "The material's number."}
+        material_description: {type: string, description: "The material's description, as it is now."}
+        consumption: {$ref: "#/components/schemas/Money", description: "Its consumption value at the plant in the window, none for a net return."}
+        class: {type: string, x-extensible-enum: [A, B, C], description: "Its class. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        indicator_id: {type: string, format: uuid, description: "The plant's indicator of its class's code, the one the analysis gives it."}
+        indicator_code: {type: string, description: "That indicator's code."}
+        interval_days: {type: integer, format: int32, description: "That indicator's interval in days."}
+        change:
+          type: string
+          x-extensible-enum: [create, change, none]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. What applying the analysis does: gives the material the indicator (`create`), changes the one it has to it (`change`), or nothing, the material carrying it already (`none`)."
+        before_indicator_id: {type: string, format: uuid, description: "The material's active indicator's indicator at the plant, which applying the analysis would replace; absent when it has none."}
+        before_indicator_code: {type: string, description: "That indicator's code; absent with it."}
+        cycle_count_material_id: {type: string, format: uuid, description: "The material's active indicator at the plant (`GET /v1/cycle-count-materials/{id}`); absent when it has none."}
+        cycle_count_material_version: {type: integer, format: int32, description: "That indicator's version; absent with it."}
+    CycleCountAbcAnalysis:
+      type: object
+      description: "The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3)."
+      required: [legal_entity_id, company_code, plant_id, plant_code, plant_name, from, to, share_a, share_b, total_consumption, excluded_materials, excluded_consumption, classes, lines, changes, preview_token]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company."}
+        company_code: {type: string, description: "That company's code."}
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        plant_code: {type: string, description: "The plant's code."}
+        plant_name: {type: string, description: "The plant's name, as it is now."}
+        from: {type: string, format: date, description: "The window's first posting date."}
+        to: {type: string, format: date, description: "The window's last posting date."}
+        share_a: {type: integer, format: int32, description: "Class A's percent of the plant's consumption value (the company's `cycle_count_abc_shares.a`)."}
+        share_b: {type: integer, format: int32, description: "Class B's percent after A's (`cycle_count_abc_shares.b`)."}
+        total_consumption: {$ref: "#/components/schemas/Money", description: "The plant's consumption value in the window, of every material: the classes' and the excluded."}
+        excluded_materials: {type: integer, format: int32, description: "The materials with consumption at the plant that are not listed: those a count document does not take (pending, batch- or serial-managed, kept in no stock)."}
+        excluded_consumption: {$ref: "#/components/schemas/Money", description: "Their consumption value; with the classes' it makes the total."}
+        classes:
+          type: array
+          maxItems: 3
+          items: {$ref: "#/components/schemas/CycleCountAbcClass"}
+          description: "Classes A, B and C in that order, each with its materials and consumption value."
+        lines:
+          type: array
+          maxItems: 1000
+          items: {$ref: "#/components/schemas/CycleCountAbcLine"}
+          description: "The materials listed, in the order of their consumption value, the greatest first, ties by material id."
+        changes: {type: integer, format: int32, description: "The lines whose change is `create` or `change`."}
+        preview_token: {type: string, description: "The analysis's digest, which `createCycleCountAbcApplication` applies; it changes with anything the analysis shows."}
+    CycleCountAbcChange:
+      type: object
+      description: "A change an applied ABC analysis made: a material given its class's indicator at the plant, or moved to it."
+      required: [line_no, material_id, material_number, material_description, consumption, class, indicator_id, indicator_code, change, cycle_count_material_id]
+      properties:
+        line_no: {type: integer, format: int32, description: "The change's number, in the analysis's order."}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        material_number: {type: string, description: "The material's number."}
+        material_description: {type: string, description: "The material's description, as it is now."}
+        consumption: {$ref: "#/components/schemas/Money", description: "Its consumption value at the plant in the window."}
+        class: {type: string, x-extensible-enum: [A, B, C], description: "Its class. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        indicator_id: {type: string, format: uuid, description: "The indicator it was given (`GET /v1/cycle-count-indicators/{id}`)."}
+        indicator_code: {type: string, description: "That indicator's code."}
+        change:
+          type: string
+          x-extensible-enum: [create, change]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `create`: the material was given the indicator; `change`: its indicator was changed to it."
+        before_indicator_id: {type: string, format: uuid, description: "The indicator it replaced; absent for `create`."}
+        before_indicator_code: {type: string, description: "That indicator's code; absent with it."}
+        cycle_count_material_id: {type: string, format: uuid, description: "The material's indicator at the plant the change made or changed (`GET /v1/cycle-count-materials/{id}`)."}
+    CycleCountAbcApplication:
+      type: object
+      description: "An ABC analysis applied at a plant (ADR-0082 As built S2c3). It is never changed."
+      required: [id, version, legal_entity_id, company_code, plant_id, plant_code, plant_name, from, to, share_a, share_b, total_consumption, preview_token, changes, created_at, created_by, created_by_name]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        version: {type: integer, format: int32, description: "Always 1: an application is never changed.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company."}
+        company_code: {type: string, description: "That company's code."}
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        plant_code: {type: string, description: "The plant's code."}
+        plant_name: {type: string, description: "The plant's name, as it is now."}
+        from: {type: string, format: date, description: "The window's first posting date."}
+        to: {type: string, format: date, description: "The window's last posting date."}
+        share_a: {type: integer, format: int32, description: "Class A's percent of the plant's consumption value then."}
+        share_b: {type: integer, format: int32, description: "Class B's percent after A's then."}
+        total_consumption: {$ref: "#/components/schemas/Money", description: "The plant's consumption value in the window."}
+        preview_token: {type: string, description: "The preview applied."}
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {$ref: "#/components/schemas/CycleCountAbcChange"}
+          description: "The changes made, in the analysis's order; at least one, as an analysis that changes nothing is not applied."
+        created_at: {type: string, format: date-time, description: "When it was applied (UTC).", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The person who applied it (`GET /v1/principals/{id}`).", readOnly: true}
+        created_by_name: {type: string, description: "That person's name, as it is now.", readOnly: true}
+    CycleCountAbcApplicationSummary:
+      type: object
+      description: "An ABC analysis applied at a plant as a list gives it (ADR-0082 As built S2c3): `getCycleCountAbcApplication`'s fields but its changes, which it counts."
+      required: [id, version, legal_entity_id, company_code, plant_id, plant_code, plant_name, from, to, share_a, share_b, total_consumption, preview_token, change_count, created_at, created_by, created_by_name]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        version: {type: integer, format: int32, description: "Always 1: an application is never changed.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company."}
+        company_code: {type: string, description: "That company's code."}
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        plant_code: {type: string, description: "The plant's code."}
+        plant_name: {type: string, description: "The plant's name, as it is now."}
+        from: {type: string, format: date, description: "The window's first posting date."}
+        to: {type: string, format: date, description: "The window's last posting date."}
+        share_a: {type: integer, format: int32, description: "Class A's percent of the plant's consumption value then."}
+        share_b: {type: integer, format: int32, description: "Class B's percent after A's then."}
+        total_consumption: {$ref: "#/components/schemas/Money", description: "The plant's consumption value in the window."}
+        preview_token: {type: string, description: "The preview applied."}
+        change_count: {type: integer, format: int32, description: "The changes it made (1 to 1,000), which `getCycleCountAbcApplication` lists."}
+        created_at: {type: string, format: date-time, description: "When it was applied (UTC).", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The person who applied it (`GET /v1/principals/{id}`).", readOnly: true}
+        created_by_name: {type: string, description: "That person's name, as it is now.", readOnly: true}
+    CycleCountAbcApplicationPage:
+      type: object
+      description: One page of the ABC analyses applied.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountAbcApplicationSummary"}
+          description: The applications on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     OutboundDeliveryItemInput:
       type: object
@@ -69917,15 +70466,16 @@ components:
             number: {type: integer, format: int32, description: "The version's number in the company, from 1.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [draft, fixed]
-              description: "`draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [draft, submitted, fixed]
+              description: "`draft` while its consensus changes; `submitted` while its approval request is pending, where the company's plans are approved (`submitSopPlan`), back to `draft` when the request is rejected or withdrawn; then `fixed`, which changes no more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             as_of: {type: string, format: date, description: "The company's day it reviewed on.", readOnly: true}
             first_day: {type: string, format: date, description: "The horizon's first day, the day after `as_of`.", readOnly: true}
             last_day: {type: string, format: date, description: "The horizon's last day, the last of its last month.", readOnly: true}
             months: {type: integer, format: int32, description: "The months of the horizon.", readOnly: true}
             fixed_at: {type: string, format: date-time, description: "When it was fixed; absent while it is a draft.", readOnly: true}
-            fixed_by: {type: string, format: uuid, description: "Who fixed it; absent while it is a draft.", readOnly: true}
+            fixed_by: {type: string, format: uuid, description: "Who fixed it: the planner who fixed or submitted it where the company's plans need no approval, else the approver of the approval's last step; absent until it is fixed.", readOnly: true}
+            approval_request_id: {type: string, format: uuid, description: "Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason, and its `status`, which says how it ended): pending while it is `submitted`, approved when it was `fixed` by that approval, rejected or cancelled after it went back to `draft`. A version fixed without approval (its company asking none any more) after a rejection or withdrawal keeps naming that rejected or cancelled request; absent while it was never submitted.", readOnly: true}
             lines:
               type: array
               items:

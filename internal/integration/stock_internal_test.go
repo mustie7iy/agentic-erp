@@ -47,7 +47,7 @@ func moving(area, stock, value string) sap.MBEW {
 // stocks plans the extract's stock against its plants and materials.
 func stocks(x *sap.Extract) ([]sapStock, []string) {
 	plants, _ := plantsOf(x)
-	mats, _ := materialsOf(x, map[string]bool{"KG": true}, plants)
+	mats, _ := materialsOf(x, map[string]string{"KG": "mass"}, plants)
 	got, issues := stocksOf(x, stockTarget(), plants, mats)
 	var out []string
 	for _, i := range issues {
@@ -192,7 +192,7 @@ func TestTakeOverOnTheLockedDay(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tg := stockTarget()
-			tg.units = map[string]bool{"KG": true}
+			tg.units = map[string]string{"KG": "mass"}
 			e := tg.entities["2000"]
 			e.ID = company
 			tg.entities["2000"] = e

@@ -24,10 +24,12 @@ type PlantInput struct {
 	StorageLocations []uuid.UUID
 }
 
-// UnitInput is an alternative unit a request gives a material.
+// UnitInput is an alternative unit a request gives a material, with one
+// of its dimensions, weights and GTIN (S1a3).
 type UnitInput struct {
 	Code                   string
 	Numerator, Denominator int32
+	Measures               Measures
 }
 
 // Input is a material as a request creates it (ADR-0082 §4).
@@ -40,10 +42,13 @@ type Input struct {
 	DescriptionLanguage string
 	Descriptions        []Description
 	BaseUnit            string
-	Type                string
-	Group               string
-	Plants              []PlantInput
-	Units               []UnitInput
+	// BaseMeasures are one of the base unit's dimensions, weights and
+	// GTIN (S1a3).
+	BaseMeasures Measures
+	Type         string
+	Group        string
+	Plants       []PlantInput
+	Units        []UnitInput
 	// BatchManaged manages the material in batches (As built S2f).
 	BatchManaged bool
 	// SerialManaged gives the material a serial number profile (As built
@@ -172,17 +177,29 @@ func (e *Endpoints) checkPlants(ctx context.Context, plants []PlantInput) (map[u
 	return companies, nil
 }
 
-// defaulted is the input with DefaultLanguage when it names no language.
+// defaulted is the input with DefaultLanguage when it names no language,
+// and its measures written as they are kept (Measures.canonical).
 func (in Input) defaulted() Input {
 	if in.DescriptionLanguage == "" {
 		in.DescriptionLanguage = DefaultLanguage
 	}
+	in.BaseMeasures, in.Units = in.BaseMeasures.canonical(), canonicalUnits(in.Units)
 	return in
+}
+
+// canonicalUnits are units with their measures written as they are kept,
+// a copy: the request's own slice stays as given.
+func canonicalUnits(units []UnitInput) []UnitInput {
+	out := make([]UnitInput, len(units))
+	for i, u := range units {
+		u.Measures, out[i] = u.Measures.canonical(), u
+	}
+	return out
 }
 
 // says checks what a request says of a material before anything is
 // written: its descriptions and their languages, a known type, then its
-// units and plants. The texts' lengths and the group's form are the
+// units, their measures and plants. The texts' lengths and the group's form are the
 // contract's and the database's.
 func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUID]uuid.UUID, error) {
 	if err := problem.RequireText("description", in.Description); err != nil {
@@ -207,6 +224,9 @@ func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUI
 			" is kept in no stock, so its units have no serial numbers.")
 	}
 	if err := checkUnits(ctx, tx, in.BaseUnit, in.Units); err != nil {
+		return nil, err
+	}
+	if err := checkMeasures(ctx, tx, uuid.Nil, measuresOf(in.BaseUnit, &in.BaseMeasures, in.Units)); err != nil {
 		return nil, err
 	}
 	return e.checkPlants(ctx, in.Plants)
@@ -254,7 +274,8 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	}
 	if err := e.record(ctx, m, change{action: "create", name: "created", detail: map[string]any{"number": m.Number, "description": m.Description,
 		"description_language": m.DescriptionLanguage, "descriptions": descriptionDetail(m.Descriptions), "base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status, "batch_managed": m.BatchManaged,
-		"serial_managed": m.SerialManaged, "plants": plantIDs(m.Plants), "alternative_units": unitDetail(m.Units), "material_change_id": c.ID, "possible_duplicates": len(dups)}}, nil); err != nil {
+		"serial_managed": m.SerialManaged, "plants": plantIDs(m.Plants), "alternative_units": unitDetail(m.Units),
+		"measures": measureDetail(m.BaseUnit, m.BaseMeasures, m.Units), "material_change_id": c.ID, "possible_duplicates": len(dups)}}, nil); err != nil {
 		return Material{}, err
 	}
 	if err := recordChange(ctx, c, m, "materials.change.request", nil, nil); err != nil {
@@ -268,7 +289,7 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 
 // insert writes the material with its number in the status, pending for
 // a request and active for a migration (Migration), with its further
-// descriptions, plants, storage locations and units.
+// descriptions, plants, storage locations, units and their measures.
 func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, in Input, companies map[uuid.UUID]uuid.UUID,
 	number, status string) (Material, error) {
 	id := uuid.Must(uuid.NewV7())
@@ -288,6 +309,9 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, l
 	if err := writeUnits(ctx, tx, p, id, in.Units); err != nil {
 		return Material{}, err
 	}
+	if err := writeMeasures(ctx, tx, p, id, measuresOf(in.BaseUnit, &in.BaseMeasures, in.Units)); err != nil {
+		return Material{}, err
+	}
 	return load(ctx, tx, id, false)
 }
 
@@ -298,8 +322,12 @@ func requestedOf(m Material, in Input, companies map[uuid.UUID]uuid.UUID) Reques
 		units[i] = RequestedUnit(u)
 	}
 	descriptions := slices.Clone(m.Descriptions)
+	var base *Measures
+	if !m.BaseMeasures.IsZero() {
+		base = &m.BaseMeasures
+	}
 	return Requested{Description: &m.Description, DescriptionLanguage: &m.DescriptionLanguage, Descriptions: &descriptions, BaseUnit: &m.BaseUnit,
-		Type: &m.Type, Group: &m.Group, Plants: requestedPlants(in.Plants, companies), Units: &units, BatchManaged: &m.BatchManaged,
+		BaseMeasures: base, Type: &m.Type, Group: &m.Group, Plants: requestedPlants(in.Plants, companies), Units: &units, BatchManaged: &m.BatchManaged,
 		SerialManaged: &m.SerialManaged}
 }
 

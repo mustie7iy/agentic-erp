@@ -15,7 +15,7 @@ func TestPlantsOfUnknownPlant(t *testing.T) {
 	x := &sap.Extract{T001W: []sap.T001W{{WERKS: "P1", NAME1: "One", BUKRS: "2000"}}, T001L: []sap.T001L{{WERKS: "P9", LGORT: "S9", LGOBE: "Nowhere"}},
 		MARA: []sap.MARA{{MATNR: "M-1", MTART: "ROH", MATKL: "STEEL", MEINS: "KG"}}, MARC: []sap.MARC{{MATNR: "M-1", WERKS: "P9"}}}
 	plants, issues := plantsOf(x)
-	_, more := materialsOf(x, map[string]bool{"KG": true}, plants)
+	_, more := materialsOf(x, map[string]string{"KG": "mass"}, plants)
 	var got []string
 	for _, i := range append(issues, more...) {
 		got = append(got, i.Severity+" "+i.Table+" "+i.Key+": "+i.Message)

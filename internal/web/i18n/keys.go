@@ -95,6 +95,7 @@ const (
 	ObjectMaterialChange      Key = "object.material_change"
 	ObjectCreditLimit         Key = "object.credit_limit_change"
 	ObjectInventoryDifference Key = "object.inventory_difference"
+	ObjectSopPlan             Key = "object.sop_plan"
 	StatusPending             Key = "approval.status.pending"
 	StatusApproved            Key = "approval.status.approved"
 	StatusRejected            Key = "approval.status.rejected"
