@@ -239,18 +239,8 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		vendors:    map[string]partner{},
 		parallel:   map[string][]string{},
 	}
-	if s.builds("gl_lines") {
-		ledgers, err := apitools.List[ledgerOf](ctx, s.API, "/v1/ledgers", nil)
-		if err != nil {
-			return nil, err
-		}
-		for _, l := range ledgers {
-			for _, le := range l.LegalEntityIDs {
-				if !l.IsLeading {
-					b.parallel[le] = append(b.parallel[le], l.ID)
-				}
-			}
-		}
+	if err := s.readLedgers(ctx, b); err != nil {
+		return nil, err
 	}
 	if s.namesCenters() {
 		if b.centers, err = readCenters(ctx, s.API); err != nil {
@@ -267,6 +257,26 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		}
 	}
 	return b.f, nil
+}
+
+// readLedgers records each legal entity's parallel ledgers, for the
+// journal's lines alone.
+func (s Source) readLedgers(ctx context.Context, b *factBuilder) error {
+	if !s.builds("gl_lines") {
+		return nil
+	}
+	ledgers, err := apitools.List[ledgerOf](ctx, s.API, "/v1/ledgers", nil)
+	if err != nil {
+		return err
+	}
+	for _, l := range ledgers {
+		for _, le := range l.LegalEntityIDs {
+			if !l.IsLeading {
+				b.parallel[le] = append(b.parallel[le], l.ID)
+			}
+		}
+	}
+	return nil
 }
 
 // factBuilder accumulates the fact tables across legal entities.
