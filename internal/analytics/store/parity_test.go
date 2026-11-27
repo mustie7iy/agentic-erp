@@ -52,7 +52,8 @@ type parity struct {
 
 var parityPerms = []string{"ledger.entry.post", "ledger.entry.read", "ledger.account.read", "payables.invoice.read", "procurement.order.read",
 	"partner.supplier.read", "tenancy.org.read", "analytics.query.run", "config.change.read", "config.change.propose", "config.change.activate", "platform.operation.read",
-	"cash.forecast.read", "sales.order.read", "sales.billing.read", "procurement.contract.read", "ledger.cost_center.read"}
+	"cash.forecast.read", "sales.order.read", "sales.billing.read", "procurement.contract.read", "ledger.cost_center.read",
+	"ledger.cost_center.change"}
 
 // cashPort is the cash context as erp-server wires it into the analytics
 // context, the database path's and the extract's.
@@ -95,6 +96,24 @@ func (p parity) dubaiSale(t *testing.T) {
 		{"account_id": %q, "amount": {"amount": "-200.00", "currency": "EUR"}, "tax_code": "S5", "tax_jurisdiction": "AE-DU"},
 		{"account_id": %q, "amount": {"amount": "-10.00", "currency": "EUR"}, "tax_code": "S5", "tax_jurisdiction": "AE-DU"}]}`,
 		p.DE, p.Account(t, "2000", "100000"), p.Account(t, "2000", "400000"), p.Account(t, "2000", "240000")), "")
+}
+
+// centerReposting gives company 2000 segment SEG1, profit center PC10 and
+// cost center CC100 (fixture.Centers) and reposts on 16 April 50.00 of
+// 610000's expenses to CC100, its profit center and segment derived from
+// it, and 25.00 of 400000's revenue to PC10, as a controller's manual
+// reposting does (ADR-0050 §5): the metrics' totals stay as they were,
+// and the centers have values beside the lines without one.
+func (p parity) centerReposting(t *testing.T) {
+	t.Helper()
+	p.Controller(t)
+	c := p.Centers(t)
+	line := func(account, amount, extra string) string {
+		return fmt.Sprintf(`{"account_id": %q, "amount": {"amount": %q, "currency": "EUR"}%s}`, p.Account(t, "2000", account), amount, extra)
+	}
+	p.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-04-16", "posting_date": "2026-04-16", "currency": "EUR",
+		"lines": [%s, %s, %s, %s]}`, p.DE, line("610000", "50.00", fmt.Sprintf(`, "cost_center_id": %q`, c.Cost)), line("610000", "-50.00", ""),
+		line("400000", "-25.00", fmt.Sprintf(`, "profit_center_id": %q`, c.Profit)), line("400000", "25.00", "")), "")
 }
 
 // order inserts a purchase order of le with one item, and a removed one.
@@ -162,6 +181,7 @@ func setupParity(t *testing.T) parity {
 	p.post(t, p.US, "1000", "USD", "2026-02-11", "100000", "400000", "800.00", nil, nil)
 	p.post(t, p.DE, "2000", "EUR", "2026-03-05", "610000", "100000", "999.00", nil, &p.parallel)
 	p.dubaiSale(t)
+	p.centerReposting(t)
 	p.order(t, p.DE, p.Supplier, "2000", "EUR", "2026-03-01", "2.5", 1234)
 	p.order(t, p.DE, p.Vendor, "2000", "EUR", "2026-09-15", "1", 10000)
 	p.order(t, p.US, p.Supplier, "1000", "USD", "2026-04-04", "0.333333", 999)
@@ -382,6 +402,25 @@ func TestParity(t *testing.T) {
 		}
 		if got := fmt.Sprint(res.Rows); !strings.HasSuffix(got, " [AE-DU 200.00]]") || len(res.Rows) != 2 {
 			t.Errorf("revenue of 2000 by tax jurisdiction: got %s, want a row of none, then AE-DU's 200.00", got)
+		}
+		// The reposted expenses under CC100 and its profit center and
+		// segment, the reposted revenue under PC10 and SEG1, the rest under
+		// none.
+		for name, c := range map[string]struct {
+			metric, by, want string
+		}{
+			"expenses by cost center":   {"expenses", "cost_center", "[[ 70.00] [CC100 50.00]]"},
+			"expenses by profit center": {"expenses", "profit_center", "[[ 70.00] [PC10 50.00]]"},
+			"revenue by segment":        {"revenue", "segment", "[[ 750.25] [SEG1 25.00]]"},
+		} {
+			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{c.metric}, By: []string{c.by}})
+			if err != nil {
+				t.Errorf("%s of 2000: got %v, want an answer", name, err)
+				continue
+			}
+			if got := fmt.Sprint(res.Rows); got != c.want {
+				t.Errorf("%s of 2000: got %s, want %s", name, got, c.want)
+			}
 		}
 		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "1119.00"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"expenses"}, Ledger: ledger})

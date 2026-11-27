@@ -43,7 +43,11 @@ type glLine struct {
 	// The line's tax jurisdiction and declared tax base (ADR-0049 §7, §9).
 	TaxJurisdiction *string      `parquet:"tax_jurisdiction,optional"`
 	TaxBaseMinor    *money.Minor `parquet:"tax_base_minor,optional"`
-	IBAN            string       `parquet:"iban"`
+	// The line's cost center, profit center and segment (ADR-0050 §5).
+	CostCenter   *string `parquet:"cost_center,optional"`
+	ProfitCenter *string `parquet:"profit_center,optional"`
+	Segment      *string `parquet:"segment,optional"`
+	IBAN         string  `parquet:"iban"`
 }
 
 type accountRow struct {

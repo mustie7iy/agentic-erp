@@ -10115,7 +10115,32 @@ step_plan_version() {
     "$(field '[.items[] | select(.account_id == "'"$account"'" and (.cost_center_id == "'"$admin"'" or .cost_center_id == "'"$sales"'")) | "\(.cost_center_id) \(.plan.amount)"] | sort | join("; ")')" \
     "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
+  center_actuals_analytics "$admin"
   passed
+}
+
+# center_actuals_analytics CENTER is T56i1 (ADR-0044 As built T56i1): the
+# actual costs of cost center CC-1100 this year, asked of the semantic
+# layer as the governed metric expenses by account and cost center, which
+# the journal's lines carry by code, agree on every account with the cost
+# center's actual report (GET /v1/cost-center-balances, the authoritative
+# read): the settlement, distribution and assessment of steps 51-53 among
+# them.
+center_actuals_analytics() {
+  local center=$1 got want number
+  say "Carla asks the semantic layer for CC-1100's actual costs of $YEAR: the governed metric expenses by account and"
+  say "cost center, the journal's lines by the code of their cost center (ADR-0044 As built T56i1):"
+  api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value) on \(.[1].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"expenses\"], \"by\": [\"cost_center\", \"account\"], \"where\": [{\"dim\": \"cost_center\", \"op\": \"in\", \"values\": [\"CC-1100\"]}, {\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"], \"order_by\": \"account\"}"
+  got=$(field '[.rows[] | "\(.[1].value) \(.[2].value)"] | join("; ")')
+  [ -n "$got" ] || fail "no actual costs on CC-1100 in $YEAR: the earlier steps' postings are not there"
+  want=''
+  for number in $(field '[.rows[] | .[1].value] | join(" ")'); do
+    want="${want:+$want; }$number $(amount "$(center_costs "$center" "$(account "$number")")")"
+  done
+  say "The cost center's actual report, account by account (GET /v1/cost-center-balances):"
+  expect "expenses by cost center, the cost center report's actuals" "$got" "$want"
+  say "The governed metric expenses by cost center agrees with the report: CC-1100 $got CAD."
 }
 # step_planning_agent is T105e (ADR-0072, As built T105e): the planning
 # agent, erp agent plan through the model stand-in answering from a script

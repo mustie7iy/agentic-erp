@@ -40,6 +40,12 @@ type glLine struct {
 	// journal API shows them; nil where the line has none.
 	TaxJurisdiction *string      `parquet:"tax_jurisdiction,optional"`
 	TaxBaseMinor    *money.Minor `parquet:"tax_base_minor,optional"`
+	// The line's cost center, profit center and segment by code
+	// (ADR-0050 §5), as the journal API shows them; nil where the line
+	// has none.
+	CostCenter   *string `parquet:"cost_center,optional"`
+	ProfitCenter *string `parquet:"profit_center,optional"`
+	Segment      *string `parquet:"segment,optional"`
 }
 
 const glLinesDataset = "gl_lines"
@@ -47,13 +53,17 @@ const glLinesDataset = "gl_lines"
 // glLinesSQL reads the lines of a run's interval of entries; row-level
 // security limits it to the tenant.
 const glLinesSQL = `SELECT l.tenant_id, l.journal_entry_id, l.line_no, l.ledger_id, le.code, l.posting_date, a.number, e.document_type,
-	bp.number, l.amount_lc, e.currency_lc, c.exponent, coalesce(e.posted_xid, '0'::xid8)::text, l.tax_jurisdiction, l.tax_base_lc
+	bp.number, l.amount_lc, e.currency_lc, c.exponent, coalesce(e.posted_xid, '0'::xid8)::text, l.tax_jurisdiction, l.tax_base_lc,
+	cc.code, pc.code, sg.code
 	FROM ledger.journal_entry e
 	JOIN ledger.journal_line l ON l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id
 	JOIN tenancy.legal_entity le ON le.tenant_id = l.tenant_id AND le.id = l.legal_entity_id
 	JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 	JOIN ref.currency c ON c.code = e.currency_lc
 	LEFT JOIN partner.business_partner bp ON bp.tenant_id = l.tenant_id AND bp.id = l.partner_id
+	LEFT JOIN ledger.cost_center cc ON cc.tenant_id = l.tenant_id AND cc.id = l.cost_center_id
+	LEFT JOIN ledger.profit_center pc ON pc.tenant_id = l.tenant_id AND pc.id = l.profit_center_id
+	LEFT JOIN ledger.segment sg ON sg.tenant_id = l.tenant_id AND sg.id = l.segment_id
 	WHERE `
 
 // The interval of a run: a plain range for the index (tenant_id,
@@ -82,7 +92,8 @@ var glColumns = func() []string {
 // posted lines are immutable but the columns are new, and the old files
 // leave the manifest and are collected with it. A reader never sees
 // parts of two schemas, and a column added to the contract is filled for
-// every line the database holds it for (ADR-0044 As built batch 95).
+// every line the database holds it for (ADR-0044 As built batch 95; the
+// centers' columns, T56i1, are extracted again the same way).
 func (r *run) glLines(ctx context.Context, tx pgx.Tx) error {
 	ds := r.prevM.Datasets[glLinesDataset]
 	sql, args := glLinesSQL+firstRun, []any{strconv.FormatUint(r.cutoff, 10)}
@@ -104,11 +115,12 @@ func (r *run) glLines(ctx context.Context, tx pgx.Tx) error {
 	var date time.Time
 	var exponent int16
 	_, err := pgx.ForEachRow(rows, []any{&l.TenantID, &l.DocumentID, &l.LineNo, &l.LedgerID, &l.Company, &date, &l.Account, &l.DocumentType,
-		&l.Vendor, &l.AmountMinor, &l.Currency, &exponent, (*xid)(&l.PostedXID), &l.TaxJurisdiction, &l.TaxBaseMinor}, func() error {
+		&l.Vendor, &l.AmountMinor, &l.Currency, &exponent, (*xid)(&l.PostedXID), &l.TaxJurisdiction, &l.TaxBaseMinor,
+		&l.CostCenter, &l.ProfitCenter, &l.Segment}, func() error {
 		l.PostingDate, l.Exponent = days(date), int32(exponent)
 		err := months.add(date.Format(monthLayout), l)
 		// The scan may reuse a non-nil pointer, which the batched row holds.
-		l.Vendor, l.TaxJurisdiction, l.TaxBaseMinor = nil, nil, nil
+		l.Vendor, l.TaxJurisdiction, l.TaxBaseMinor, l.CostCenter, l.ProfitCenter, l.Segment = nil, nil, nil, nil, nil, nil
 		return err
 	})
 	if err == nil {
