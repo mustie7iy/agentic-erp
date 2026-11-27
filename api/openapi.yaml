@@ -37923,6 +37923,9 @@ paths:
         # withdrawn change only frees the GTINs of a material never created (ADR-0082 As built S1a3), so it is not expected here.
         - materials.gtin_taken
         - materials.invalid_status
+        # materials.number_taken: listed as releasing a rejected create's GTINs moves the material's version (S1a3), an update
+        # TestProblemCodes reads with the material's unique number; the update changes no number, so it is not expected here.
+        - materials.number_taken
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
@@ -38093,6 +38096,9 @@ paths:
         # withdrawn change only frees the GTINs of a material never created (ADR-0082 As built S1a3), so it is not expected here.
         - materials.gtin_taken
         - materials.invalid_status
+        # materials.number_taken: listed as releasing a rejected create's GTINs moves the material's version (S1a3), an update
+        # TestProblemCodes reads with the material's unique number; the update changes no number, so it is not expected here.
+        - materials.number_taken
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
