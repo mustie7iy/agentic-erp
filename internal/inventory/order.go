@@ -23,11 +23,11 @@ import (
 // its own transaction; a return to the supplier a 122 through
 // ReturnForOrder, and its reversal a 123 through ReverseForOrder (S1e2).
 // The material document is valued as any is, but its value posts on the
-// entry procurement posts for the goods movement, against GR/IR (source context procurement, which moves the order
-// items' GR/IR positions), not on an entry of its own: each item's GR/IR
-// counter line goes to its valuation class's stock account, the part the
-// stock does not take to the class's price difference account
-// (ledger.GRIRStock).
+// entry procurement posts for the goods movement, against GR/IR (source
+// context procurement, which moves the order items' GR/IR positions), not
+// on an entry of its own: each item's GR/IR counter line goes to its
+// valuation class's stock account, the part the stock does not take to
+// the class's price difference account (ledger.GRIRStock).
 
 // OrderItem is a stock item of a purchase order a goods receipt moves: a
 // positive quantity of its material in the order item's unit, into a
@@ -266,7 +266,7 @@ func (e *Endpoints) writeOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 // stock and price difference accounts, and what the stock takes when that
 // does not wait for the entry, which values the line now: at a standard
 // price, out of stock (102, 122), and back into it at what its original
-// took (a 123's target, negated).
+// took (a 123's target).
 func (e *Endpoints) bookings(ctx context.Context, in posting, vals map[valuationKey]*Valuation, r refs) ([]ledger.GRIRStock, error) {
 	a := e.accounts(in.company.ID, in.company.Code)
 	out := make([]ledger.GRIRStock, len(in.lines))
