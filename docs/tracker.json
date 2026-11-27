@@ -3775,9 +3775,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cost object custom fields: ADR-0046's cost_object reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended",
-        "r": "T56k",
+        "r": "T56k · internal/platform/extensions schema.go (format cost_object, x-cost-object cost_center | profit_center; purchase order and supplier invoice only), write.go (Document, CostObjects, not_found/not_active/not_in_company/not_valid_on_date) · internal/ledger costobjects.go (CostObjectReferences) · procurement and payables: the order date, the invoice's posting date else invoice date, again at posting · api/openapi.yaml (CustomFieldSchema description) · TestCostObjectReferences, TestCostObjectFields (procurement, payables), TestWritesCheck, TestCompileRefusals · ADR-0046 As built T56k, ADR-0050 §6 · scripts/walkthrough.sh step_custom_fields",
         "src": "baseline",
         "c": []
        },
@@ -3791,9 +3791,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Cost center master and hierarchy; then lift the custom field schema compiler's refusal of cost object reference fields (ADR-0046, T58d)",
-      "r": "T56a · T56b · T56k",
+      "r": "T56a · T56b · T56k · done by T56a (center master data) and T56b (hierarchies) under Cost and profit center accounting decided, and T56k (the compiler's refusal lifted: cost object fields naming cost and profit centers)",
       "src": "baseline",
       "c": []
      },

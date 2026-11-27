@@ -332,7 +332,7 @@ func capturedItems(lines []capture.Line, order procurement.Order, p *printed) ([
 // carries none: a field the schema requires holds the invoice until a
 // person adds it, which the invoice's next update checks.
 func (e *Endpoints) capturedExtensions(ctx context.Context, in *Input, held string) (string, error) {
-	schema, missing, err := e.extensions().CheckHeld(ctx, in.Extensions)
+	schema, missing, err := e.extensions().CheckHeld(ctx, invoiceDocument(in.LegalEntityID, in.InvoiceDate, in.PostingDate), in.Extensions)
 	if err != nil {
 		return "", err
 	}

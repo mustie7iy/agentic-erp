@@ -18015,6 +18015,65 @@ wms_acknowledged() {
   fail "the exchange did not acknowledge $1 (after $i checks)"
 }
 
+# step_custom_fields is a cost object custom field (ADR-0046 As built
+# T56k): Ada adds two optional custom fields to the purchase order's
+# schema, a benefiting cost center and a benefiting profit center, of
+# format cost_object (tier 1, approved on submission); the schema is read
+# back; Ben's order names Maple's CC-1100 and PC-MTL in them, and a profit
+# center named as a cost center, or CC-1100 on an order dated before the
+# cost center's validity, is refused, each naming the field and why.
+step_custom_fields() {
+  heading "Step 163 — Cost object custom fields: a purchase order names a benefiting cost center and profit center, checked against the ledger on the order's date"
+  local base cr cc pc
+  as ada
+  say "Ada adds two optional custom fields to the purchase order: the cost center and the profit center that benefit"
+  say "from an order, beside its items' own account assignment. Each is of format cost_object, naming in x-cost-object"
+  say "what it refers to; adding an optional field is tier 1, approved as it is submitted (ADR-0046)."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --argjson base "$base" '{title: "Benefiting centers on purchase orders", rationale: "Controlling reports orders by the centers they serve (T56k)",
+    base_version: $base, proposed: (.items[0].document | .extensions.purchase_order = ((.extensions.purchase_order
+      // {version: 0, type: "object", additionalProperties: false, properties: {}}) | .version += 1
+      | .properties += {benefiting_cost_center: {type: "string", format: "cost_object", "x-cost-object": "cost_center", title: "Benefiting cost center", "x-pii": "none"},
+        benefiting_profit_center: {type: "string", format: "cost_object", "x-cost-object": "profit_center", title: "Benefiting profit center", "x-pii": "none"}}))}' \
+    "$WORK/last.json" >"$WORK/cost-object-fields.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @cost-object-fields.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 1
+  expect "status after submit" "$(field .status)" approved
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as ben
+  api 200 '"schema version \(.version): " + ([.schema.properties | to_entries[] | select(.value.format == "cost_object") | "\(.key) (\(.value["x-cost-object"]))"] | join(", "))' \
+    getSchema -p entity=purchase_order
+  expect "the cost object fields" "$(field '[.schema.properties | to_entries[] | select(.value.format == "cost_object") | "\(.key)=\(.value["x-cost-object"])"] | join(" ")')" \
+    "benefiting_cost_center=cost_center benefiting_profit_center=profit_center"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  QUIET=1 api 200 '' listProfitCenters -p code=PC-MTL
+  pc=$(field '.items[0].id')
+  say "Ben orders a desk lamp for the finance office, which CC-1100 and the Montreal office's PC-MTL benefit from:"
+  api 201 '"purchase order \(.document_number // .id): \(.status), custom fields: \(.extensions | to_entries | map("\(.key) \(.value)") | join(", "))"' \
+    createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$cc\", \"benefiting_profit_center\": \"$pc\"}")"
+  expect "the order's benefiting cost center" "$(field .extensions.benefiting_cost_center)" "$cc"
+  expect "the order's benefiting profit center" "$(field .extensions.benefiting_profit_center)" "$pc"
+  say "A profit center is not a cost center, so PC-MTL in the cost center field is refused:"
+  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$pc\"}")"
+  expect "the field error" "$(field '.errors | map("\(.field) \(.code)") | join(", ")')" "extensions.benefiting_cost_center not_found"
+  say "CC-1100 is valid from 1 January $YEAR, so an order dated the day before cannot name it:"
+  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$((YEAR - 1))-12-31" "{\"benefiting_cost_center\": \"$cc\"}")"
+  expect "the field error" "$(field '.errors | map("\(.field) \(.code)") | join(", ")')" "extensions.benefiting_cost_center not_valid_on_date"
+  passed
+}
+
+# cost_object_order DATE EXTENSIONS is the body of Ben's order of a desk
+# lamp on DATE with the custom fields EXTENSIONS (step_custom_fields).
+cost_object_order() {
+  printf '{"legal_entity_id": "%s", "supplier_id": "%s", "currency": "CAD", "order_date": "%s", "payment_term_code": "NT30", "extensions": %s, "items": [{"description": "Desk lamp", "quantity": {"value": "1", "unit": "EA"}, "unit_price": {"amount": "80.00", "currency": "CAD"}, "account_id": "%s", "tax_code": "PBC"}]}' \
+    "$LE" "$SUPPLIER" "$1" "$2" "$(account 1690)"
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -20063,7 +20122,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_custom_fields step_close'
 
 main() {
   stop_unseen
