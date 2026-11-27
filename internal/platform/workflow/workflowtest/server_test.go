@@ -22,6 +22,7 @@ func TestServerOnATakenPort(t *testing.T) {
 	taken := l.Addr().(*net.TCPAddr).Port
 	tried := 0
 	port = func(tb testing.TB) int {
+		tb.Helper()
 		tried++
 		if tried == 1 {
 			return taken

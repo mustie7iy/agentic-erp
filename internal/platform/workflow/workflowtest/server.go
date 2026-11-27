@@ -86,7 +86,7 @@ func startOn(bin string, port int) (string, func(), error) {
 	cmd := exec.CommandContext(context.Background(), bin, "server", "start-dev", "--headless", "--ip", "127.0.0.1", "--port", strconv.Itoa(port), "--metrics-port", "0", "--log-level", "error") // #nosec G204 -- the CLI found on the path, fixed arguments
 	cmd.Stdout, cmd.Stderr = os.Stderr, io.MultiWriter(os.Stderr, &out)
 	if err := cmd.Start(); err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("starting %s: %w", bin, err)
 	}
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }() // its exit is what matters here; dial reports it
@@ -133,7 +133,8 @@ type syncBuffer struct {
 func (b *syncBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.Write(p)
+	n, _ := b.buf.Write(p) // a bytes.Buffer's Write returns no error: it panics on a buffer too large
+	return n, nil
 }
 
 func (b *syncBuffer) String() string {
