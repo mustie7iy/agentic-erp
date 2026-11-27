@@ -2080,6 +2080,26 @@ func (UnimplementedHandler) CreateCustomerSalesData(ctx context.Context, req *Cu
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCycleCountAbcApplication implements createCycleCountAbcApplication operation.
+//
+// Applies the ABC analysis `getCycleCountAbcAnalysis` previewed for the plant and window (ADR-0082 As
+// built S2c3; SAP MIBC's update, from memory): the analysis is computed again, and when it is the one
+// previewed (its `preview_token`), each line's change is made, and nothing else: a material given its
+// class's indicator at the plant, or the indicator it has changed to it, each audited as
+// `createCycleCountMaterial` and `updateCycleCountMaterial` are, naming the analysis. When anything
+// the preview showed has changed since (a consumption, a material's indicator, its version, the
+// materials listed or the shares), nothing is applied: 409 `inventory.abc_preview_stale`, and a new
+// preview shows the analysis as it is now. An apply never takes an indicator off. Applies of one plant
+// wait for each other. The application is kept, never changed: the analysis's plant, window, shares,
+// totals and token, and each change made with the material's indicator after it. The refusals of
+// `getCycleCountAbcAnalysis` apply. A retry with the same `Idempotency-Key` answers the application
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-abc-applications
+func (UnimplementedHandler) CreateCycleCountAbcApplication(ctx context.Context, req *CycleCountAbcApply, params CreateCycleCountAbcApplicationParams) (r CreateCycleCountAbcApplicationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateCycleCountIndicator implements createCycleCountIndicator operation.
 //
 // Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
@@ -2104,10 +2124,10 @@ func (UnimplementedHandler) CreateCycleCountIndicator(ctx context.Context, req *
 // `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
 // `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
 // neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
-// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
-// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
-// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
-// (`x-agent: false`).
+// `inventory.serial_not_supported`), which counts do not take yet. A material has one active indicator
+// at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it), and
+// may be given one again once it is taken off (`removeCycleCountMaterial`). Audited. A retry with the
+// same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`).
 //
 // POST /v1/cycle-count-materials
 func (UnimplementedHandler) CreateCycleCountMaterial(ctx context.Context, req *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (r CreateCycleCountMaterialRes, _ error) {
@@ -5261,6 +5281,45 @@ func (UnimplementedHandler) GetCustomerSalesData(ctx context.Context, params Get
 	return r, ht.ErrNotImplemented
 }
 
+// GetCycleCountAbcAnalysis implements getCycleCountAbcAnalysis operation.
+//
+// The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3; SAP MIBC, from
+// memory), computed on read from one database state and stored nowhere: each material's consumption
+// value at the plant from `from` to `to` (the posting dates of the material documents of movement
+// types `201`, `551` and `601` less their reversals `202`, `552` and `602`, in the company's currency;
+// a net return is none); in the order of that value, the greatest first (ties by material id), a
+// material is class A while the materials before it make up less than the company's
+// `cycle_count_abc_shares.a` percent of the plant's consumption value (default 80), B while less than
+// `a` + `b` percent (default 15 more), else C, as is one with none. The materials listed are those a
+// count document takes (`createCycleCountMaterial`'s rules) with stock at the plant now or consumption
+// in the window; the others' consumption is in `excluded_consumption`. Each line proposes the plant's
+// indicator of its class's code (A, B or C) and says what applying the analysis would do: give the
+// material that indicator (`create`), change the one it has (`change`) or nothing (`none`). The plant
+// has an indicator of each class code its lines need (422 `inventory.abc_indicator_missing`). The
+// window ends on or before the company's date today and spans at most 366 days (422
+// `inventory.abc_window_invalid`); at most 1,000 materials are listed (422
+// `inventory.abc_too_many_materials`). `preview_token` is what `createCycleCountAbcApplication`
+// applies. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`).
+//
+// GET /v1/cycle-count-abc-analysis
+func (UnimplementedHandler) GetCycleCountAbcAnalysis(ctx context.Context, params GetCycleCountAbcAnalysisParams) (r GetCycleCountAbcAnalysisRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCycleCountAbcApplication implements getCycleCountAbcApplication operation.
+//
+// An ABC analysis applied at a plant (ADR-0082 As built S2c3): its plant and company by code, its
+// window, shares, consumption total and preview token, who applied it and when (by id and name as it
+// is now), and each change it made, its material by number and description, its consumption value and
+// class, the indicator given with the one it replaced, and the material's indicator after it. One of a
+// company the caller cannot act in is not found.
+//
+// GET /v1/cycle-count-abc-applications/{id}
+func (UnimplementedHandler) GetCycleCountAbcApplication(ctx context.Context, params GetCycleCountAbcApplicationParams) (r GetCycleCountAbcApplicationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCycleCountIndicator implements getCycleCountIndicator operation.
 //
 // A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code
@@ -7791,6 +7850,17 @@ func (UnimplementedHandler) ListCustomerSalesData(ctx context.Context, params Li
 	return r, ht.ErrNotImplemented
 }
 
+// ListCycleCountAbcApplications implements listCycleCountAbcApplications operation.
+//
+// The ABC analyses applied at the plants of the companies the caller may act in (ADR-0082 As built
+// S2c3), each as `getCycleCountAbcApplication` gives it, the latest first. Filtered by plant. Sortable
+// by: `created_at`.
+//
+// GET /v1/cycle-count-abc-applications
+func (UnimplementedHandler) ListCycleCountAbcApplications(ctx context.Context, params ListCycleCountAbcApplicationsParams) (r ListCycleCountAbcApplicationsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListCycleCountIndicators implements listCycleCountIndicators operation.
 //
 // The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
@@ -7806,7 +7876,8 @@ func (UnimplementedHandler) ListCycleCountIndicators(ctx context.Context, params
 //
 // The cycle counting indicators of materials at the plants of the companies the caller may act in
 // (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
-// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+// the order they were created, those taken off (`removed`, S2c3) among them. Filtered by plant,
+// material, indicator and status. Sortable by: `created_at`.
 //
 // GET /v1/cycle-count-materials
 func (UnimplementedHandler) ListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (r ListCycleCountMaterialsRes, _ error) {
@@ -7816,15 +7887,16 @@ func (UnimplementedHandler) ListCycleCountMaterials(ctx context.Context, params 
 // ListCycleCountsDue implements listCycleCountsDue operation.
 //
 // The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
-// memory): each material with a cycle counting indicator at the plant, at each storage location of the
-// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
-// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
-// posted count there is its indicator's interval or more days before today. Each names its material,
-// storage location, indicator and interval, its last count and the day it fell due. Never counted
-// first, then the longest due. A count document of a storage location's materials as listed
-// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
-// posted, an interval before they fall due again. The plant is an active plant of a company the caller
-// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+// memory): each material with an active cycle counting indicator at the plant (one taken off,
+// `removeCycleCountMaterial`, is none), at each storage location of the plant where it has stock now
+// (as `listStock` lists it), that no open count document holds there and that was never counted there
+// (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its
+// indicator's interval or more days before today. Each names its material, storage location, indicator
+// and interval, its last count and the day it fell due. Never counted first, then the longest due. A
+// count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at
+// most 100 a document) takes them off the list until it is posted, an interval before they fall due
+// again. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`). Sortable by: `due_on`.
 //
 // GET /v1/cycle-counts-due
 func (UnimplementedHandler) ListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (r ListCycleCountsDueRes, _ error) {
@@ -10889,6 +10961,22 @@ func (UnimplementedHandler) RemoveControlLink(ctx context.Context, params Remove
 	return r, ht.ErrNotImplemented
 }
 
+// RemoveCycleCountMaterial implements removeCycleCountMaterial operation.
+//
+// Takes a material's cycle counting indicator at a plant off at the caller's version (`If-Match`, 412
+// otherwise; ADR-0082 As built S2c3; SAP MM02 clearing MARC-ABCIN, from memory), once (409
+// `inventory.cycle_count_material_removed` after). Nothing is deleted (04 §4.3): it is kept as
+// `removed`, its `updated_at` and `updated_by` saying when and by whom, and is never changed again.
+// From then on the material is no longer due by an indicator at the plant (`listCycleCountsDue` leaves
+// it out; the count planning agent counts it by its own class's interval), and it may be given an
+// indicator again (`createCycleCountMaterial`, a new one). One of a company the caller may not act in
+// is not found (404). Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-materials/{id}:remove
+func (UnimplementedHandler) RemoveCycleCountMaterial(ctx context.Context, params RemoveCycleCountMaterialParams) (r RemoveCycleCountMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // RemoveHierarchyNode implements removeHierarchyNode operation.
 //
 // Removes a node without child nodes or centers; the root is not removed (422
@@ -12423,8 +12511,9 @@ func (UnimplementedHandler) UpdateCycleCountIndicator(ctx context.Context, req *
 //
 // Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
 // ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
-// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
-// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+// already has is 422 `inventory.nothing_to_change`; one taken off is not changed (409
+// `inventory.cycle_count_material_removed`). Its plant and material do not change. JSON Merge Patch.
+// Audited with the indicator before and after. Human-only (`x-agent: false`).
 //
 // PATCH /v1/cycle-count-materials/{id}
 func (UnimplementedHandler) UpdateCycleCountMaterial(ctx context.Context, req *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (r UpdateCycleCountMaterialRes, _ error) {

@@ -908,6 +908,39 @@ creates count documents from them.
   counts due per storage location's own indicator, a calendar of planned
   counts.
 
+### S2c3 Indicators taken off and set from the ABC analysis (count variants)
+
+**Capability.** An inventory controller takes a material's cycle
+counting indicator at a plant off, and sets the plant's materials'
+indicators from an ABC analysis of their consumption value: a preview
+first, then an apply of what the preview showed.
+
+- **Adds** (lane countoff, 2026-11-27; the tracker's "later: count
+  variants" split, its next two items; decided by default, ADR-0082 As
+  built S2c3): migration 000496, `status` on
+  `inventory.cycle_count_material` (`active`, `removed`) with one active
+  indicator per material and plant; `POST
+  /v1/cycle-count-materials/{id}:remove` (If-Match, once, audited);
+  `status` filter on `listCycleCountMaterials`; `GET
+  /v1/cycle-count-abc-analysis` (plant and window, computed in SQL from
+  posted material documents, S2e's consumption, classes by the company's
+  `cycle_count_abc_shares`, default 80 and 15, each line proposing the
+  plant's indicator of its class's code) and `POST
+  /v1/cycle-count-abc-applications` (the plant and window with the
+  preview's `preview_token`: computed again under the plant's lock and
+  applied only when unchanged, 409 `inventory.abc_preview_stale`
+  otherwise; each change audited as the indicator's create or change;
+  the application kept with its changes, read and listed by plant);
+  both human-only, on the count planning and demand forecasting agents'
+  never lists; the count planning agent reads active indicators only.
+- **Walkthrough:** extends `step_count`. **Acceptance:** an indicator
+  taken off is kept as removed, not due by it, taken off once; the
+  analysis's lines and totals add up; applying it makes the preview's
+  changes and a second apply of it is refused as stale.
+- **Later:** float time and a share of counts per period, counts due per
+  storage location's own indicator, a calendar of planned counts, the
+  count planning agent's classes from the company's shares.
+
 **Later for Physical inventory and cycle counting:** cycle counting
 indicators on the plant data (first slice S2c2), sampling inventory, counts on handling units
 or bins (EWM), freeze of the book quantity at a past date.

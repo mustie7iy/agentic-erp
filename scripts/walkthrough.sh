@@ -15496,10 +15496,13 @@ step_dispute_resolution() {
 # every 90 days for the brackets and C every 365 for the bolts; never
 # counted, both are due at the main store, and Wade's count document is
 # made from that list, which then leaves them out; counted, they are not
-# due again until their intervals have passed.
+# due again until their intervals have passed. Last, S2c3 (ADR-0082 As
+# built S2c3): Ines takes the bolts' indicator off, once, and sets the
+# plant's indicators from its ABC analysis over the year, previewed and
+# then applied as previewed, once.
 step_count() {
-  local loss brackets ind_a ind_c due
-  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once until the brackets are sent for a recount, their first count kept and the latest posted; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
+  local loss brackets ind_a ind_c due bolts from token apply
+  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once until the brackets are sent for a recount, their first count kept and the latest posted; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed; the bolts' indicator taken off, once; the ABC analysis of the plant previewed and applied as indicators, a stale preview refused"
   local doc book
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   as ines
@@ -15609,6 +15612,39 @@ step_count() {
   say "Counted today, the brackets fall due again in 90 days and the bolts in 365; nothing is due at the main store:"
   api 200 '"  \(.items | length) counts due"' listCycleCountsDue -p "plant_id=$PLANT" -p "storage_location_id=$MAIN_STORE"
   expect "the counts due once counted" "$(field '.items | length')" 0
+  say "Ines takes the bolts' indicator C off (S2c3; SAP MM02, from memory): kept as removed, they are counted by no"
+  say "indicator at the plant from then on, and the count planning agent counts them by their class's interval; once:"
+  QUIET=1 api 200 '' listCycleCountMaterials -p "plant_id=$PLANT" -p "material_id=$BOLT" -p status=active
+  bolts=$(field '.items[0].id')
+  QUIET=1 api 200 '' getCycleCountMaterial -p "id=$bolts"
+  api 200 '"\(.material_number) \(.material_description) at \(.plant_code): indicator \(.indicator_code), \(.status)"' \
+    removeCycleCountMaterial -p "id=$bolts" -if-match "$ETAG"
+  expect "the bolts' indicator" "$(field '"\(.status) \(.version)"')" "removed 2"
+  refused 409 inventory.cycle_count_material_removed removeCycleCountMaterial -p "id=$bolts" -if-match "$ETAG"
+  say "She runs the ABC analysis of the Toronto plant over the year (S2c3; SAP MIBC, from memory): each material's"
+  say "consumption value from its issues, scrappings and deliveries less their reversals; A the materials making up the"
+  say "first 80 percent, B the next 15, C the rest, each proposed the plant's indicator of its class. She adds B, every"
+  say "180 days, and previews it; nothing is stored:"
+  api 201 '"indicator \(.code) at \(.plant_code): every \(.interval_days) days"' createCycleCountIndicator \
+    -body "{\"plant_id\": \"$PLANT\", \"code\": \"B\", \"interval_days\": 180}"
+  from=$(date_add "$TODAY" -364)
+  api 200 '"ABC analysis of \(.plant_code) from \(.from) to \(.to): \(.total_consumption.amount) \(.total_consumption.currency) consumed, \(.changes) changes",
+      (.classes[] | "  class \(.class): \(.materials) materials, \(.consumption.amount)"), "  not counted: \(.excluded_materials) materials, \(.excluded_consumption.amount)",
+      (.lines[] | "  \(.material_number) \(.material_description): \(.consumption.amount), class \(.class), \(.before_indicator_code // "no indicator") to \(.indicator_code) (\(.change))")' \
+    getCycleCountAbcAnalysis -p "plant_id=$PLANT" -p "from=$from" -p "to=$TODAY"
+  expect "the bolts' line" "$(jq -r --arg m "$BOLT" '.lines[] | select(.material_id == $m) | .change' "$WORK/last.json")" create
+  expect "the brackets listed" "$(jq -r --arg m "$MATERIAL" '[.lines[] | select(.material_id == $m)] | length' "$WORK/last.json")" 1
+  token=$(field .preview_token)
+  apply="{\"plant_id\": \"$PLANT\", \"from\": \"$from\", \"to\": \"$TODAY\", \"preview_token\": \"$token\"}"
+  say "She applies it as previewed: each change made and audited, nothing else; the application is kept:"
+  api 201 '"applied by \(.created_by_name) at \(.plant_code), \(.changes | length) changes", (.changes[] | "  \(.line_no) \(.material_number): class \(.class), \(.before_indicator_code // "no indicator") to \(.indicator_code) (\(.change))")' \
+    createCycleCountAbcApplication -body "$apply"
+  expect "the analysis applied" "$(field '"\(.preview_token) \(.created_by_name)"')" "$token Ines Inventory"
+  expect "the bolts given an indicator" "$(jq -r --arg m "$BOLT" '.changes[] | select(.material_id == $m) | .change' "$WORK/last.json")" create
+  say "Applied, the preview is stale; nothing is applied twice:"
+  refused 409 inventory.abc_preview_stale createCycleCountAbcApplication -body "$apply"
+  QUIET=1 api 200 '' listCycleCountMaterials -p "plant_id=$PLANT" -p "material_id=$BOLT" -p status=active
+  expect "the bolts' indicator from the analysis" "$(field '.items | length')" 1
   passed
 }
 

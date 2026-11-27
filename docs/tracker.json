@@ -5852,9 +5852,16 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Cycle counting indicators taken off and set from the ABC analysis: a material's indicator at a plant removed at its version and kept so, no longer due by it; the plant's materials classed A, B and C by their consumption value over a window by the company's shares, previewed, and applied as indicators only as previewed",
+      "r": "S2c3 · docs/design/plan-supply-chain.md §S2c3 · ADR-0082 As built S2c3 · ADR-0072 As built S2e · db/migrations/000496 · inventory.cycle_count_material.status · POST /v1/cycle-count-materials/{id}:remove · GET /v1/cycle-count-abc-analysis · POST/GET /v1/cycle-count-abc-applications, GET /v1/cycle-count-abc-applications/{id} · inventory.cycle_count_abc_application, .cycle_count_abc_change · companies[].cycle_count_abc_shares · inventory.cycle_count_material_removed, inventory.abc_window_invalid, inventory.abc_indicator_missing, inventory.abc_too_many_materials, inventory.abc_preview_stale · countagent and demandagent never lists, countagent reads status=active · TestCycleCountRemove, TestABCAnalysis, TestABCShares, TestABCRefusals, TestABCTooMany, TestABCLocks, TestABCDatabaseFailures, TestCycleCountRemovalRules, TestCycleCountRemovalDownRefused, TestABCApplicationRules, TestABCApplicationDownRefused · walkthrough step_count",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: count variants: sampling inventory, counts by bin or handling unit, book quantity frozen at a past date, an indicator taken off a material, indicators set from the ABC analysis, float time and counts per period, a calendar of planned counts (after the plan's slices; product owner 2026-11-17)",
-      "r": "docs/design/plan-supply-chain.md §S2c, Later; §S2c2, Later",
+      "t": "later: count variants: sampling inventory, counts by bin or handling unit, book quantity frozen at a past date, float time and counts per period, a calendar of planned counts, the count planning agent's classes from the company's ABC shares (ADR-0082 As built S2e, Later) (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2c, Later; §S2c2, Later; §S2c3, Later",
       "src": "baseline",
       "c": []
      },

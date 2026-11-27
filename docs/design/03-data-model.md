@@ -7192,6 +7192,22 @@ erDiagram
   `cycle_count_indicator_plant`), `version`; the application updates its
   indicator and version alone. Neither is deleted. The counts due are
   read, not stored (`GET /v1/cycle-counts-due`).
+- S2c3 (migration 000496): `inventory.cycle_count_material.status`,
+  `active` or `removed` (`cycle_count_material_status_check`); a removed
+  one never changes again (trigger `cycle_count_material_removed`), and
+  `cycle_count_material_once` is a partial unique index of the active
+  ones, so a material may be given an indicator again; the application
+  updates the status too. The ABC analysis is read, not stored (`GET
+  /v1/cycle-count-abc-analysis`); its apply writes these rows and keeps
+  `inventory.cycle_count_abc_application` (plant, window, shares
+  `cycle_count_abc_application_shares_check`, window
+  `cycle_count_abc_application_window_check`, total, the preview's
+  64-hex token, who and when) with its `inventory.cycle_count_abc_change`
+  rows (numbered 1 to 1,000 in the analysis's order, once per material,
+  class A to C, the indicator given and the one replaced, never the
+  same, the material's indicator row), both insert-only. The
+  company's ABC shares are configuration
+  (`companies[].cycle_count_abc_shares`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`,
   `PhysicalInventoryRecountRequested`, S2d2).

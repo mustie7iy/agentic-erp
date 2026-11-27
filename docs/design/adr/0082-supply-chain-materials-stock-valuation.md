@@ -2062,7 +2062,8 @@ the specialist):
   document takes there (the checks are the count's, `refs.countable`):
   the tenant's, not pending, kept in stock, extended to the plant,
   neither batch- nor serial-managed. Taking an indicator off a material
-  is Later, as removing a material's MRP data is (ADR-0084 §4).
+  was Later, as removing a material's MRP data is (ADR-0084 §4); S2c3
+  built it.
 - **The counts due** (`GET /v1/cycle-counts-due`, computed, not stored):
   on the plant's company's date today, each material with an indicator
   at each storage location of the plant where it has stock now (as
@@ -2094,9 +2095,103 @@ the specialist):
   (`TestCycleCountLocks`, both orders).
 
 **Later:** an indicator taken off a material, indicators set from the
-ABC analysis (SAP MIBC), float time and a share of counts per period,
-counts due per storage location's own indicator, a calendar of planned
-counts; the tracker's "later: count variants".
+ABC analysis (SAP MIBC; both S2c3), float time and a share of counts per
+period, counts due per storage location's own indicator, a calendar of
+planned counts; the tracker's "later: count variants".
+
+### S2c3 (2026-11-27)
+
+Two items of the tracker's "later: count variants" leaf
+(plan-supply-chain.md §S2c3): an indicator taken off a material, and
+indicators set from the ABC analysis. Decided by default from SAP's
+cycle counting (MM02 clearing MARC-ABCIN and MIBC, both from memory, for
+the specialist) and from S2e's rule, which the count planning agent
+already applies:
+
+- **Taken off** (`POST /v1/cycle-count-materials/{id}:remove`, If-Match):
+  04 §4.3 has no hard deletes, so a material's indicator is kept as
+  `removed` (`status`, migration 000496; `updated_at`/`updated_by` say
+  when and by whom) and never changes again (trigger
+  `cycle_count_material_removed`, which holds the owner too). A material
+  has one *active* indicator at a plant: `cycle_count_material_once`
+  becomes a partial unique index of the same name, so a material may be
+  given one again, a new row, and the constraint's problem stays 409
+  `inventory.cycle_count_material_exists`. A removed one is 409
+  `inventory.cycle_count_material_removed` to `:remove` and `PATCH`. The
+  counts due read active indicators only; `listCycleCountMaterials`
+  lists both, filtered by `status`; the count planning agent reads
+  `status=active`, so a material whose indicator was taken off is due by
+  its class's interval again, as before S2c2. Audited
+  (`inventory.cycle_count_material.remove`), no event.
+- **The ABC analysis** (`GET /v1/cycle-count-abc-analysis?plant_id=&from=&to=`,
+  `x-snapshot`, computed in SQL, stored nowhere): a material's
+  consumption value at the plant is S2e's, the window's material
+  documents of `201`, `551` and `601` less `202`, `552` and `602` by
+  posting date, and a net return is none; in the order of that value,
+  the greatest first, ties by material id, a material is A while those
+  before it make up less than `a` percent of the plant's consumption
+  value, B while less than `a` + `b`, else C, as is one with none (S2e's
+  comparison, exact in numeric). The shares are the company's
+  `cycle_count_abc_shares` (`a`, `b`; each at least 1, together at most
+  99, so C keeps a share; tier 2, operational: nothing is posted), by
+  default 80 and 15, S2e's. The materials listed are those a count
+  document takes at the plant (`refs.countable`) with stock there now or
+  consumption in the window; the others' consumption is reported as
+  excluded and stays in the total, so the classes' shares are of the
+  whole plant, as the agent's are. Materials neither stocked nor consumed
+  are not listed and keep whatever indicator they have. Each line
+  proposes the plant's indicator whose code is its class's (A, B or C);
+  a class with lines and no such indicator is 422
+  `inventory.abc_indicator_missing` (indicators are the controller's,
+  S2c2). The window ends on or before the company's date today and spans
+  at most 366 days (422 `inventory.abc_window_invalid`); at most 1,000
+  materials are listed (422 `inventory.abc_too_many_materials`, the
+  answer's `maxItems`). The answer carries the plant's total, the
+  classes' and the excluded consumption in the company's currency (they
+  add up to the total), each line's change (`create`, `change`, `none`)
+  against the material's active indicator, and `preview_token`.
+- **Previewed, then applied as previewed**
+  (`POST /v1/cycle-count-abc-applications`, a create: 04 §4.3's
+  collection custom methods answer 202 with an Operation, and the apply
+  is short and synchronous). No preview is stored; the token is a
+  SHA-256 of everything the analysis shows that applying it depends on
+  (plant, window, shares, currency, totals, and per line the material,
+  value, class, proposed indicator, change and the active indicator's
+  id, indicator and version). The apply takes the plant's advisory lock
+  (`inventory.cycle_count_abc`, so applies of a plant wait for each
+  other), locks the listed materials' active indicators by themselves in
+  id order (`FOR NO KEY UPDATE`), computes the analysis again and, only
+  when its digest is the token, gives or changes each line's indicator
+  through the same code as `createCycleCountMaterial` and
+  `updateCycleCountMaterial`, audited as they are with `abc_analysis`
+  (the application, window, token, class, consumption) in the detail;
+  otherwise 409 `inventory.abc_preview_stale` and nothing is applied. An
+  apply never takes an indicator off. A concurrent
+  `createCycleCountMaterial` of a listed material is refused by the
+  unique index (409 `inventory.cycle_count_material_exists`). The
+  application is kept, insert-only (`inventory.cycle_count_abc_application`
+  with its `cycle_count_abc_change` rows, migration 000496; audited
+  `inventory.cycle_count_abc_application.create`): plant, window, shares,
+  total, token, who applied it and when, and each change in the
+  analysis's order with the indicator before and the material's
+  indicator row it made or changed; read by id and listed by plant, the
+  latest first, the person's name as it is now (identity's People port,
+  stored nowhere).
+- **Locks.** A row lock is taken by itself before the read that joins the
+  indicator (`loadCycleMaterial`, and the apply's): a `FOR NO KEY UPDATE
+  OF m` in the join, after waiting for a writer that moved the row to
+  another indicator, rechecked it against the indicator read before and
+  found no row (404); `TestABCLocks` covers an apply and a removal in
+  either order and two applies.
+- **People only.** Both operations are `inventory.count_plan.write`'s
+  and `x-agent: false`, on the never lists of the count planning and
+  demand forecasting agents (ADR-0072 As built S2e, S2m).
+
+**Later:** float time and a share of counts per period, counts due per
+storage location's own indicator, a calendar of planned counts; the
+count planning agent's own classes from `cycle_count_abc_shares` (it
+keeps S2e's fixed 80 and 95, S2e's Later); the tracker's "later: count
+variants".
 
 ### S2m (2026-11-22)
 

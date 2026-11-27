@@ -27032,7 +27032,7 @@ paths:
       tags:
         - inventory
       summary: List materials' cycle counting indicators
-      description: "The cycle counting indicators of materials at the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`."
+      description: "The cycle counting indicators of materials at the plants of the companies the caller may act in (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in the order they were created, those taken off (`removed`, S2c3) among them. Filtered by plant, material, indicator and status. Sortable by: `created_at`."
       x-permission: inventory.stock.read
       x-problem-codes:
         - request.invalid_order_by
@@ -27060,6 +27060,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only the materials' indicators of this status: `active` the ones materials are counted by, `removed` those taken off (S2c3)."
+          schema:
+            type: string
+            description: "A material's indicator's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [active, removed]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -27083,7 +27091,7 @@ paths:
       tags:
         - inventory
       summary: Give a material its cycle counting indicator at a plant
-      description: "Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant falls due once the indicator's interval has passed since its last posted count there (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422 `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`), neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422 `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited. A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`)."
+      description: "Gives a material its cycle counting indicator at the indicator's plant (ADR-0082 As built S2c2; SAP MARC-ABCIN, MM02, from memory): from then on a count of it at each storage location of the plant falls due once the indicator's interval has passed since its last posted count there (`listCycleCountsDue`). The indicator is one of a plant of a company the caller may act in (422 `inventory.indicator_invalid`); the material one a count document takes: the tenant's (422 `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422 `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`), neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422 `inventory.serial_not_supported`), which counts do not take yet. A material has one active indicator at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it), and may be given one again once it is taken off (`removeCycleCountMaterial`). Audited. A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`)."
       x-permission: inventory.count_plan.write
       x-agent: false
       x-problem-codes:
@@ -27172,11 +27180,12 @@ paths:
       tags:
         - inventory
       summary: Change a material's cycle counting indicator
-      description: "Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge Patch. Audited with the indicator before and after. Human-only (`x-agent: false`)."
+      description: "Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it already has is 422 `inventory.nothing_to_change`; one taken off is not changed (409 `inventory.cycle_count_material_removed`). Its plant and material do not change. JSON Merge Patch. Audited with the indicator before and after. Human-only (`x-agent: false`)."
       x-permission: inventory.count_plan.write
       x-agent: false
       x-problem-codes:
         - inventory.cycle_count_material_exists
+        - inventory.cycle_count_material_removed
         - inventory.indicator_invalid
         - inventory.nothing_to_change
         - request.version_mismatch
@@ -27219,13 +27228,243 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-materials/{id}:remove":
+    post:
+      operationId: removeCycleCountMaterial
+      tags:
+        - inventory
+      summary: Take a material's cycle counting indicator off
+      description: "Takes a material's cycle counting indicator at a plant off at the caller's version (`If-Match`, 412 otherwise; ADR-0082 As built S2c3; SAP MM02 clearing MARC-ABCIN, from memory), once (409 `inventory.cycle_count_material_removed` after). Nothing is deleted (04 §4.3): it is kept as `removed`, its `updated_at` and `updated_by` saying when and by whom, and is never changed again. From then on the material is no longer due by an indicator at the plant (`listCycleCountsDue` leaves it out; the count planning agent counts it by its own class's interval), and it may be given an indicator again (`createCycleCountMaterial`, a new one). One of a company the caller may not act in is not found (404). Audited. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.cycle_count_material_exists
+        - inventory.cycle_count_material_removed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The material's indicator, removed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountMaterial"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-abc-analysis:
+    get:
+      operationId: getCycleCountAbcAnalysis
+      tags:
+        - inventory
+      summary: Preview the ABC analysis of a plant's materials
+      description: "The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3; SAP MIBC, from memory), computed on read from one database state and stored nowhere: each material's consumption value at the plant from `from` to `to` (the posting dates of the material documents of movement types `201`, `551` and `601` less their reversals `202`, `552` and `602`, in the company's currency; a net return is none); in the order of that value, the greatest first (ties by material id), a material is class A while the materials before it make up less than the company's `cycle_count_abc_shares.a` percent of the plant's consumption value (default 80), B while less than `a` + `b` percent (default 15 more), else C, as is one with none. The materials listed are those a count document takes (`createCycleCountMaterial`'s rules) with stock at the plant now or consumption in the window; the others' consumption is in `excluded_consumption`. Each line proposes the plant's indicator of its class's code (A, B or C) and says what applying the analysis would do: give the material that indicator (`create`), change the one it has (`change`) or nothing (`none`). The plant has an indicator of each class code its lines need (422 `inventory.abc_indicator_missing`). The window ends on or before the company's date today and spans at most 366 days (422 `inventory.abc_window_invalid`); at most 1,000 materials are listed (422 `inventory.abc_too_many_materials`). `preview_token` is what `createCycleCountAbcApplication` applies. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`)."
+      x-permission: inventory.stock.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.abc_indicator_missing
+        - inventory.abc_too_many_materials
+        - inventory.abc_window_invalid
+        - inventory.plant_invalid
+      parameters:
+        - name: plant_id
+          in: query
+          required: true
+          description: The plant.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          description: The window's first posting date.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          description: "The window's last posting date, on or before the company's date today."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: The analysis.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcAnalysis"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/cycle-count-abc-applications:
+    get:
+      operationId: listCycleCountAbcApplications
+      tags:
+        - inventory
+      summary: List the ABC analyses applied
+      description: "The ABC analyses applied at the plants of the companies the caller may act in (ADR-0082 As built S2c3), each as `getCycleCountAbcApplication` gives it, the latest first. Filtered by plant. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the analyses applied at this plant.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the analyses applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcApplicationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCycleCountAbcApplication
+      tags:
+        - inventory
+      summary: Apply an ABC analysis as cycle counting indicators
+      description: "Applies the ABC analysis `getCycleCountAbcAnalysis` previewed for the plant and window (ADR-0082 As built S2c3; SAP MIBC's update, from memory): the analysis is computed again, and when it is the one previewed (its `preview_token`), each line's change is made, and nothing else: a material given its class's indicator at the plant, or the indicator it has changed to it, each audited as `createCycleCountMaterial` and `updateCycleCountMaterial` are, naming the analysis. When anything the preview showed has changed since (a consumption, a material's indicator, its version, the materials listed or the shares), nothing is applied: 409 `inventory.abc_preview_stale`, and a new preview shows the analysis as it is now. An apply never takes an indicator off. Applies of one plant wait for each other. The application is kept, never changed: the analysis's plant, window, shares, totals and token, and each change made with the material's indicator after it. The refusals of `getCycleCountAbcAnalysis` apply. A retry with the same `Idempotency-Key` answers the application created. Human-only (`x-agent: false`)."
+      x-permission: inventory.count_plan.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.abc_indicator_missing
+        - inventory.abc_preview_stale
+        - inventory.abc_too_many_materials
+        - inventory.abc_window_invalid
+        - inventory.cycle_count_material_exists
+        - inventory.plant_invalid
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The analysis previewed.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CycleCountAbcApply"
+            examples:
+              toronto:
+                summary: The Toronto plant's analysis of the year
+                value:
+                  plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  from: "2025-11-25"
+                  to: "2026-11-24"
+                  preview_token: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+      responses:
+        "201":
+          description: "Created; the application."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcApplication"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/cycle-count-abc-applications/{id}":
+    get:
+      operationId: getCycleCountAbcApplication
+      tags:
+        - inventory
+      summary: Get an ABC analysis applied
+      description: "An ABC analysis applied at a plant (ADR-0082 As built S2c3): its plant and company by code, its window, shares, consumption total and preview token, who applied it and when (by id and name as it is now), and each change it made, its material by number and description, its consumption value and class, the indicator given with the one it replaced, and the material's indicator after it. One of a company the caller cannot act in is not found."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The application.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycleCountAbcApplication"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cycle-counts-due:
     get:
       operationId: listCycleCountsDue
       tags:
         - inventory
       summary: List the cycle counts due at a plant
-      description: "The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from memory): each material with a cycle counting indicator at the plant, at each storage location of the plant where it has stock now (as `listStock` lists it), that no open count document holds there and that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its indicator's interval or more days before today. Each names its material, storage location, indicator and interval, its last count and the day it fell due. Never counted first, then the longest due. A count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is posted, an interval before they fall due again. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`."
+      description: "The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from memory): each material with an active cycle counting indicator at the plant (one taken off, `removeCycleCountMaterial`, is none), at each storage location of the plant where it has stock now (as `listStock` lists it), that no open count document holds there and that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its indicator's interval or more days before today. Each names its material, storage location, indicator and interval, its last count and the day it fell due. Never counted first, then the longest due. A count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is posted, an interval before they fall due again. The plant is an active plant of a company the caller may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`."
       x-permission: inventory.stock.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -69252,8 +69491,13 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, indicator_id, indicator_code, interval_days]
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, indicator_id, indicator_code, interval_days, status]
           properties:
+            status:
+              type: string
+              x-extensible-enum: [active, removed]
+              readOnly: true
+              description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `active`: the material is counted by the indicator at the plant; `removed`: taken off (`removeCycleCountMaterial`, S2c3), when and by whom its `updated_at` and `updated_by` say, never changed again. A material has one active indicator at a plant."
             plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
             plant_code: {type: string, description: "The plant's code.", readOnly: true}
             plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
@@ -69282,6 +69526,7 @@ components:
           indicator_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5db1"
           indicator_code: A
           interval_days: 90
+          status: active
     CycleCountMaterialPage:
       type: object
       description: One page of materials' cycle counting indicators.
@@ -69323,6 +69568,133 @@ components:
           type: array
           items: {$ref: "#/components/schemas/CycleCountDue"}
           description: The counts due on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CycleCountAbcApply:
+      type: object
+      description: "An ABC analysis to apply, as `getCycleCountAbcAnalysis` previewed it."
+      required: [plant_id, from, to, preview_token]
+      additionalProperties: false
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        from: {type: string, format: date, description: "The window's first posting date."}
+        to: {type: string, format: date, description: "The window's last posting date."}
+        preview_token: {type: string, pattern: "^[0-9a-f]{64}$", minLength: 64, maxLength: 64, description: "The preview's `preview_token`."}
+    CycleCountAbcClass:
+      type: object
+      description: "A class of an ABC analysis: its materials listed and their consumption value, and the plant's indicator of its code."
+      required: [class, materials, consumption]
+      properties:
+        class: {type: string, x-extensible-enum: [A, B, C], description: "The class. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        materials: {type: integer, format: int32, description: "The materials listed in the class."}
+        consumption: {$ref: "#/components/schemas/Money", description: "Their consumption value."}
+        indicator_id: {type: string, format: uuid, description: "The plant's indicator of the class's code (`GET /v1/cycle-count-indicators/{id}`); absent when the plant has none, which a class without materials needs not."}
+        indicator_code: {type: string, description: "That indicator's code; absent with it."}
+        interval_days: {type: integer, format: int32, description: "That indicator's interval in days; absent with it."}
+    CycleCountAbcLine:
+      type: object
+      description: "A material of an ABC analysis: its consumption value and class, the plant's indicator of its class and what applying the analysis does."
+      required: [material_id, material_number, material_description, consumption, class, indicator_id, indicator_code, interval_days, change]
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        material_number: {type: string, description: "The material's number."}
+        material_description: {type: string, description: "The material's description, as it is now."}
+        consumption: {$ref: "#/components/schemas/Money", description: "Its consumption value at the plant in the window, none for a net return."}
+        class: {type: string, x-extensible-enum: [A, B, C], description: "Its class. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        indicator_id: {type: string, format: uuid, description: "The plant's indicator of its class's code, the one the analysis gives it."}
+        indicator_code: {type: string, description: "That indicator's code."}
+        interval_days: {type: integer, format: int32, description: "That indicator's interval in days."}
+        change:
+          type: string
+          x-extensible-enum: [create, change, none]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. What applying the analysis does: gives the material the indicator (`create`), changes the one it has to it (`change`), or nothing, the material carrying it already (`none`)."
+        before_indicator_id: {type: string, format: uuid, description: "The material's active indicator's indicator at the plant, which applying the analysis would replace; absent when it has none."}
+        before_indicator_code: {type: string, description: "That indicator's code; absent with it."}
+        cycle_count_material_id: {type: string, format: uuid, description: "The material's active indicator at the plant (`GET /v1/cycle-count-materials/{id}`); absent when it has none."}
+        cycle_count_material_version: {type: integer, format: int32, description: "That indicator's version; absent with it."}
+    CycleCountAbcAnalysis:
+      type: object
+      description: "The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3)."
+      required: [legal_entity_id, company_code, plant_id, plant_code, plant_name, from, to, share_a, share_b, total_consumption, excluded_materials, excluded_consumption, classes, lines, changes, preview_token]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company."}
+        company_code: {type: string, description: "That company's code."}
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        plant_code: {type: string, description: "The plant's code."}
+        plant_name: {type: string, description: "The plant's name, as it is now."}
+        from: {type: string, format: date, description: "The window's first posting date."}
+        to: {type: string, format: date, description: "The window's last posting date."}
+        share_a: {type: integer, format: int32, description: "Class A's percent of the plant's consumption value (the company's `cycle_count_abc_shares.a`)."}
+        share_b: {type: integer, format: int32, description: "Class B's percent after A's (`cycle_count_abc_shares.b`)."}
+        total_consumption: {$ref: "#/components/schemas/Money", description: "The plant's consumption value in the window, of every material: the classes' and the excluded."}
+        excluded_materials: {type: integer, format: int32, description: "The materials with consumption at the plant that are not listed: those a count document does not take (pending, batch- or serial-managed, kept in no stock)."}
+        excluded_consumption: {$ref: "#/components/schemas/Money", description: "Their consumption value; with the classes' it makes the total."}
+        classes:
+          type: array
+          maxItems: 3
+          items: {$ref: "#/components/schemas/CycleCountAbcClass"}
+          description: "Classes A, B and C in that order, each with its materials and consumption value."
+        lines:
+          type: array
+          maxItems: 1000
+          items: {$ref: "#/components/schemas/CycleCountAbcLine"}
+          description: "The materials listed, in the order of their consumption value, the greatest first, ties by material id."
+        changes: {type: integer, format: int32, description: "The lines whose change is `create` or `change`."}
+        preview_token: {type: string, description: "The analysis's digest, which `createCycleCountAbcApplication` applies; it changes with anything the analysis shows."}
+    CycleCountAbcChange:
+      type: object
+      description: "A change an applied ABC analysis made: a material given its class's indicator at the plant, or moved to it."
+      required: [line_no, material_id, material_number, material_description, consumption, class, indicator_id, indicator_code, change, cycle_count_material_id]
+      properties:
+        line_no: {type: integer, format: int32, description: "The change's number, in the analysis's order."}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        material_number: {type: string, description: "The material's number."}
+        material_description: {type: string, description: "The material's description, as it is now."}
+        consumption: {$ref: "#/components/schemas/Money", description: "Its consumption value at the plant in the window."}
+        class: {type: string, x-extensible-enum: [A, B, C], description: "Its class. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        indicator_id: {type: string, format: uuid, description: "The indicator it was given (`GET /v1/cycle-count-indicators/{id}`)."}
+        indicator_code: {type: string, description: "That indicator's code."}
+        change:
+          type: string
+          x-extensible-enum: [create, change]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. `create`: the material was given the indicator; `change`: its indicator was changed to it."
+        before_indicator_id: {type: string, format: uuid, description: "The indicator it replaced; absent for `create`."}
+        before_indicator_code: {type: string, description: "That indicator's code; absent with it."}
+        cycle_count_material_id: {type: string, format: uuid, description: "The material's indicator at the plant the change made or changed (`GET /v1/cycle-count-materials/{id}`)."}
+    CycleCountAbcApplication:
+      type: object
+      description: "An ABC analysis applied at a plant (ADR-0082 As built S2c3). It is never changed."
+      required: [id, version, legal_entity_id, company_code, plant_id, plant_code, plant_name, from, to, share_a, share_b, total_consumption, preview_token, changes, created_at, created_by, created_by_name]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        version: {type: integer, format: int32, description: "Always 1: an application is never changed.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company."}
+        company_code: {type: string, description: "That company's code."}
+        plant_id: {type: string, format: uuid, description: "The plant."}
+        plant_code: {type: string, description: "The plant's code."}
+        plant_name: {type: string, description: "The plant's name, as it is now."}
+        from: {type: string, format: date, description: "The window's first posting date."}
+        to: {type: string, format: date, description: "The window's last posting date."}
+        share_a: {type: integer, format: int32, description: "Class A's percent of the plant's consumption value then."}
+        share_b: {type: integer, format: int32, description: "Class B's percent after A's then."}
+        total_consumption: {$ref: "#/components/schemas/Money", description: "The plant's consumption value in the window."}
+        preview_token: {type: string, description: "The preview applied."}
+        changes:
+          type: array
+          maxItems: 1000
+          items: {$ref: "#/components/schemas/CycleCountAbcChange"}
+          description: "The changes made, in the analysis's order; none when the plant's indicators were as the analysis proposes."
+        created_at: {type: string, format: date-time, description: "When it was applied (UTC).", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The person who applied it (`GET /v1/principals/{id}`).", readOnly: true}
+        created_by_name: {type: string, description: "That person's name, as it is now.", readOnly: true}
+    CycleCountAbcApplicationPage:
+      type: object
+      description: One page of the ABC analyses applied.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CycleCountAbcApplication"}
+          description: The applications on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     OutboundDeliveryItemInput:
       type: object

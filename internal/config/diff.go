@@ -101,6 +101,9 @@ var tierRules = []struct {
 	// postings and returns carry: tier 3 (ADR-0049 §3), as rates were.
 	{rx(`^companies\[\*\]\.(account_determination|tax_codes|auto_post_limit|manual_entry_approval_limit|release_dual_limit|service_posting_limit|house_bank)`), TierPostingRelated},
 	{rx(`^companies\[\*\]\.(invoice_tolerance|gr_over_delivery_percent)`), TierOperational},
+	// The ABC shares decide which cycle counting indicators an analysis
+	// proposes, which a person then applies; nothing is posted (S2c3).
+	{rx(`^companies\[\*\]\.cycle_count_abc_shares`), TierOperational},
 	// A payment tolerance decides what an incoming payment writes off to
 	// the profit and loss account (T75f): tier 3, as the accounts it posts
 	// to are.

@@ -62,8 +62,9 @@ func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want 
 // refuse, the downs of 000486 (lot sizing) and of 000485 and 000484
 // (material descriptions), batch 96S's of 000490 (recounts), 000491
 // (goods issue lines), 000493 and 000492 (lead times), and batch 97S's of
-// 000494 (S&OP approval) and 000495 (units' measures) drop what their ups
-// added, so that each up applies again after its down (06 §6.4: a down reverts its up, and
+// 000494 (S&OP approval), 000495 (units' measures) and 000496 (indicators
+// taken off, ABC analyses applied) drop what their ups added, so that each
+// up applies again after its down (06 §6.4: a down reverts its up, and
 // TestMigrationsRevertCleanly, reverting the whole chain, would not see
 // one that left its columns behind).
 func TestDownsRevert(t *testing.T) {
@@ -76,6 +77,7 @@ func TestDownsRevert(t *testing.T) {
 		names                 []string // the migrations reverted, latest first
 		schema, table, column string   // a column the first up added
 	}{
+		{[]string{"000496_cycle_count_removal"}, "inventory", "cycle_count_material", "status"},
 		{[]string{"000495_material_measures"}, "materials", "unit_measure", "gtin"},
 		{[]string{"000494_sop_plan_approval"}, "mrp", "sop_plan", "approval_request_id"},
 		{[]string{"000486_mrp_lot_sizing"}, "mrp", "material_plan", "lot_size"},

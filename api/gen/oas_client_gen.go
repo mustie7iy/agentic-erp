@@ -1820,6 +1820,23 @@ type Invoker interface {
 	//
 	// POST /v1/customer-sales-data
 	CreateCustomerSalesData(ctx context.Context, request *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (CreateCustomerSalesDataRes, error)
+	// CreateCycleCountAbcApplication invokes createCycleCountAbcApplication operation.
+	//
+	// Applies the ABC analysis `getCycleCountAbcAnalysis` previewed for the plant and window (ADR-0082 As
+	// built S2c3; SAP MIBC's update, from memory): the analysis is computed again, and when it is the one
+	// previewed (its `preview_token`), each line's change is made, and nothing else: a material given its
+	// class's indicator at the plant, or the indicator it has changed to it, each audited as
+	// `createCycleCountMaterial` and `updateCycleCountMaterial` are, naming the analysis. When anything
+	// the preview showed has changed since (a consumption, a material's indicator, its version, the
+	// materials listed or the shares), nothing is applied: 409 `inventory.abc_preview_stale`, and a new
+	// preview shows the analysis as it is now. An apply never takes an indicator off. Applies of one plant
+	// wait for each other. The application is kept, never changed: the analysis's plant, window, shares,
+	// totals and token, and each change made with the material's indicator after it. The refusals of
+	// `getCycleCountAbcAnalysis` apply. A retry with the same `Idempotency-Key` answers the application
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/cycle-count-abc-applications
+	CreateCycleCountAbcApplication(ctx context.Context, request *CycleCountAbcApply, params CreateCycleCountAbcApplicationParams) (CreateCycleCountAbcApplicationRes, error)
 	// CreateCycleCountIndicator invokes createCycleCountIndicator operation.
 	//
 	// Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
@@ -1841,10 +1858,10 @@ type Invoker interface {
 	// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
 	// `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
 	// neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
-	// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
-	// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
-	// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
-	// (`x-agent: false`).
+	// `inventory.serial_not_supported`), which counts do not take yet. A material has one active indicator
+	// at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it), and
+	// may be given one again once it is taken off (`removeCycleCountMaterial`). Audited. A retry with the
+	// same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/cycle-count-materials
 	CreateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (CreateCycleCountMaterialRes, error)
@@ -4536,6 +4553,39 @@ type Invoker interface {
 	//
 	// GET /v1/customer-sales-data/{id}
 	GetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (GetCustomerSalesDataRes, error)
+	// GetCycleCountAbcAnalysis invokes getCycleCountAbcAnalysis operation.
+	//
+	// The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3; SAP MIBC, from
+	// memory), computed on read from one database state and stored nowhere: each material's consumption
+	// value at the plant from `from` to `to` (the posting dates of the material documents of movement
+	// types `201`, `551` and `601` less their reversals `202`, `552` and `602`, in the company's currency;
+	// a net return is none); in the order of that value, the greatest first (ties by material id), a
+	// material is class A while the materials before it make up less than the company's
+	// `cycle_count_abc_shares.a` percent of the plant's consumption value (default 80), B while less than
+	// `a` + `b` percent (default 15 more), else C, as is one with none. The materials listed are those a
+	// count document takes (`createCycleCountMaterial`'s rules) with stock at the plant now or consumption
+	// in the window; the others' consumption is in `excluded_consumption`. Each line proposes the plant's
+	// indicator of its class's code (A, B or C) and says what applying the analysis would do: give the
+	// material that indicator (`create`), change the one it has (`change`) or nothing (`none`). The plant
+	// has an indicator of each class code its lines need (422 `inventory.abc_indicator_missing`). The
+	// window ends on or before the company's date today and spans at most 366 days (422
+	// `inventory.abc_window_invalid`); at most 1,000 materials are listed (422
+	// `inventory.abc_too_many_materials`). `preview_token` is what `createCycleCountAbcApplication`
+	// applies. The plant is an active plant of a company the caller may act in (422
+	// `inventory.plant_invalid`).
+	//
+	// GET /v1/cycle-count-abc-analysis
+	GetCycleCountAbcAnalysis(ctx context.Context, params GetCycleCountAbcAnalysisParams) (GetCycleCountAbcAnalysisRes, error)
+	// GetCycleCountAbcApplication invokes getCycleCountAbcApplication operation.
+	//
+	// An ABC analysis applied at a plant (ADR-0082 As built S2c3): its plant and company by code, its
+	// window, shares, consumption total and preview token, who applied it and when (by id and name as it
+	// is now), and each change it made, its material by number and description, its consumption value and
+	// class, the indicator given with the one it replaced, and the material's indicator after it. One of a
+	// company the caller cannot act in is not found.
+	//
+	// GET /v1/cycle-count-abc-applications/{id}
+	GetCycleCountAbcApplication(ctx context.Context, params GetCycleCountAbcApplicationParams) (GetCycleCountAbcApplicationRes, error)
 	// GetCycleCountIndicator invokes getCycleCountIndicator operation.
 	//
 	// A plant's cycle counting indicator (ADR-0082 As built S2c2): its plant and company by code, its code
@@ -6544,6 +6594,14 @@ type Invoker interface {
 	//
 	// GET /v1/customer-sales-data
 	ListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (ListCustomerSalesDataRes, error)
+	// ListCycleCountAbcApplications invokes listCycleCountAbcApplications operation.
+	//
+	// The ABC analyses applied at the plants of the companies the caller may act in (ADR-0082 As built
+	// S2c3), each as `getCycleCountAbcApplication` gives it, the latest first. Filtered by plant. Sortable
+	// by: `created_at`.
+	//
+	// GET /v1/cycle-count-abc-applications
+	ListCycleCountAbcApplications(ctx context.Context, params ListCycleCountAbcApplicationsParams) (ListCycleCountAbcApplicationsRes, error)
 	// ListCycleCountIndicators invokes listCycleCountIndicators operation.
 	//
 	// The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
@@ -6556,22 +6614,24 @@ type Invoker interface {
 	//
 	// The cycle counting indicators of materials at the plants of the companies the caller may act in
 	// (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
-	// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+	// the order they were created, those taken off (`removed`, S2c3) among them. Filtered by plant,
+	// material, indicator and status. Sortable by: `created_at`.
 	//
 	// GET /v1/cycle-count-materials
 	ListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (ListCycleCountMaterialsRes, error)
 	// ListCycleCountsDue invokes listCycleCountsDue operation.
 	//
 	// The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
-	// memory): each material with a cycle counting indicator at the plant, at each storage location of the
-	// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
-	// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
-	// posted count there is its indicator's interval or more days before today. Each names its material,
-	// storage location, indicator and interval, its last count and the day it fell due. Never counted
-	// first, then the longest due. A count document of a storage location's materials as listed
-	// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
-	// posted, an interval before they fall due again. The plant is an active plant of a company the caller
-	// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+	// memory): each material with an active cycle counting indicator at the plant (one taken off,
+	// `removeCycleCountMaterial`, is none), at each storage location of the plant where it has stock now
+	// (as `listStock` lists it), that no open count document holds there and that was never counted there
+	// (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its
+	// indicator's interval or more days before today. Each names its material, storage location, indicator
+	// and interval, its last count and the day it fell due. Never counted first, then the longest due. A
+	// count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at
+	// most 100 a document) takes them off the list until it is posted, an interval before they fall due
+	// again. The plant is an active plant of a company the caller may act in (422
+	// `inventory.plant_invalid`). Sortable by: `due_on`.
 	//
 	// GET /v1/cycle-counts-due
 	ListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (ListCycleCountsDueRes, error)
@@ -9078,6 +9138,19 @@ type Invoker interface {
 	//
 	// POST /v1/controls/{id}/links/{link_id}:remove
 	RemoveControlLink(ctx context.Context, params RemoveControlLinkParams) (RemoveControlLinkRes, error)
+	// RemoveCycleCountMaterial invokes removeCycleCountMaterial operation.
+	//
+	// Takes a material's cycle counting indicator at a plant off at the caller's version (`If-Match`, 412
+	// otherwise; ADR-0082 As built S2c3; SAP MM02 clearing MARC-ABCIN, from memory), once (409
+	// `inventory.cycle_count_material_removed` after). Nothing is deleted (04 §4.3): it is kept as
+	// `removed`, its `updated_at` and `updated_by` saying when and by whom, and is never changed again.
+	// From then on the material is no longer due by an indicator at the plant (`listCycleCountsDue` leaves
+	// it out; the count planning agent counts it by its own class's interval), and it may be given an
+	// indicator again (`createCycleCountMaterial`, a new one). One of a company the caller may not act in
+	// is not found (404). Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/cycle-count-materials/{id}:remove
+	RemoveCycleCountMaterial(ctx context.Context, params RemoveCycleCountMaterialParams) (RemoveCycleCountMaterialRes, error)
 	// RemoveHierarchyNode invokes removeHierarchyNode operation.
 	//
 	// Removes a node without child nodes or centers; the root is not removed (422
@@ -10393,8 +10466,9 @@ type Invoker interface {
 	//
 	// Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
 	// ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
-	// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
-	// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+	// already has is 422 `inventory.nothing_to_change`; one taken off is not changed (409
+	// `inventory.cycle_count_material_removed`). Its plant and material do not change. JSON Merge Patch.
+	// Audited with the indicator before and after. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/cycle-count-materials/{id}
 	UpdateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (UpdateCycleCountMaterialRes, error)
@@ -25942,6 +26016,147 @@ func (c *Client) sendCreateCustomerSalesData(ctx context.Context, request *Custo
 	return result, nil
 }
 
+// CreateCycleCountAbcApplication invokes createCycleCountAbcApplication operation.
+//
+// Applies the ABC analysis `getCycleCountAbcAnalysis` previewed for the plant and window (ADR-0082 As
+// built S2c3; SAP MIBC's update, from memory): the analysis is computed again, and when it is the one
+// previewed (its `preview_token`), each line's change is made, and nothing else: a material given its
+// class's indicator at the plant, or the indicator it has changed to it, each audited as
+// `createCycleCountMaterial` and `updateCycleCountMaterial` are, naming the analysis. When anything
+// the preview showed has changed since (a consumption, a material's indicator, its version, the
+// materials listed or the shares), nothing is applied: 409 `inventory.abc_preview_stale`, and a new
+// preview shows the analysis as it is now. An apply never takes an indicator off. Applies of one plant
+// wait for each other. The application is kept, never changed: the analysis's plant, window, shares,
+// totals and token, and each change made with the material's indicator after it. The refusals of
+// `getCycleCountAbcAnalysis` apply. A retry with the same `Idempotency-Key` answers the application
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-abc-applications
+func (c *Client) CreateCycleCountAbcApplication(ctx context.Context, request *CycleCountAbcApply, params CreateCycleCountAbcApplicationParams) (CreateCycleCountAbcApplicationRes, error) {
+	res, err := c.sendCreateCycleCountAbcApplication(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCycleCountAbcApplication(ctx context.Context, request *CycleCountAbcApply, params CreateCycleCountAbcApplicationParams) (res CreateCycleCountAbcApplicationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCycleCountAbcApplication"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-abc-applications"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCycleCountAbcApplicationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-count-abc-applications"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCycleCountAbcApplicationRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCycleCountAbcApplicationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCycleCountAbcApplicationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateCycleCountIndicator invokes createCycleCountIndicator operation.
 //
 // Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
@@ -26087,10 +26302,10 @@ func (c *Client) sendCreateCycleCountIndicator(ctx context.Context, request *Cyc
 // `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
 // `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
 // neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
-// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
-// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
-// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
-// (`x-agent: false`).
+// `inventory.serial_not_supported`), which counts do not take yet. A material has one active indicator
+// at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it), and
+// may be given one again once it is taken off (`removeCycleCountMaterial`). Audited. A retry with the
+// same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`).
 //
 // POST /v1/cycle-count-materials
 func (c *Client) CreateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialCreate, params CreateCycleCountMaterialParams) (CreateCycleCountMaterialRes, error) {
@@ -49456,6 +49671,317 @@ func (c *Client) sendGetCustomerSalesData(ctx context.Context, params GetCustome
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCustomerSalesDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCycleCountAbcAnalysis invokes getCycleCountAbcAnalysis operation.
+//
+// The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3; SAP MIBC, from
+// memory), computed on read from one database state and stored nowhere: each material's consumption
+// value at the plant from `from` to `to` (the posting dates of the material documents of movement
+// types `201`, `551` and `601` less their reversals `202`, `552` and `602`, in the company's currency;
+// a net return is none); in the order of that value, the greatest first (ties by material id), a
+// material is class A while the materials before it make up less than the company's
+// `cycle_count_abc_shares.a` percent of the plant's consumption value (default 80), B while less than
+// `a` + `b` percent (default 15 more), else C, as is one with none. The materials listed are those a
+// count document takes (`createCycleCountMaterial`'s rules) with stock at the plant now or consumption
+// in the window; the others' consumption is in `excluded_consumption`. Each line proposes the plant's
+// indicator of its class's code (A, B or C) and says what applying the analysis would do: give the
+// material that indicator (`create`), change the one it has (`change`) or nothing (`none`). The plant
+// has an indicator of each class code its lines need (422 `inventory.abc_indicator_missing`). The
+// window ends on or before the company's date today and spans at most 366 days (422
+// `inventory.abc_window_invalid`); at most 1,000 materials are listed (422
+// `inventory.abc_too_many_materials`). `preview_token` is what `createCycleCountAbcApplication`
+// applies. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`).
+//
+// GET /v1/cycle-count-abc-analysis
+func (c *Client) GetCycleCountAbcAnalysis(ctx context.Context, params GetCycleCountAbcAnalysisParams) (GetCycleCountAbcAnalysisRes, error) {
+	res, err := c.sendGetCycleCountAbcAnalysis(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCycleCountAbcAnalysis(ctx context.Context, params GetCycleCountAbcAnalysisParams) (res GetCycleCountAbcAnalysisRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCycleCountAbcAnalysis"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-abc-analysis"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCycleCountAbcAnalysisOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-count-abc-analysis"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.PlantID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.From))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.To))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCycleCountAbcAnalysisOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCycleCountAbcAnalysisResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCycleCountAbcApplication invokes getCycleCountAbcApplication operation.
+//
+// An ABC analysis applied at a plant (ADR-0082 As built S2c3): its plant and company by code, its
+// window, shares, consumption total and preview token, who applied it and when (by id and name as it
+// is now), and each change it made, its material by number and description, its consumption value and
+// class, the indicator given with the one it replaced, and the material's indicator after it. One of a
+// company the caller cannot act in is not found.
+//
+// GET /v1/cycle-count-abc-applications/{id}
+func (c *Client) GetCycleCountAbcApplication(ctx context.Context, params GetCycleCountAbcApplicationParams) (GetCycleCountAbcApplicationRes, error) {
+	res, err := c.sendGetCycleCountAbcApplication(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCycleCountAbcApplication(ctx context.Context, params GetCycleCountAbcApplicationParams) (res GetCycleCountAbcApplicationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCycleCountAbcApplication"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-abc-applications/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCycleCountAbcApplicationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/cycle-count-abc-applications/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCycleCountAbcApplicationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCycleCountAbcApplicationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -80738,6 +81264,193 @@ func (c *Client) sendListCustomerSalesData(ctx context.Context, params ListCusto
 	return result, nil
 }
 
+// ListCycleCountAbcApplications invokes listCycleCountAbcApplications operation.
+//
+// The ABC analyses applied at the plants of the companies the caller may act in (ADR-0082 As built
+// S2c3), each as `getCycleCountAbcApplication` gives it, the latest first. Filtered by plant. Sortable
+// by: `created_at`.
+//
+// GET /v1/cycle-count-abc-applications
+func (c *Client) ListCycleCountAbcApplications(ctx context.Context, params ListCycleCountAbcApplicationsParams) (ListCycleCountAbcApplicationsRes, error) {
+	res, err := c.sendListCycleCountAbcApplications(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCycleCountAbcApplications(ctx context.Context, params ListCycleCountAbcApplicationsParams) (res ListCycleCountAbcApplicationsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCycleCountAbcApplications"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-abc-applications"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCycleCountAbcApplicationsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/cycle-count-abc-applications"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCycleCountAbcApplicationsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCycleCountAbcApplicationsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListCycleCountIndicators invokes listCycleCountIndicators operation.
 //
 // The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
@@ -80946,7 +81659,8 @@ func (c *Client) sendListCycleCountIndicators(ctx context.Context, params ListCy
 //
 // The cycle counting indicators of materials at the plants of the companies the caller may act in
 // (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
-// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+// the order they were created, those taken off (`removed`, S2c3) among them. Filtered by plant,
+// material, indicator and status. Sortable by: `created_at`.
 //
 // GET /v1/cycle-count-materials
 func (c *Client) ListCycleCountMaterials(ctx context.Context, params ListCycleCountMaterialsParams) (ListCycleCountMaterialsRes, error) {
@@ -81042,6 +81756,23 @@ func (c *Client) sendListCycleCountMaterials(ctx context.Context, params ListCyc
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.IndicatorID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -81166,15 +81897,16 @@ func (c *Client) sendListCycleCountMaterials(ctx context.Context, params ListCyc
 // ListCycleCountsDue invokes listCycleCountsDue operation.
 //
 // The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
-// memory): each material with a cycle counting indicator at the plant, at each storage location of the
-// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
-// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
-// posted count there is its indicator's interval or more days before today. Each names its material,
-// storage location, indicator and interval, its last count and the day it fell due. Never counted
-// first, then the longest due. A count document of a storage location's materials as listed
-// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
-// posted, an interval before they fall due again. The plant is an active plant of a company the caller
-// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+// memory): each material with an active cycle counting indicator at the plant (one taken off,
+// `removeCycleCountMaterial`, is none), at each storage location of the plant where it has stock now
+// (as `listStock` lists it), that no open count document holds there and that was never counted there
+// (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its
+// indicator's interval or more days before today. Each names its material, storage location, indicator
+// and interval, its last count and the day it fell due. Never counted first, then the longest due. A
+// count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at
+// most 100 a document) takes them off the list until it is posted, an interval before they fall due
+// again. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`). Sortable by: `due_on`.
 //
 // GET /v1/cycle-counts-due
 func (c *Client) ListCycleCountsDue(ctx context.Context, params ListCycleCountsDueParams) (ListCycleCountsDueRes, error) {
@@ -120496,6 +121228,170 @@ func (c *Client) sendRemoveControlLink(ctx context.Context, params RemoveControl
 	return result, nil
 }
 
+// RemoveCycleCountMaterial invokes removeCycleCountMaterial operation.
+//
+// Takes a material's cycle counting indicator at a plant off at the caller's version (`If-Match`, 412
+// otherwise; ADR-0082 As built S2c3; SAP MM02 clearing MARC-ABCIN, from memory), once (409
+// `inventory.cycle_count_material_removed` after). Nothing is deleted (04 §4.3): it is kept as
+// `removed`, its `updated_at` and `updated_by` saying when and by whom, and is never changed again.
+// From then on the material is no longer due by an indicator at the plant (`listCycleCountsDue` leaves
+// it out; the count planning agent counts it by its own class's interval), and it may be given an
+// indicator again (`createCycleCountMaterial`, a new one). One of a company the caller may not act in
+// is not found (404). Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-materials/{id}:remove
+func (c *Client) RemoveCycleCountMaterial(ctx context.Context, params RemoveCycleCountMaterialParams) (RemoveCycleCountMaterialRes, error) {
+	res, err := c.sendRemoveCycleCountMaterial(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRemoveCycleCountMaterial(ctx context.Context, params RemoveCycleCountMaterialParams) (res RemoveCycleCountMaterialRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeCycleCountMaterial"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/cycle-count-materials/{id}:remove"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RemoveCycleCountMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/cycle-count-materials/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":remove"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RemoveCycleCountMaterialOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRemoveCycleCountMaterialResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RemoveHierarchyNode invokes removeHierarchyNode operation.
 //
 // Removes a node without child nodes or centers; the root is not removed (422
@@ -132917,8 +133813,9 @@ func (c *Client) sendUpdateCycleCountIndicator(ctx context.Context, request *Cyc
 //
 // Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
 // ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
-// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
-// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+// already has is 422 `inventory.nothing_to_change`; one taken off is not changed (409
+// `inventory.cycle_count_material_removed`). Its plant and material do not change. JSON Merge Patch.
+// Audited with the indicator before and after. Human-only (`x-agent: false`).
 //
 // PATCH /v1/cycle-count-materials/{id}
 func (c *Client) UpdateCycleCountMaterial(ctx context.Context, request *CycleCountMaterialUpdate, params UpdateCycleCountMaterialParams) (UpdateCycleCountMaterialRes, error) {

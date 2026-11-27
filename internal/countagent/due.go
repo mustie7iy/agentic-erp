@@ -177,7 +177,9 @@ func (a *Agent) survey(ctx context.Context, pl plant, day string) (*survey, erro
 	for _, m := range materials {
 		r.materials[m.ID] = m
 	}
-	indicators, err := apitools.List[indicator](ctx, a.API, "/v1/cycle-count-materials", q)
+	// Only the indicators materials are counted by: one taken off (S2c3)
+	// leaves its material to its class's interval.
+	indicators, err := apitools.List[indicator](ctx, a.API, "/v1/cycle-count-materials", url.Values{"plant_id": {pl.ID}, "status": {"active"}})
 	if err != nil {
 		return nil, fmt.Errorf("countagent: the cycle counting indicators of plant %s: %w", pl.Code, err)
 	}

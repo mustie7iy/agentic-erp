@@ -121,7 +121,7 @@ func cycleMaterialAPI(c CycleMaterial, r refs) gen.CycleCountMaterial {
 	return gen.CycleCountMaterial{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), PlantID: c.PlantID, PlantCode: plant.Code, PlantName: plant.Name, LegalEntityID: c.LegalEntityID,
 		CompanyCode: r.companies[c.LegalEntityID].Code, MaterialID: c.MaterialID, MaterialNumber: m.Number, MaterialDescription: m.Description,
-		IndicatorID: c.IndicatorID, IndicatorCode: c.IndicatorCode, IntervalDays: c.IntervalDays}
+		IndicatorID: c.IndicatorID, IndicatorCode: c.IndicatorCode, IntervalDays: c.IntervalDays, Status: c.Status}
 }
 
 // cycleMaterialRefs reads what materials' indicators name.
@@ -183,17 +183,28 @@ func (e *Endpoints) UpdateCycleCountMaterial(ctx context.Context, req *gen.Cycle
 	return &gen.GetCycleCountMaterialOKHeaders{ETag: tag, Response: out}, nil
 }
 
+// RemoveCycleCountMaterial implements POST /v1/cycle-count-materials/{id}:remove.
+func (e *Endpoints) RemoveCycleCountMaterial(ctx context.Context, params gen.RemoveCycleCountMaterialParams) (gen.RemoveCycleCountMaterialRes, error) {
+	c, err := e.RemoveCycleMaterial(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	out, tag, err := e.oneCycleMaterial(ctx, c, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.RemoveCycleCountMaterialOKHeaders{ETag: tag, Response: out}, nil
+}
+
 // ListCycleCountMaterials implements GET /v1/cycle-count-materials: the
 // materials' indicators at the plants of the companies the caller may act
-// in, in the order they were created, filtered by plant, material and
-// indicator.
+// in, in the order they were created, filtered by plant, material,
+// indicator and status.
 func (e *Endpoints) ListCycleCountMaterials(ctx context.Context, params gen.ListCycleCountMaterialsParams) (gen.ListCycleCountMaterialsRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	plant, material, indicator := apitypes.Ptr[uuid.UUID](params.PlantID), apitypes.Ptr[uuid.UUID](params.MaterialID), apitypes.Ptr[uuid.UUID](params.IndicatorID)
-	ks, err := e.Pages.Keyset(cycleSort, fmt.Sprintf("listCycleCountMaterials|%s|%s|%s", plant, material, indicator),
+	status := params.Status.Value
+	ks, err := e.Pages.Keyset(cycleSort, fmt.Sprintf("listCycleCountMaterials|%s|%s|%s|%s", plant, material, indicator, status),
 		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("inventory: page of material cycle count indicators: %w", err)
@@ -203,8 +214,8 @@ func (e *Endpoints) ListCycleCountMaterials(ctx context.Context, params gen.List
 		return nil, err
 	}
 	query, args := ks.SQL(`SELECT * FROM (`+cycleMaterialSelect+` WHERE ($1 OR m.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR m.plant_id = $3)
-		AND ($4::uuid IS NULL OR m.material_id = $4) AND ($5::uuid IS NULL OR m.indicator_id = $5)) m WHERE true`,
-		[]any{a.All, a.IDs, plant, material, indicator})
+		AND ($4::uuid IS NULL OR m.material_id = $4) AND ($5::uuid IS NULL OR m.indicator_id = $5) AND ($6 = '' OR m.status = $6)) m WHERE true`,
+		[]any{a.All, a.IDs, plant, material, indicator, status})
 	rows, _ := tx.Query(ctx, query, args...)
 	cs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (CycleMaterial, error) { return scanCycleMaterial(r) })
 	if err != nil {
