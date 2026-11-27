@@ -1304,6 +1304,12 @@ A later slice adds its row here and its section under "As built".
   `reverseOutboundDeliveryGoodsIssue`, S2b3; cycle counting's
   `createCycleCountIndicator`, `updateCycleCountIndicator`,
   `createCycleCountMaterial`, `updateCycleCountMaterial`, S2c2;
+  `removeCycleCountMaterial`, `createCycleCountAbcApplication`, S2c3, on the
+  demand forecasting agent's too, and `submitSopPlan`, S2n2, on the demand
+  forecasting, replenishment and planning agents'; the close and cash
+  agents' lists name their own contexts' writes and approval decisions,
+  not every write, so none of the three is on them (batch 97S
+  integration);
   `recountPhysicalInventoryItems`, S2d2; `TestNever` keeps it whole against the contract's writes named
   `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt`, `GoodsIssue` or
   `CycleCount`),

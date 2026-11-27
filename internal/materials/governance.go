@@ -57,11 +57,13 @@ type RequestedPlant struct {
 	StorageLocations []uuid.UUID `json:"storage_location_ids"`
 }
 
-// RequestedUnit is an alternative unit a change gives a material.
+// RequestedUnit is an alternative unit a change gives a material, with
+// its measures (S1a3).
 type RequestedUnit struct {
-	Code        string `json:"unit"`
-	Numerator   int32  `json:"numerator"`
-	Denominator int32  `json:"denominator"`
+	Code        string   `json:"unit"`
+	Numerator   int32    `json:"numerator"`
+	Denominator int32    `json:"denominator"`
+	Measures    Measures `json:"measures,omitzero"`
 }
 
 // Scope is the companies whose plants a change replaces: those its
@@ -80,8 +82,11 @@ type Requested struct {
 	DescriptionLanguage *string `json:"description_language,omitempty"`
 	// Descriptions are the further descriptions, replacing the
 	// material's (S1a2).
-	Descriptions *[]Description    `json:"descriptions,omitempty"`
-	BaseUnit     *string           `json:"base_unit,omitempty"`
+	Descriptions *[]Description `json:"descriptions,omitempty"`
+	BaseUnit     *string        `json:"base_unit,omitempty"`
+	// BaseMeasures are the base unit's measures, replacing the
+	// material's (S1a3).
+	BaseMeasures *Measures         `json:"base_unit_measures,omitempty"`
 	Type         *string           `json:"material_type,omitempty"`
 	Group        *string           `json:"material_group,omitempty"`
 	Status       *string           `json:"status,omitempty"`
@@ -94,6 +99,23 @@ type Requested struct {
 	// SerialManaged is a create's: whether the material has a serial
 	// number profile (As built S2g).
 	SerialManaged *bool `json:"serial_managed,omitempty"`
+}
+
+// gtins are the GTINs a change writes: the base unit's and its
+// alternative units'.
+func (r Requested) gtins() []string {
+	var out []string
+	if r.BaseMeasures != nil && r.BaseMeasures.GTIN != "" {
+		out = append(out, r.BaseMeasures.GTIN)
+	}
+	if r.Units != nil {
+		for _, u := range *r.Units {
+			if u.Measures.GTIN != "" {
+				out = append(out, u.Measures.GTIN)
+			}
+		}
+	}
+	return out
 }
 
 // Duplicate is an existing material a new one may duplicate: by id,
@@ -300,7 +322,8 @@ func applied(kind string) string {
 }
 
 // Reject rejects a pending change: the material stays as it is, and a
-// rejected create leaves it pending, out of the duplicate checks.
+// rejected create leaves it pending, out of the duplicate checks, its
+// measures removed so its GTINs are free.
 func (e *Endpoints) Reject(ctx context.Context, id uuid.UUID) (MaterialChange, error) {
 	return e.decide(ctx, id, ChangeRejected, "reject")
 }
@@ -320,7 +343,33 @@ func (e *Endpoints) decide(ctx context.Context, id uuid.UUID, status, action str
 	if err != nil {
 		return MaterialChange{}, err
 	}
+	if c.Kind == KindCreate {
+		if m, err = e.release(ctx, tx, p, c, m); err != nil {
+			return MaterialChange{}, err
+		}
+	}
 	return closeChange(ctx, tx, p, c, m, status, action)
+}
+
+// release frees the GTINs of a material whose creation is refused: it
+// never came to be (ADR-0082 As built S1a3). Its measures are marked
+// removed and, when it had any, its version moves, audited with them and
+// published as MaterialChanged, so a reader holding the material's ETag
+// or event sees them go.
+func (e *Endpoints) release(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c MaterialChange, m Material) (Material, error) {
+	removed, err := removeMeasures(ctx, tx, p, m, true, true)
+	if err != nil || removed == 0 {
+		return m, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE materials.material SET version = version + 1, updated_by = $2 WHERE id = $1`, m.ID, p.ID); err != nil {
+		return m, fmt.Errorf("materials: release the GTINs of material %s: %w", m.Number, err)
+	}
+	after, err := load(ctx, tx, m.ID, false)
+	if err != nil {
+		return m, err
+	}
+	return after, e.record(ctx, after, change{action: "release", name: "changed", detail: map[string]any{"number": m.Number,
+		"material_change_id": c.ID, "material_change_number": c.Number, "measures_removed": measureDetail(m.BaseUnit, m.BaseMeasures, m.Units)}}, &m.Status)
 }
 
 // closeChange moves a pending change to its decision, with its audit

@@ -5769,7 +5769,7 @@
      },
      {
       "s": "T",
-      "t": "later: material master variants: sales and purchasing views, dimensions, weights and GTINs, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2)",
+      "t": "later: material master variants: sales and purchasing views, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created; of dimensions, weights and GTINs: a delivery's gross weight and volume from its items' units, GTINs on documents and e-invoice lines and items found by GTIN, GTIN types beyond GS1's four lengths and several GTINs per unit, a later SAP run's new or changed measures of a material an earlier run created, units of measure for dimensions in centimetres and millimetres (the SAP load leaves those out with a warning) (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2, dimensions, weights and GTINs as S1a3)",
       "r": "docs/design/plan-supply-chain.md §S1a, Later",
       "src": "baseline",
       "c": []
@@ -5778,6 +5778,13 @@
       "s": "D",
       "t": "A master data specialist describes a material in further languages beside its default description (Arabic for the UAE pilot), governed as its other fields are; a read asks for a language (language) and gets the description in it, else the default, naming the language answered; the SAP load takes MAKT's other languages",
       "r": "S1a2 · docs/design/plan-supply-chain.md §S1a2 · ADR-0082 As built S1a2 · db/migrations/000484, 000485 · materials.material.description_language, materials.material_description · internal/materials/descriptions.go · internal/platform/langtag · GET /v1/materials, GET /v1/materials/{id} language · MaterialCreate.description_language, .descriptions · MaterialUpdate.descriptions · Material.description_language, .default_language, .descriptions · materials.unknown_language, materials.duplicate_language · MaterialChanged.description_language, .descriptions · internal/integration materialDescriptions (MAKT-SPRAS) · walkthrough step_material (step 122), migrated_materials",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A master data specialist records each unit of measure's gross and net weight, volume, length, width and height and GTIN, the base unit's and each alternative unit's, governed as the material's other fields are; a GTIN has its GS1 check digit and names one unit of one material in the tenant; a list finds a material by a unit's GTIN; the SAP load takes MARA's and MARM's measures",
+      "r": "S1a3 · docs/design/plan-supply-chain.md §S1a3 · ADR-0082 As built S1a3 · db/migrations/000495 · materials.unit_measure, materials.gtin_valid · internal/materials/measures.go · internal/platform/gtin · GET /v1/materials gtin · MaterialCreate.base_unit_measures · MaterialUpdate.base_unit_measures · MaterialUnitInput.measures · Material.base_unit_measures · MaterialUnit.measures · materials.invalid_measures, materials.invalid_gtin, materials.duplicate_gtin, materials.gtin_taken · MaterialChanged.base_unit_measures, .alternative_units[].measures · internal/integration/materialmeasures.go (MARA/MARM BRGEW, NTGEW, GEWEI, VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM, EAN11) · walkthrough step_material (step 122)",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
@@ -5908,9 +5915,23 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Cycle counting indicators taken off and set from the ABC analysis: a material's indicator at a plant removed at its version and kept so, no longer due by it; the plant's materials classed A, B and C by their consumption value over a window by the company's shares, previewed, and applied as indicators only as previewed",
+      "r": "S2c3 · docs/design/plan-supply-chain.md §S2c3 · ADR-0082 As built S2c3 · ADR-0072 As built S2e · db/migrations/000496 · inventory.cycle_count_material.status · POST /v1/cycle-count-materials/{id}:remove · GET /v1/cycle-count-abc-analysis · POST/GET /v1/cycle-count-abc-applications, GET /v1/cycle-count-abc-applications/{id} · inventory.cycle_count_abc_application, .cycle_count_abc_change · companies[].cycle_count_abc_shares · inventory.cycle_count_material_removed, inventory.abc_window_invalid, inventory.abc_indicator_missing, inventory.abc_too_many_materials, inventory.abc_preview_stale · countagent and demandagent never lists, countagent reads status=active · TestCycleCountRemove, TestABCAnalysis, TestABCShares, TestABCRefusals, TestABCTooMany, TestABCLocks, TestABCDatabaseFailures, TestCycleCountRemovalRules, TestCycleCountRemovalDownRefused, TestABCApplicationRules, TestABCApplicationDownRefused · walkthrough step_count · batch 97S integration: inventory.abc_nothing_to_apply, CycleCountAbcApplicationSummary (change_count), TestABCWithAnOpenCount",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: count variants: sampling inventory, counts by bin or handling unit, book quantity frozen at a past date, an indicator taken off a material, indicators set from the ABC analysis, float time and counts per period, a calendar of planned counts (after the plan's slices; product owner 2026-11-17)",
-      "r": "docs/design/plan-supply-chain.md §S2c, Later; §S2c2, Later",
+      "t": "The ABC analysis reads a plant's goods movements of the window by plant and posting date with no index that leads with them (inventory.movement by plant, joined to its material document's movement type and posting date): a budget check at scale shows whether a plant with years of movements needs one, as the other stock reads' budgets do",
+      "r": "internal/inventory/abc.go abcSelect · GET /v1/cycle-count-abc-analysis · POST /v1/cycle-count-abc-applications · ADR-0082 As built S2c3",
+      "src": "review:batch97",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: count variants: sampling inventory, counts by bin or handling unit, book quantity frozen at a past date, float time and counts per period, counts due by a storage location's own indicator, a calendar of planned counts, the count planning agent's classes from the company's ABC shares (ADR-0082 As built S2e, Later; S2c3, Later) (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2c, Later; §S2c2, Later; §S2c3, Later",
       "src": "baseline",
       "c": []
      },
@@ -6286,8 +6307,15 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "An S&OP plan version is submitted and approved through the approval engine by its company's steps (companies[].sop_approval, off by default), frozen once approved; rejected or withdrawn, a draft again; people only",
+      "r": "S2n2 · docs/design/plan-supply-chain.md §S2n (S2n2) · ADR-0084 As built S2n2 · internal/mrp sopapprove.go · migration 000494 · submitSopPlan · approvals.SopPlan · mrp.sop.approve · mrp.sop_plan_submitted, mrp.sop_approval_required · TestSopApproval, TestSopSubmitWithoutApproval, TestSopApprovalRefusals · walkthrough step_sop_review (step 159)",
+      "src": "po:2026-11-17 · adr:ADR-0084",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: S&OP variants: capacity and supply optimisation, scenario comparison, approval of the consensus plan (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: S&OP variants: capacity and supply optimisation, scenario comparison (the consensus plan's approval is S2n2, which no planning run reads yet; after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2n, Later",
       "src": "baseline",
       "c": []

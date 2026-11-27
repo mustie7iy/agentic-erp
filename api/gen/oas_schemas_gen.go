@@ -29406,6 +29406,7 @@ func (*ConflictHeaders) createCreditMemoRequestRes()                     {}
 func (*ConflictHeaders) createCustomerContactRes()                       {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                       {}
 func (*ConflictHeaders) createCustomerSalesDataRes()                     {}
+func (*ConflictHeaders) createCycleCountAbcApplicationRes()              {}
 func (*ConflictHeaders) createCycleCountIndicatorRes()                   {}
 func (*ConflictHeaders) createCycleCountMaterialRes()                    {}
 func (*ConflictHeaders) createDisputeCaseRes()                           {}
@@ -29515,6 +29516,7 @@ func (*ConflictHeaders) getConsolidationRunRes()                         {}
 func (*ConflictHeaders) getControlMatrixRes()                            {}
 func (*ConflictHeaders) getCreditExposureRes()                           {}
 func (*ConflictHeaders) getCustomerSalesDataRes()                        {}
+func (*ConflictHeaders) getCycleCountAbcAnalysisRes()                    {}
 func (*ConflictHeaders) getEInvoiceContentRes()                          {}
 func (*ConflictHeaders) getExpenseReportRes()                            {}
 func (*ConflictHeaders) getGroupLiquidityForecastRes()                   {}
@@ -29638,6 +29640,7 @@ func (*ConflictHeaders) releasePurchaseOrderRes()                        {}
 func (*ConflictHeaders) releaseSalesOrderCreditBlockRes()                {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()                      {}
 func (*ConflictHeaders) removeControlLinkRes()                           {}
+func (*ConflictHeaders) removeCycleCountMaterialRes()                    {}
 func (*ConflictHeaders) removeHierarchyNodeRes()                         {}
 func (*ConflictHeaders) removeMetricWatcherRes()                         {}
 func (*ConflictHeaders) removeReportRes()                                {}
@@ -29689,6 +29692,7 @@ func (*ConflictHeaders) submitChangeRequestRes()                         {}
 func (*ConflictHeaders) submitPaymentRunRes()                            {}
 func (*ConflictHeaders) submitPurchaseOrderChangeRes()                   {}
 func (*ConflictHeaders) submitRequisitionRes()                           {}
+func (*ConflictHeaders) submitSopPlanRes()                               {}
 func (*ConflictHeaders) takeCashSnapshotRes()                            {}
 func (*ConflictHeaders) terminateContractRes()                           {}
 func (*ConflictHeaders) transmitBankFileRes()                            {}
@@ -37367,6 +37371,18 @@ type CreateCustomerSalesDataUnprocessableEntity Problem
 
 func (*CreateCustomerSalesDataUnprocessableEntity) createCustomerSalesDataRes() {}
 
+type CreateCycleCountAbcApplicationBadRequest Problem
+
+func (*CreateCycleCountAbcApplicationBadRequest) createCycleCountAbcApplicationRes() {}
+
+type CreateCycleCountAbcApplicationForbidden Problem
+
+func (*CreateCycleCountAbcApplicationForbidden) createCycleCountAbcApplicationRes() {}
+
+type CreateCycleCountAbcApplicationUnprocessableEntity Problem
+
+func (*CreateCycleCountAbcApplicationUnprocessableEntity) createCycleCountAbcApplicationRes() {}
+
 type CreateCycleCountIndicatorBadRequest Problem
 
 func (*CreateCycleCountIndicatorBadRequest) createCycleCountIndicatorRes() {}
@@ -42721,6 +42737,1163 @@ func (s *CustomerSalesDataUpdate) SetPriceGroup(val NilString) {
 	s.PriceGroup = val
 }
 
+// The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3).
+// Ref: #/components/schemas/CycleCountAbcAnalysis
+type CycleCountAbcAnalysis struct {
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The window's first posting date.
+	From time.Time `json:"from"`
+	// The window's last posting date.
+	To time.Time `json:"to"`
+	// Class A's percent of the plant's consumption value (the company's `cycle_count_abc_shares.a`).
+	ShareA int32 `json:"share_a"`
+	// Class B's percent after A's (`cycle_count_abc_shares.b`).
+	ShareB int32 `json:"share_b"`
+	// The plant's consumption value in the window, of every material: the classes' and the excluded.
+	TotalConsumption Money `json:"total_consumption"`
+	// The materials with consumption at the plant that are not listed: those a count document does not
+	// take (pending, batch- or serial-managed, kept in no stock).
+	ExcludedMaterials int32 `json:"excluded_materials"`
+	// Their consumption value; with the classes' it makes the total.
+	ExcludedConsumption Money `json:"excluded_consumption"`
+	// Classes A, B and C in that order, each with its materials and consumption value.
+	Classes []CycleCountAbcClass `json:"classes"`
+	// The materials listed, in the order of their consumption value, the greatest first, ties by material
+	// id.
+	Lines []CycleCountAbcLine `json:"lines"`
+	// The lines whose change is `create` or `change`.
+	Changes int32 `json:"changes"`
+	// The analysis's digest, which `createCycleCountAbcApplication` applies; it changes with anything the
+	// analysis shows.
+	PreviewToken string `json:"preview_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CycleCountAbcAnalysis) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CycleCountAbcAnalysis) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountAbcAnalysis) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *CycleCountAbcAnalysis) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *CycleCountAbcAnalysis) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetFrom returns the value of From.
+func (s *CycleCountAbcAnalysis) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CycleCountAbcAnalysis) GetTo() time.Time {
+	return s.To
+}
+
+// GetShareA returns the value of ShareA.
+func (s *CycleCountAbcAnalysis) GetShareA() int32 {
+	return s.ShareA
+}
+
+// GetShareB returns the value of ShareB.
+func (s *CycleCountAbcAnalysis) GetShareB() int32 {
+	return s.ShareB
+}
+
+// GetTotalConsumption returns the value of TotalConsumption.
+func (s *CycleCountAbcAnalysis) GetTotalConsumption() Money {
+	return s.TotalConsumption
+}
+
+// GetExcludedMaterials returns the value of ExcludedMaterials.
+func (s *CycleCountAbcAnalysis) GetExcludedMaterials() int32 {
+	return s.ExcludedMaterials
+}
+
+// GetExcludedConsumption returns the value of ExcludedConsumption.
+func (s *CycleCountAbcAnalysis) GetExcludedConsumption() Money {
+	return s.ExcludedConsumption
+}
+
+// GetClasses returns the value of Classes.
+func (s *CycleCountAbcAnalysis) GetClasses() []CycleCountAbcClass {
+	return s.Classes
+}
+
+// GetLines returns the value of Lines.
+func (s *CycleCountAbcAnalysis) GetLines() []CycleCountAbcLine {
+	return s.Lines
+}
+
+// GetChanges returns the value of Changes.
+func (s *CycleCountAbcAnalysis) GetChanges() int32 {
+	return s.Changes
+}
+
+// GetPreviewToken returns the value of PreviewToken.
+func (s *CycleCountAbcAnalysis) GetPreviewToken() string {
+	return s.PreviewToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CycleCountAbcAnalysis) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CycleCountAbcAnalysis) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountAbcAnalysis) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *CycleCountAbcAnalysis) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *CycleCountAbcAnalysis) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetFrom sets the value of From.
+func (s *CycleCountAbcAnalysis) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CycleCountAbcAnalysis) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetShareA sets the value of ShareA.
+func (s *CycleCountAbcAnalysis) SetShareA(val int32) {
+	s.ShareA = val
+}
+
+// SetShareB sets the value of ShareB.
+func (s *CycleCountAbcAnalysis) SetShareB(val int32) {
+	s.ShareB = val
+}
+
+// SetTotalConsumption sets the value of TotalConsumption.
+func (s *CycleCountAbcAnalysis) SetTotalConsumption(val Money) {
+	s.TotalConsumption = val
+}
+
+// SetExcludedMaterials sets the value of ExcludedMaterials.
+func (s *CycleCountAbcAnalysis) SetExcludedMaterials(val int32) {
+	s.ExcludedMaterials = val
+}
+
+// SetExcludedConsumption sets the value of ExcludedConsumption.
+func (s *CycleCountAbcAnalysis) SetExcludedConsumption(val Money) {
+	s.ExcludedConsumption = val
+}
+
+// SetClasses sets the value of Classes.
+func (s *CycleCountAbcAnalysis) SetClasses(val []CycleCountAbcClass) {
+	s.Classes = val
+}
+
+// SetLines sets the value of Lines.
+func (s *CycleCountAbcAnalysis) SetLines(val []CycleCountAbcLine) {
+	s.Lines = val
+}
+
+// SetChanges sets the value of Changes.
+func (s *CycleCountAbcAnalysis) SetChanges(val int32) {
+	s.Changes = val
+}
+
+// SetPreviewToken sets the value of PreviewToken.
+func (s *CycleCountAbcAnalysis) SetPreviewToken(val string) {
+	s.PreviewToken = val
+}
+
+func (*CycleCountAbcAnalysis) getCycleCountAbcAnalysisRes() {}
+
+// An ABC analysis applied at a plant (ADR-0082 As built S2c3). It is never changed.
+// Ref: #/components/schemas/CycleCountAbcApplication
+type CycleCountAbcApplication struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Always 1: an application is never changed.
+	Version int32 `json:"version"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The window's first posting date.
+	From time.Time `json:"from"`
+	// The window's last posting date.
+	To time.Time `json:"to"`
+	// Class A's percent of the plant's consumption value then.
+	ShareA int32 `json:"share_a"`
+	// Class B's percent after A's then.
+	ShareB int32 `json:"share_b"`
+	// The plant's consumption value in the window.
+	TotalConsumption Money `json:"total_consumption"`
+	// The preview applied.
+	PreviewToken string `json:"preview_token"`
+	// The changes made, in the analysis's order; at least one, as an analysis that changes nothing is not
+	// applied.
+	Changes []CycleCountAbcChange `json:"changes"`
+	// When it was applied (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The person who applied it (`GET /v1/principals/{id}`).
+	CreatedBy uuid.UUID `json:"created_by"`
+	// That person's name, as it is now.
+	CreatedByName string `json:"created_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *CycleCountAbcApplication) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CycleCountAbcApplication) GetVersion() int32 {
+	return s.Version
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CycleCountAbcApplication) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CycleCountAbcApplication) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountAbcApplication) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *CycleCountAbcApplication) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *CycleCountAbcApplication) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetFrom returns the value of From.
+func (s *CycleCountAbcApplication) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CycleCountAbcApplication) GetTo() time.Time {
+	return s.To
+}
+
+// GetShareA returns the value of ShareA.
+func (s *CycleCountAbcApplication) GetShareA() int32 {
+	return s.ShareA
+}
+
+// GetShareB returns the value of ShareB.
+func (s *CycleCountAbcApplication) GetShareB() int32 {
+	return s.ShareB
+}
+
+// GetTotalConsumption returns the value of TotalConsumption.
+func (s *CycleCountAbcApplication) GetTotalConsumption() Money {
+	return s.TotalConsumption
+}
+
+// GetPreviewToken returns the value of PreviewToken.
+func (s *CycleCountAbcApplication) GetPreviewToken() string {
+	return s.PreviewToken
+}
+
+// GetChanges returns the value of Changes.
+func (s *CycleCountAbcApplication) GetChanges() []CycleCountAbcChange {
+	return s.Changes
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CycleCountAbcApplication) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CycleCountAbcApplication) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetCreatedByName returns the value of CreatedByName.
+func (s *CycleCountAbcApplication) GetCreatedByName() string {
+	return s.CreatedByName
+}
+
+// SetID sets the value of ID.
+func (s *CycleCountAbcApplication) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CycleCountAbcApplication) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CycleCountAbcApplication) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CycleCountAbcApplication) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountAbcApplication) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *CycleCountAbcApplication) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *CycleCountAbcApplication) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetFrom sets the value of From.
+func (s *CycleCountAbcApplication) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CycleCountAbcApplication) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetShareA sets the value of ShareA.
+func (s *CycleCountAbcApplication) SetShareA(val int32) {
+	s.ShareA = val
+}
+
+// SetShareB sets the value of ShareB.
+func (s *CycleCountAbcApplication) SetShareB(val int32) {
+	s.ShareB = val
+}
+
+// SetTotalConsumption sets the value of TotalConsumption.
+func (s *CycleCountAbcApplication) SetTotalConsumption(val Money) {
+	s.TotalConsumption = val
+}
+
+// SetPreviewToken sets the value of PreviewToken.
+func (s *CycleCountAbcApplication) SetPreviewToken(val string) {
+	s.PreviewToken = val
+}
+
+// SetChanges sets the value of Changes.
+func (s *CycleCountAbcApplication) SetChanges(val []CycleCountAbcChange) {
+	s.Changes = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CycleCountAbcApplication) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CycleCountAbcApplication) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetCreatedByName sets the value of CreatedByName.
+func (s *CycleCountAbcApplication) SetCreatedByName(val string) {
+	s.CreatedByName = val
+}
+
+// CycleCountAbcApplicationHeaders wraps CycleCountAbcApplication with response headers.
+type CycleCountAbcApplicationHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CycleCountAbcApplication
+}
+
+// GetETag returns the value of ETag.
+func (s *CycleCountAbcApplicationHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CycleCountAbcApplicationHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CycleCountAbcApplicationHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CycleCountAbcApplicationHeaders) GetResponse() CycleCountAbcApplication {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CycleCountAbcApplicationHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CycleCountAbcApplicationHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CycleCountAbcApplicationHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CycleCountAbcApplicationHeaders) SetResponse(val CycleCountAbcApplication) {
+	s.Response = val
+}
+
+func (*CycleCountAbcApplicationHeaders) createCycleCountAbcApplicationRes() {}
+
+// One page of the ABC analyses applied.
+// Ref: #/components/schemas/CycleCountAbcApplicationPage
+type CycleCountAbcApplicationPage struct {
+	// The applications on this page.
+	Items []CycleCountAbcApplicationSummary `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CycleCountAbcApplicationPage) GetItems() []CycleCountAbcApplicationSummary {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CycleCountAbcApplicationPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CycleCountAbcApplicationPage) SetItems(val []CycleCountAbcApplicationSummary) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CycleCountAbcApplicationPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CycleCountAbcApplicationPage) listCycleCountAbcApplicationsRes() {}
+
+// An ABC analysis applied at a plant as a list gives it (ADR-0082 As built S2c3):
+// `getCycleCountAbcApplication`'s fields but its changes, which it counts.
+// Ref: #/components/schemas/CycleCountAbcApplicationSummary
+type CycleCountAbcApplicationSummary struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Always 1: an application is never changed.
+	Version int32 `json:"version"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The window's first posting date.
+	From time.Time `json:"from"`
+	// The window's last posting date.
+	To time.Time `json:"to"`
+	// Class A's percent of the plant's consumption value then.
+	ShareA int32 `json:"share_a"`
+	// Class B's percent after A's then.
+	ShareB int32 `json:"share_b"`
+	// The plant's consumption value in the window.
+	TotalConsumption Money `json:"total_consumption"`
+	// The preview applied.
+	PreviewToken string `json:"preview_token"`
+	// The changes it made (1 to 1,000), which `getCycleCountAbcApplication` lists.
+	ChangeCount int32 `json:"change_count"`
+	// When it was applied (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The person who applied it (`GET /v1/principals/{id}`).
+	CreatedBy uuid.UUID `json:"created_by"`
+	// That person's name, as it is now.
+	CreatedByName string `json:"created_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *CycleCountAbcApplicationSummary) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CycleCountAbcApplicationSummary) GetVersion() int32 {
+	return s.Version
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CycleCountAbcApplicationSummary) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CycleCountAbcApplicationSummary) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountAbcApplicationSummary) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *CycleCountAbcApplicationSummary) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *CycleCountAbcApplicationSummary) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetFrom returns the value of From.
+func (s *CycleCountAbcApplicationSummary) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CycleCountAbcApplicationSummary) GetTo() time.Time {
+	return s.To
+}
+
+// GetShareA returns the value of ShareA.
+func (s *CycleCountAbcApplicationSummary) GetShareA() int32 {
+	return s.ShareA
+}
+
+// GetShareB returns the value of ShareB.
+func (s *CycleCountAbcApplicationSummary) GetShareB() int32 {
+	return s.ShareB
+}
+
+// GetTotalConsumption returns the value of TotalConsumption.
+func (s *CycleCountAbcApplicationSummary) GetTotalConsumption() Money {
+	return s.TotalConsumption
+}
+
+// GetPreviewToken returns the value of PreviewToken.
+func (s *CycleCountAbcApplicationSummary) GetPreviewToken() string {
+	return s.PreviewToken
+}
+
+// GetChangeCount returns the value of ChangeCount.
+func (s *CycleCountAbcApplicationSummary) GetChangeCount() int32 {
+	return s.ChangeCount
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CycleCountAbcApplicationSummary) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CycleCountAbcApplicationSummary) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetCreatedByName returns the value of CreatedByName.
+func (s *CycleCountAbcApplicationSummary) GetCreatedByName() string {
+	return s.CreatedByName
+}
+
+// SetID sets the value of ID.
+func (s *CycleCountAbcApplicationSummary) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CycleCountAbcApplicationSummary) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CycleCountAbcApplicationSummary) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CycleCountAbcApplicationSummary) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountAbcApplicationSummary) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *CycleCountAbcApplicationSummary) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *CycleCountAbcApplicationSummary) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetFrom sets the value of From.
+func (s *CycleCountAbcApplicationSummary) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CycleCountAbcApplicationSummary) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetShareA sets the value of ShareA.
+func (s *CycleCountAbcApplicationSummary) SetShareA(val int32) {
+	s.ShareA = val
+}
+
+// SetShareB sets the value of ShareB.
+func (s *CycleCountAbcApplicationSummary) SetShareB(val int32) {
+	s.ShareB = val
+}
+
+// SetTotalConsumption sets the value of TotalConsumption.
+func (s *CycleCountAbcApplicationSummary) SetTotalConsumption(val Money) {
+	s.TotalConsumption = val
+}
+
+// SetPreviewToken sets the value of PreviewToken.
+func (s *CycleCountAbcApplicationSummary) SetPreviewToken(val string) {
+	s.PreviewToken = val
+}
+
+// SetChangeCount sets the value of ChangeCount.
+func (s *CycleCountAbcApplicationSummary) SetChangeCount(val int32) {
+	s.ChangeCount = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CycleCountAbcApplicationSummary) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CycleCountAbcApplicationSummary) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetCreatedByName sets the value of CreatedByName.
+func (s *CycleCountAbcApplicationSummary) SetCreatedByName(val string) {
+	s.CreatedByName = val
+}
+
+// An ABC analysis to apply, as `getCycleCountAbcAnalysis` previewed it.
+// Ref: #/components/schemas/CycleCountAbcApply
+type CycleCountAbcApply struct {
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The window's first posting date.
+	From time.Time `json:"from"`
+	// The window's last posting date.
+	To time.Time `json:"to"`
+	// The preview's `preview_token`.
+	PreviewToken string `json:"preview_token"`
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountAbcApply) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetFrom returns the value of From.
+func (s *CycleCountAbcApply) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CycleCountAbcApply) GetTo() time.Time {
+	return s.To
+}
+
+// GetPreviewToken returns the value of PreviewToken.
+func (s *CycleCountAbcApply) GetPreviewToken() string {
+	return s.PreviewToken
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountAbcApply) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetFrom sets the value of From.
+func (s *CycleCountAbcApply) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CycleCountAbcApply) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetPreviewToken sets the value of PreviewToken.
+func (s *CycleCountAbcApply) SetPreviewToken(val string) {
+	s.PreviewToken = val
+}
+
+// A change an applied ABC analysis made: a material given its class's indicator at the plant, or moved
+// to it.
+// Ref: #/components/schemas/CycleCountAbcChange
+type CycleCountAbcChange struct {
+	// The change's number, in the analysis's order.
+	LineNo int32 `json:"line_no"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// Its consumption value at the plant in the window.
+	Consumption Money `json:"consumption"`
+	// Its class. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Class string `json:"class"`
+	// The indicator it was given (`GET /v1/cycle-count-indicators/{id}`).
+	IndicatorID uuid.UUID `json:"indicator_id"`
+	// That indicator's code.
+	IndicatorCode string `json:"indicator_code"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1. `create`: the material was given the indicator; `change`: its indicator was changed to
+	// it.
+	Change string `json:"change"`
+	// The indicator it replaced; absent for `create`.
+	BeforeIndicatorID OptUUID `json:"before_indicator_id"`
+	// That indicator's code; absent with it.
+	BeforeIndicatorCode OptString `json:"before_indicator_code"`
+	// The material's indicator at the plant the change made or changed
+	// (`GET /v1/cycle-count-materials/{id}`).
+	CycleCountMaterialID uuid.UUID `json:"cycle_count_material_id"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *CycleCountAbcChange) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CycleCountAbcChange) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *CycleCountAbcChange) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *CycleCountAbcChange) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetConsumption returns the value of Consumption.
+func (s *CycleCountAbcChange) GetConsumption() Money {
+	return s.Consumption
+}
+
+// GetClass returns the value of Class.
+func (s *CycleCountAbcChange) GetClass() string {
+	return s.Class
+}
+
+// GetIndicatorID returns the value of IndicatorID.
+func (s *CycleCountAbcChange) GetIndicatorID() uuid.UUID {
+	return s.IndicatorID
+}
+
+// GetIndicatorCode returns the value of IndicatorCode.
+func (s *CycleCountAbcChange) GetIndicatorCode() string {
+	return s.IndicatorCode
+}
+
+// GetChange returns the value of Change.
+func (s *CycleCountAbcChange) GetChange() string {
+	return s.Change
+}
+
+// GetBeforeIndicatorID returns the value of BeforeIndicatorID.
+func (s *CycleCountAbcChange) GetBeforeIndicatorID() OptUUID {
+	return s.BeforeIndicatorID
+}
+
+// GetBeforeIndicatorCode returns the value of BeforeIndicatorCode.
+func (s *CycleCountAbcChange) GetBeforeIndicatorCode() OptString {
+	return s.BeforeIndicatorCode
+}
+
+// GetCycleCountMaterialID returns the value of CycleCountMaterialID.
+func (s *CycleCountAbcChange) GetCycleCountMaterialID() uuid.UUID {
+	return s.CycleCountMaterialID
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *CycleCountAbcChange) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *CycleCountAbcChange) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *CycleCountAbcChange) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *CycleCountAbcChange) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetConsumption sets the value of Consumption.
+func (s *CycleCountAbcChange) SetConsumption(val Money) {
+	s.Consumption = val
+}
+
+// SetClass sets the value of Class.
+func (s *CycleCountAbcChange) SetClass(val string) {
+	s.Class = val
+}
+
+// SetIndicatorID sets the value of IndicatorID.
+func (s *CycleCountAbcChange) SetIndicatorID(val uuid.UUID) {
+	s.IndicatorID = val
+}
+
+// SetIndicatorCode sets the value of IndicatorCode.
+func (s *CycleCountAbcChange) SetIndicatorCode(val string) {
+	s.IndicatorCode = val
+}
+
+// SetChange sets the value of Change.
+func (s *CycleCountAbcChange) SetChange(val string) {
+	s.Change = val
+}
+
+// SetBeforeIndicatorID sets the value of BeforeIndicatorID.
+func (s *CycleCountAbcChange) SetBeforeIndicatorID(val OptUUID) {
+	s.BeforeIndicatorID = val
+}
+
+// SetBeforeIndicatorCode sets the value of BeforeIndicatorCode.
+func (s *CycleCountAbcChange) SetBeforeIndicatorCode(val OptString) {
+	s.BeforeIndicatorCode = val
+}
+
+// SetCycleCountMaterialID sets the value of CycleCountMaterialID.
+func (s *CycleCountAbcChange) SetCycleCountMaterialID(val uuid.UUID) {
+	s.CycleCountMaterialID = val
+}
+
+// A class of an ABC analysis: its materials listed and their consumption value, and the plant's
+// indicator of its code.
+// Ref: #/components/schemas/CycleCountAbcClass
+type CycleCountAbcClass struct {
+	// The class. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Class string `json:"class"`
+	// The materials listed in the class.
+	Materials int32 `json:"materials"`
+	// Their consumption value.
+	Consumption Money `json:"consumption"`
+	// The plant's indicator of the class's code (`GET /v1/cycle-count-indicators/{id}`); absent when the
+	// plant has none, which a class without materials needs not.
+	IndicatorID OptUUID `json:"indicator_id"`
+	// That indicator's code; absent with it.
+	IndicatorCode OptString `json:"indicator_code"`
+	// That indicator's interval in days; absent with it.
+	IntervalDays OptInt32 `json:"interval_days"`
+}
+
+// GetClass returns the value of Class.
+func (s *CycleCountAbcClass) GetClass() string {
+	return s.Class
+}
+
+// GetMaterials returns the value of Materials.
+func (s *CycleCountAbcClass) GetMaterials() int32 {
+	return s.Materials
+}
+
+// GetConsumption returns the value of Consumption.
+func (s *CycleCountAbcClass) GetConsumption() Money {
+	return s.Consumption
+}
+
+// GetIndicatorID returns the value of IndicatorID.
+func (s *CycleCountAbcClass) GetIndicatorID() OptUUID {
+	return s.IndicatorID
+}
+
+// GetIndicatorCode returns the value of IndicatorCode.
+func (s *CycleCountAbcClass) GetIndicatorCode() OptString {
+	return s.IndicatorCode
+}
+
+// GetIntervalDays returns the value of IntervalDays.
+func (s *CycleCountAbcClass) GetIntervalDays() OptInt32 {
+	return s.IntervalDays
+}
+
+// SetClass sets the value of Class.
+func (s *CycleCountAbcClass) SetClass(val string) {
+	s.Class = val
+}
+
+// SetMaterials sets the value of Materials.
+func (s *CycleCountAbcClass) SetMaterials(val int32) {
+	s.Materials = val
+}
+
+// SetConsumption sets the value of Consumption.
+func (s *CycleCountAbcClass) SetConsumption(val Money) {
+	s.Consumption = val
+}
+
+// SetIndicatorID sets the value of IndicatorID.
+func (s *CycleCountAbcClass) SetIndicatorID(val OptUUID) {
+	s.IndicatorID = val
+}
+
+// SetIndicatorCode sets the value of IndicatorCode.
+func (s *CycleCountAbcClass) SetIndicatorCode(val OptString) {
+	s.IndicatorCode = val
+}
+
+// SetIntervalDays sets the value of IntervalDays.
+func (s *CycleCountAbcClass) SetIntervalDays(val OptInt32) {
+	s.IntervalDays = val
+}
+
+// A material of an ABC analysis: its consumption value and class, the plant's indicator of its class
+// and what applying the analysis does.
+// Ref: #/components/schemas/CycleCountAbcLine
+type CycleCountAbcLine struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// Its consumption value at the plant in the window, none for a net return.
+	Consumption Money `json:"consumption"`
+	// Its class. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Class string `json:"class"`
+	// The plant's indicator of its class's code, the one the analysis gives it.
+	IndicatorID uuid.UUID `json:"indicator_id"`
+	// That indicator's code.
+	IndicatorCode string `json:"indicator_code"`
+	// That indicator's interval in days.
+	IntervalDays int32 `json:"interval_days"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1. What applying the analysis does: gives the material the indicator (`create`), changes
+	// the one it has to it (`change`), or nothing, the material carrying it already (`none`).
+	Change string `json:"change"`
+	// The material's active indicator's indicator at the plant, which applying the analysis would replace;
+	// absent when it has none.
+	BeforeIndicatorID OptUUID `json:"before_indicator_id"`
+	// That indicator's code; absent with it.
+	BeforeIndicatorCode OptString `json:"before_indicator_code"`
+	// The material's active indicator at the plant (`GET /v1/cycle-count-materials/{id}`); absent when it
+	// has none.
+	CycleCountMaterialID OptUUID `json:"cycle_count_material_id"`
+	// That indicator's version; absent with it.
+	CycleCountMaterialVersion OptInt32 `json:"cycle_count_material_version"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CycleCountAbcLine) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *CycleCountAbcLine) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *CycleCountAbcLine) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetConsumption returns the value of Consumption.
+func (s *CycleCountAbcLine) GetConsumption() Money {
+	return s.Consumption
+}
+
+// GetClass returns the value of Class.
+func (s *CycleCountAbcLine) GetClass() string {
+	return s.Class
+}
+
+// GetIndicatorID returns the value of IndicatorID.
+func (s *CycleCountAbcLine) GetIndicatorID() uuid.UUID {
+	return s.IndicatorID
+}
+
+// GetIndicatorCode returns the value of IndicatorCode.
+func (s *CycleCountAbcLine) GetIndicatorCode() string {
+	return s.IndicatorCode
+}
+
+// GetIntervalDays returns the value of IntervalDays.
+func (s *CycleCountAbcLine) GetIntervalDays() int32 {
+	return s.IntervalDays
+}
+
+// GetChange returns the value of Change.
+func (s *CycleCountAbcLine) GetChange() string {
+	return s.Change
+}
+
+// GetBeforeIndicatorID returns the value of BeforeIndicatorID.
+func (s *CycleCountAbcLine) GetBeforeIndicatorID() OptUUID {
+	return s.BeforeIndicatorID
+}
+
+// GetBeforeIndicatorCode returns the value of BeforeIndicatorCode.
+func (s *CycleCountAbcLine) GetBeforeIndicatorCode() OptString {
+	return s.BeforeIndicatorCode
+}
+
+// GetCycleCountMaterialID returns the value of CycleCountMaterialID.
+func (s *CycleCountAbcLine) GetCycleCountMaterialID() OptUUID {
+	return s.CycleCountMaterialID
+}
+
+// GetCycleCountMaterialVersion returns the value of CycleCountMaterialVersion.
+func (s *CycleCountAbcLine) GetCycleCountMaterialVersion() OptInt32 {
+	return s.CycleCountMaterialVersion
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *CycleCountAbcLine) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *CycleCountAbcLine) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *CycleCountAbcLine) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetConsumption sets the value of Consumption.
+func (s *CycleCountAbcLine) SetConsumption(val Money) {
+	s.Consumption = val
+}
+
+// SetClass sets the value of Class.
+func (s *CycleCountAbcLine) SetClass(val string) {
+	s.Class = val
+}
+
+// SetIndicatorID sets the value of IndicatorID.
+func (s *CycleCountAbcLine) SetIndicatorID(val uuid.UUID) {
+	s.IndicatorID = val
+}
+
+// SetIndicatorCode sets the value of IndicatorCode.
+func (s *CycleCountAbcLine) SetIndicatorCode(val string) {
+	s.IndicatorCode = val
+}
+
+// SetIntervalDays sets the value of IntervalDays.
+func (s *CycleCountAbcLine) SetIntervalDays(val int32) {
+	s.IntervalDays = val
+}
+
+// SetChange sets the value of Change.
+func (s *CycleCountAbcLine) SetChange(val string) {
+	s.Change = val
+}
+
+// SetBeforeIndicatorID sets the value of BeforeIndicatorID.
+func (s *CycleCountAbcLine) SetBeforeIndicatorID(val OptUUID) {
+	s.BeforeIndicatorID = val
+}
+
+// SetBeforeIndicatorCode sets the value of BeforeIndicatorCode.
+func (s *CycleCountAbcLine) SetBeforeIndicatorCode(val OptString) {
+	s.BeforeIndicatorCode = val
+}
+
+// SetCycleCountMaterialID sets the value of CycleCountMaterialID.
+func (s *CycleCountAbcLine) SetCycleCountMaterialID(val OptUUID) {
+	s.CycleCountMaterialID = val
+}
+
+// SetCycleCountMaterialVersion sets the value of CycleCountMaterialVersion.
+func (s *CycleCountAbcLine) SetCycleCountMaterialVersion(val OptInt32) {
+	s.CycleCountMaterialVersion = val
+}
+
 // A count due: a material with a cycle counting indicator at a storage location of its plant, never
 // counted there or last counted there its indicator's interval or more days ago (ADR-0082 As built
 // S2c2).
@@ -43281,6 +44454,11 @@ type CycleCountMaterial struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Principal that made the last change. Absent on resources whose table does not record it.
 	UpdatedBy OptUUID `json:"updated_by"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1. `active`: the material is counted by the indicator at the plant; `removed`: taken off
+	// (`removeCycleCountMaterial`, S2c3), when and by whom its `updated_at` and `updated_by` say, never
+	// changed again. A material has one active indicator at a plant.
+	Status string `json:"status"`
 	// The plant.
 	PlantID uuid.UUID `json:"plant_id"`
 	// The plant's code.
@@ -43333,6 +44511,11 @@ func (s *CycleCountMaterial) GetUpdatedAt() time.Time {
 // GetUpdatedBy returns the value of UpdatedBy.
 func (s *CycleCountMaterial) GetUpdatedBy() OptUUID {
 	return s.UpdatedBy
+}
+
+// GetStatus returns the value of Status.
+func (s *CycleCountMaterial) GetStatus() string {
+	return s.Status
 }
 
 // GetPlantID returns the value of PlantID.
@@ -43418,6 +44601,11 @@ func (s *CycleCountMaterial) SetUpdatedAt(val time.Time) {
 // SetUpdatedBy sets the value of UpdatedBy.
 func (s *CycleCountMaterial) SetUpdatedBy(val OptUUID) {
 	s.UpdatedBy = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CycleCountMaterial) SetStatus(val string) {
+	s.Status = val
 }
 
 // SetPlantID sets the value of PlantID.
@@ -52630,6 +53818,10 @@ type FixSopPlanPreconditionRequired Problem
 
 func (*FixSopPlanPreconditionRequired) fixSopPlanRes() {}
 
+type FixSopPlanUnprocessableEntity Problem
+
+func (*FixSopPlanUnprocessableEntity) fixSopPlanRes() {}
+
 // A document a variance comment cites: one the attribution of the variance it explains lists
 // (`listForecastVarianceDocuments`).
 // Ref: #/components/schemas/ForecastVarianceCitation
@@ -55410,6 +56602,58 @@ func (s *GetCustomerSalesDataOKHeaders) SetResponse(val CustomerSalesData) {
 }
 
 func (*GetCustomerSalesDataOKHeaders) getCustomerSalesDataRes() {}
+
+type GetCycleCountAbcAnalysisBadRequest Problem
+
+func (*GetCycleCountAbcAnalysisBadRequest) getCycleCountAbcAnalysisRes() {}
+
+type GetCycleCountAbcAnalysisForbidden Problem
+
+func (*GetCycleCountAbcAnalysisForbidden) getCycleCountAbcAnalysisRes() {}
+
+type GetCycleCountAbcAnalysisUnprocessableEntity Problem
+
+func (*GetCycleCountAbcAnalysisUnprocessableEntity) getCycleCountAbcAnalysisRes() {}
+
+type GetCycleCountAbcApplicationBadRequest Problem
+
+func (*GetCycleCountAbcApplicationBadRequest) getCycleCountAbcApplicationRes() {}
+
+type GetCycleCountAbcApplicationForbidden Problem
+
+func (*GetCycleCountAbcApplicationForbidden) getCycleCountAbcApplicationRes() {}
+
+type GetCycleCountAbcApplicationNotFound Problem
+
+func (*GetCycleCountAbcApplicationNotFound) getCycleCountAbcApplicationRes() {}
+
+// GetCycleCountAbcApplicationOKHeaders wraps CycleCountAbcApplication with response headers.
+type GetCycleCountAbcApplicationOKHeaders struct {
+	ETag     OptString
+	Response CycleCountAbcApplication
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCycleCountAbcApplicationOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCycleCountAbcApplicationOKHeaders) GetResponse() CycleCountAbcApplication {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCycleCountAbcApplicationOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCycleCountAbcApplicationOKHeaders) SetResponse(val CycleCountAbcApplication) {
+	s.Response = val
+}
+
+func (*GetCycleCountAbcApplicationOKHeaders) getCycleCountAbcApplicationRes() {}
 
 type GetCycleCountIndicatorBadRequest Problem
 
@@ -58416,6 +59660,7 @@ func (s *GetSopPlanOKHeaders) SetResponse(val SopPlan) {
 
 func (*GetSopPlanOKHeaders) fixSopPlanRes()    {}
 func (*GetSopPlanOKHeaders) getSopPlanRes()    {}
+func (*GetSopPlanOKHeaders) submitSopPlanRes() {}
 func (*GetSopPlanOKHeaders) updateSopPlanRes() {}
 
 type GetStatisticalKeyFigureBadRequest Problem
@@ -72691,6 +73936,14 @@ type ListCustomerSalesDataForbidden Problem
 
 func (*ListCustomerSalesDataForbidden) listCustomerSalesDataRes() {}
 
+type ListCycleCountAbcApplicationsBadRequest Problem
+
+func (*ListCycleCountAbcApplicationsBadRequest) listCycleCountAbcApplicationsRes() {}
+
+type ListCycleCountAbcApplicationsForbidden Problem
+
+func (*ListCycleCountAbcApplicationsForbidden) listCycleCountAbcApplicationsRes() {}
+
 type ListCycleCountIndicatorsBadRequest Problem
 
 func (*ListCycleCountIndicatorsBadRequest) listCycleCountIndicatorsRes() {}
@@ -74695,6 +75948,8 @@ type Material struct {
 	BaseUnit string `json:"base_unit"`
 	// The base unit's name.
 	BaseUnitName string `json:"base_unit_name"`
+	// One of the base unit's dimensions, weights and GTIN (S1a3); empty when it has none.
+	BaseUnitMeasures MaterialUnitMeasures `json:"base_unit_measures"`
 	// The material type. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	MaterialType string `json:"material_type"`
@@ -74793,6 +76048,11 @@ func (s *Material) GetBaseUnit() string {
 // GetBaseUnitName returns the value of BaseUnitName.
 func (s *Material) GetBaseUnitName() string {
 	return s.BaseUnitName
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *Material) GetBaseUnitMeasures() MaterialUnitMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetMaterialType returns the value of MaterialType.
@@ -74913,6 +76173,11 @@ func (s *Material) SetBaseUnit(val string) {
 // SetBaseUnitName sets the value of BaseUnitName.
 func (s *Material) SetBaseUnitName(val string) {
 	s.BaseUnitName = val
+}
+
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *Material) SetBaseUnitMeasures(val MaterialUnitMeasures) {
+	s.BaseUnitMeasures = val
 }
 
 // SetMaterialType sets the value of MaterialType.
@@ -75323,6 +76588,9 @@ type MaterialChangeRequested struct {
 	Descriptions []MaterialDescription `json:"descriptions"`
 	// The base unit (a create's only).
 	BaseUnit OptString `json:"base_unit"`
+	// The base unit's dimensions, weights and GTIN, replacing the material's (S1a3); an empty object
+	// removes them.
+	BaseUnitMeasures OptMaterialMeasures `json:"base_unit_measures"`
 	// The material type (a create's only).
 	MaterialType OptString `json:"material_type"`
 	// Whether the material is managed in batches (a create's only).
@@ -75337,7 +76605,7 @@ type MaterialChangeRequested struct {
 	// companies are left out, so an empty list may stand for plants the caller cannot see, as on
 	// `Material`.
 	Plants []MaterialChangePlant `json:"plants"`
-	// The alternative units with their conversions.
+	// The alternative units with their conversions and measures.
 	AlternativeUnits []MaterialUnitInput `json:"alternative_units"`
 }
 
@@ -75359,6 +76627,11 @@ func (s *MaterialChangeRequested) GetDescriptions() []MaterialDescription {
 // GetBaseUnit returns the value of BaseUnit.
 func (s *MaterialChangeRequested) GetBaseUnit() OptString {
 	return s.BaseUnit
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *MaterialChangeRequested) GetBaseUnitMeasures() OptMaterialMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetMaterialType returns the value of MaterialType.
@@ -75416,6 +76689,11 @@ func (s *MaterialChangeRequested) SetBaseUnit(val OptString) {
 	s.BaseUnit = val
 }
 
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *MaterialChangeRequested) SetBaseUnitMeasures(val OptMaterialMeasures) {
+	s.BaseUnitMeasures = val
+}
+
 // SetMaterialType sets the value of MaterialType.
 func (s *MaterialChangeRequested) SetMaterialType(val OptString) {
 	s.MaterialType = val
@@ -75467,6 +76745,8 @@ type MaterialCreate struct {
 	Descriptions []MaterialDescription `json:"descriptions"`
 	// The unit stock and quantities of the material are kept in; it does not change.
 	BaseUnit string `json:"base_unit"`
+	// One of the base unit's dimensions, weights and GTIN (S1a3; SAP MARA); none when absent.
+	BaseUnitMeasures OptMaterialMeasures `json:"base_unit_measures"`
 	// What kind of material it is (SAP's standard material types ROH, HALB, FERT, HAWA, NLAG and DIEN); it
 	// does not change. Open enumeration: values may be added within /v1.
 	MaterialType string `json:"material_type"`
@@ -75517,6 +76797,11 @@ func (s *MaterialCreate) GetDescriptions() []MaterialDescription {
 // GetBaseUnit returns the value of BaseUnit.
 func (s *MaterialCreate) GetBaseUnit() string {
 	return s.BaseUnit
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *MaterialCreate) GetBaseUnitMeasures() OptMaterialMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetMaterialType returns the value of MaterialType.
@@ -75582,6 +76867,11 @@ func (s *MaterialCreate) SetDescriptions(val []MaterialDescription) {
 // SetBaseUnit sets the value of BaseUnit.
 func (s *MaterialCreate) SetBaseUnit(val string) {
 	s.BaseUnit = val
+}
+
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *MaterialCreate) SetBaseUnitMeasures(val OptMaterialMeasures) {
+	s.BaseUnitMeasures = val
 }
 
 // SetMaterialType sets the value of MaterialType.
@@ -76532,6 +77822,137 @@ func (s *MaterialHeaders) SetResponse(val Material) {
 
 func (*MaterialHeaders) createMaterialRes() {}
 
+// A unit of measure's dimensions, weights and GTIN (ADR-0082 As built S1a3; SAP MARM's BRGEW, GEWEI,
+// VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM and EAN11, and MARA's NTGEW, from memory), each absent when
+// unknown. Every value is a decimal string above zero of up to ten digits and three decimals, never a
+// number, in the unit beside it: a weight unit of mass (`KG`, `G`, `T`), a volume unit of volume (`L`,
+// `M3`), a length unit of length (`M`). A unit is given with its values and only then; the net weight
+// is no more than the gross.
+// Ref: #/components/schemas/MaterialMeasures
+type MaterialMeasures struct {
+	// The unit's Global Trade Item Number (EAN/UPC): 8, 12, 13 or 14 digits ending in its GS1 check digit,
+	// of one unit of one material in the tenant.
+	Gtin OptString `json:"gtin"`
+	// What one of the unit weighs with its packaging, in `weight_unit`.
+	GrossWeight OptString `json:"gross_weight"`
+	// What one of the unit weighs without its packaging, in `weight_unit`; no more than `gross_weight`.
+	NetWeight OptString `json:"net_weight"`
+	// The unit of mass both weights are in; given with a weight and only then.
+	WeightUnit OptString `json:"weight_unit"`
+	// The space one of the unit takes, in `volume_unit`.
+	Volume OptString `json:"volume"`
+	// The unit of volume `volume` is in; given with it and only then.
+	VolumeUnit OptString `json:"volume_unit"`
+	// One of the unit's length, in `dimension_unit`.
+	Length OptString `json:"length"`
+	// Its width, in `dimension_unit`.
+	Width OptString `json:"width"`
+	// Its height, in `dimension_unit`.
+	Height OptString `json:"height"`
+	// The unit of length the length, width and height are in; given with one of them and only then.
+	DimensionUnit OptString `json:"dimension_unit"`
+}
+
+// GetGtin returns the value of Gtin.
+func (s *MaterialMeasures) GetGtin() OptString {
+	return s.Gtin
+}
+
+// GetGrossWeight returns the value of GrossWeight.
+func (s *MaterialMeasures) GetGrossWeight() OptString {
+	return s.GrossWeight
+}
+
+// GetNetWeight returns the value of NetWeight.
+func (s *MaterialMeasures) GetNetWeight() OptString {
+	return s.NetWeight
+}
+
+// GetWeightUnit returns the value of WeightUnit.
+func (s *MaterialMeasures) GetWeightUnit() OptString {
+	return s.WeightUnit
+}
+
+// GetVolume returns the value of Volume.
+func (s *MaterialMeasures) GetVolume() OptString {
+	return s.Volume
+}
+
+// GetVolumeUnit returns the value of VolumeUnit.
+func (s *MaterialMeasures) GetVolumeUnit() OptString {
+	return s.VolumeUnit
+}
+
+// GetLength returns the value of Length.
+func (s *MaterialMeasures) GetLength() OptString {
+	return s.Length
+}
+
+// GetWidth returns the value of Width.
+func (s *MaterialMeasures) GetWidth() OptString {
+	return s.Width
+}
+
+// GetHeight returns the value of Height.
+func (s *MaterialMeasures) GetHeight() OptString {
+	return s.Height
+}
+
+// GetDimensionUnit returns the value of DimensionUnit.
+func (s *MaterialMeasures) GetDimensionUnit() OptString {
+	return s.DimensionUnit
+}
+
+// SetGtin sets the value of Gtin.
+func (s *MaterialMeasures) SetGtin(val OptString) {
+	s.Gtin = val
+}
+
+// SetGrossWeight sets the value of GrossWeight.
+func (s *MaterialMeasures) SetGrossWeight(val OptString) {
+	s.GrossWeight = val
+}
+
+// SetNetWeight sets the value of NetWeight.
+func (s *MaterialMeasures) SetNetWeight(val OptString) {
+	s.NetWeight = val
+}
+
+// SetWeightUnit sets the value of WeightUnit.
+func (s *MaterialMeasures) SetWeightUnit(val OptString) {
+	s.WeightUnit = val
+}
+
+// SetVolume sets the value of Volume.
+func (s *MaterialMeasures) SetVolume(val OptString) {
+	s.Volume = val
+}
+
+// SetVolumeUnit sets the value of VolumeUnit.
+func (s *MaterialMeasures) SetVolumeUnit(val OptString) {
+	s.VolumeUnit = val
+}
+
+// SetLength sets the value of Length.
+func (s *MaterialMeasures) SetLength(val OptString) {
+	s.Length = val
+}
+
+// SetWidth sets the value of Width.
+func (s *MaterialMeasures) SetWidth(val OptString) {
+	s.Width = val
+}
+
+// SetHeight sets the value of Height.
+func (s *MaterialMeasures) SetHeight(val OptString) {
+	s.Height = val
+}
+
+// SetDimensionUnit sets the value of DimensionUnit.
+func (s *MaterialMeasures) SetDimensionUnit(val OptString) {
+	s.DimensionUnit = val
+}
+
 // One page of materials.
 // Ref: #/components/schemas/MaterialPage
 type MaterialPage struct {
@@ -77423,6 +78844,8 @@ type MaterialUnit struct {
 	Numerator int32 `json:"numerator"`
 	// Alternative units the `numerator` base units are.
 	Denominator int32 `json:"denominator"`
+	// One of the alternative unit's dimensions, weights and GTIN (S1a3); empty when it has none.
+	Measures MaterialUnitMeasures `json:"measures"`
 }
 
 // GetUnit returns the value of Unit.
@@ -77445,6 +78868,11 @@ func (s *MaterialUnit) GetDenominator() int32 {
 	return s.Denominator
 }
 
+// GetMeasures returns the value of Measures.
+func (s *MaterialUnit) GetMeasures() MaterialUnitMeasures {
+	return s.Measures
+}
+
 // SetUnit sets the value of Unit.
 func (s *MaterialUnit) SetUnit(val string) {
 	s.Unit = val
@@ -77465,6 +78893,11 @@ func (s *MaterialUnit) SetDenominator(val int32) {
 	s.Denominator = val
 }
 
+// SetMeasures sets the value of Measures.
+func (s *MaterialUnit) SetMeasures(val MaterialUnitMeasures) {
+	s.Measures = val
+}
+
 // An alternative unit of measure of a material and its exact conversion: one of it is `numerator`
 // divided by `denominator` base units (SAP MARM's UMREZ and UMREN).
 // Ref: #/components/schemas/MaterialUnitInput
@@ -77475,6 +78908,8 @@ type MaterialUnitInput struct {
 	Numerator int32 `json:"numerator"`
 	// Alternative units the `numerator` base units are.
 	Denominator int32 `json:"denominator"`
+	// One of the alternative unit's dimensions, weights and GTIN (S1a3; SAP MARM); none when absent.
+	Measures OptMaterialMeasures `json:"measures"`
 }
 
 // GetUnit returns the value of Unit.
@@ -77492,6 +78927,11 @@ func (s *MaterialUnitInput) GetDenominator() int32 {
 	return s.Denominator
 }
 
+// GetMeasures returns the value of Measures.
+func (s *MaterialUnitInput) GetMeasures() OptMaterialMeasures {
+	return s.Measures
+}
+
 // SetUnit sets the value of Unit.
 func (s *MaterialUnitInput) SetUnit(val string) {
 	s.Unit = val
@@ -77507,8 +78947,177 @@ func (s *MaterialUnitInput) SetDenominator(val int32) {
 	s.Denominator = val
 }
 
-// Merge patch of a material: its description, further descriptions, material group, status, plants or
-// alternative units. The number, the base unit and the material type do not change.
+// SetMeasures sets the value of Measures.
+func (s *MaterialUnitInput) SetMeasures(val OptMaterialMeasures) {
+	s.Measures = val
+}
+
+// A unit of measure's dimensions, weights and GTIN as a material gives them (ADR-0082 As built S1a3):
+// each absent when unknown, a decimal string in its unit, written without trailing zeros, each unit
+// with its name.
+// Ref: #/components/schemas/MaterialUnitMeasures
+type MaterialUnitMeasures struct {
+	// The unit's GTIN, as given.
+	Gtin OptString `json:"gtin"`
+	// What one of the unit weighs with its packaging, in `weight_unit`.
+	GrossWeight OptString `json:"gross_weight"`
+	// What it weighs without its packaging, in `weight_unit`.
+	NetWeight OptString `json:"net_weight"`
+	// The unit of mass of the weights.
+	WeightUnit OptString `json:"weight_unit"`
+	// That unit's name.
+	WeightUnitName OptString `json:"weight_unit_name"`
+	// The space one of the unit takes, in `volume_unit`.
+	Volume OptString `json:"volume"`
+	// The unit of volume.
+	VolumeUnit OptString `json:"volume_unit"`
+	// That unit's name.
+	VolumeUnitName OptString `json:"volume_unit_name"`
+	// Its length, in `dimension_unit`.
+	Length OptString `json:"length"`
+	// Its width, in `dimension_unit`.
+	Width OptString `json:"width"`
+	// Its height, in `dimension_unit`.
+	Height OptString `json:"height"`
+	// The unit of length of the length, width and height.
+	DimensionUnit OptString `json:"dimension_unit"`
+	// That unit's name.
+	DimensionUnitName OptString `json:"dimension_unit_name"`
+}
+
+// GetGtin returns the value of Gtin.
+func (s *MaterialUnitMeasures) GetGtin() OptString {
+	return s.Gtin
+}
+
+// GetGrossWeight returns the value of GrossWeight.
+func (s *MaterialUnitMeasures) GetGrossWeight() OptString {
+	return s.GrossWeight
+}
+
+// GetNetWeight returns the value of NetWeight.
+func (s *MaterialUnitMeasures) GetNetWeight() OptString {
+	return s.NetWeight
+}
+
+// GetWeightUnit returns the value of WeightUnit.
+func (s *MaterialUnitMeasures) GetWeightUnit() OptString {
+	return s.WeightUnit
+}
+
+// GetWeightUnitName returns the value of WeightUnitName.
+func (s *MaterialUnitMeasures) GetWeightUnitName() OptString {
+	return s.WeightUnitName
+}
+
+// GetVolume returns the value of Volume.
+func (s *MaterialUnitMeasures) GetVolume() OptString {
+	return s.Volume
+}
+
+// GetVolumeUnit returns the value of VolumeUnit.
+func (s *MaterialUnitMeasures) GetVolumeUnit() OptString {
+	return s.VolumeUnit
+}
+
+// GetVolumeUnitName returns the value of VolumeUnitName.
+func (s *MaterialUnitMeasures) GetVolumeUnitName() OptString {
+	return s.VolumeUnitName
+}
+
+// GetLength returns the value of Length.
+func (s *MaterialUnitMeasures) GetLength() OptString {
+	return s.Length
+}
+
+// GetWidth returns the value of Width.
+func (s *MaterialUnitMeasures) GetWidth() OptString {
+	return s.Width
+}
+
+// GetHeight returns the value of Height.
+func (s *MaterialUnitMeasures) GetHeight() OptString {
+	return s.Height
+}
+
+// GetDimensionUnit returns the value of DimensionUnit.
+func (s *MaterialUnitMeasures) GetDimensionUnit() OptString {
+	return s.DimensionUnit
+}
+
+// GetDimensionUnitName returns the value of DimensionUnitName.
+func (s *MaterialUnitMeasures) GetDimensionUnitName() OptString {
+	return s.DimensionUnitName
+}
+
+// SetGtin sets the value of Gtin.
+func (s *MaterialUnitMeasures) SetGtin(val OptString) {
+	s.Gtin = val
+}
+
+// SetGrossWeight sets the value of GrossWeight.
+func (s *MaterialUnitMeasures) SetGrossWeight(val OptString) {
+	s.GrossWeight = val
+}
+
+// SetNetWeight sets the value of NetWeight.
+func (s *MaterialUnitMeasures) SetNetWeight(val OptString) {
+	s.NetWeight = val
+}
+
+// SetWeightUnit sets the value of WeightUnit.
+func (s *MaterialUnitMeasures) SetWeightUnit(val OptString) {
+	s.WeightUnit = val
+}
+
+// SetWeightUnitName sets the value of WeightUnitName.
+func (s *MaterialUnitMeasures) SetWeightUnitName(val OptString) {
+	s.WeightUnitName = val
+}
+
+// SetVolume sets the value of Volume.
+func (s *MaterialUnitMeasures) SetVolume(val OptString) {
+	s.Volume = val
+}
+
+// SetVolumeUnit sets the value of VolumeUnit.
+func (s *MaterialUnitMeasures) SetVolumeUnit(val OptString) {
+	s.VolumeUnit = val
+}
+
+// SetVolumeUnitName sets the value of VolumeUnitName.
+func (s *MaterialUnitMeasures) SetVolumeUnitName(val OptString) {
+	s.VolumeUnitName = val
+}
+
+// SetLength sets the value of Length.
+func (s *MaterialUnitMeasures) SetLength(val OptString) {
+	s.Length = val
+}
+
+// SetWidth sets the value of Width.
+func (s *MaterialUnitMeasures) SetWidth(val OptString) {
+	s.Width = val
+}
+
+// SetHeight sets the value of Height.
+func (s *MaterialUnitMeasures) SetHeight(val OptString) {
+	s.Height = val
+}
+
+// SetDimensionUnit sets the value of DimensionUnit.
+func (s *MaterialUnitMeasures) SetDimensionUnit(val OptString) {
+	s.DimensionUnit = val
+}
+
+// SetDimensionUnitName sets the value of DimensionUnitName.
+func (s *MaterialUnitMeasures) SetDimensionUnitName(val OptString) {
+	s.DimensionUnitName = val
+}
+
+// Merge patch of a material: its description, further descriptions, material group, status, plants,
+// alternative units or the base unit's measures. The number, the base unit and the material type do
+// not change.
 // Ref: #/components/schemas/MaterialUpdate
 type MaterialUpdate struct {
 	// What the material is: its default description, in its default language.
@@ -77523,8 +79132,12 @@ type MaterialUpdate struct {
 	// The material's plants in the companies the caller may act in, replacing those it has there; plants
 	// of other companies stay.
 	Plants []MaterialPlantInput `json:"plants"`
-	// The material's alternative units, replacing those it has; an empty list removes them.
+	// The material's alternative units with their measures, replacing those it has; an empty list removes
+	// them.
 	AlternativeUnits []MaterialUnitInput `json:"alternative_units"`
+	// The base unit's dimensions, weights and GTIN, replacing those it has (S1a3); an empty object removes
+	// them.
+	BaseUnitMeasures OptMaterialMeasures `json:"base_unit_measures"`
 	// Why it is changed, kept on the change for the approver.
 	Reason OptString `json:"reason"`
 }
@@ -77557,6 +79170,11 @@ func (s *MaterialUpdate) GetPlants() []MaterialPlantInput {
 // GetAlternativeUnits returns the value of AlternativeUnits.
 func (s *MaterialUpdate) GetAlternativeUnits() []MaterialUnitInput {
 	return s.AlternativeUnits
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *MaterialUpdate) GetBaseUnitMeasures() OptMaterialMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetReason returns the value of Reason.
@@ -77592,6 +79210,11 @@ func (s *MaterialUpdate) SetPlants(val []MaterialPlantInput) {
 // SetAlternativeUnits sets the value of AlternativeUnits.
 func (s *MaterialUpdate) SetAlternativeUnits(val []MaterialUnitInput) {
 	s.AlternativeUnits = val
+}
+
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *MaterialUpdate) SetBaseUnitMeasures(val OptMaterialMeasures) {
+	s.BaseUnitMeasures = val
 }
 
 // SetReason sets the value of Reason.
@@ -87483,6 +89106,52 @@ func (o OptMatchDecision) Get() (v MatchDecision, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMatchDecision) Or(d MatchDecision) MatchDecision {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMaterialMeasures returns new OptMaterialMeasures with value set to v.
+func NewOptMaterialMeasures(v MaterialMeasures) OptMaterialMeasures {
+	return OptMaterialMeasures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMaterialMeasures is optional MaterialMeasures.
+type OptMaterialMeasures struct {
+	Value MaterialMeasures
+	Set   bool
+}
+
+// IsSet returns true if OptMaterialMeasures was set.
+func (o OptMaterialMeasures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMaterialMeasures) Reset() {
+	var v MaterialMeasures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMaterialMeasures) SetTo(v MaterialMeasures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMaterialMeasures) Get() (v MaterialMeasures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMaterialMeasures) Or(d MaterialMeasures) MaterialMeasures {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -107139,6 +108808,65 @@ type RemoveControlLinkPreconditionRequired Problem
 
 func (*RemoveControlLinkPreconditionRequired) removeControlLinkRes() {}
 
+type RemoveCycleCountMaterialBadRequest Problem
+
+func (*RemoveCycleCountMaterialBadRequest) removeCycleCountMaterialRes() {}
+
+type RemoveCycleCountMaterialForbidden Problem
+
+func (*RemoveCycleCountMaterialForbidden) removeCycleCountMaterialRes() {}
+
+type RemoveCycleCountMaterialNotFound Problem
+
+func (*RemoveCycleCountMaterialNotFound) removeCycleCountMaterialRes() {}
+
+// RemoveCycleCountMaterialOKHeaders wraps CycleCountMaterial with response headers.
+type RemoveCycleCountMaterialOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CycleCountMaterial
+}
+
+// GetETag returns the value of ETag.
+func (s *RemoveCycleCountMaterialOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RemoveCycleCountMaterialOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RemoveCycleCountMaterialOKHeaders) GetResponse() CycleCountMaterial {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RemoveCycleCountMaterialOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RemoveCycleCountMaterialOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RemoveCycleCountMaterialOKHeaders) SetResponse(val CycleCountMaterial) {
+	s.Response = val
+}
+
+func (*RemoveCycleCountMaterialOKHeaders) removeCycleCountMaterialRes() {}
+
+type RemoveCycleCountMaterialPreconditionFailed Problem
+
+func (*RemoveCycleCountMaterialPreconditionFailed) removeCycleCountMaterialRes() {}
+
+type RemoveCycleCountMaterialPreconditionRequired Problem
+
+func (*RemoveCycleCountMaterialPreconditionRequired) removeCycleCountMaterialRes() {}
+
 type RemoveHierarchyNodeBadRequest Problem
 
 func (*RemoveHierarchyNodeBadRequest) removeHierarchyNodeRes() {}
@@ -122468,8 +124196,10 @@ type SopPlan struct {
 	CompanyCode string `json:"company_code"`
 	// The version's number in the company, from 1.
 	Number int32 `json:"number"`
-	// `draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients
-	// must accept and preserve values not listed here; values may be added within /v1.
+	// `draft` while its consensus changes; `submitted` while its approval request is pending, where the
+	// company's plans are approved (`submitSopPlan`), back to `draft` when the request is rejected or
+	// withdrawn; then `fixed`, which changes no more. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The company's day it reviewed on.
 	AsOf time.Time `json:"as_of"`
@@ -122481,8 +124211,15 @@ type SopPlan struct {
 	Months int32 `json:"months"`
 	// When it was fixed; absent while it is a draft.
 	FixedAt OptDateTime `json:"fixed_at"`
-	// Who fixed it; absent while it is a draft.
+	// Who fixed it: the planner who fixed or submitted it where the company's plans need no approval, else
+	// the approver of the approval's last step; absent until it is fixed.
 	FixedBy OptUUID `json:"fixed_by"`
+	// Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason,
+	// and its `status`, which says how it ended): pending while it is `submitted`, approved when it was
+	// `fixed` by that approval, rejected or cancelled after it went back to `draft`. A version fixed
+	// without approval (its company asking none any more) after a rejection or withdrawal keeps naming
+	// that rejected or cancelled request; absent while it was never submitted.
+	ApprovalRequestID OptUUID `json:"approval_request_id"`
 	// Per material group, unit and month, by group, unit and month.
 	Lines []SopPlanLine `json:"lines"`
 }
@@ -122565,6 +124302,11 @@ func (s *SopPlan) GetFixedAt() OptDateTime {
 // GetFixedBy returns the value of FixedBy.
 func (s *SopPlan) GetFixedBy() OptUUID {
 	return s.FixedBy
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *SopPlan) GetApprovalRequestID() OptUUID {
+	return s.ApprovalRequestID
 }
 
 // GetLines returns the value of Lines.
@@ -122650,6 +124392,11 @@ func (s *SopPlan) SetFixedAt(val OptDateTime) {
 // SetFixedBy sets the value of FixedBy.
 func (s *SopPlan) SetFixedBy(val OptUUID) {
 	s.FixedBy = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *SopPlan) SetApprovalRequestID(val OptUUID) {
+	s.ApprovalRequestID = val
 }
 
 // SetLines sets the value of Lines.
@@ -125234,6 +126981,30 @@ func (*SubmitRequisitionPreconditionRequired) submitRequisitionRes() {}
 type SubmitRequisitionUnprocessableEntity Problem
 
 func (*SubmitRequisitionUnprocessableEntity) submitRequisitionRes() {}
+
+type SubmitSopPlanBadRequest Problem
+
+func (*SubmitSopPlanBadRequest) submitSopPlanRes() {}
+
+type SubmitSopPlanForbidden Problem
+
+func (*SubmitSopPlanForbidden) submitSopPlanRes() {}
+
+type SubmitSopPlanNotFound Problem
+
+func (*SubmitSopPlanNotFound) submitSopPlanRes() {}
+
+type SubmitSopPlanPreconditionFailed Problem
+
+func (*SubmitSopPlanPreconditionFailed) submitSopPlanRes() {}
+
+type SubmitSopPlanPreconditionRequired Problem
+
+func (*SubmitSopPlanPreconditionRequired) submitSopPlanRes() {}
+
+type SubmitSopPlanUnprocessableEntity Problem
+
+func (*SubmitSopPlanUnprocessableEntity) submitSopPlanRes() {}
 
 // Company-specific supplier data.
 // Ref: #/components/schemas/SupplierCompany
@@ -129787,6 +131558,7 @@ func (*TooManyRequestsHeaders) createCreditMemoRequestRes()                     
 func (*TooManyRequestsHeaders) createCustomerContactRes()                       {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                       {}
 func (*TooManyRequestsHeaders) createCustomerSalesDataRes()                     {}
+func (*TooManyRequestsHeaders) createCycleCountAbcApplicationRes()              {}
 func (*TooManyRequestsHeaders) createCycleCountIndicatorRes()                   {}
 func (*TooManyRequestsHeaders) createCycleCountMaterialRes()                    {}
 func (*TooManyRequestsHeaders) createDisputeCaseRes()                           {}
@@ -129942,6 +131714,8 @@ func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                         
 func (*TooManyRequestsHeaders) getCustomerContactRes()                          {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                          {}
 func (*TooManyRequestsHeaders) getCustomerSalesDataRes()                        {}
+func (*TooManyRequestsHeaders) getCycleCountAbcAnalysisRes()                    {}
+func (*TooManyRequestsHeaders) getCycleCountAbcApplicationRes()                 {}
 func (*TooManyRequestsHeaders) getCycleCountIndicatorRes()                      {}
 func (*TooManyRequestsHeaders) getCycleCountMaterialRes()                       {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                          {}
@@ -130116,6 +131890,7 @@ func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                      
 func (*TooManyRequestsHeaders) listCustomerContactsRes()                        {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) listCustomerSalesDataRes()                       {}
+func (*TooManyRequestsHeaders) listCycleCountAbcApplicationsRes()               {}
 func (*TooManyRequestsHeaders) listCycleCountIndicatorsRes()                    {}
 func (*TooManyRequestsHeaders) listCycleCountMaterialsRes()                     {}
 func (*TooManyRequestsHeaders) listCycleCountsDueRes()                          {}
@@ -130304,6 +132079,7 @@ func (*TooManyRequestsHeaders) releasePurchaseOrderRes()                        
 func (*TooManyRequestsHeaders) releaseSalesOrderCreditBlockRes()                {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()                      {}
 func (*TooManyRequestsHeaders) removeControlLinkRes()                           {}
+func (*TooManyRequestsHeaders) removeCycleCountMaterialRes()                    {}
 func (*TooManyRequestsHeaders) removeHierarchyNodeRes()                         {}
 func (*TooManyRequestsHeaders) removeMetricWatcherRes()                         {}
 func (*TooManyRequestsHeaders) removeReportRes()                                {}
@@ -130355,6 +132131,7 @@ func (*TooManyRequestsHeaders) submitChangeRequestRes()                         
 func (*TooManyRequestsHeaders) submitPaymentRunRes()                            {}
 func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()                   {}
 func (*TooManyRequestsHeaders) submitRequisitionRes()                           {}
+func (*TooManyRequestsHeaders) submitSopPlanRes()                               {}
 func (*TooManyRequestsHeaders) takeCashSnapshotRes()                            {}
 func (*TooManyRequestsHeaders) terminateContractRes()                           {}
 func (*TooManyRequestsHeaders) transmitBankFileRes()                            {}
@@ -130802,6 +132579,7 @@ func (*UnauthorizedHeaders) createCreditMemoRequestRes()                     {}
 func (*UnauthorizedHeaders) createCustomerContactRes()                       {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                       {}
 func (*UnauthorizedHeaders) createCustomerSalesDataRes()                     {}
+func (*UnauthorizedHeaders) createCycleCountAbcApplicationRes()              {}
 func (*UnauthorizedHeaders) createCycleCountIndicatorRes()                   {}
 func (*UnauthorizedHeaders) createCycleCountMaterialRes()                    {}
 func (*UnauthorizedHeaders) createDisputeCaseRes()                           {}
@@ -130957,6 +132735,8 @@ func (*UnauthorizedHeaders) getCurrentPrincipalRes()                         {}
 func (*UnauthorizedHeaders) getCustomerContactRes()                          {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                          {}
 func (*UnauthorizedHeaders) getCustomerSalesDataRes()                        {}
+func (*UnauthorizedHeaders) getCycleCountAbcAnalysisRes()                    {}
+func (*UnauthorizedHeaders) getCycleCountAbcApplicationRes()                 {}
 func (*UnauthorizedHeaders) getCycleCountIndicatorRes()                      {}
 func (*UnauthorizedHeaders) getCycleCountMaterialRes()                       {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                          {}
@@ -131131,6 +132911,7 @@ func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                      {}
 func (*UnauthorizedHeaders) listCustomerContactsRes()                        {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                        {}
 func (*UnauthorizedHeaders) listCustomerSalesDataRes()                       {}
+func (*UnauthorizedHeaders) listCycleCountAbcApplicationsRes()               {}
 func (*UnauthorizedHeaders) listCycleCountIndicatorsRes()                    {}
 func (*UnauthorizedHeaders) listCycleCountMaterialsRes()                     {}
 func (*UnauthorizedHeaders) listCycleCountsDueRes()                          {}
@@ -131319,6 +133100,7 @@ func (*UnauthorizedHeaders) releasePurchaseOrderRes()                        {}
 func (*UnauthorizedHeaders) releaseSalesOrderCreditBlockRes()                {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()                      {}
 func (*UnauthorizedHeaders) removeControlLinkRes()                           {}
+func (*UnauthorizedHeaders) removeCycleCountMaterialRes()                    {}
 func (*UnauthorizedHeaders) removeHierarchyNodeRes()                         {}
 func (*UnauthorizedHeaders) removeMetricWatcherRes()                         {}
 func (*UnauthorizedHeaders) removeReportRes()                                {}
@@ -131370,6 +133152,7 @@ func (*UnauthorizedHeaders) submitChangeRequestRes()                         {}
 func (*UnauthorizedHeaders) submitPaymentRunRes()                            {}
 func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()                   {}
 func (*UnauthorizedHeaders) submitRequisitionRes()                           {}
+func (*UnauthorizedHeaders) submitSopPlanRes()                               {}
 func (*UnauthorizedHeaders) takeCashSnapshotRes()                            {}
 func (*UnauthorizedHeaders) terminateContractRes()                           {}
 func (*UnauthorizedHeaders) transmitBankFileRes()                            {}

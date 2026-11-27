@@ -2,7 +2,8 @@
 // §2.2, 03-data-model §3.34): materials, tenant-wide master data, each with
 // its number, description, base unit of measure, type, group and status,
 // the plants it is extended to and its storage locations there, and its
-// alternative units of measure with exact conversions (S1a).
+// alternative units of measure with exact conversions (S1a); each unit's
+// dimensions, weights and GTIN (S1a3, ADR-0082 As built S1a3).
 //
 // Plants and storage locations are tenancy's org units; a material's number
 // is drawn from the configuration's material range of the company that
@@ -109,12 +110,14 @@ type Plant struct {
 }
 
 // Unit is an alternative unit of measure: one of it is Numerator /
-// Denominator base units.
+// Denominator base units; Measures are one of its dimensions, weights and
+// GTIN (S1a3).
 type Unit struct {
-	Code        string `json:"unit"`
-	Name        string `json:"name"`
-	Numerator   int32  `json:"numerator"`
-	Denominator int32  `json:"denominator"`
+	Code        string   `json:"unit"`
+	Name        string   `json:"name"`
+	Numerator   int32    `json:"numerator"`
+	Denominator int32    `json:"denominator"`
+	Measures    Measures `json:"measures"`
 }
 
 // Material is a row of materials.material with its plants by plant id,
@@ -132,9 +135,12 @@ type Material struct {
 	Descriptions        []Description
 	BaseUnit            string
 	BaseUnitName        string
-	Type                string
-	Group               string
-	Status              string
+	// BaseMeasures are one of the base unit's dimensions, weights and
+	// GTIN (S1a3).
+	BaseMeasures Measures
+	Type         string
+	Group        string
+	Status       string
 	// BatchManaged says every movement of the material names a batch of
 	// it (SAP MARA's XCHPF, from memory; As built S2f); fixed once created.
 	BatchManaged bool
@@ -156,21 +162,26 @@ type Material struct {
 }
 
 // materialSelect reads materials with their further descriptions,
-// plants, storage locations and alternative units, each in a stated order
+// plants, storage locations and alternative units, the base unit's and
+// each alternative unit's measures, each in a stated order
 // (descriptions by language byte by byte, as langtag compares them), and
 // the one change pending (material_change_one_pending).
 const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description, m.description_language,
 		coalesce((SELECT json_agg(json_build_object('language', t.language, 'description', t.description) ORDER BY t.language COLLATE "C")
 			FROM materials.material_description t WHERE t.tenant_id = m.tenant_id AND t.material_id = m.id AND t.removed_at IS NULL), '[]'),
-		m.base_uom_code, b.name, m.material_type, m.material_group,
+		m.base_uom_code, b.name,
+		coalesce((SELECT ` + measureColumns + ` FROM materials.unit_measure x WHERE x.tenant_id = m.tenant_id AND x.material_id = m.id
+			AND x.uom_code = m.base_uom_code AND x.removed_at IS NULL), '{}'),
+		m.material_type, m.material_group,
 		m.status, m.batch_managed, m.serial_managed, m.version, m.created_at, m.created_by, m.updated_at, m.updated_by,
 		coalesce((SELECT json_agg(json_build_object('plant_id', d.plant_id, 'legal_entity_id', d.legal_entity_id,
 				'storage_location_ids', coalesce((SELECT json_agg(s.storage_location_id ORDER BY s.storage_location_id)
 					FROM materials.storage_location_data s WHERE s.tenant_id = d.tenant_id AND s.material_id = d.material_id
 						AND s.plant_id = d.plant_id AND s.removed_at IS NULL), '[]')) ORDER BY d.plant_id)
 			FROM materials.plant_data d WHERE d.tenant_id = m.tenant_id AND d.material_id = m.id AND d.removed_at IS NULL), '[]'),
-		coalesce((SELECT json_agg(json_build_object('unit', u.uom_code, 'name', r.name, 'numerator', u.numerator, 'denominator', u.denominator)
-				ORDER BY u.uom_code)
+		coalesce((SELECT json_agg(json_build_object('unit', u.uom_code, 'name', r.name, 'numerator', u.numerator, 'denominator', u.denominator,
+				'measures', coalesce((SELECT ` + measureColumns + ` FROM materials.unit_measure x WHERE x.tenant_id = u.tenant_id AND x.material_id = u.material_id
+					AND x.uom_code = u.uom_code AND x.removed_at IS NULL), '{}')) ORDER BY u.uom_code)
 			FROM materials.unit_conversion u JOIN ref.unit_of_measure r ON r.code = u.uom_code
 			WHERE u.tenant_id = m.tenant_id AND u.material_id = m.id AND u.removed_at IS NULL), '[]'),
 		(SELECT c.id FROM materials.material_change c WHERE c.tenant_id = m.tenant_id AND c.material_id = m.id AND c.status = 'pending') AS pending_change_id,
@@ -179,7 +190,7 @@ const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description,
 
 func scanMaterial(row pgx.Row) (Material, error) {
 	var m Material
-	err := row.Scan(&m.ID, &m.Number, &m.LegalEntityID, &m.Description, &m.DescriptionLanguage, &m.Descriptions, &m.BaseUnit, &m.BaseUnitName, &m.Type, &m.Group, &m.Status, &m.BatchManaged, &m.SerialManaged, &m.Version,
+	err := row.Scan(&m.ID, &m.Number, &m.LegalEntityID, &m.Description, &m.DescriptionLanguage, &m.Descriptions, &m.BaseUnit, &m.BaseUnitName, &m.BaseMeasures, &m.Type, &m.Group, &m.Status, &m.BatchManaged, &m.SerialManaged, &m.Version,
 		&m.CreatedAt, &m.CreatedBy, &m.UpdatedAt, &m.UpdatedBy, &m.Plants, &m.Units, &m.PendingChangeID, &m.PendingChangeNumber)
 	return m, errs.Wrapf(err, "scan material")
 }
@@ -226,10 +237,10 @@ func (e *Endpoints) record(ctx context.Context, m Material, ch change, before *s
 	}
 	alternatives := make([]map[string]any, len(m.Units))
 	for i, u := range m.Units {
-		alternatives[i] = map[string]any{"unit": u.Code, "numerator": u.Numerator, "denominator": u.Denominator}
+		alternatives[i] = map[string]any{"unit": u.Code, "numerator": u.Numerator, "denominator": u.Denominator, "measures": u.Measures}
 	}
 	payload := map[string]any{"material_id": m.ID, "number": m.Number, "legal_entity_id": m.LegalEntityID, "legal_entity_code": codes[m.LegalEntityID],
-		"description": m.Description, "description_language": m.DescriptionLanguage, "descriptions": m.Descriptions, "base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status,
+		"description": m.Description, "description_language": m.DescriptionLanguage, "descriptions": m.Descriptions, "base_unit": m.BaseUnit, "base_unit_measures": m.BaseMeasures, "material_type": m.Type, "material_group": m.Group, "status": m.Status,
 		"batch_managed": m.BatchManaged, "serial_managed": m.SerialManaged,
 		"status_before": before, "plants": plants, "alternative_units": alternatives, "change": ch.name, "version": m.Version}
 	if err := audit.Record(ctx, "materials.material."+ch.action, "materials.material", m.ID, ch.detail,

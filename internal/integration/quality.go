@@ -73,9 +73,10 @@ type target struct {
 	// partners are what the trading partners the extract's vendors name
 	// (LFA1-VBUND) are on the platform, by company ID (tradingpartner.go).
 	partners map[string]groupCompany
-	// units are the platform's units of measure (ref.unit_of_measure),
-	// which a migrated material's units must be (materials.go).
-	units map[string]bool
+	// units are the platform's units of measure (ref.unit_of_measure)
+	// with their kinds, which a migrated material's units and its
+	// measures' units must be (materials.go, materialmeasures.go).
+	units map[string]string
 	// classes are each company code's valuation classes with their
 	// accounts (companies[].account_determination.inventory), which a
 	// migrated valuation's BKLAS must name (stock.go).

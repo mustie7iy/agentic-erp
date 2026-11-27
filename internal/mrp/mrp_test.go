@@ -24,7 +24,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 var perms = []string{"materials.material.read", "materials.material.write", "tenancy.org.manage", "inventory.movement.post", "inventory.stock.read",
 	"inventory.valuation.read", "inventory.valuation.write", "sales.order.read", "sales.order.write", "sales.order.confirm", "procurement.requisition.read",
 	"procurement.requisition.create", "mrp.plan.read", "mrp.plan.write", "mrp.run.start", "platform.operation.read", "platform.operation.cancel",
-	"mrp.sop.read", "mrp.sop.write"}
+	"mrp.sop.read", "mrp.sop.write", "mrp.sop.approve"}
 
 const (
 	plans = "/v1/material-plans"
@@ -46,7 +46,13 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	e := env{Env: fixture.NewWith(t, nil, valued, perms...)}
+	return setupWith(t, valued)
+}
+
+// setupWith is setup with the configuration document extended so.
+func setupWith(t *testing.T, extend func(*config.Config)) env {
+	t.Helper()
+	e := env{Env: fixture.NewWith(t, nil, extend, perms...)}
 	e.p1 = e.orgUnit(t, e.DE, "plant", "P1", nil)
 	e.s1 = e.orgUnit(t, e.DE, "storage_location", "S1", &e.p1)
 	e.p9 = e.orgUnit(t, e.US, "plant", "P9", nil)

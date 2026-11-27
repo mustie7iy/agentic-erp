@@ -16,6 +16,7 @@ type Materials interface {
 	Number(ctx context.Context, legalEntity uuid.UUID) (string, error)
 	CreateMaterial(ctx context.Context, in materials.MigratedMaterial) (uuid.UUID, error)
 	LockMaterials(ctx context.Context, ids []uuid.UUID) error
+	LockGTINs(ctx context.Context, gtins []string) error
 	ExtendMaterial(ctx context.Context, id uuid.UUID, plants []materials.PlantInput, reason string) (bool, error)
 	Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]materials.Material, error)
 }
@@ -39,8 +40,9 @@ const (
 // location by T001L/WERKS/LGORT, a material by MARA/MATNR. What an earlier
 // run loaded stays as it is; a material it loaded is only extended to the
 // plants and storage locations it is not yet at. The materials to extend
-// are locked first, then the new materials' numbers drawn, before any
-// material change is written (materials.Migration's lock order).
+// are locked first, then the new materials' numbers drawn and their GTINs
+// locked, before any material change is written (materials.Migration's
+// lock order).
 func (l *loader) materialMaster(ctx context.Context) error {
 	plants, _ := plantsOf(l.ext)                     // the quality gate refused their errors
 	mats, _ := materialsOf(l.ext, l.t.units, plants) // and reported the materials held back
@@ -61,6 +63,9 @@ func (l *loader) materialMaster(ctx context.Context) error {
 	}
 	numbers, err := l.materialNumbers(ctx, mats, company)
 	if err != nil {
+		return err
+	}
+	if err := l.e.Materials.LockGTINs(ctx, newGTINs(mats, numbers)); err != nil {
 		return err
 	}
 	for _, p := range plants {
@@ -100,6 +105,26 @@ func (l *loader) materialNumbers(ctx context.Context, mats []sapMaterial, compan
 		}
 	}
 	return out, nil
+}
+
+// newGTINs are the GTINs of the materials the run creates, those numbered
+// (materialNumbers), each unit's.
+func newGTINs(mats []sapMaterial, numbers map[string]string) []string {
+	var out []string
+	for _, m := range mats {
+		if _, ok := numbers[m.number]; !ok {
+			continue
+		}
+		if m.baseMeasures.GTIN != "" {
+			out = append(out, m.baseMeasures.GTIN)
+		}
+		for _, u := range m.units {
+			if u.Measures.GTIN != "" {
+				out = append(out, u.Measures.GTIN)
+			}
+		}
+	}
+	return out
 }
 
 // plant loads a plant and its storage locations: found by its code in its
@@ -210,7 +235,7 @@ func (l *loader) material(ctx context.Context, m sapMaterial, company, numbers m
 		return nil // its number was refused (materialNumbers)
 	}
 	in := materials.MigratedMaterial{LegalEntityID: l.t.entities[company[m.plants[0].werks]].ID, Number: number, Description: m.description,
-		DescriptionLanguage: m.language, Descriptions: m.descriptions, BaseUnit: m.baseUnit, Type: m.mtype, Group: m.group, Plants: plants, Units: m.units,
+		DescriptionLanguage: m.language, Descriptions: m.descriptions, BaseUnit: m.baseUnit, BaseMeasures: m.baseMeasures, Type: m.mtype, Group: m.group, Plants: plants, Units: m.units,
 		Reason: reason}
 	done, err := l.step(ctx, "MARA", m.number, func() error {
 		id, err := l.e.Materials.CreateMaterial(ctx, in)

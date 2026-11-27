@@ -19,6 +19,7 @@ func TestMigrationOutsideAUnitOfWork(t *testing.T) {
 			return err
 		},
 		"lock":   func(ctx context.Context) error { return m.LockMaterials(ctx, nil) },
+		"gtins":  func(ctx context.Context) error { return m.LockGTINs(ctx, nil) },
 		"extend": func(ctx context.Context) error { _, err := m.ExtendMaterial(ctx, uuid.New(), nil, ""); return err },
 		"number": func(ctx context.Context) error { _, err := m.Number(ctx, uuid.New()); return err },
 	}

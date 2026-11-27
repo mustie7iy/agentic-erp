@@ -6781,6 +6781,7 @@ erDiagram
   plant_data ||--o{ storage_location_data : "kept in"
   material ||--o{ unit_conversion : "alternative units"
   material ||--o{ material_description : "described in"
+  material ||--o{ unit_measure : "units measured"
   material { uuid id PK
     text number "material range of its company, once in the tenant"
     uuid legal_entity_id "tenancy: the numbering company"
@@ -6815,6 +6816,19 @@ erDiagram
     text uom_code PK "ref, not the base unit"
     int numerator "1 to 1000000"
     int denominator "1 to 1000000"
+    timestamptz removed_at }
+  unit_measure { uuid material_id PK
+    text uom_code PK "the base unit or an alternative unit it has"
+    numeric gross_weight "above zero, 13,3"
+    numeric net_weight "no more than the gross"
+    text weight_uom "ref, of mass"
+    numeric volume
+    text volume_uom "ref, of volume"
+    numeric length
+    numeric width
+    numeric height
+    text dimension_uom "ref, of length"
+    text gtin "GS1 check digit, once in the tenant"
     timestamptz removed_at }
 ```
 
@@ -6868,6 +6882,30 @@ erDiagram
   The application updates the text and the removal mark
   (`material_description_removed_check`) alone; a description given back
   clears its mark.
+- `materials.unit_measure` (S1a3, migration 000495): the dimensions,
+  weights and GTIN of one unit of measure of a material that exists
+  (`unit_measure_material_fkey`), once per unit (`unit_measure_pkey`),
+  the unit its base unit or an alternative unit it has, not removed
+  (`unit_measure_of_unit`, a trigger). Each value is a `numeric(13,3)`
+  above zero (`unit_measure_gross_weight_check`, `_net_weight_check`,
+  `_volume_check`, `_length_check`, `_width_check`, `_height_check`); a
+  unit is given with its values and only then
+  (`unit_measure_weight_uom_check`, `_volume_uom_check`,
+  `_dimension_uom_check`), each a unit of measure
+  (`unit_measure_weight_uom_fkey`, …) of its kind, mass, volume or length
+  (`unit_measure_dimension`, the same trigger); the net weight is no more
+  than the gross (`unit_measure_net_weight_gross`); a row says something
+  (`unit_measure_something`). A GTIN has 8, 12, 13 or 14 digits and its
+  GS1 check digit (`unit_measure_gtin_check`, `materials.gtin_valid`) and
+  names one unit not removed in the tenant, compared right-justified in 14
+  digits (`unit_measure_gtin_once`, a partial unique index that also
+  serves `listMaterials?gtin=`; 409 `materials.gtin_taken`). An
+  alternative unit marked removed, by either version, marks its measures
+  removed with it (`unit_conversion_measures_removed`, a trigger); a
+  rejected or withdrawn create change marks the material's removed. The
+  application updates the values and the removal mark
+  (`unit_measure_removed_check`) alone; measures given back clear it. The
+  down migration refuses while any row, removed ones too, exists.
 - `materials.material_change` (S1b, migrations 000374 and 000375): a
   governed change of a material (`material_change_material_fkey`),
   numbered `MC` and eight digits (`material_change_number_check`) once in
@@ -7176,6 +7214,24 @@ erDiagram
   `cycle_count_indicator_plant`), `version`; the application updates its
   indicator and version alone. Neither is deleted. The counts due are
   read, not stored (`GET /v1/cycle-counts-due`).
+- S2c3 (migration 000496): `inventory.cycle_count_material.status`,
+  `active` or `removed` (`cycle_count_material_status_check`); a removed
+  one never changes again (trigger `cycle_count_material_removed`), and
+  `cycle_count_material_once` is a partial unique index of the active
+  ones, so a material may be given an indicator again; the application
+  updates the status too. The ABC analysis is read, not stored (`GET
+  /v1/cycle-count-abc-analysis`); its apply writes these rows and keeps
+  `inventory.cycle_count_abc_application` (plant, window, shares
+  `cycle_count_abc_application_shares_check`, window
+  `cycle_count_abc_application_window_check`, total, the preview's
+  64-hex token, who and when) with its `inventory.cycle_count_abc_change`
+  rows (numbered 1 to 1,000 in the analysis's order, once per material,
+  class A to C, the indicator given and the one replaced, never the
+  same, the material's indicator row), both insert-only; the application
+  keeps no application without a change (`ApplyABC`, 422
+  `inventory.abc_nothing_to_apply`; not a database rule). The
+  company's ABC shares are configuration
+  (`companies[].cycle_count_abc_shares`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`,
   `PhysicalInventoryRecountRequested`, S2d2).
@@ -7483,13 +7539,14 @@ erDiagram
   sop_plan { uuid id PK
     uuid legal_entity_id "tenancy"
     integer number "from 1, once per company"
-    text status "draft, fixed"
+    text status "draft, submitted, fixed"
     date as_of "the company's day reviewed on"
     date first_day "as_of + 1"
     date last_day "its last month's last day"
     smallint months "1 to 12"
     timestamptz fixed_at "once fixed"
     uuid fixed_by "once fixed"
+    uuid approval_request_id "workflow: its latest request"
     integer version }
   sop_plan_line { uuid plan_id PK
     text material_group PK
@@ -7508,13 +7565,17 @@ erDiagram
 ```
 
 - `mrp.sop_plan`: a version of a company numbered from 1, once per
-  company (`sop_plan_number_once`, `sop_plan_number_check`), `draft` or
-  `fixed` (`sop_plan_status_check`), of 1 to 12 months
+  company (`sop_plan_number_once`, `sop_plan_number_check`), `draft`,
+  `submitted` (S2n2: waiting for its approval request, which it names,
+  `sop_plan_submitted`) or `fixed` (`sop_plan_status_check`), of 1 to 12 months
   (`sop_plan_months_check`) from the day after its review to the last day
   of its last month (`sop_plan_horizon`); a fixed one names who fixed it
   and when (`sop_plan_fixed_by`). A fixed version changes no more, its
-  company, number and horizon never, and none is deleted
-  (`sop_plan_fixed`, a trigger). Its version moves with every change
+  company, number and horizon never, a submitted one only as its request
+  is decided (fixed, or a draft again), it names a new request only as it
+  is submitted, and none is deleted (`sop_plan_fixed`, a trigger;
+  migration 000494); none is created submitted or naming a request
+  (`sop_plan_created`, a trigger; batch 97S integration). Its version moves with every change
   (`sop_plan_touch`); lists read by `sop_plan_by_created_at`.
 - `mrp.sop_plan_line`: a version's line per material group
   (`sop_plan_line_material_group_check`), base unit
@@ -7523,6 +7584,7 @@ erDiagram
   (`sop_plan_line_*_check`), its forecast never below its orders
   (`sop_plan_line_forecast_covers_orders`). A line is added to a draft
   alone, only its consensus changes, and only while its version is a
-  draft; no line is deleted (`sop_plan_line_fixed`, a trigger). The application updates
+  draft (not while submitted); no line is deleted (`sop_plan_line_fixed`, a trigger). The application updates
   the consensus alone.
-- Permissions `mrp.sop.read` and `mrp.sop.write`.
+- Permissions `mrp.sop.read` and `mrp.sop.write`; `mrp.sop.approve`, an
+  approval permission (S2n2, migration 000494).

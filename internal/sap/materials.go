@@ -19,12 +19,21 @@ import "cmp"
 // MATNR and MEINS are taken as the extract writes them: whether a table
 // export writes MATNR with its leading zeros and MEINS in SAP's internal
 // form (T006-MSEHI) or its commercial one is the specialist's to confirm.
+// The base unit's measures (S1a3): its gross and net weight BRGEW and
+// NTGEW in weight unit GEWEI, its volume VOLUM in volume unit VOLEH and
+// its EAN/UPC EAN11, plain decimals, "0" or empty for none.
 type MARA struct {
 	MATNR string `json:"MATNR"`
 	MTART string `json:"MTART"`
 	MATKL string `json:"MATKL"`
 	MEINS string `json:"MEINS"`
 	LVORM string `json:"LVORM,omitempty"`
+	BRGEW string `json:"BRGEW,omitempty"`
+	NTGEW string `json:"NTGEW,omitempty"`
+	GEWEI string `json:"GEWEI,omitempty"`
+	VOLUM string `json:"VOLUM,omitempty"`
+	VOLEH string `json:"VOLEH,omitempty"`
+	EAN11 string `json:"EAN11,omitempty"`
 }
 
 // MAKT - material descriptions: the description MAKTX of material MATNR
@@ -38,11 +47,23 @@ type MAKT struct {
 // MARM - units of measure of a material: one alternative unit MEINH is
 // UMREZ / UMREN base units (numerator and denominator of the conversion
 // to the base unit). SAP also holds a row for the base unit itself, 1/1.
+// The unit's measures (S1a3): its gross weight BRGEW in GEWEI, its volume
+// VOLUM in VOLEH, its length, width and height LAENG, BREIT and HOEHE in
+// MEABM, and its EAN/UPC EAN11 (MARM has no net weight).
 type MARM struct {
 	MATNR string `json:"MATNR"`
 	MEINH string `json:"MEINH"`
 	UMREZ string `json:"UMREZ"`
 	UMREN string `json:"UMREN"`
+	BRGEW string `json:"BRGEW,omitempty"`
+	GEWEI string `json:"GEWEI,omitempty"`
+	VOLUM string `json:"VOLUM,omitempty"`
+	VOLEH string `json:"VOLEH,omitempty"`
+	LAENG string `json:"LAENG,omitempty"`
+	BREIT string `json:"BREIT,omitempty"`
+	HOEHE string `json:"HOEHE,omitempty"`
+	MEABM string `json:"MEABM,omitempty"`
+	EAN11 string `json:"EAN11,omitempty"`
 }
 
 // MARC - plant data of a material: material MATNR at plant WERKS, LVORM

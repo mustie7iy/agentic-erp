@@ -244,6 +244,12 @@ type Company struct {
 	// approves them first. Empty: zero, so every difference of any value
 	// is approved.
 	InventoryDifferenceTolerance string `yaml:"inventory_difference_tolerance,omitempty" json:"inventory_difference_tolerance,omitempty"`
+	// CycleCountABCShares are the percentages of a plant's consumption
+	// value that class A and class B take in the ABC analysis that sets
+	// the materials' cycle counting indicators (S2c3; SAP MIBC, from
+	// memory): A the materials making up the first A percent, B the next
+	// B, C the rest. None: DefaultABCShares.
+	CycleCountABCShares *ABCShares `yaml:"cycle_count_abc_shares,omitempty" json:"cycle_count_abc_shares,omitempty"`
 	// ServicePostingLimit is the largest journal entry, by its debits in
 	// the company's currency, that a service principal (an integration such
 	// as a billing system) posts through the API; above it the entry is
@@ -316,6 +322,18 @@ type Company struct {
 	// payments (ADR-0063 §6): the payment differences it writes off
 	// (T75f). None: a receipt is applied exactly.
 	Receivables Receivables `yaml:"receivables,omitempty" json:"receivables,omitzero"`
+	// SopApproval is how the company's S&OP plan versions are approved
+	// before they are fixed as its consensus plan (ADR-0084 As built S2n2;
+	// approvals.SopPlan). No steps, the default: a planner fixes a version
+	// at once, as before approval existed.
+	SopApproval SopApproval `yaml:"sop_approval,omitempty" json:"sop_approval,omitzero"`
+}
+
+// SopApproval is the steps an S&OP plan version's approval takes, in
+// order: each a role and the number of distinct people holding it who
+// approve (ADR-0084 As built S2n2).
+type SopApproval struct {
+	Steps []ApprovalStep `yaml:"steps,omitempty" json:"steps,omitempty"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a
@@ -934,6 +952,27 @@ func (co *Company) InventoryTolerance() string {
 		return ""
 	}
 	return co.InventoryDifferenceTolerance
+}
+
+// ABCShares are class A's and class B's percentages of a plant's
+// consumption value (Company.CycleCountABCShares).
+type ABCShares struct {
+	A int `yaml:"a" json:"a"`
+	B int `yaml:"b" json:"b"`
+}
+
+// DefaultABCShares are the shares of a company that names none: A the
+// first 80 percent, B the next 15, as the count planning agent classes
+// materials (ADR-0082 As built S2e).
+var DefaultABCShares = ABCShares{A: 80, B: 15}
+
+// ABC is the company's ABC shares, DefaultABCShares for a company the
+// document does not name (nil) or that names none.
+func (co *Company) ABC() ABCShares {
+	if co == nil || co.CycleCountABCShares == nil {
+		return DefaultABCShares
+	}
+	return *co.CycleCountABCShares
 }
 
 func (c *Config) Company(code string) *Company {

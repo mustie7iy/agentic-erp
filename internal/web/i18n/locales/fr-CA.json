@@ -87,6 +87,7 @@
   "object.material_change": "Modification d’article",
   "object.credit_limit_change": "Modification de limite de crédit",
   "object.inventory_difference": "Écarts d’inventaire d’un comptage",
+  "object.sop_plan": "Version de plan PIC",
   "object.payment_run_release": "Libération de cycle de paiement",
   "approval.status.pending": "En attente",
   "approval.status.approved": "Approuvée",

@@ -60,6 +60,7 @@ var objectApprovers = map[string]string{
 	"payment_run_release": "payments.run.release", "gr_ir_clearing": "procurement.gr_ir.clear.approve",
 	"tax_return": "tax.return.approve", "material_change": "materials.change.approve",
 	"credit_limit_change": "credit.limit.approve", "inventory_difference": "inventory.difference.approve",
+	"sop_plan": "mrp.sop.approve",
 }
 
 // Operation is one API operation a route calls: its operationId, the
