@@ -541,8 +541,8 @@ product owner):
   which would mix two bases in one item. Such items predate goods
   issues; accepted, listed for the product owner.
 - **The movement type list** of the contract's open enumerations gains
-  `653` at its end: values are added there, never reordered (an open
-  enumeration, ADR-0041), as `643` was.
+  `653` at its end, after `702`, so the values listed before keep their
+  places (an open enumeration, ADR-0041); the order carries no meaning.
 - **What is recorded.** `sales.return_receipt_posting` names the 653,
   once per receipt and once per document, with the company's currency;
   `sales.return_receipt_item_cost` each stock item's cost (both
