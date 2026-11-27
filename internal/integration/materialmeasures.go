@@ -150,23 +150,23 @@ func (mp *materialPlan) baseMeasures(r sap.MARA) materials.Measures {
 // them it names is SAP's to settle, so none of them loads it.
 func (mp *materialPlan) sharedGTINs() {
 	count := map[string]int{}
-	each := func(fn func(matnr, unit string, m *materials.Measures)) {
+	each := func(fn func(table, matnr, unit string, m *materials.Measures)) {
 		for i := range mp.materials {
 			mat := &mp.materials[i]
-			fn(mat.number, mat.baseUnit, &mat.baseMeasures)
+			fn("MARA", mat.number, mat.baseUnit, &mat.baseMeasures)
 			for j := range mat.units {
-				fn(mat.number, mat.units[j].Code, &mat.units[j].Measures)
+				fn("MARM", mat.number, mat.units[j].Code, &mat.units[j].Measures)
 			}
 		}
 	}
-	each(func(_, _ string, m *materials.Measures) {
+	each(func(_, _, _ string, m *materials.Measures) {
 		if m.GTIN != "" {
 			count[gtin.Key(m.GTIN)]++
 		}
 	})
-	each(func(matnr, unit string, m *materials.Measures) {
+	each(func(table, matnr, unit string, m *materials.Measures) {
 		if m.GTIN != "" && count[gtin.Key(m.GTIN)] > 1 {
-			mp.add(SevWarning, "MARM", matnr+"/"+unit, "EAN/UPC %s is another unit's too; it is left out of both", m.GTIN)
+			mp.add(SevWarning, table, matnr+"/"+unit, "EAN/UPC %s is another unit's too; it is left out of both", m.GTIN)
 			m.GTIN = ""
 		}
 	})

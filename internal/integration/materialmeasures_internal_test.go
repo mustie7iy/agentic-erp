@@ -1,6 +1,11 @@
 package integration
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/materials"
+)
 
 // TestQuantity (S1a3): SAP's quantities are written as the platform keeps
 // a measure, zero and empty as none; what is no decimal, has more than
@@ -20,5 +25,20 @@ func TestQuantity(t *testing.T) {
 				t.Errorf("got %q %v, want %q %v", got, ok, want.out, want.ok)
 			}
 		})
+	}
+}
+
+// TestNewGTINs (S1a3): the GTINs a run locks are those of the materials
+// it numbers, each unit's, the base unit's first.
+func TestNewGTINs(t *testing.T) {
+	mats := []sapMaterial{
+		{number: "M-1", baseMeasures: materials.Measures{GTIN: "036000291452"},
+			units: []materials.UnitInput{{Code: "BOX", Measures: materials.Measures{GTIN: "10036000291459"}}, {Code: "T"}}},
+		{number: "M-2", baseMeasures: materials.Measures{GTIN: "4006381333931"}},
+		{number: "M-3"},
+	}
+	got := strings.Join(newGTINs(mats, map[string]string{"M-1": "MA1", "M-3": "MA3"}), " ")
+	if want := "036000291452 10036000291459"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
