@@ -23,7 +23,7 @@
 // and unit as the proposal has them (a proposal of several lots, ADR-0084
 // As built S2k2, is ordered as one order of its lots: the quantity their
 // sum, and each lot named in a line of its own, its item's number and
-// quantity by the order's day, S2k2's later item);
+// quantity by the order's day, ADR-0072 As built S2k2a);
 // the day it is needed by (or the run's day, when it names none: lead
 // times are Later); a source of the proposal's material in its company
 // that the run read, an active catalog item, an active contract item

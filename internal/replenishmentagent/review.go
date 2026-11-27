@@ -104,9 +104,9 @@ type item struct {
 }
 
 // lotsOf is the material, total quantity, unit and lots of a proposal's
-// items, the lots in item order and the total written as the run line's proposed is (trim_scale,
-// money.PlainQuantity); no material when they are not lots of one
-// material in one unit.
+// items, the lots in item order and the total written as the run line
+// writes proposed (trim_scale, money.PlainQuantity); no material when
+// they are not lots of one material in one unit.
 func lotsOf(items []item) (material, total, unit string, lots []lot) {
 	sum := new(big.Rat)
 	for _, it := range items {
