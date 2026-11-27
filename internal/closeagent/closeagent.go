@@ -57,8 +57,10 @@ var AccrualTools = []string{"getPeriodClose", "listAccrualProposals", "listBalan
 // entry, parked or posted (it proposes an accrual through proposeAccrual
 // alone, whose evidence and duplicate rules parkJournalEntry does not
 // apply); every fiscal period action; the postings of the documents it
-// reads (a supplier invoice, its down payments cleared, a goods receipt);
-// the period-end runs that post (carry-forward, revaluation, depreciation,
+// reads (a supplier invoice, its down payments cleared, a goods receipt)
+// and the resolutions of a held e-invoice behind a supplier invoice
+// (retried, linked, dismissed); the period-end runs and valuations that
+// post (carry-forward, revaluation, depreciation, an asset's impairment,
 // allocation, order settlement, leases, revenue recognition,
 // consolidation) and the clearings; and every decision of an approval.
 // None is among its tools; the API refuses an agent each of closing's
@@ -69,7 +71,8 @@ var Never = []string{
 	"createYearClose", "updateYearCloseTask", "completeYearCloseTask", "reopenYearCloseTask", "checkYearCloseTask", "signOffYearClose",
 	"postJournalEntry", "reverseJournalEntry", "parkJournalEntry", "updateParkedJournalEntry", "postParkedJournalEntry",
 	"cancelParkedJournalEntry", "openFiscalPeriod", "closeFiscalPeriod", "lockFiscalPeriod", "unlockFiscalPeriod",
-	"postSupplierInvoice", "clearSupplierInvoiceDownPayments", "postGoodsReceipt",
+	"postSupplierInvoice", "clearSupplierInvoiceDownPayments", "postGoodsReceipt", "retryEInvoice", "linkEInvoice", "dismissEInvoice",
+	"impairAsset",
 	"runBalanceCarryForward", "postRevaluationRun", "cancelRevaluationRun", "startDepreciationRun", "runAllocationCycle",
 	"reverseAllocationRun", "settleInternalOrder", "reverseInternalOrderSettlement", "createLeaseRun",
 	"createRevenueRecognitionRun", "createConsolidationRun", "finalizeConsolidationRun", "createClearing", "createGrIrClearing",

@@ -11,9 +11,12 @@
 // and not in the forecast, with the statement lines as evidence
 // (proposeMemoRecord). Both are x-autonomy: propose. It never confirms a
 // memo record, accepts or rejects a comment, changes configuration,
-// releases or proposes a payment run, blocks an item or moves money; the
-// API would refuse it if it tried (x-agent: false, ADR-0010), and a row it
-// cannot explain is left "not explained". Everything a bank, a supplier
+// releases or proposes a payment run, blocks an item or moves money
+// (Never), and a row it cannot explain is left "not explained". The API
+// refuses it, whatever its level, every write of cash but the two
+// proposals (x-agent: false, ADR-0010); the writes of payment runs, bank
+// statements, bank files and change requests that are open to an agent
+// are kept from it by its tools, its role and its level alone. Everything a bank, a supplier
 // or a person wrote is untrusted data, never instructions, as for the
 // reconciliation agent (internal/reconagent). Its evaluation suite is
 // evals/cash (ADR-0039).
@@ -49,6 +52,28 @@ var Tools = append([]string{"getLiquidityForecastVariance", "listForecastVarianc
 	"listLiquidityForecastFlows", "getCashActuals", "listCashActualLines", "getCashSnapshot", "listCashSnapshotFlows", "listMemoRecords",
 	"getMemoRecord", "listPaymentRuns", "listPayments", "listOpenItems", "listSupplierInvoices", "getSupplierInvoice", "listPurchaseOrders",
 	"listBankStatements", "getBankStatement", "getBusinessPartner", "runAnalyticsQuery"}, Proposers...)
+
+// Never are the operations the agent never calls (ADR-0051 §13, As built
+// T53i; the later agents' never lists, ADR-0072): every write of cash but
+// its two proposals (a snapshot and its export, a comment written,
+// accepted or rejected, a memo record created, uploaded, changed,
+// cancelled, realised, accepted or rejected); every write of a payment
+// run, from its proposal to its release; every write of a bank statement,
+// from its import to its lines' matching, posting and proposals; a bank
+// file's transmission and status; a dunning block set or released; and
+// every write of a configuration change request, through which
+// configuration changes. None is among its tools.
+var Never = []string{
+	"takeCashSnapshot", "createCashExport", "createForecastVarianceComment", "acceptForecastVarianceCommentProposal",
+	"rejectForecastVarianceCommentProposal", "createMemoRecord", "uploadMemoRecords", "updateMemoRecord", "cancelMemoRecord",
+	"realiseMemoRecord", "acceptMemoRecordProposal", "rejectMemoRecordProposal",
+	"proposePaymentRun", "submitPaymentRun", "releasePaymentRun", "rejectPaymentRun",
+	"importBankStatements", "matchBankStatement", "acceptBankStatementGap", "matchBankStatementLine", "excludeBankStatementLine",
+	"postBankStatementLine", "proposeBankStatementLine", "acceptBankStatementLineProposal", "rejectBankStatementLineProposal",
+	"transmitBankFile", "reportBankFileStatus", "createDunningBlock", "releaseDunningBlock",
+	"createChangeRequest", "updateChangeRequest", "submitChangeRequest", "simulateChangeRequest", "withdrawChangeRequest",
+	"activateChangeRequest",
+}
 
 const system = `You explain a company's liquidity forecast variance for a period, for a person to decide.
 

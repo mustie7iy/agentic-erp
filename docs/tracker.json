@@ -1572,6 +1572,13 @@
        },
        {
         "s": "T",
+        "t": "The consolidated asset history sheet's walkthrough shows a non-zero net exchange difference on translation: today the only member of the group MAPLE that holds assets is in the group currency (Maple Inc, 3000, CAD) and Acme Corp US (1000, USD) holds none, so the step's sheet reconciles with every exchange difference 0.00 (the translation is proved by hand only in consolidation's TestConsolidatedAssetHistorySheet); a fixture change giving Acme Corp US asset classes and accounts, and an asset bought and depreciated there, would show one",
+        "r": "scripts/walkthrough.sh asset_sheet_consolidated (step 44) · internal/platform/fixture · ADR-0057 As built, the consolidated sheet · assetsheet's backlog",
+        "src": "review:batch96",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "IAS 16.73(a)-(c) per asset class as notes text (accounting specialist, po:2026-11-09, B14): the measurement basis, the depreciation methods and the useful lives or rates, the remainder of the leaf on the sheet's missing lines; the product owner's decision of 2026-11-09 on B14 names neither a date nor a form for it",
         "r": "ADR-0057 §9 (answered), As built (B14) · GET /v1/asset-classes",
         "src": "po:2026-11-09",
@@ -1963,9 +1970,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Forecast agent with variance explanations",
-      "r": "T53f · T53f2 · T53f3 · T53f4 · T53i",
+      "r": "T53f · T53f2 · T53f3 · T53f4 · T53i · done by T53f (the forecast's snapshots), T53f2 (cash actuals), T53f3 (the forecast variance), T53f4 (variance comments by people) and T53i (the forecast agent: agent type cash_forecast, internal/cashagent's read tools and two proposals, erp agent cash-variance, evals/cash replayed against the model stand-in, walkthrough step 39) under Cash position and liquidity forecast decided, and by batch 96F's integration: the agent's never list (cashagent.Never, TestNever: every other write of cash, every write of a payment run, a bank statement, a bank file, a dunning block and a configuration change request; every write of cash but the two proposals x-agent: false) · ADR-0051 As built (T53i, what it never does) · its live evaluation is the agents' own leaf (T43)",
       "src": "baseline",
       "c": []
      },
@@ -2187,9 +2194,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Variance commentary by agent",
-      "r": "T64 · ADR-0058 §9, §10, §12 · T64h, T64i, T64j",
+      "r": "T64 · ADR-0058 §9, §10, §12 · T64h, T64i, T64j · done by T64h (the variance report), T64i (variance comments: proposals, people's comments, their decisions and the check variances_explained) and T64j (the close agent's variance run: erp agent close-variances, its tools and prompt, the variance cases of evals/close replayed against the model stand-in, walkthrough step_close) under Financial close designed, and by accrualagent (batch 96): the close agent's never list (closeagent.Never, TestNever), which holds writing, accepting and rejecting a variance comment · ADR-0058 As built (accrual proposals by agent) · its live evaluation is the close agent's leaf above",
       "src": "baseline",
       "c": []
      },
@@ -3779,6 +3786,13 @@
         "t": "Analytics: actuals by cost center, profit center and segment: the journal dataset carries each line's centers by code and the semantic layer's revenue, income and expenses are broken down and filtered by them, the store's answer the database's; isolation tests unchanged and passing",
         "r": "T56i1 · analytics/datasets/v1/gl_lines.yaml cost_center, profit_center, segment (additive; the journal extracted again once, as batch 95's tax columns) · semantic dimensions cost_center, profit_center, segment of revenue, income and expenses · extract TestCenterColumns, TestJournalExtractedAgainForCenters · reader TestCenterColumns · store TestParity · ADR-0044 As built T56i1 · ADR-0050 §7 As built T56i1 · walkthrough step 79 (step_plan_version, center_actuals_analytics: CC-1100 by account against GET /v1/cost-center-balances)",
         "src": "split:T56i · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Step 79's analytics center check compares both ways: center_actuals_analytics checks that every account analytics answers for CC-1100 agrees with the cost center's actual report, not that every account the report shows is in analytics' answer, so a journal line analytics lost would pass unseen",
+        "r": "scripts/walkthrough.sh center_actuals_analytics (step 79) · GET /v1/cost-center-balances · runAnalyticsQuery · ADR-0044 As built T56i1 · ccanalytics' backlog",
+        "src": "review:batch96",
         "c": []
        },
        {

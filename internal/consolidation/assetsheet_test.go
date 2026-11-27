@@ -57,11 +57,12 @@ func sheetEnv(t *testing.T) fixture.Env {
 // and 100.00 depreciated in 2025/8 (booked EUR 80.50); 500.00 acquired in
 // 2026/3, 20.01 depreciated in 2026/11 (booked 17.03), 200.00 of cost and
 // 40.00 of accumulated depreciation retired in 2026/12, and an impairment
-// loss of 10.00 and a reversal of 4.00 in 2026/13 (booked 9.60 and 3.90). Company 2000 (EUR): TOOLS, a
-// class the configuration does not have, 300.00 acquired and 30.00
-// depreciated in 2026/6, its booked group amount written as 29.99 so that
-// a sheet showing it rather than the local amount fails; LAND, 100.00
-// acquired and retired in 2025/2, so it opens 2026 with nothing.
+// loss of 10.00 and a reversal of 4.00 in 2026/13 (booked 9.60 and
+// 3.90). Company 2000 (EUR): TOOLS, a class the configuration does not
+// have, 300.00 acquired and 30.00 depreciated in 2026/6, its booked group
+// amount written as 29.99 so that a sheet showing it rather than the
+// local amount fails; LAND, 100.00 acquired and retired in 2025/2, so it
+// opens 2026 with nothing.
 func sheetTotals(t *testing.T, e fixture.Env) {
 	t.Helper()
 	var leading uuid.UUID
@@ -84,20 +85,18 @@ func sheetTotals(t *testing.T, e fixture.Env) {
 				period = ""
 			}
 			pgtest.Exec(t, fmt.Sprintf(`INSERT INTO assets.%[1]s AS t (tenant_id, legal_entity_id, ledger_id, fiscal_year, class_code%[2]s,
-					acquisitions, retired_cost, depreciation, impairment_losses, retired_accumulated)
-				SELECT $1, $2, $3, $4, $5%[3]s, $6, $7, $8, $10, $11 WHERE $9::smallint > 0
+					acquisitions, retired_cost, depreciation, impairment_losses, retired_accumulated, impairment_reversals)
+				SELECT $1, $2, $3, $4, $5%[3]s, $6, $7, $8, $10, $11, $12 WHERE $9::smallint > 0
 				ON CONFLICT (tenant_id, legal_entity_id, ledger_id, fiscal_year%[2]s, class_code) DO UPDATE SET acquisitions = t.acquisitions + EXCLUDED.acquisitions,
 					retired_cost = t.retired_cost + EXCLUDED.retired_cost, depreciation = t.depreciation + EXCLUDED.depreciation,
-					impairment_losses = t.impairment_losses + EXCLUDED.impairment_losses, retired_accumulated = t.retired_accumulated + EXCLUDED.retired_accumulated`,
+					impairment_losses = t.impairment_losses + EXCLUDED.impairment_losses, retired_accumulated = t.retired_accumulated + EXCLUDED.retired_accumulated,
+					impairment_reversals = t.impairment_reversals + EXCLUDED.impairment_reversals`,
 				table, period, strings.Replace(period, "fiscal_period", "$9", 1)), e.Tenant.ID, r.company, leading, r.year, r.class, r.acq, r.ret, r.dep,
-				r.period, r.imp, r.retiredAccumulated)
+				r.period, r.imp, r.retiredAccumulated, r.rev)
 		}
-		pgtest.Exec(t, `UPDATE assets.class_period_total SET depreciation_gc = $6, impairment_losses_gc = $7, impairment_reversals = $8,
-				impairment_reversals_gc = $9
+		pgtest.Exec(t, `UPDATE assets.class_period_total SET depreciation_gc = $6, impairment_losses_gc = $7, impairment_reversals_gc = $8
 			WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = $3 AND fiscal_period = $4 AND class_code = $5`,
-			e.Tenant.ID, r.company, r.year, r.period, r.class, r.depGC, r.impGC, r.rev, r.revGC)
-		pgtest.Exec(t, `UPDATE assets.class_year_total SET impairment_reversals = impairment_reversals + $5
-			WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = $3 AND class_code = $4`, e.Tenant.ID, r.company, r.year, r.class, r.rev)
+			e.Tenant.ID, r.company, r.year, r.period, r.class, r.depGC, r.impGC, r.revGC)
 	}
 }
 

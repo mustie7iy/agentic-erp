@@ -1977,6 +1977,14 @@ default, for the product owner to overrule:
   proposals is `x-agent: false`. A new write of any of those kinds fails
   the test until it is listed; the documents' postings and the runs are
   listed by name.
+- **Batch 96F's integration** (decided by default) added the writes the
+  merged tree had gained since the lane's base: a held e-invoice's
+  `retryEInvoice`, `linkEInvoice` and `dismissEInvoice` (ADR-0061 As built
+  T65f), which enter or attach the supplier invoice the agent reads, and
+  `impairAsset` (ADR-0057 As built, impairment), a period-end valuation
+  that posts as the depreciation run does. All four are `x-agent: false`.
+  `TestNever` names them, with the documents' postings and the
+  depreciation run, so dropping one fails it.
 - **Walkthrough.** `close_accrual_decisions` (step_close) has the agent,
   after proposing its second accrual, refused rejecting it and signing
   the close off (403 `identity.agent_not_allowed`); Carla then rejects it

@@ -62,6 +62,15 @@ func TestNever(t *testing.T) {
 			t.Errorf("%s: open to agents, want x-agent: false", id)
 		}
 	}
+	// The writes the rule above does not find by path or name: the postings
+	// of the documents it reads, a held e-invoice's resolutions (T65f) and
+	// an asset's impairment (ADR-0057 As built), a valuation of the close.
+	for _, id := range []string{"postSupplierInvoice", "clearSupplierInvoiceDownPayments", "postGoodsReceipt", "retryEInvoice",
+		"linkEInvoice", "dismissEInvoice", "startDepreciationRun", "impairAsset"} {
+		if !slices.Contains(closeagent.Never, id) {
+			t.Errorf("never list: got %v, want it to hold %s", closeagent.Never, id)
+		}
+	}
 	for _, id := range closeagent.Never {
 		t.Run("never "+id, func(t *testing.T) {
 			if slices.Contains(tools, id) {
