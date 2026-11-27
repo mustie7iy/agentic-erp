@@ -14,8 +14,12 @@
 -- period procedure has lots here, numbered within its lots.
 --
 -- Expand only (06 §6.4): the checks are widened and a table added, so a
--- server of the release before writes rows these checks accept; it
--- neither writes nor reads the new values or table.
+-- server of the release before writes rows these checks accept and never
+-- the table. During a rolling upgrade a worker of that release sizes a
+-- period plan it meets lot for lot (its sizing knows no other), writing
+-- a line naming the period procedure with no lots here and needed by the
+-- run's day, and refuses a change of such a plan (422); both end with
+-- the upgrade, and the next run plans by period.
 ALTER TABLE mrp.material_plan
   DROP CONSTRAINT material_plan_lot_size_check,
   ADD CONSTRAINT material_plan_lot_size_check

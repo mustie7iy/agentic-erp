@@ -519,7 +519,10 @@ date of a period's receipt, **from memory**, for the SAP specialist):
   recommendation to dates per lot reads them from `lot_schedule`, not
   from the requisition's one need date.
 - **Rolling upgrade** (expand only): the checks are widened and a table
-  added; a server before neither writes nor reads them. The down refuses
+  added, which a server before never writes; its worker sizes a period
+  plan it meets lot for lot (a line naming the period procedure, with no
+  `lot_schedule`, needed by the run's day) and refuses a change of such a
+  plan (422) until the upgrade ends, when the next run plans by period. The down refuses
   while a plan or line is sized by period or a lot is kept
   (`TestMRPPeriodLotsDownRefused`), and otherwise drops what the up added
   (`TestDownsRevert`).

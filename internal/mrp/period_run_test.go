@@ -95,3 +95,21 @@ func TestPlanningRunPeriodLots(t *testing.T) {
 		t.Errorf("the first run listed: got %s, want its schedule %s", got, want)
 	}
 }
+
+// TestPlanningRunPeriodTooManyLots: a weekly plan whose maximum lot size
+// splits a week's need into more than 100 lots fails the run with
+// mrp.too_many_lots, proposing nothing.
+func TestPlanningRunPeriodTooManyLots(t *testing.T) {
+	e := setup(t)
+	e.confirmedOn(t, "201.01", "")
+	e.Must(201, "POST", plans, mustJSON(t, map[string]any{"plant_id": e.p1, "material_id": e.bracket, "mrp_type": "reorder_point",
+		"reorder_point": "0", "account_id": e.stock, "lot_size": "weekly", "maximum_lot_size": "0.01"}), "")
+	r := e.run(t)
+	errObj, _ := r["error"].(map[string]any)
+	if got := fmt.Sprint(r["status"], " ", errObj["code"]); got != "failed mrp.too_many_lots" {
+		t.Errorf("got %s, want the run failed with mrp.too_many_lots", got)
+	}
+	if got := e.proposals(t); len(got) != 0 {
+		t.Errorf("the proposals: got %v, want none", got)
+	}
+}

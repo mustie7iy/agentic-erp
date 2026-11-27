@@ -41,15 +41,8 @@ func (e *Endpoints) count(ctx context.Context, w *work) (counts, error) {
 	if err != nil {
 		return counts{}, err
 	}
-	for _, d := range demand {
-		q, err := w.inBase(d.Open)
-		if err != nil {
-			return counts{}, err
-		}
-		if q != nil {
-			c.demand[d.MaterialID] = new(big.Rat).Add(orZero(c.demand[d.MaterialID]), q)
-			c.due[d.MaterialID] = append(c.due[d.MaterialID], dated{day: d.Day, quantity: q})
-		}
+	if err := w.tally(demand, c.demand, c.due); err != nil {
+		return counts{}, err
 	}
 	stock, err := e.Supply.Stock(ctx, w.run.PlantID, w.ids)
 	if err != nil {
@@ -66,7 +59,11 @@ func (e *Endpoints) count(ctx context.Context, w *work) (counts, error) {
 	if err != nil {
 		return counts{}, fmt.Errorf("mrp: stock transport orders to plant %s: %w", w.plant.Code, err)
 	}
-	return c, w.sum(append(receipts, transports...), c.receipts)
+	open := make([]Due, 0, len(receipts)+len(transports))
+	for _, o := range append(receipts, transports...) {
+		open = append(open, Due{Open: o}) // receipts carry no day (period.go)
+	}
+	return c, w.tally(open, c.receipts, nil)
 }
 
 // demand is what the plant must supply of the planned materials by the

@@ -83865,9 +83865,9 @@ type MrpRunLine struct {
 	Lots OptInt32 `json:"lots"`
 	// The lots a period procedure (`daily`, `weekly`, `monthly`) proposed, in the order of the
 	// requisition's items, each with the day it is needed by: the first day of its period the demand takes
-	// the stock and receipts below the reorder point, the run's day for demand overdue or a plant already
-	// below it. The requisition is needed by the first lot's day. Absent for the other procedures, whose
-	// lots are all needed by the run's day, and without a shortage.
+	// the stock, receipts and earlier lots below the reorder point, the run's day for demand overdue or a
+	// plant already below it. The requisition is needed by the first lot's day. Absent for the other
+	// procedures, whose lots are all needed by the run's day, and without a shortage.
 	LotSchedule []MrpRunLot `json:"lot_schedule"`
 	// The draft requisition proposed for the shortage (`GET /v1/requisitions/{id}`); absent without a
 	// shortage.

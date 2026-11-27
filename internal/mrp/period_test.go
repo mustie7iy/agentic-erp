@@ -2,6 +2,7 @@ package mrp
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -112,18 +113,29 @@ func TestPeriodTooManyLots(t *testing.T) {
 	}
 	daily := LotSizing{Procedure: Daily}
 	lots, err := daily.periodLots(new(big.Rat), new(big.Rat), demand(MaxLots), date(t, runDay), "MA1")
-	if err != nil || len(lots) != MaxLots {
-		t.Errorf("MaxLots days: got %d lots, %v; want %d", len(lots), err, MaxLots)
+	if err != nil {
+		t.Fatalf("MaxLots days: got %v, want lots", err)
+	}
+	if len(lots) != MaxLots {
+		t.Errorf("MaxLots days: got %d lots, want %d", len(lots), MaxLots)
+	}
+	refused := func(name string, err error, detail string) {
+		t.Helper()
+		var p *problem.Problem
+		if !errors.As(err, &p) {
+			t.Fatalf("%s: got %v, want a problem", name, err)
+		}
+		if got := fmt.Sprint(p.Status, " ", p.Code); got != "409 mrp.too_many_lots" {
+			t.Errorf("%s: got %s, want 409 mrp.too_many_lots", name, got)
+		}
+		if !strings.HasPrefix(p.Detail, detail) {
+			t.Errorf("%s: got detail %q, want it to start %q", name, p.Detail, detail)
+		}
 	}
 	_, err = daily.periodLots(new(big.Rat), new(big.Rat), demand(MaxLots+1), date(t, runDay), "MA1")
-	var p *problem.Problem
-	if !errors.As(err, &p) || p.Code != "mrp.too_many_lots" || p.Status != 409 || !strings.HasPrefix(p.Detail, "Material MA1 needs more than 100 lots over its daily") {
-		t.Errorf("one day more: got %v, want 409 mrp.too_many_lots naming MA1 and its daily periods", err)
-	}
+	refused("one day more", err, "Material MA1 needs more than 100 lots over its daily periods")
 	_, err = LotSizing{Procedure: Weekly, Maximum: s("0.01")}.periodLots(new(big.Rat), new(big.Rat), due(t, "1.01@2026-12-01"), date(t, runDay), "MA1")
-	if !errors.As(err, &p) || !strings.HasPrefix(p.Detail, "Material MA1 needs 101 lots of 0.01") {
-		t.Errorf("a period's own lots: got %v, want 409 mrp.too_many_lots naming its 101 lots of the maximum", err)
-	}
+	refused("a period's own lots", err, "Material MA1 needs 101 lots of 0.01")
 }
 
 // TestPeriodStart: a day's period starts on the day itself, the Monday of
