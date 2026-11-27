@@ -6251,9 +6251,16 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "The replenishment agent recommends on a proposal of several lots (ADR-0084 As built S2k2: a requisition of an item per lot) one order of the lots from one supplier and source: the first line orders their sum, a line per lot names its item's number and quantity by the proposal's day, and its check holds the lines to the requisition's items and the order to its supplier's measures",
+      "r": "S2k2a · docs/design/plan-supply-chain.md §S2k2, Later (S2k2a) · ADR-0072 As built S2k2a · ADR-0084 As built S2k2 · internal/replenishmentagent review.lotsNamed, ErrLots · TestReviewLots · evals/replenishment version 3 · walkthrough step_replenishment_agent (step 153)",
+      "src": "review:batch95",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: the replenishment agent recommends on a proposal of several lots (ADR-0084 As built S2k2: a requisition of an item per lot), an order per lot or one order of the lots, held to the proposal's lots and its supplier's measures; today its check refuses such a proposal (ErrProposal) before reading any measures and leaves it to the buyer",
-      "r": "docs/design/plan-supply-chain.md §S2k2, Later · ADR-0072 As built S2l1 · ADR-0084 As built S2k2 · internal/replenishmentagent review.check · TestReviewLotsBeforeMeasures",
+      "t": "later: the replenishment agent recommends an order per lot, lots from different suppliers or on different days (lots on different days come with period lot sizes, lots across suppliers with quota arrangements; S2k2a recommends one order of the lots from one supplier by the proposal's day)",
+      "r": "docs/design/plan-supply-chain.md §S2k2, Later · ADR-0072 As built S2k2a",
       "src": "review:batch95",
       "c": []
      },

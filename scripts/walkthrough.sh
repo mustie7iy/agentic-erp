@@ -17171,7 +17171,7 @@ step_mrp() {
   api 200 '"proposal \(.document_number): \(.status), \([.items[] | "\(.quantity.value) \(.quantity.unit)"] | join(" + "))"' \
     getRequisition -p "id=$(field .id)"
   expect "the washer's proposal" "$(field '[.items[] | .quantity.value] | join(" ")')" "40 40 40"
-  HINGE=$hinge
+  HINGE=$hinge WASHER=$washer MONTREAL=$montreal
   passed
 }
 
@@ -17200,8 +17200,8 @@ step_mrp() {
 # year ending on the run's day (the proposal's day), which the model's read
 # gives as from and to, so a review after midnight names the same ones.
 step_replenishment_agent() {
-  heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts; the supplier chosen by its lead time and on-time share at the plant, named in the order"
-  local role item plan run proposal number day got session rec version want bolt ap po supplier ordered due lines measures
+  heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts; the supplier chosen by its lead time and on-time share at the plant, named in the order; a washer planned in fixed lots recommended as one order of its three lots, each named"
+  local role item plan run proposal number day got session rec version want bolt ap po supplier ordered due lines measures lots
   [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
   as ada
   say "Ada sets up the replenishment agent (ADR-0072): an agent principal of type replenishment at autonomy level 1 on"
@@ -17337,7 +17337,74 @@ step_replenishment_agent() {
   expect "the proposal after the decision" "$(field .version)" "$version"
   api 200 '"requisition \(.document_number): \(.status), suggested supplier \(.supplier_id == "'"$SUPPLIER"'")"' updateRequisition -p "id=$proposal" -if-match "$ETAG" \
     -body "{\"supplier_id\": \"$SUPPLIER\"}"
+  replenish_lots
   passed
+}
+
+# replenish_lots is S2k2's later item (ADR-0072 As built S2k2, ADR-0084 As
+# built S2k2): the agent on a proposal of several lots. Priya loads
+# Tyrell's W8 washers into the catalog; Ben's rerun of Montreal replaces
+# step_mrp's proposal by the three lots of 40 that cover the 100 short;
+# the agent's order of the 120 without its lots is refused by the run, and
+# it recommends one order of the 120 from Tyrell's catalog item naming each
+# lot by the proposal's day, which the buyer orders as items of one order.
+replenish_lots() {
+  local item number run proposal day got rec version want
+  [ -n "${WASHER:-}" ] && [ -n "${MONTREAL:-}" ] || fail "step 152's washer is not there"
+  as priya
+  say "Priya loads Tyrell's W8 washers into Maple's catalog at 0.12 CAD each:"
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit)"' \
+    createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"material_id\": \"$WASHER\", \"unit\": \"EA\",
+      \"unit_price\": {\"amount\": \"0.12\", \"currency\": \"CAD\"}}"
+  item=$(field .id) number=$(field .item_key)
+  as ben
+  say "Ben runs planning for Montreal again: the washer, planned in fixed lots of 40 (step 152), is still 100 short; the"
+  say "run replaces its own proposal by three lots of 40, the items of one requisition (ADR-0084 As built S2k2):"
+  api 202 '"\(.kind) \(.status)"' startMrpRun -body "{\"plant_id\": \"$MONTREAL\"}"
+  run=$(field .resource)
+  run=${run##*/}
+  wait_op
+  api 200 '(.lines[] | select(.material_id == "'"$WASHER"'") | "  \(.material_number): shortage \(.shortage.value) \(.shortage.unit), \(.lot_size) lots, proposed \(.proposed.value) in \(.lots) lots, \(.requisition_number)")' \
+    getMrpRun -p "id=$run"
+  expect "the run's washer" "$(field '.lines[] | select(.material_id == "'"$WASHER"'") | "\(.shortage.value) \(.proposed.value) \(.lots)"')" "100 120 3"
+  proposal=$(field '.lines[] | select(.material_id == "'"$WASHER"'") | .requisition_id')
+  QUIET=1 api 200 '' getRequisition -p "id=$proposal"
+  day=$(field .needed_by) version=$(field .version)
+  expect "the washer's lots" "$(field '[.items[] | "\(.item_no):\(.quantity.value)"] | join(" ")')" "1:40 2:40 3:40"
+  lots="Lot 1: 40 EA by $day"$'\n'"Lot 2: 40 EA by $day"$'\n'"Lot 3: 40 EA by $day"
+  jq -n --arg run "$run" --arg req "$proposal" --arg le "$LE" --arg washer "$WASHER" --arg number "$number" --arg s "$SUPPLIER" --arg item "$item" \
+    --arg day "$day" --arg plant "$MONTREAL" --arg lots "$lots" --arg from "$(date_add "$day" -364)" '
+    {session_id: "{{session}}", object_type: "requisition", object_id: $req, kind: "order"} as $on |
+    "Order 120 EA from supplier \($s) by \($day): catalog item \($item)" as $first |
+    "\nMeasures: no receipts\nWhy: the run proposed 120 EA of the washer in 3 lots of its fixed lot size; Tyrell offers it in the catalog at 0.12 CAD." as $why |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getMrpRun", input: {id: $run}},
+      {tool: "getRequisition", input: {id: $req}},
+      {tool: "listCatalogItems", input: {legal_entity_id: $le, text: $number}},
+      {tool: "listContracts", input: {legal_entity_id: $le, material_id: $washer, status: "active"}},
+      {tool: "listPurchaseOrders", input: {legal_entity_id: $le, material_id: $washer}},
+      {tool: "getBusinessPartner", input: {id: $s}},
+      {tool: "getSupplierDeliveryPerformance", input: {plant_id: $plant, material_id: $washer, from: $from, to: $day}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($first + $why)})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($first + "\n" + $lots + $why)})}},
+      {final: "Recommended one order of the washer'"'"'s three lots from Tyrell'"'"'s catalog item; the buyer decides."}]}' >"$WORK/model-script.json"
+  say "Ben runs the agent on it: it orders the 120 without naming the lots (refused by the run: an order of a proposal of"
+  say "several lots names each), then recommends one order of the 120 from Tyrell's catalog item, each lot of 40 in a line"
+  say "of its own by the day the proposal is needed, which the run's check holds to the requisition's items."
+  show ERP_AGENT_TOKEN=… erp agent replenish -run "$run"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/replenishment-agent") "$ERP" agent replenish -run "$run" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent replenish failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): order on requisition $proposal .*/\\1/p")
+  [ -n "$rec" ] || fail "erp agent replenish printed no order on the washer's proposal"
+  api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
+  want="Order 120 EA from supplier $SUPPLIER by $day: catalog item $item"$'\n'"$lots"
+  expect "the order and its lots" "$(field '.content | split("\n")[0:4] | join("\n")')" "$want"
+  QUIET=1 api 200 '' getRequisition -p "id=$proposal"
+  expect "the washer's proposal, as the run left it" "$(field '"\(.status) \(.version)"')" "draft $version"
 }
 
 # step_intercompany_transport is S2i1 (ADR-0082 As built S2i,
