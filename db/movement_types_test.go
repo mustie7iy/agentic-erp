@@ -15,7 +15,8 @@ import (
 // reversal 602 beside the count's 701 and 702, and the account
 // determination both the inventory_difference and the
 // inventory_cost_of_goods_sold keys, S2h's 351 (000418 and 000419) and
-// S2i1's 643 (000443 and 000444). Reverting 000444 and 000443 restores
+// S2i1's 643 (000443 and 000444), after S2b4's 653 (000494 and 000495),
+// reverted first. Reverting 000444 and 000443 restores
 // 000419's checks, validated, 643 refused; reverting 000419 and 000418
 // restores 000411's checks, validated, 351 refused; reverting 000411 and 000410 then restores 000408's checks,
 // validated: 701, 702 and inventory_difference:<class> still taken, 601,
@@ -94,6 +95,18 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			if err := exec(tx, migrationNamed(t, name).Down); err != nil {
 				t.Fatalf("%s's down: %v", name, err)
 			}
+		}
+	}
+	// S2b4's 000495 and 000494 come after and are reverted first; their
+	// down refuses while a customer's return into stock exists (those
+	// other tests committed).
+	if err := all(tx, step("DELETE FROM sales.return_receipt_item_cost"), step("DELETE FROM sales.return_receipt_posting"),
+		step("DELETE FROM inventory.material_document WHERE movement_type = '653'")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"000495_validate_customer_return_stock", "000494_customer_return_stock"} {
+		if err := exec(tx, migrationNamed(t, name).Down); err != nil {
+			t.Fatalf("%s's down: %v", name, err)
 		}
 	}
 	// 000443's down refuses to revert while an intercompany order or a 643
