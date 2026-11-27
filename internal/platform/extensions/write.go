@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -34,35 +35,79 @@ type References interface {
 	Exists(ctx context.Context, kind Kind, id uuid.UUID) (bool, error)
 }
 
+// CostObjects says whether the center a cost object field names may be
+// referred to by a document of a company on a date (ledger context, ADR-0046
+// As built T56k), read in the request's transaction.
+type CostObjects interface {
+	// CostObject returns CostObjectValid when the center of the kind
+	// (CostCenter or ProfitCenter) with the id may be named, else why not.
+	CostObject(ctx context.Context, kind Kind, company uuid.UUID, date time.Time, id uuid.UUID) (CostObjectState, error)
+}
+
+// CostObjectState is why a cost object field's center cannot be named, the
+// field error's code of the refusal; CostObjectValid when it can.
+type CostObjectState string
+
+// The states of a cost object reference, as a posting judges its centers
+// (ADR-0050 §5) without the locks, which hold postings back, not
+// references.
+const (
+	CostObjectValid          CostObjectState = ""
+	CostObjectNotFound       CostObjectState = "not_found"         // no center of the kind has the id
+	CostObjectNotInCompany   CostObjectState = "not_in_company"    // another company's cost center, a profit center not assigned to the company
+	CostObjectNotActive      CostObjectState = "not_active"        // pending or rejected
+	CostObjectNotValidOnDate CostObjectState = "not_valid_on_date" // no period of the center covers the document's date
+)
+
+var costObjectMessages = map[CostObjectState]string{
+	CostObjectNotFound:       "no %s with this id",
+	CostObjectNotInCompany:   "a %s of another company: a document names its own company's",
+	CostObjectNotActive:      "a %s that is not active",
+	CostObjectNotValidOnDate: "a %s that is not valid on the document's date",
+}
+
+// Document is what a cost object field is checked against: the company of
+// the row and its date, as the row's own account assignments are checked
+// (a purchase order's order date, a supplier invoice's posting date, else
+// its invoice date). An entity whose rows have neither, a business
+// partner, passes the zero Document; its schema has no cost object field
+// (Compile).
+type Document struct {
+	Company uuid.UUID
+	Date    time.Time
+}
+
 // Writes checks the custom fields one entity's rows are written with
 // (ADR-0046).
 type Writes struct {
-	Entity     string
-	Schemas    Schemas
-	References References
+	Entity      string
+	Schemas     Schemas
+	References  References
+	CostObjects CostObjects
 }
 
 // Check validates ext, the whole extensions a row is written with, against
 // the tenant's active schema of the entity: unknown keys, required fields,
 // types and limits, money with its currency's minor-unit digits, and
-// references to records that exist. It returns the schema version to write
+// references to records that exist, a cost object's center valid for doc.
+// It returns the schema version to write
 // with the row, nil when the tenant declares no schema, and then every key
 // is unknown. A mismatch is 422 request.invalid_extension with one field
 // error per offending key, in key order. No message repeats a value, so a
 // personal or sensitive value never reaches a log through the error.
-func (w Writes) Check(ctx context.Context, ext map[string]any) (*int, error) {
-	v, _, err := w.check(ctx, ext, true)
+func (w Writes) Check(ctx context.Context, doc Document, ext map[string]any) (*int, error) {
+	v, _, err := w.check(ctx, doc, ext, true)
 	return v, err
 }
 
 // CheckHeld is Check for a row that lands held until a person completes
 // it, such as a captured document: required fields may be missing, and are
 // returned, in key order, for the hold. Every other mismatch is refused.
-func (w Writes) CheckHeld(ctx context.Context, ext map[string]any) (*int, []string, error) {
-	return w.check(ctx, ext, false)
+func (w Writes) CheckHeld(ctx context.Context, doc Document, ext map[string]any) (*int, []string, error) {
+	return w.check(ctx, doc, ext, false)
 }
 
-func (w Writes) check(ctx context.Context, ext map[string]any, required bool) (*int, []string, error) {
+func (w Writes) check(ctx context.Context, doc Document, ext map[string]any, required bool) (*int, []string, error) {
 	if b, _ := json.Marshal(ext); len(b) > MaxRowBytes { // decoded JSON: it always encodes
 		return nil, nil, refused(problem.FieldError{Field: "extensions", Code: "too_large", Message: fmt.Sprintf("at most %d bytes of custom fields", MaxRowBytes)})
 	}
@@ -70,7 +115,7 @@ func (w Writes) check(ctx context.Context, ext map[string]any, required bool) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	errs, err := c.check(ctx, w.References, ext)
+	errs, err := c.check(ctx, values{refs: w.References, costs: w.CostObjects, doc: doc}, ext)
 	if err != nil {
 		return nil, nil, fmt.Errorf("extensions: check %s: %w", w.Entity, err)
 	}
@@ -116,9 +161,17 @@ func refused(errs ...problem.FieldError) error {
 	return problem.Unprocessable("request.invalid_extension", "The custom fields do not match the tenant's schema.", errs...)
 }
 
+// values is what the value checks read beside the value: the records
+// references name and the document cost objects are judged for.
+type values struct {
+	refs  References
+	costs CostObjects
+	doc   Document
+}
+
 // check returns a field error per offending key, unknown and missing keys
 // included, in key order.
-func (c *Compiled) check(ctx context.Context, refs References, ext map[string]any) ([]problem.FieldError, error) {
+func (c *Compiled) check(ctx context.Context, in values, ext map[string]any) ([]problem.FieldError, error) {
 	var out []problem.FieldError
 	for _, f := range c.Fields {
 		if _, ok := ext[f.Key]; f.Required && !ok {
@@ -131,7 +184,7 @@ func (c *Compiled) check(ctx context.Context, refs References, ext map[string]an
 			out = append(out, problem.FieldError{Field: "extensions." + k, Code: "unknown_key", Message: "not a custom field of " + c.Entity})
 			continue
 		}
-		code, msg, err := kinds[f.Kind](ctx, refs, f, ext[k])
+		code, msg, err := kinds[f.Kind](ctx, in, f, ext[k])
 		if err != nil {
 			return nil, fmt.Errorf("field %s: %w", k, err)
 		}
@@ -145,15 +198,16 @@ func (c *Compiled) check(ctx context.Context, refs References, ext map[string]an
 
 // A value check returns the field error's code and message, both empty
 // when the value is valid, or the error of a failed read.
-type valueCheck func(ctx context.Context, refs References, f Field, v any) (code, message string, err error)
+type valueCheck func(ctx context.Context, in values, f Field, v any) (code, message string, err error)
 
 var kinds = map[Kind]valueCheck{
 	String: pure(text), Text: pure(text), Integer: pure(integer), Decimal: pure(decimal), Date: pure(date),
 	Boolean: pure(boolean), Enum: pure(enum), Money: moneyValue, Partner: reference,
+	CostCenter: costObject, ProfitCenter: costObject,
 }
 
 func pure(check func(Field, any) (string, string)) valueCheck {
-	return func(_ context.Context, _ References, f Field, v any) (string, string, error) {
+	return func(_ context.Context, _ values, f Field, v any) (string, string, error) {
 		code, msg := check(f, v)
 		return code, msg, nil
 	}
@@ -225,7 +279,7 @@ var errUnknownCurrency = errors.New("unknown currency")
 
 // moneyValue reads the API's Money shape (ADR-0005): a decimal string with
 // exactly the currency's minor-unit digits, and the currency.
-func moneyValue(ctx context.Context, _ References, _ Field, v any) (string, string, error) {
+func moneyValue(ctx context.Context, _ values, _ Field, v any) (string, string, error) {
 	const shape = `an amount and a currency, {"amount": "12.50", "currency": "EUR"}`
 	m, ok := v.(map[string]any)
 	amount, okA := m["amount"].(string)
@@ -256,13 +310,13 @@ func validAmount(s string, exp int) bool {
 }
 
 // reference checks that a reference field's id names a record.
-func reference(ctx context.Context, refs References, f Field, v any) (string, string, error) {
+func reference(ctx context.Context, in values, f Field, v any) (string, string, error) {
 	s, _ := v.(string) // not a string: refused as no id below
 	id, ok := parseID(s)
 	if !ok {
 		return "invalid_type", "an id", nil
 	}
-	exists, err := refs.Exists(ctx, f.Kind, id)
+	exists, err := in.refs.Exists(ctx, f.Kind, id)
 	if err != nil {
 		return "", "", err
 	}
@@ -270,6 +324,35 @@ func reference(ctx context.Context, refs References, f Field, v any) (string, st
 		return "not_found", fmt.Sprintf("no %s with this id", f.Kind), nil
 	}
 	return "", "", nil
+}
+
+// costObject checks that a cost object field's id names a center of its
+// kind that the document may name: one of the document's company, active
+// and valid on the document's date (ADR-0046 As built T56k). The centers'
+// locks are not read: they hold back postings, and the field posts
+// nothing.
+func costObject(ctx context.Context, in values, f Field, v any) (string, string, error) {
+	s, _ := v.(string) // not a string: refused as no id below
+	id, ok := parseID(s)
+	if !ok {
+		return "invalid_type", "an id", nil
+	}
+	if in.costs == nil || in.doc.Company == uuid.Nil || in.doc.Date.IsZero() {
+		// Fails closed: wiring that forgot the reader or the document must not pass a reference unchecked.
+		return "", "", fmt.Errorf("no cost object reader or document to check a %s against", f.Kind)
+	}
+	state, err := in.costs.CostObject(ctx, f.Kind, in.doc.Company, in.doc.Date, id)
+	if err != nil {
+		return "", "", err
+	}
+	if state == CostObjectValid {
+		return "", "", nil
+	}
+	msg, ok := costObjectMessages[state]
+	if !ok {
+		return "", "", fmt.Errorf("unknown cost object state %q", state)
+	}
+	return string(state), fmt.Sprintf(msg, strings.ReplaceAll(string(f.Kind), "_", " ")), nil
 }
 
 func parseID(s string) (uuid.UUID, bool) {

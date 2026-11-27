@@ -77,3 +77,90 @@ func TestCenterColumns(t *testing.T) {
 		}
 	})
 }
+
+// The centers' snapshots as the extractor writes them (T56i2).
+type (
+	costCenterRow struct {
+		TenantID       uuid.UUID `parquet:"tenant_id,uuid"`
+		Company        string    `parquet:"company"`
+		CostCenter     string    `parquet:"cost_center"`
+		CostCenterName string    `parquet:"cost_center_name"`
+		CostCenterNode *string   `parquet:"cost_center_node,optional"`
+	}
+	profitCenterRow struct {
+		TenantID         uuid.UUID `parquet:"tenant_id,uuid"`
+		ProfitCenter     string    `parquet:"profit_center"`
+		ProfitCenterName string    `parquet:"profit_center_name"`
+		ProfitCenterNode *string   `parquet:"profit_center_node,optional"`
+	}
+	segmentRow struct {
+		TenantID    uuid.UUID `parquet:"tenant_id,uuid"`
+		Segment     string    `parquet:"segment"`
+		SegmentName string    `parquet:"segment_name"`
+	}
+)
+
+// TestCenterSnapshots: a journal line takes its cost center's name and
+// node by its company and the center's code, so two companies' centers of
+// one code keep their own; its profit center's and segment's by code; a
+// line without a center is under none. A scope of one company names none
+// of another's centers, and a manifest without the snapshots, written
+// before them, refuses the plan, so the store answers from the database
+// (ADR-0044 As built T56i2).
+func TestCenterSnapshots(t *testing.T) {
+	e := setup(t)
+	cc, pc, seg, admin, east := "1100", "PC-MTL", "CA", "ADMIN", "EAST"
+	detroit, berlin := line(e.a, "1000", "2026-04-02", "610000", nil, 300), line(e.a, "2000", "2026-04-03", "620000", nil, 20)
+	detroit.CostCenter, detroit.ProfitCenter, detroit.Segment = &cc, &pc, &seg
+	berlin.CostCenter = &cc
+	lines := encode(t, []glLine{detroit, berlin})
+	centers := encode(t, []costCenterRow{{TenantID: e.a, Company: "1000", CostCenter: cc, CostCenterName: "Detroit office", CostCenterNode: &admin},
+		{TenantID: e.a, Company: "2000", CostCenter: cc, CostCenterName: "Berlin office"}})
+	profit := encode(t, []profitCenterRow{{TenantID: e.a, ProfitCenter: pc, ProfitCenterName: "Montreal office", ProfitCenterNode: &east}})
+	segments := encode(t, []segmentRow{{TenantID: e.a, Segment: seg, SegmentName: "Canada"}})
+	m := e.manifs[e.a]
+	older := e.keys[e.a] // the seed's manifest, written before the snapshots
+	gl := m.Datasets["gl_lines"]
+	gl.Files = append(gl.Files, e.put(part(e.a, "gl_lines", "2026-04", lines), lines))
+	m.Datasets["gl_lines"] = gl
+	m.Datasets["cost_centers"] = dataset(e.put(part(e.a, "cost_centers", "", centers), centers))
+	m.Datasets["profit_centers"] = dataset(e.put(part(e.a, "profit_centers", "", profit), profit))
+	m.Datasets["segments"] = dataset(e.put(part(e.a, "segments", "", segments), segments))
+	e.keys[e.a] = e.publish(e.a, m)
+	// The tenant's other lines, 157 in all, carry no center.
+	for name, c := range map[string]struct {
+		plan Plan
+		want map[string]money.Minor
+	}{
+		"by cost center name and node": {Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"cost_center_name", "cost_center_node"}},
+			map[string]money.Minor{"||EUR": 157, "Detroit office|ADMIN|EUR": 300, "Berlin office||EUR": 20}},
+		"by profit center and segment": {Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"profit_center_name", "profit_center_node", "segment_name"}},
+			map[string]money.Minor{"|||EUR": 177, "Montreal office|EAST|Canada|EUR": 300}},
+		"of a node": {Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "cost_center_node", Op: "in", Values: []string{admin}}}},
+			map[string]money.Minor{"|EUR": 300}},
+	} {
+		t.Run(name, func(t *testing.T) { wantSums(t, e.query(e.request(e.a, c.plan)), c.want) })
+	}
+	t.Run("a company not granted", func(t *testing.T) {
+		only := Scope{Companies: []string{"2000"}, Datasets: []string{"gl_lines"}}
+		byName := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"cost_center_name"}}
+		res, err := e.r.Query(context.Background(), Request{TenantID: e.a, ManifestKey: e.keys[e.a], Scope: only, Plan: byName})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantSums(t, res.Rows, map[string]money.Minor{"|EUR": 7, "Berlin office|EUR": 20})
+		tampered := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", Where: []Filter{{Column: "cost_center_name", Op: "in", Values: []string{"Detroit office"}}}}
+		res, err = e.r.Query(context.Background(), Request{TenantID: e.a, ManifestKey: e.keys[e.a], Scope: only, Plan: tampered})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Rows) != 0 {
+			t.Errorf("1000's center asked for within 2000: got %v, want none", res.Rows)
+		}
+	})
+	t.Run("a manifest written before them", func(t *testing.T) {
+		byName := Plan{Dataset: "gl_lines", Ledger: nilLedger, Aggregate: "sum", By: []string{"segment_name"}}
+		_, err := e.r.Query(context.Background(), Request{TenantID: e.a, ManifestKey: older, Scope: everything, Plan: byName})
+		refusedErr(t, err)
+	})
+}

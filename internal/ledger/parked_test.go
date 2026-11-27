@@ -140,6 +140,9 @@ func TestListParkedJournalEntries(t *testing.T) {
 	first := park(e.Client, e.de, bank, revenue)
 	second := park(e.Client, e.us, usBank, usRevenue)
 	proposal := park(e.asAgent(t).Client, e.de, bank, revenue)
+	referenced, _ := e.Must(201, "POST", "/v1/parked-journal-entries",
+		strings.Replace(entry(e.de, "2026-03-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "{", `{"reference": "RP 2026 SA 100001/2", `, 1), "")
+	withReference := referenced["id"].(string)
 	list := func(query string) []string {
 		page, _ := e.Must(200, "GET", "/v1/parked-journal-entries"+query, "", "")
 		var ids []string
@@ -152,11 +155,14 @@ func TestListParkedJournalEntries(t *testing.T) {
 		return ids
 	}
 	for query, w := range map[string][]string{
-		"":                                     {proposal, second, first},
-		"?legal_entity_id=" + e.de.String():    {proposal, first},
+		"":                                     {withReference, proposal, second, first},
+		"?legal_entity_id=" + e.de.String():    {withReference, proposal, first},
 		"?created_by_kind=agent":               {proposal},
-		"?status=parked&created_by_kind=human": {second, first},
+		"?status=parked&created_by_kind=human": {withReference, second, first},
 		"?status=posted":                       nil,
+		"?reference=RP+2026+SA+100001%2F2":     {withReference},
+		"?reference=RP+2026+SA+100001%2F2&status=posted": nil,
+		"?reference=RP+2026+SA+100001":                   nil,
 	} {
 		t.Run(query, func(t *testing.T) {
 			if got := list(query); fmt.Sprint(got) != fmt.Sprint(w) {
@@ -164,14 +170,14 @@ func TestListParkedJournalEntries(t *testing.T) {
 			}
 		})
 	}
-	page := list("?page_size=2")
+	page := list("?page_size=2&legal_entity_id=" + e.de.String())
 	if len(page) != 3 {
 		t.Fatalf("page 1: got %v, want two entries and a next page token", page)
 	}
-	if fmt.Sprint(page[:2]) != fmt.Sprint([]string{proposal, second}) {
-		t.Errorf("page 1: got %v, want [%s %s]", page[:2], proposal, second)
+	if fmt.Sprint(page[:2]) != fmt.Sprint([]string{withReference, proposal}) {
+		t.Errorf("page 1: got %v, want [%s %s]", page[:2], withReference, proposal)
 	}
-	if rest := list("?page_size=2&page_token=" + page[2][len("next:"):]); fmt.Sprint(rest) != fmt.Sprint([]string{first}) {
+	if rest := list("?page_size=2&legal_entity_id=" + e.de.String() + "&page_token=" + page[2][len("next:"):]); fmt.Sprint(rest) != fmt.Sprint([]string{first}) {
 		t.Errorf("page 2: got %v, want [%s]", rest, first)
 	}
 	// A principal without company access sees none and finds none.

@@ -179,7 +179,7 @@ func (s Simulation) values(ctx context.Context, m *analytics.Model, p analytics.
 			return nil, err
 		}
 		src := store.Source{Reader: s.Endpoints.Reader, Database: noDatabase{}, Datasets: datasets,
-			Requires: analytics.Source{Datasets: datasets}.Permissions(), Now: s.Now, Log: s.Endpoints.Log}
+			Requires: analytics.Source{Datasets: datasets, Centers: analytics.NamesCenters(m, q)}.Permissions(), Now: s.Now, Log: s.Endpoints.Log}
 		facts, err := src.Facts(ctx, m, p, q, time.Time{})
 		if err != nil {
 			return nil, err

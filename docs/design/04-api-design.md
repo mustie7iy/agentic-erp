@@ -1214,6 +1214,15 @@ for it (weekly, 8 weeks ahead, with its accuracy as 100 less WAPE;
 `listSalesOrders` takes `plant_id` and `material_id`); the planner acts
 through materials' planning data and the planning run, none of which it
 has (ADR-0082 As built S2m).
+The controlling agent (`erp agent repost -company CODE -year YYYY -period
+P`, agent type `controlling`, T56j1) proposes the repostings of a
+company's fiscal period, lines it judges posted on a wrong center, through
+a tool of its own (`proposeReposting`: the line and the center it belongs
+on, with the reason); its code reads the line and parks the reposting it
+builds from it, the whole line moved on its account (`parkJournalEntry`,
+which the model is not offered), its reference naming the line, which
+`listParkedJournalEntries` filters by (`reference`); a person posts it
+(`x-agent: false`, ADR-0050 §12, As built T56j1).
 Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation

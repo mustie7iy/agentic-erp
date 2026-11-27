@@ -156,7 +156,15 @@ func TestReplicaRecords(t *testing.T) {
 	var wg sync.WaitGroup
 	var runErr error
 	wg.Go(func() { runErr = r.Run(ctx) })
-	pgtest.Eventually(t, 10*time.Second, func() bool { _, seen := sighted(t, version); return seen.After(first) }, "a later record of %s", version)
+	// Two advances, not one: a row is visible once the server commits, but
+	// the commit's reply can still be lost to the cancel, and Run then takes
+	// its stopping branch. A second record starts only after the first has
+	// returned uncancelled, so seeing it proves Run recorded a success.
+	seen := first
+	for i := range 2 {
+		prev := seen
+		pgtest.Eventually(t, 10*time.Second, func() bool { _, seen = sighted(t, version); return seen.After(prev) }, "record %d of %s after the start", i+1, version)
+	}
 	cancel()
 	wg.Wait()
 	if runErr != nil {

@@ -761,7 +761,7 @@ func createPartner(ctx context.Context, ports Ports, in NewPartner, back backdat
 	if err := checkNewPartner(&in); err != nil {
 		return Partner{}, Change{}, err
 	}
-	schema, err := ports.extensions().Check(ctx, in.Extensions)
+	schema, err := ports.extensions().Check(ctx, extensions.Document{}, in.Extensions)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -1007,7 +1007,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	// The partner's extensions as the change leaves them are checked against
 	// the active schema now, on every update (ADR-0046: a narrowed field
 	// applies from the next write), and the version is applied with them.
-	schema, err := ports.extensions().Check(ctx, mergepatch.Apply(bp.Extensions, ch.Extensions))
+	schema, err := ports.extensions().Check(ctx, extensions.Document{}, mergepatch.Apply(bp.Extensions, ch.Extensions))
 	if err != nil {
 		return Change{}, err
 	}

@@ -100104,6 +100104,10 @@ func (s *Server) handleListParkedJournalEntriesRequest(args [0]string, argsEscap
 					In:   "query",
 				}: params.TemplateID,
 				{
+					Name: "reference",
+					In:   "query",
+				}: params.Reference,
+				{
 					Name: "owned_by",
 					In:   "query",
 				}: params.OwnedBy,

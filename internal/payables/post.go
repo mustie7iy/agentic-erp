@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -113,7 +114,7 @@ func refusedPost(ctx context.Context, id uuid.UUID, postingDate *time.Time, err 
 // the post uses (the request's, else the invoice's, else the company's
 // date), not the one stored.
 func (e *Endpoints) postable(ctx context.Context, v Invoice, date *time.Time) error {
-	if _, err := e.extensions().Check(ctx, v.Extensions); err != nil {
+	if _, err := e.extensions().Check(ctx, extensions.Document{Company: v.LegalEntityID, Date: *date}, v.Extensions); err != nil {
 		return err
 	}
 	return e.ruleWrites().Check(ctx, storedRuleWrite("payables.supplier_invoice.post", v, Change{PostingDate: &date}))
