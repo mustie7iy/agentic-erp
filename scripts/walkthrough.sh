@@ -6958,8 +6958,15 @@ step_order_budget() {
 # account this year, the debits less the credits, in whole cents of the
 # local currency: jq reads each two-decimal amount as a number and rounds
 # it to whole cents before adding, as the reports' other checks do.
-center_costs() {
-  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$1" -p page_size=100
+center_costs() { report_costs "cost_center_id=$1" "$2"; }
+
+# report_costs FILTER ACCOUNT is center_costs for the cost center report
+# narrowed by FILTER (cost_center_id=..., or hierarchy_node_id=... for the
+# centers at a node and below it, a node's total being their rows'), in
+# whole cents; the report must fit one page.
+report_costs() {
+  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "$1" -p page_size=100
+  [ "$(field '.next_page_token // ""')" = "" ] || fail "the cost center report by $1 has more than one page"
   field "[.items[] | select(.account_id == \"$2\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
 }
 
@@ -10159,6 +10166,7 @@ step_plan_version() {
     "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
   center_actuals_analytics "$admin"
+  center_node_analytics
   passed
 }
 
@@ -10185,6 +10193,38 @@ center_actuals_analytics() {
   expect "expenses by cost center, the cost center report's actuals" "$got" "$want"
   say "The governed metric expenses by cost center agrees with the report: CC-1100 $got CAD."
 }
+# center_node_analytics is T56i2 (ADR-0044 As built T56i2): the actual
+# costs of this year by node of the standard cost center hierarchy, asked of
+# the semantic layer as the governed metric expenses by cost center node,
+# name and account (the centers' snapshots joined to the journal's lines),
+# agree on every account with the cost center report of node ADMIN
+# (GET /v1/cost-center-balances by hierarchy_node_id, the authoritative
+# read, its rows summed: a node's total is its centers'). ADMIN holds
+# CC-1100 alone and no node below it, so the report's subtree is the
+# node's own centers, which the dimension names.
+center_node_analytics() {
+  local hierarchy node got want number
+  say "Carla asks for the same actuals by node of the standard cost center hierarchy, today's tree (decision P7): the"
+  say "governed metric expenses by cost center node, name and account (ADR-0044 As built T56i2):"
+  QUIET=1 api 200 '' listHierarchies -p kind=cost_center -p is_standard=true
+  hierarchy=$(field '.items[0].id')
+  QUIET=1 api 200 '' getHierarchy -p "id=$hierarchy"
+  node=$(field '.nodes[] | select(.code == "ADMIN") | .id')
+  [ -n "$node" ] || fail "the standard cost center hierarchy has no node ADMIN: step 12 placed CC-1100 there"
+  api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value) \(.[1].value) on \(.[2].value): \(.[3].value) \(.[3].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"expenses\"], \"by\": [\"cost_center_node\", \"cost_center_name\", \"account\"], \"where\": [{\"dim\": \"cost_center_node\", \"op\": \"in\", \"values\": [\"ADMIN\"]}, {\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"], \"order_by\": \"account\"}"
+  expect "the centers at ADMIN" "$(field '[.rows[] | .[1].value] | unique | join(", ")')" "Finance office"
+  got=$(field '[.rows[] | "\(.[2].value) \(.[3].value)"] | join("; ")')
+  [ -n "$got" ] || fail "no actual costs at node ADMIN in $YEAR: the earlier steps' postings are not there"
+  want=''
+  for number in $(field '[.rows[] | .[2].value] | join(" ")'); do
+    want="${want:+$want; }$number $(amount "$(report_costs "hierarchy_node_id=$node" "$(account "$number")")")"
+  done
+  say "The cost center report of node ADMIN, its centers' rows summed account by account (GET /v1/cost-center-balances):"
+  expect "expenses by cost center node, the node's report" "$got" "$want"
+  say "The governed metric expenses by hierarchy node agrees with the report: ADMIN $got CAD."
+}
+
 # step_planning_agent is T105e (ADR-0072, As built T105e): the planning
 # agent, erp agent plan through the model stand-in answering from a script
 # of turns (its suite's replay, evals/planning), reads the forecast FC of
@@ -18451,6 +18491,106 @@ step_gts() {
   passed
 }
 
+# step_controlling_agent is T56j1 (ADR-0050 §12, As built T56j1): Carla
+# posts the sales team's trade fair travel on the finance office, CC-1100,
+# by mistake. The controlling agent, erp agent repost through the model
+# stand-in answering from a script of turns (its suite's replay,
+# evals/controlling), reads the month's entries on 6000, the entry and the
+# cost centers, and proposes the line's reposting: first onto CC-1100, its
+# own center, which its check refuses, then onto CC-1300, the sales
+# office. Its code reads the line itself and parks an entry moving the
+# whole line on 6000 from CC-1100 to CC-1300, dated as the line was
+# posted, its reference naming the line. Posting it is a person's: the API
+# refuses the agent. Carla posts it, and the cost centers' reports show
+# the travel on the sales office.
+step_controlling_agent() {
+  heading "Step 164 — The controlling agent: a line posted on the wrong cost center proposed for reposting, parked for a person; its own center refused; Carla posts it and the cost moves to the sales office"
+  local month office admin sales role agent entry number got session parked before_admin before_sales
+  month=$((10#${TODAY:5:2}))
+  as carla
+  accounts
+  office=$(account 6000)
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  admin=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  sales=$(field '.items[0].id')
+  say "Carla posts the sales team's trade fair travel, CAD 300.00 on 6000, and by mistake names the finance office, CC-1100:"
+  api 201 '"entry \(.document_number): \(.lines[0].amount.amount) \(.lines[0].amount.currency) on \(.lines[0].cost_center_code)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Trade fair travel\", \"lines\": [{\"account_id\": \"$office\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$admin\", \"line_text\": \"Trade fair travel of the sales team\"}, {\"account_id\": \"$(account 100000)\", \"amount\": {\"amount\": \"-300.00\", \"currency\": \"CAD\"}}]}"
+  entry=$(field .id) number=$(field .document_number)
+  before_admin=$(center_costs "$admin" "$office") before_sales=$(center_costs "$sales" "$office")
+  controlling_agent_setup
+  say "The agent runs: erp agent repost starts a session on erp-default for $CC's period $month of $YEAR. The model is the"
+  say "stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/controlling): it"
+  say "reads the month's entries on 6000, entry $number and the cost centers, and proposes the travel's line for the sales"
+  say "office. Its first proposal names CC-1100, the line's own center, which the agent's check refuses; its second names"
+  say "CC-1300. The agent's code then reads the line itself and parks the reposting from what the API returned."
+  jq -n --arg le "$LE" --argjson year "$YEAR" --argjson month "$month" --arg office "$office" --arg entry "$entry" \
+    --arg admin "$admin" --arg sales "$sales" '
+    "The line is the sales team'"'"'s trade fair travel; the company posts the sales office'"'"'s costs on CC-1300." as $why |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listJournalEntries", input: {legal_entity_id: $le, fiscal_year: $year, fiscal_period: $month, account_id: $office}},
+      {tool: "getJournalEntry", input: {id: $entry}},
+      {tool: "listCostCenters", input: {legal_entity_id: $le}},
+      {tool: "proposeReposting", input: {journal_entry_id: $entry, line_no: 1, cost_center_id: $admin, reason: $why}},
+      {tool: "proposeReposting", input: {journal_entry_id: $entry, line_no: 1, cost_center_id: $sales, reason: $why}},
+      {final: "Proposed the trade fair travel'"'"'s reposting from CC-1100 to CC-1300; a person posts it."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent repost -company "$CC" -year "$YEAR" -period "$month"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/controlling-agent") "$ERP" agent repost -company "$CC" -year "$YEAR" -period "$month" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent repost failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent proposed" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "repostings parked 1, refused 1."
+  parked=$(printf '%s\n' "$got" | sed -nE 's/^  parked entry ([0-9a-f-]{36}): .*/\1/p')
+  [ -n "$parked" ] || fail "erp agent repost printed no parked entry"
+  as controlling-agent
+  say "Proposing is all it may do: posting a parked entry is a person's (x-agent: false), erp agent builds it no tool"
+  say "for it, and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed postParkedJournalEntry -p "id=$parked" -if-match '"1"' -body '{}'
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "listJournalEntries getJournalEntry listCostCenters proposeReposting parkJournalEntry proposeReposting"
+  as carla
+  say "Carla reads the parked reposting: the whole line on 6000, off CC-1100 and onto CC-1300, dated as it was posted,"
+  say "its reference naming the line and the agent's reason its header text:"
+  api 200 '"  \(.status), by \(.created_by_kind), \(.reference), \(.posting_date): \(.header_text)", (.lines[] | "    \(.amount.amount) \(.amount.currency) on \(.cost_center_code)")' \
+    getParkedJournalEntry -p "id=$parked"
+  expect "the reposting's lines" "$(field '[.lines[] | "\(.account_id == "'"$office"'") \(.amount.amount) \(.cost_center_id)"] | join("; ")')" \
+    "true -300.00 $admin; true 300.00 $sales"
+  expect "its reference" "$(field .reference)" "RP $YEAR SA $number/1"
+  expect "its date" "$(field .posting_date)" "$TODAY"
+  api 200 '"parked entry \(.status) as journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$parked" -if-match "$ETAG" -body '{}'
+  expect "the reposting" "$(field .status)" posted
+  expect "CC-1100's costs on 6000, the travel moved off" "$(center_costs "$admin" "$office")" "$((before_admin - 30000))"
+  expect "CC-1300's costs on 6000, the travel moved on" "$(center_costs "$sales" "$office")" "$((before_sales + 30000))"
+  say "The travel's CAD 300.00 is on the sales office, CC-1300, and off the finance office."
+  passed
+}
+
+# controlling_agent_setup has Ada set up the controlling agent (ADR-0050
+# §12, ADR-0072): an agent principal of type controlling at autonomy level
+# 1, whose role reads the companies, the journal, the accounts and the
+# cost centers, parks entries, and records its sessions; none of its
+# permissions posts an entry.
+controlling_agent_setup() {
+  local role
+  as ada
+  say "Ada sets up the controlling agent (ADR-0050 §12): an agent principal of type controlling at autonomy level 1 on"
+  say "erp-default. Its role reads the companies, the journal, the accounts and the cost centers, parks entries, and"
+  say "records its sessions; it holds no permission that posts an entry."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "controlling_agent", "name": "Controlling agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read ledger.entry.read ledger.entry.park ledger.account.read ledger.cost_center.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "controlling-agent", "display_name": "Controlling agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "controlling", "model": "erp-default", "description": "Proposes repostings for a person to post (ADR-0050 §12)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  printf '%s\tControlling agent\n' "$(field .principal_id)" >>"$WORK/names"
+  token controlling-agent "Controlling agent"
+}
+
 # wms_acknowledged ID waits for the exchange to acknowledge the warehouse
 # system's confirmation ID to the stand-in, which polls every 10 s.
 wms_acknowledged() {
@@ -18460,6 +18600,68 @@ wms_acknowledged() {
     sleep 0.25
   done
   fail "the exchange did not acknowledge $1 (after $i checks)"
+}
+
+# step_custom_fields is a cost object custom field (ADR-0046 As built
+# T56k): Ada adds two optional custom fields to the purchase order's
+# schema, a benefiting cost center and a benefiting profit center, of
+# format cost_object (tier 1, approved on submission); the schema is read
+# back; Ben's order names Maple's CC-1100 and PC-MTL in them, and a profit
+# center named as a cost center, or CC-1100 on an order dated before the
+# cost center's validity, is refused, each naming the field and why.
+step_custom_fields() {
+  heading "Step 163 — Cost object custom fields: a purchase order names a benefiting cost center and profit center, checked against the ledger on the order's date"
+  local base cr cc pc
+  as ada
+  say "Ada adds two optional custom fields to the purchase order: the cost center and the profit center that benefit"
+  say "from an order, beside its items' own account assignment. Each is of format cost_object, naming in x-cost-object"
+  say "what it refers to; adding an optional field is tier 1, approved as it is submitted (ADR-0046)."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --argjson base "$base" '{title: "Benefiting centers on purchase orders", rationale: "Controlling reports orders by the centers they serve (T56k)",
+    base_version: $base, proposed: (.items[0].document | .extensions.purchase_order = ((.extensions.purchase_order
+      // {version: 0, type: "object", additionalProperties: false, properties: {}}) | .version += 1
+      | .properties += {benefiting_cost_center: {type: "string", format: "cost_object", "x-cost-object": "cost_center", title: "Benefiting cost center", "x-pii": "none"},
+        benefiting_profit_center: {type: "string", format: "cost_object", "x-cost-object": "profit_center", title: "Benefiting profit center", "x-pii": "none"}}))}' \
+    "$WORK/last.json" >"$WORK/cost-object-fields.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @cost-object-fields.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 1
+  expect "status after submit" "$(field .status)" approved
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as ben
+  api 200 '"schema version \(.version): " + ([.schema.properties | to_entries[] | select(.value.format == "cost_object") | "\(.key) (\(.value["x-cost-object"]))"] | join(", "))' \
+    getSchema -p entity=purchase_order
+  expect "the cost object fields" "$(field '[.schema.properties | to_entries[] | select(.value.format == "cost_object") | "\(.key)=\(.value["x-cost-object"])"] | join(" ")')" \
+    "benefiting_cost_center=cost_center benefiting_profit_center=profit_center"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  QUIET=1 api 200 '' listProfitCenters -p code=PC-MTL
+  pc=$(field '.items[0].id')
+  say "Ben orders a desk lamp for the finance office on account 6000, its item assigned to CC-1100, which with the"
+  say "Montreal office's PC-MTL is also named as benefiting from the order:"
+  api 201 '"purchase order \(.document_number // .id): \(.status), custom fields: \(.extensions | to_entries | map("\(.key) \(.value)") | join(", "))", (.items[] | "  item \(.item_no): cost center \(.cost_center_id)")' \
+    createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$cc\", \"benefiting_profit_center\": \"$pc\"}" "$cc")"
+  expect "the order's benefiting cost center" "$(field .extensions.benefiting_cost_center)" "$cc"
+  expect "the order's benefiting profit center" "$(field .extensions.benefiting_profit_center)" "$pc"
+  expect "the item's own cost center" "$(field '.items[0].cost_center_id')" "$cc"
+  say "A profit center is not a cost center, so PC-MTL in the cost center field is refused:"
+  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$TODAY" "{\"benefiting_cost_center\": \"$pc\"}" "$cc")"
+  expect "the field error" "$(field '.errors | map("\(.field) \(.code)") | join(", ")')" "extensions.benefiting_cost_center not_found"
+  say "CC-1100 is valid from 1 January $YEAR, so an order dated the day before cannot name it:"
+  refused 422 request.invalid_extension createPurchaseOrder -body "$(cost_object_order "$((YEAR - 1))-12-31" "{\"benefiting_cost_center\": \"$cc\"}" "$cc")"
+  expect "the field error" "$(field '.errors | map("\(.field) \(.code)") | join(", ")')" "extensions.benefiting_cost_center not_valid_on_date"
+  passed
+}
+
+# cost_object_order DATE EXTENSIONS CENTER is the body of Ben's order of a
+# desk lamp on DATE with the custom fields EXTENSIONS, its item on account
+# 6000 assigned to cost center CENTER (step_custom_fields).
+cost_object_order() {
+  printf '{"legal_entity_id": "%s", "supplier_id": "%s", "currency": "CAD", "order_date": "%s", "payment_term_code": "NT30", "extensions": %s, "items": [{"description": "Desk lamp", "quantity": {"value": "1", "unit": "EA"}, "unit_price": {"amount": "80.00", "currency": "CAD"}, "account_id": "%s", "cost_center_id": "%s", "tax_code": "PBC"}]}' \
+    "$LE" "$SUPPLIER" "$1" "$2" "$(account 6000)" "$3"
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -20521,7 +20723,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_custom_fields step_controlling_agent step_close'
 
 main() {
   stop_unseen

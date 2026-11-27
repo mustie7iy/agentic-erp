@@ -100716,6 +100716,10 @@ type ListParkedJournalEntriesParams struct {
 	CreatedByKind OptString `json:",omitempty,omitzero"`
 	// Only entries parked from this entry template (`parkFromEntryTemplate` or its schedule).
 	TemplateID OptUUID `json:",omitempty,omitzero"`
+	// Only entries whose external reference is exactly this one, in any status unless `status` narrows it:
+	// how the controlling agent finds a reposting it proposed for a journal line before (ADR-0050 §12, As
+	// built T56j1).
+	Reference OptString `json:",omitempty,omitzero"`
 	// `me`: only the caller's own entries, the entries waiting for the caller to post them among them
 	// (with `status=parked`); among them those the schedules of the caller's entry templates parked
 	// (ADR-0056). An agent's or a service's list is empty. Any other value is 400
@@ -100766,6 +100770,15 @@ func unpackListParkedJournalEntriesParams(packed middleware.Parameters) (params 
 		}
 		if v, ok := packed[key]; ok {
 			params.TemplateID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "reference",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Reference = v.(OptString)
 		}
 	}
 	{
@@ -100969,6 +100982,74 @@ func decodeListParkedJournalEntriesParams(args [0]string, argsEscaped bool, r *h
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "template_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: reference.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "reference",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotReferenceVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotReferenceVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Reference.SetTo(paramsDotReferenceVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Reference.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     40,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "reference",
 			In:   "query",
 			Err:  err,
 		}

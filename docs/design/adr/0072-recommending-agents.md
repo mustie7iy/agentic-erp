@@ -219,6 +219,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner`, `getSupplierDeliveryPerformance` (S2l1) | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan`, and of stock transport orders (`createStockTransportOrder`, `cancelStockTransportOrder`; review:batch92) |
 | `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `recountPhysicalInventoryItems` (S2d2), `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
 | `demand_forecast` | `internal/demandagent`, `erp agent demand-forecast -company CODE -material NUMBER` (S2m) | `getMaterial`, `listMaterials`, `listMaterialDocuments`, `getMaterialDocument`, `listSalesOrders`, `getSalesOrder` | on `material`: `demand_forecast` | every goods movement and count (`createMaterialDocument`, `reverseMaterialDocument` and the postings that post one), every write of sales and returns orders and their deliveries, the replenishment agent's never list of requisitions and purchase orders (schedule lines and their call-off included), `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
+| `controlling` (T56j1, ADR-0050 §12) | `internal/controllingagent`, `erp agent repost -company CODE -year YYYY -period P` | `listJournalEntries`, `getJournalEntry`, `listAccounts`, `listCostCenters`, `getCostCenter`, `listProfitCenters`, `getProfitCenter`, `listCostCenterBalances`, `listProfitCenterBalances`, `listParkedJournalEntries`, `getParkedJournalEntry` | no recommendation: repostings parked (`proposeReposting`, its own tool; its code's `parkJournalEntry`) | every write of a journal entry but that parking, of the centers, segments, hierarchies and their changes, of controlling's plans, orders, allocations and key figures, of entry templates and fiscal periods, every decision of an approval and every change request |
 
 A later slice adds its row here and its section under "As built".
 
@@ -1759,6 +1760,20 @@ A later slice adds its row here and its section under "As built".
   refused (403); Mira accepts, which moves nothing.
 - No migration, no new permission, event or problem code; the two
   filters are the one contract change.
+
+### T56j1, the controlling agent (ADR-0050 §12, 2026-11-26)
+
+Not of this pattern's recommendations: it proposes a correction as the
+ledger takes an agent's proposal of an entry, parked. ADR-0050 §12 As
+built T56j1 holds what it reposts and why; what it shares with this ADR:
+it reads with its own token through `apitools` (§2), computes no amount
+(§4: the code moves the line's whole amount as `getJournalEntry` returned
+it), lists what it never calls with `TestNever` (§5), and has a command, a
+suite and a walkthrough step (§6). Unlike a recommending agent, its one
+model-facing proposer is a tool of its own (`proposeReposting`,
+`apitools.Local`), and its one write, `parkJournalEntry`, is called by its
+code with the entry it built, never offered to the model; both are
+recorded in the session.
 
 ## Defaults taken (for the product owner's digest)
 

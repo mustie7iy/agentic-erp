@@ -141,7 +141,8 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 		return nil, err
 	}
 	le, template := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.TemplateID)
-	scope := fmt.Sprintf("listParkedJournalEntries|%v|%s|%s|%v|%s", le, params.Status.Value, params.CreatedByKind.Value, template, params.OwnedBy.Value)
+	scope := fmt.Sprintf("listParkedJournalEntries|%v|%s|%s|%v|%s|%q", le, params.Status.Value, params.CreatedByKind.Value, template, params.OwnedBy.Value,
+		params.Reference.Value)
 	ks, err := e.Pages.Keyset(parkedSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -152,8 +153,8 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 	}
 	q, args := ks.SQL(parkedSelect+` WHERE ($1 OR p.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR p.legal_entity_id = $3)
 		AND ($4 = '' OR p.status = $4) AND ($5 = '' OR p.created_by_kind = $5) AND ($6::uuid IS NULL OR p.template_id = $6)
-		AND ($7::uuid IS NULL OR p.owner_id = $7)`,
-		[]any{access.All, access.IDs, le, params.Status.Value, params.CreatedByKind.Value, template, owner})
+		AND ($7::uuid IS NULL OR p.owner_id = $7) AND ($8 = '' OR p.reference = $8)`,
+		[]any{access.All, access.IDs, le, params.Status.Value, params.CreatedByKind.Value, template, owner, params.Reference.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ParkedEntry, error) { return scanParked(r) })
 	if err != nil {

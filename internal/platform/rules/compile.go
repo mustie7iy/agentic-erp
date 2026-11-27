@@ -132,7 +132,8 @@ func extensionInputs(schema *extensions.Compiled) []input {
 }
 
 // kindTypes are the custom field kinds that are not strings in CEL; every
-// other kind (text, decimal, date, enum, partner) reads as a string.
+// other kind (text, decimal, date, enum, partner, cost_center,
+// profit_center) reads as a string.
 var kindTypes = map[extensions.Kind]typ{extensions.Integer: tInt, extensions.Boolean: tBool, extensions.Money: tMoney}
 
 func variables(in []input) []cel.EnvOption {

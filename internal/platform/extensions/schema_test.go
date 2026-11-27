@@ -25,6 +25,8 @@ func schema() extensions.Schema {
 			"urgent":  {Type: "boolean", PII: extensions.PIINone},
 			"channel": {Type: "string", Enum: []string{"web", "mail"}, PII: extensions.PIINone},
 			"broker":  {Type: "string", Format: "partner", PII: extensions.PIISensitive},
+			"center":  {Type: "string", Format: "cost_object", CostObject: "cost_center", PII: extensions.PIINone},
+			"profit":  {Type: "string", Format: "cost_object", CostObject: "profit_center", PII: extensions.PIINone},
 		}}
 }
 
@@ -39,7 +41,7 @@ func TestCompile(t *testing.T) {
 	}
 	want := map[string]extensions.Kind{"project": extensions.String, "note": extensions.Text, "count": extensions.Integer,
 		"rate": extensions.Decimal, "cap": extensions.Money, "due": extensions.Date, "urgent": extensions.Boolean,
-		"channel": extensions.Enum, "broker": extensions.Partner}
+		"channel": extensions.Enum, "broker": extensions.Partner, "center": extensions.CostCenter, "profit": extensions.ProfitCenter}
 	for k, kind := range want {
 		if kinds[k] != kind {
 			t.Errorf("field %s: got kind %q, want %q", k, kinds[k], kind)
@@ -84,7 +86,15 @@ func TestCompileRefusals(t *testing.T) {
 		"float":                    {"", put("x", extensions.Property{Type: "number", PII: "none"}), "properties.x"},
 		"array":                    {"", put("x", extensions.Property{Type: "array", PII: "none"}), "properties.x"},
 		"nested object":            {"", put("x", extensions.Property{Type: "object", PII: "none"}), "properties.x"},
-		"cost object":              {"", put("x", extensions.Property{Type: "string", Format: "cost_object", PII: "none"}), "properties.x.format"},
+		"cost object of no kind":   {"", put("x", extensions.Property{Type: "string", Format: "cost_object", PII: "none"}), "properties.x.x-cost-object"},
+		"cost object order":        {"", put("x", extensions.Property{Type: "string", Format: "cost_object", CostObject: "internal_order", PII: "none"}), "properties.x.x-cost-object"},
+		"cost object off a format": {"", put("x", extensions.Property{Type: "string", CostObject: "cost_center", PII: "none"}), "properties.x.x-cost-object"},
+		"cost object on a partner": {"business_partner", func(s *extensions.Schema) {
+			s.Properties = map[string]extensions.Property{"x": {Type: "string", Format: "cost_object", CostObject: "cost_center", PII: "none"}}
+			s.Required = nil
+		}, "properties.x.format"},
+		"cost object with values":  {"", put("x", extensions.Property{Type: "string", Format: "cost_object", CostObject: "cost_center", Enum: []string{"a"}, PII: "none"}), "properties.x.enum"},
+		"cost object length":       {"", put("x", extensions.Property{Type: "string", Format: "cost_object", CostObject: "profit_center", MaxLength: 36, PII: "none"}), "properties.x.maxLength"},
 		"unknown format":           {"", put("x", extensions.Property{Type: "string", Format: "email", PII: "none"}), "properties.x"},
 		"enum with format":         {"", put("x", extensions.Property{Type: "string", Format: "date", Enum: []string{"a"}, PII: "none"}), "properties.x.enum"},
 		"enum on an integer":       {"", put("x", extensions.Property{Type: "integer", Enum: []string{"1"}, PII: "none"}), "properties.x.enum"},
@@ -163,6 +173,7 @@ func TestNarrows(t *testing.T) {
 		"made required":      {base, with(base, func(f *extensions.Field) { f.Required = true }), true},
 		"made optional":      {with(base, func(f *extensions.Field) { f.Required = true }), base, false},
 		"retyped":            {base, with(base, func(f *extensions.Field) { f.Kind = extensions.Text }), true},
+		"other cost object":  {with(base, func(f *extensions.Field) { f.Kind, f.MaxLength = extensions.CostCenter, 0 }), with(base, func(f *extensions.Field) { f.Kind, f.MaxLength = extensions.ProfitCenter, 0 }), true},
 		"reclassified":       {base, with(base, func(f *extensions.Field) { f.PII = extensions.PIIPersonal }), true},
 		"value added":        {enum, with(enum, func(f *extensions.Field) { f.Enum = []string{"a", "b", "c"} }), false},
 		"value removed":      {enum, with(enum, func(f *extensions.Field) { f.Enum = []string{"a"} }), true},

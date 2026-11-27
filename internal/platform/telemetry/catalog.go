@@ -23,7 +23,7 @@ var Labels = map[string]int{
 	"store":      8,   // stores whose encryption at rest is stated
 	"encryption": 8,   // how a store encrypts at rest
 	// Agent metrics (T54c).
-	"agent_kind": 26,  // autonomy.Kinds (26 with the demand forecasting agent, S2m): an agent's type, "untyped" or "none", never a principal id
+	"agent_kind": 27,  // autonomy.Kinds (27 with the controlling agent, T56j1): an agent's type, "untyped" or "none", never a principal id
 	"alias":      8,   // model aliases (modelalias.Aliases, ADR-0036)
 	"kind":       4,   // TokenKinds; a metric needing other kinds names its own label
 	"status":     4,   // agents.CallStatuses; T44's and T50's states take their own label within the ceiling

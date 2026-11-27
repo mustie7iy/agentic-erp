@@ -91,6 +91,7 @@ var allowed = map[string][]string{
 	"integrationagent":        {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its survey and its check
 	"controlagent":            {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, the matrix it reads before its session and its check
 	"riskagent":               {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, the register it reads before its session and its check
+	"controllingagent":        {"apitools", "llm", "recommend"},               // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
 	"countagent":              {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"planningagent":           {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"replenishmentagent":      {"apitools", "llm", "recommend"},               // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check

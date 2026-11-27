@@ -1,0 +1,23 @@
+# Dataset contract (ADR-0044). Additive changes only (a new nullable
+# column); a removed, renamed or retyped column or a changed grain is a new
+# version under ../v2. Columns are what the extractor writes to Parquet;
+# internal/analytics/datasets_test.go checks them against semantic.yaml.
+dataset: cost_centers
+version: 1
+kind: dimension
+# A cost center's code is unique within its company (cost_center_code_once,
+# ADR-0050 §3), so the dataset is keyed, and a journal line joined, by the
+# company and the code: two companies' centers of one code keep their own
+# names and nodes. Joined at read time, so a renamed center or one placed at
+# another node needs no re-extract of posted lines (ADR-0044 As built T56i2).
+grain: One row per active cost center of a company, as /v1/cost-centers lists them with status active.
+load: snapshot
+columns:
+  - {name: tenant_id, type: uuid, role: tenant}
+  - {name: company, type: string, role: key}
+  - {name: cost_center, type: string, role: key}
+  - {name: cost_center_name, type: string, role: dimension}
+  # The code of the node of the tenant's standard cost center hierarchy the
+  # center is placed at today (ADR-0050 §3, decision P7: history under
+  # today's tree); null without a standard hierarchy.
+  - {name: cost_center_node, type: string, role: dimension, nullable: true}

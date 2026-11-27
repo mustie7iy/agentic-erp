@@ -199,7 +199,7 @@ func setupParity(t *testing.T) parity {
 	srv := httptest.NewServer(p.API.Handler)
 	t.Cleanup(srv.Close)
 	p.db = analytics.Source{API: &apitools.Client{BaseURL: srv.URL, Token: p.API.Issuer.Token(t, ten.ID, ten.Human.Subject, nil), HTTP: srv.Client()},
-		Cash: cashPort(t)}
+		Cash: cashPort(t), Centers: true}
 	return p
 }
 
@@ -351,6 +351,25 @@ func TestParity(t *testing.T) {
 			}
 		}
 	}
+	t.Run("a metric on the centers", func(t *testing.T) {
+		// A change request's metric filtered by a center's node (T56i2):
+		// the store joins the snapshots for its filter as the database
+		// path reads the centers for it.
+		m, err := analytics.ParseModel([]byte(strings.Replace(string(b), "metrics:\n", `metrics:
+  - {name: leaf_expenses, label: Leaf expenses, description: The expenses of the cost centers at node LEAF., type: money, source: gl_lines,
+     aggregate: sum, sign: 1, filter: {account_type: [expense], cost_center_node: [LEAF]}, dimensions: [company]}
+`, 1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := analytics.Query{Measures: []string{"leaf_expenses"}, By: []string{"company"}}
+		dbFacts := p.dbFacts(t, m)
+		p.same(t, m, dbFacts, analytics.Principal{ID: "a"}, q)
+		res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, q)
+		if err != nil || fmt.Sprint(res.Rows) != "[[2000 50.00]]" {
+			t.Errorf("leaf expenses of 2000: got %v, %v; want CC100's 50.00", res, err)
+		}
+	})
 	t.Run("endpoint", p.endpoint)
 	t.Run("documents", p.documents)
 	t.Run("permissions", p.permissions)
@@ -412,6 +431,12 @@ func TestParity(t *testing.T) {
 			"expenses by cost center":   {"expenses", "cost_center", "[[ 70.00] [CC100 50.00]]"},
 			"expenses by profit center": {"expenses", "profit_center", "[[ 70.00] [PC10 50.00]]"},
 			"revenue by segment":        {"revenue", "segment", "[[ 750.25] [SEG1 25.00]]"},
+			// The centers by their names and today's standard nodes (T56i2).
+			"expenses by cost center name":  {"expenses", "cost_center_name", "[[ 70.00] [Cost center hundred 50.00]]"},
+			"expenses by cost center node":  {"expenses", "cost_center_node", "[[ 70.00] [LEAF 50.00]]"},
+			"revenue by profit center name": {"revenue", "profit_center_name", "[[ 750.25] [Profit center ten 25.00]]"},
+			"revenue by profit center node": {"revenue", "profit_center_node", "[[ 750.25] [LEAF 25.00]]"},
+			"revenue by segment name":       {"revenue", "segment_name", "[[ 750.25] [Segment one 25.00]]"},
 		} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{c.metric}, By: []string{c.by}})
 			if err != nil {
@@ -522,15 +547,21 @@ func (p parity) permissions(t *testing.T) {
 		"accuracy":         `{"measures": ["accuracy_lag_30", "variance_lag_30"], "by": ["company", "liquidity_item_name"]%s}`,
 		"sales":            `{"measures": ["order_intake", "billed_value", "billing_document_count"], "by": ["company", "customer_name", "item_key"]%s}`,
 		"spend":            `{"measures": ["spend", "off_contract_share"], "by": ["company", "vendor_name", "account_name", "cost_center", "contract"]%s}`,
+		// The journal by its centers' codes reads no center; by their
+		// names and nodes it reads them (T56i2).
+		"center codes": `{"measures": ["expenses", "revenue"], "by": ["company", "cost_center", "profit_center", "segment"]%s}`,
+		"centers":      `{"measures": ["expenses", "revenue"], "by": ["company", "cost_center_name", "profit_center_node", "segment_name"]%s}`,
 	}
 	// needs are the permissions of those checked each query's reads need.
 	needs := map[string][]string{
 		"accounts": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "vendors": {"tenancy.org.read", "partner.supplier.read"},
 		"orders": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"}, "cash": {"tenancy.org.read", "cash.forecast.read"},
 		"cash and vendors": {"tenancy.org.read", "partner.supplier.read", "cash.forecast.read"}, "forecast": {"tenancy.org.read", "cash.forecast.read"},
-		"accuracy": {"tenancy.org.read", "cash.forecast.read"},
-		"sales":    {"tenancy.org.read", "partner.supplier.read", "sales.order.read", "sales.billing.read"},
-		"spend":    {"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "procurement.contract.read", "ledger.cost_center.read"},
+		"accuracy":     {"tenancy.org.read", "cash.forecast.read"},
+		"sales":        {"tenancy.org.read", "partner.supplier.read", "sales.order.read", "sales.billing.read"},
+		"spend":        {"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "procurement.contract.read", "ledger.cost_center.read"},
+		"center codes": {"tenancy.org.read", "partner.supplier.read", "ledger.account.read"},
+		"centers":      {"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "ledger.cost_center.read"},
 	}
 	for _, perm := range []string{"tenancy.org.read", "partner.supplier.read", "ledger.account.read", "cash.forecast.read", "sales.order.read", "sales.billing.read",
 		"procurement.contract.read", "ledger.cost_center.read"} {

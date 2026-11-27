@@ -6485,6 +6485,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: reference
+          in: query
+          required: false
+          description: "Only entries whose external reference is exactly this one, in any status unless `status` narrows it: how the controlling agent finds a reposting it proposed for a journal line before (ADR-0050 §12, As built T56j1)."
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
         - name: owned_by
           in: query
           required: false
@@ -44722,6 +44730,7 @@ components:
             - replenishment
             - count_planning
             - demand_forecast
+            - controlling
           maxLength: 50
         model:
           type: string
@@ -46019,7 +46028,7 @@ components:
         schema:
           type: object
           additionalProperties: true
-          description: "The JSON Schema, in the restricted subset of ADR-0046: a flat `type: object` with `additionalProperties: false`, `required` and `properties`, each property with `type`, optional `format`, `maxLength`, `enum`, `minimum`, `maximum`, `title`, `description`, and `x-pii` (`none`, `personal` or `sensitive`)."
+          description: "The JSON Schema, in the restricted subset of ADR-0046: a flat `type: object` with `additionalProperties: false`, `required` and `properties`, each property with `type`, optional `format`, `maxLength`, `enum`, `minimum`, `maximum`, `title`, `description`, and `x-pii` (`none`, `personal` or `sensitive`). A cost object field (`type: string`, `format: cost_object`, ADR-0046 As built T56k), on a purchase order or a supplier invoice only, names in `x-cost-object` what its value is the id of: `cost_center` or `profit_center`. A write names a center of the document's company (a profit center assigned to it), active and valid on the document's date (a purchase order's order date; a supplier invoice's posting date, else its invoice date, and again the date it posts); otherwise it is refused, 422 `request.invalid_extension`, the field error's code saying why: `invalid_type` (not an id), `not_found`, `not_in_company`, `not_active` or `not_valid_on_date`. The centers' locks do not apply: a custom field posts nothing."
           readOnly: true
     ChangeRequestNote:
       type: object

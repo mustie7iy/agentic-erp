@@ -136,7 +136,11 @@ the suites set.
   never a count document created) and demand forecasting (S2m: a material
   issued to a cost center forecast at its plant by its line; a material
   with no demand given no forecast; an instruction in a material's
-  description not followed; never stock moved)
+  description not followed; never stock moved) and controlling (T56j1: a
+  line posted on the wrong cost center proposed for reposting and parked,
+  off its center and onto the right one; a line on its own center given
+  none; an instruction in a line's text not followed; a line with a
+  reposting parked before not proposed again; never an entry posted)
   and enablement (T109a: purchase to pay
   described with the tenant's approver role, tolerance and limit cited; a
   description stating a limit the configuration does not hold refused and

@@ -502,7 +502,7 @@ func Integration(cfg Config) *integration.Endpoints {
 func Procurement(cfg Config) *procurement.Endpoints {
 	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{},
 		AccountNames: ledger.AssetReads{}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: opener(),
+		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, CostObjects: ledger.CostObjectReferences{}, Approvals: opener(),
 		Invoices: payables.Invoices{}, Postings: postings(), SupplierNames: partner.Payees{}, Materials: materials.Materials{}, Movements: Inventory(cfg),
 		Transports: Inventory(cfg), Units: tenancy.Directory{}, Now: cfg.Now}
 }
@@ -516,7 +516,7 @@ func Payables(cfg Config) *payables.Endpoints { return payablesEndpoints(cfg, up
 func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoints {
 	return &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}},
 		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
-		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
+		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, CostObjects: ledger.CostObjectReferences{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: procurement.Orders{},
 		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, ExpenseLedger: ledger.AssetReads{}, Partners: partner.Payees{}, Stock: Inventory(cfg),
 		TaxNumbers: partner.Payees{Keys: cfg.FieldKeys}, Billings: payablesIntercompany{}, Now: cfg.Now}
