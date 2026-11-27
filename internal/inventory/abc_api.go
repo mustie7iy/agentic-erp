@@ -100,6 +100,15 @@ func applicationAPI(a ABCApplication, r applicationRefs) gen.CycleCountAbcApplic
 	return out
 }
 
+// summaryAPI is an application as a list gives it: its changes counted.
+func summaryAPI(a ABCApplication, r applicationRefs) gen.CycleCountAbcApplicationSummary {
+	plant := r.units[a.PlantID]
+	return gen.CycleCountAbcApplicationSummary{ID: a.ID, Version: 1, LegalEntityID: a.LegalEntityID, CompanyCode: r.companies[a.LegalEntityID].Code,
+		PlantID: a.PlantID, PlantCode: plant.Code, PlantName: plant.Name, From: a.From, To: a.To, ShareA: a.ShareA, ShareB: a.ShareB,
+		TotalConsumption: apitypes.Money(a.Total, a.Currency, a.Exponent), PreviewToken: a.Token, ChangeCount: a.ChangeCount, CreatedAt: a.CreatedAt,
+		CreatedBy: a.CreatedBy, CreatedByName: r.names[a.CreatedBy]}
+}
+
 // oneApplication is an application as the API gives it.
 func (e *Endpoints) oneApplication(ctx context.Context, a ABCApplication, err error) (gen.CycleCountAbcApplication, error) {
 	if err != nil {
@@ -143,7 +152,8 @@ var applicationSort = pagination.Sort{Default: "created_at", DefaultDesc: true,
 
 // ListCycleCountAbcApplications implements GET /v1/cycle-count-abc-applications:
 // the applications at the plants of the companies the caller may act in,
-// the latest first, filtered by plant.
+// the latest first, filtered by plant, each with its changes counted, not
+// listed: a page of 500 could otherwise hold 500,000 changes.
 func (e *Endpoints) ListCycleCountAbcApplications(ctx context.Context, params gen.ListCycleCountAbcApplicationsParams) (gen.ListCycleCountAbcApplicationsRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -167,11 +177,11 @@ func (e *Endpoints) ListCycleCountAbcApplications(ctx context.Context, params ge
 	}
 	items, next, err := apitypes.PageWith(ks, as, func(x ABCApplication) (string, uuid.UUID) { return pagination.Instant(x.CreatedAt), x.ID },
 		func(page []ABCApplication) (applicationRefs, error) {
-			if err := withChanges(ctx, tx, page); err != nil {
+			if err := withCounts(ctx, tx, page); err != nil {
 				return applicationRefs{}, err
 			}
 			return e.applicationRefs(ctx, page)
-		}, applicationAPI)
+		}, summaryAPI)
 	if err != nil {
 		return nil, err
 	}

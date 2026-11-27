@@ -1808,11 +1808,12 @@ type Handler interface {
 	// `createCycleCountMaterial` and `updateCycleCountMaterial` are, naming the analysis. When anything
 	// the preview showed has changed since (a consumption, a material's indicator, its version, the
 	// materials listed or the shares), nothing is applied: 409 `inventory.abc_preview_stale`, and a new
-	// preview shows the analysis as it is now. An apply never takes an indicator off. Applies of one plant
-	// wait for each other. The application is kept, never changed: the analysis's plant, window, shares,
-	// totals and token, and each change made with the material's indicator after it. The refusals of
-	// `getCycleCountAbcAnalysis` apply. A retry with the same `Idempotency-Key` answers the application
-	// created. Human-only (`x-agent: false`).
+	// preview shows the analysis as it is now. An apply never takes an indicator off. An analysis whose
+	// lines change nothing (its `changes` is 0) is not applied: 422 `inventory.abc_nothing_to_apply`, and
+	// nothing is kept. Applies of one plant wait for each other. The application is kept, never changed:
+	// the analysis's plant, window, shares, consumption total and token, and each change made with the
+	// material's indicator after it. The refusals of `getCycleCountAbcAnalysis` apply. A retry with the
+	// same `Idempotency-Key` answers the application created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/cycle-count-abc-applications
 	CreateCycleCountAbcApplication(ctx context.Context, req *CycleCountAbcApply, params CreateCycleCountAbcApplicationParams) (CreateCycleCountAbcApplicationRes, error)
@@ -6576,7 +6577,8 @@ type Handler interface {
 	// ListCycleCountAbcApplications implements listCycleCountAbcApplications operation.
 	//
 	// The ABC analyses applied at the plants of the companies the caller may act in (ADR-0082 As built
-	// S2c3), each as `getCycleCountAbcApplication` gives it, the latest first. Filtered by plant. Sortable
+	// S2c3), each as `getCycleCountAbcApplication` gives it but without its changes, which it counts
+	// (`change_count`; an application holds up to 1,000), the latest first. Filtered by plant. Sortable
 	// by: `created_at`.
 	//
 	// GET /v1/cycle-count-abc-applications

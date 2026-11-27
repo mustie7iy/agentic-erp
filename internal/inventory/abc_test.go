@@ -137,14 +137,26 @@ func TestABCAnalysis(t *testing.T) {
 	if fmt.Sprint(got["preview_token"], len(rows(t, got, "changes"))) != token+"3" {
 		t.Errorf("the application read: got %v, want its three changes", got)
 	}
-	// Applied as it is now, nothing to change: kept with no changes.
-	unchanged, _ := s.Must(201, "POST", abcApplications, s.applyBody(t, again["preview_token"]), "")
-	if changes := rows(t, unchanged, "changes"); len(changes) != 0 {
-		t.Errorf("an analysis with nothing to change applied: got %v, want no changes", changes)
+	// Applied as it is now, nothing to change: refused, nothing kept.
+	s.refused(t, "POST", abcApplications, s.applyBody(t, again["preview_token"]), "", 422, "inventory.abc_nothing_to_apply", "")
+	// The bracket moved to B by hand is moved back by the next one.
+	bracket := rows(t, applied, "changes")[0]["cycle_count_material_id"].(string)
+	_, tag := s.Must(200, "GET", cycleMaterials+"/"+bracket, "", "")
+	s.Must(200, "PATCH", cycleMaterials+"/"+bracket, mustJSON(t, map[string]any{"indicator_id": s.b["id"]}), tag)
+	moved, _ := s.Must(200, "GET", abcAnalysis+s.window(), "", "")
+	if got, want := strings.Split(s.abcLines(t, moved), "; ")[0], "bracket A A change 70.00"; got != want {
+		t.Errorf("the bracket moved to B: got %q, want %q", got, want)
+	}
+	movedBack, _ := s.Must(201, "POST", abcApplications, s.applyBody(t, moved["preview_token"]), "")
+	if got := len(rows(t, movedBack, "changes")); got != 1 {
+		t.Errorf("the bracket moved back: got %d changes, want 1", got)
 	}
 	page, _ := s.Must(200, "GET", abcApplications+"?page_size=1&plant_id="+s.p1.String(), "", "")
-	if items := rows(t, page, "items"); len(items) != 1 || items[0]["id"] != unchanged["id"] || page["next_page_token"] == nil {
+	if items := rows(t, page, "items"); len(items) != 1 || items[0]["id"] != movedBack["id"] || page["next_page_token"] == nil {
 		t.Fatalf("the applications at P1: got %v, want the latest first and a next page", page)
+	}
+	if item := rows(t, page, "items")[0]; item["change_count"] != float64(1) || item["changes"] != nil {
+		t.Errorf("the latest listed: got change_count %v and changes %v, want 1 counted, none listed", item["change_count"], item["changes"])
 	}
 	page, _ = s.Must(200, "GET", abcApplications+"?page_size=1&plant_id="+s.p1.String()+"&page_token="+page["next_page_token"].(string), "", "")
 	if items := rows(t, page, "items"); len(items) != 1 || items[0]["id"] != applied["id"] {

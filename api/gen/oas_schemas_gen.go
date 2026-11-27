@@ -42929,8 +42929,8 @@ type CycleCountAbcApplication struct {
 	TotalConsumption Money `json:"total_consumption"`
 	// The preview applied.
 	PreviewToken string `json:"preview_token"`
-	// The changes made, in the analysis's order; none when the plant's indicators were as the analysis
-	// proposes.
+	// The changes made, in the analysis's order; at least one, as an analysis that changes nothing is not
+	// applied.
 	Changes []CycleCountAbcChange `json:"changes"`
 	// When it was applied (UTC).
 	CreatedAt time.Time `json:"created_at"`
@@ -43164,13 +43164,13 @@ func (*CycleCountAbcApplicationHeaders) createCycleCountAbcApplicationRes() {}
 // Ref: #/components/schemas/CycleCountAbcApplicationPage
 type CycleCountAbcApplicationPage struct {
 	// The applications on this page.
-	Items []CycleCountAbcApplication `json:"items"`
+	Items []CycleCountAbcApplicationSummary `json:"items"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 }
 
 // GetItems returns the value of Items.
-func (s *CycleCountAbcApplicationPage) GetItems() []CycleCountAbcApplication {
+func (s *CycleCountAbcApplicationPage) GetItems() []CycleCountAbcApplicationSummary {
 	return s.Items
 }
 
@@ -43180,7 +43180,7 @@ func (s *CycleCountAbcApplicationPage) GetNextPageToken() OptString {
 }
 
 // SetItems sets the value of Items.
-func (s *CycleCountAbcApplicationPage) SetItems(val []CycleCountAbcApplication) {
+func (s *CycleCountAbcApplicationPage) SetItems(val []CycleCountAbcApplicationSummary) {
 	s.Items = val
 }
 
@@ -43190,6 +43190,216 @@ func (s *CycleCountAbcApplicationPage) SetNextPageToken(val OptString) {
 }
 
 func (*CycleCountAbcApplicationPage) listCycleCountAbcApplicationsRes() {}
+
+// An ABC analysis applied at a plant as a list gives it (ADR-0082 As built S2c3):
+// `getCycleCountAbcApplication`'s fields but its changes, which it counts.
+// Ref: #/components/schemas/CycleCountAbcApplicationSummary
+type CycleCountAbcApplicationSummary struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Always 1: an application is never changed.
+	Version int32 `json:"version"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The window's first posting date.
+	From time.Time `json:"from"`
+	// The window's last posting date.
+	To time.Time `json:"to"`
+	// Class A's percent of the plant's consumption value then.
+	ShareA int32 `json:"share_a"`
+	// Class B's percent after A's then.
+	ShareB int32 `json:"share_b"`
+	// The plant's consumption value in the window.
+	TotalConsumption Money `json:"total_consumption"`
+	// The preview applied.
+	PreviewToken string `json:"preview_token"`
+	// The changes it made (1 to 1,000), which `getCycleCountAbcApplication` lists.
+	ChangeCount int32 `json:"change_count"`
+	// When it was applied (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The person who applied it (`GET /v1/principals/{id}`).
+	CreatedBy uuid.UUID `json:"created_by"`
+	// That person's name, as it is now.
+	CreatedByName string `json:"created_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *CycleCountAbcApplicationSummary) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CycleCountAbcApplicationSummary) GetVersion() int32 {
+	return s.Version
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CycleCountAbcApplicationSummary) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CycleCountAbcApplicationSummary) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *CycleCountAbcApplicationSummary) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *CycleCountAbcApplicationSummary) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *CycleCountAbcApplicationSummary) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetFrom returns the value of From.
+func (s *CycleCountAbcApplicationSummary) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *CycleCountAbcApplicationSummary) GetTo() time.Time {
+	return s.To
+}
+
+// GetShareA returns the value of ShareA.
+func (s *CycleCountAbcApplicationSummary) GetShareA() int32 {
+	return s.ShareA
+}
+
+// GetShareB returns the value of ShareB.
+func (s *CycleCountAbcApplicationSummary) GetShareB() int32 {
+	return s.ShareB
+}
+
+// GetTotalConsumption returns the value of TotalConsumption.
+func (s *CycleCountAbcApplicationSummary) GetTotalConsumption() Money {
+	return s.TotalConsumption
+}
+
+// GetPreviewToken returns the value of PreviewToken.
+func (s *CycleCountAbcApplicationSummary) GetPreviewToken() string {
+	return s.PreviewToken
+}
+
+// GetChangeCount returns the value of ChangeCount.
+func (s *CycleCountAbcApplicationSummary) GetChangeCount() int32 {
+	return s.ChangeCount
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CycleCountAbcApplicationSummary) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CycleCountAbcApplicationSummary) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetCreatedByName returns the value of CreatedByName.
+func (s *CycleCountAbcApplicationSummary) GetCreatedByName() string {
+	return s.CreatedByName
+}
+
+// SetID sets the value of ID.
+func (s *CycleCountAbcApplicationSummary) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CycleCountAbcApplicationSummary) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CycleCountAbcApplicationSummary) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CycleCountAbcApplicationSummary) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *CycleCountAbcApplicationSummary) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *CycleCountAbcApplicationSummary) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *CycleCountAbcApplicationSummary) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetFrom sets the value of From.
+func (s *CycleCountAbcApplicationSummary) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *CycleCountAbcApplicationSummary) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetShareA sets the value of ShareA.
+func (s *CycleCountAbcApplicationSummary) SetShareA(val int32) {
+	s.ShareA = val
+}
+
+// SetShareB sets the value of ShareB.
+func (s *CycleCountAbcApplicationSummary) SetShareB(val int32) {
+	s.ShareB = val
+}
+
+// SetTotalConsumption sets the value of TotalConsumption.
+func (s *CycleCountAbcApplicationSummary) SetTotalConsumption(val Money) {
+	s.TotalConsumption = val
+}
+
+// SetPreviewToken sets the value of PreviewToken.
+func (s *CycleCountAbcApplicationSummary) SetPreviewToken(val string) {
+	s.PreviewToken = val
+}
+
+// SetChangeCount sets the value of ChangeCount.
+func (s *CycleCountAbcApplicationSummary) SetChangeCount(val int32) {
+	s.ChangeCount = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CycleCountAbcApplicationSummary) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CycleCountAbcApplicationSummary) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetCreatedByName sets the value of CreatedByName.
+func (s *CycleCountAbcApplicationSummary) SetCreatedByName(val string) {
+	s.CreatedByName = val
+}
 
 // An ABC analysis to apply, as `getCycleCountAbcAnalysis` previewed it.
 // Ref: #/components/schemas/CycleCountAbcApply

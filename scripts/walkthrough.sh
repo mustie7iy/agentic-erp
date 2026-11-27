@@ -15643,6 +15643,11 @@ step_count() {
   expect "the bolts given an indicator" "$(jq -r --arg m "$BOLT" '.changes[] | select(.material_id == $m) | .change' "$WORK/last.json")" create
   say "Applied, the preview is stale; nothing is applied twice:"
   refused 409 inventory.abc_preview_stale createCycleCountAbcApplication -body "$apply"
+  say "Previewed again, it changes nothing, and an analysis that changes nothing is not applied:"
+  QUIET=1 api 200 '' getCycleCountAbcAnalysis -p "plant_id=$PLANT" -p "from=$from" -p "to=$TODAY"
+  expect "the changes once applied" "$(field .changes)" 0
+  refused 422 inventory.abc_nothing_to_apply createCycleCountAbcApplication -body \
+    "{\"plant_id\": \"$PLANT\", \"from\": \"$from\", \"to\": \"$TODAY\", \"preview_token\": \"$(field .preview_token)\"}"
   QUIET=1 api 200 '' listCycleCountMaterials -p "plant_id=$PLANT" -p "material_id=$BOLT" -p status=active
   expect "the bolts' indicator from the analysis" "$(field '.items | length')" 1
   passed

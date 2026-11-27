@@ -32,6 +32,7 @@ type ABCApplication struct {
 	CreatedAt                  time.Time
 	CreatedBy                  uuid.UUID
 	Changes                    []ABCChangeMade
+	ChangeCount                int32 // a list's count of Changes, which it leaves empty
 }
 
 // ABCChangeMade is a change an application made: the material given its
@@ -51,7 +52,9 @@ type ABCChangeMade struct {
 // under their row locks, and only when its digest is the token's (409
 // inventory.abc_preview_stale otherwise) is each line's change made, each
 // audited as a material's indicator given or changed, naming the
-// analysis; the application is kept with its changes and audited.
+// analysis; the application is kept with its changes and audited. An
+// analysis that changes nothing is 422 inventory.abc_nothing_to_apply, so
+// no application is kept without a change.
 func (e *Endpoints) ApplyABC(ctx context.Context, in ABCInput, token string) (ABCApplication, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -67,6 +70,10 @@ func (e *Endpoints) ApplyABC(ctx context.Context, in ABCInput, token string) (AB
 	if a.Token != token {
 		return ABCApplication{}, problem.Conflict("inventory.abc_preview_stale", "The ABC analysis of plant "+a.Plant.Code+" has changed since it was "+
 			"previewed; preview it again.")
+	}
+	if a.Changes == 0 {
+		return ABCApplication{}, problem.Unprocessable("inventory.abc_nothing_to_apply", "The ABC analysis of plant "+a.Plant.Code+
+			" changes no indicator: the plant's indicators are as it proposes.")
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO inventory.cycle_count_abc_application (tenant_id, id, legal_entity_id, plant_id, from_date, to_date, share_a,
@@ -131,7 +138,7 @@ func scanApplication(row pgx.Row) (ABCApplication, error) {
 }
 
 // loadApplication reads an application of a company the caller may act
-// in with its changes; another company's is not found.
+// in with its changes, in their order; another company's is not found.
 func loadApplication(ctx context.Context, tx pgx.Tx, id uuid.UUID) (ABCApplication, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
@@ -141,37 +148,52 @@ func loadApplication(ctx context.Context, tx pgx.Tx, id uuid.UUID) (ABCApplicati
 	if err = authz.Visible(err, access, a.LegalEntityID, problem.NotFoundOf("ABC analysis applied"), "inventory: ABC analysis applied %s", id); err != nil {
 		return ABCApplication{}, err
 	}
+	rows, _ := tx.Query(ctx, `SELECT c.line_no, c.material_id, c.cycle_count_material_id, c.consumption, c.class, c.indicator_id, i.code,
+			c.before_indicator_id, b.code
+		FROM inventory.cycle_count_abc_change c
+		JOIN inventory.cycle_count_indicator i ON i.tenant_id = c.tenant_id AND i.id = c.indicator_id
+		LEFT JOIN inventory.cycle_count_indicator b ON b.tenant_id = c.tenant_id AND b.id = c.before_indicator_id
+		WHERE c.application_id = $1 ORDER BY c.line_no`, id)
+	var c ABCChangeMade
+	_, err = pgx.ForEachRow(rows, []any{&c.LineNo, &c.MaterialID, &c.CycleMaterialID, &c.Consumption, &c.Class, &c.IndicatorID, &c.IndicatorCode,
+		&c.BeforeID, &c.BeforeCode}, func() error {
+		a.Changes = append(a.Changes, c)
+		return nil
+	})
+	if err != nil {
+		return ABCApplication{}, fmt.Errorf("inventory: changes of ABC analysis applied %s: %w", id, err)
+	}
 	as := []ABCApplication{a}
-	if err := withChanges(ctx, tx, as); err != nil {
+	if err := withExponents(ctx, tx, as); err != nil {
 		return ABCApplication{}, err
 	}
 	return as[0], nil
 }
 
-// withChanges reads the applications' changes, each in its order, and
-// their currencies' digits.
-func withChanges(ctx context.Context, tx pgx.Tx, as []ABCApplication) error {
+// withCounts counts the applications' changes, which a list gives
+// instead of the changes themselves (up to 1,000 each).
+func withCounts(ctx context.Context, tx pgx.Tx, as []ABCApplication) error {
 	ids := make([]uuid.UUID, len(as))
 	at := map[uuid.UUID]int{}
 	for i, a := range as {
 		ids[i], at[a.ID] = a.ID, i
 	}
-	rows, _ := tx.Query(ctx, `SELECT c.application_id, c.line_no, c.material_id, c.cycle_count_material_id, c.consumption, c.class, c.indicator_id,
-			i.code, c.before_indicator_id, b.code
-		FROM inventory.cycle_count_abc_change c
-		JOIN inventory.cycle_count_indicator i ON i.tenant_id = c.tenant_id AND i.id = c.indicator_id
-		LEFT JOIN inventory.cycle_count_indicator b ON b.tenant_id = c.tenant_id AND b.id = c.before_indicator_id
-		WHERE c.application_id = ANY($1) ORDER BY c.application_id, c.line_no`, ids)
+	rows, _ := tx.Query(ctx, `SELECT application_id, count(*)::int FROM inventory.cycle_count_abc_change WHERE application_id = ANY($1)
+		GROUP BY application_id`, ids)
 	var app uuid.UUID
-	var c ABCChangeMade
-	_, err := pgx.ForEachRow(rows, []any{&app, &c.LineNo, &c.MaterialID, &c.CycleMaterialID, &c.Consumption, &c.Class, &c.IndicatorID, &c.IndicatorCode,
-		&c.BeforeID, &c.BeforeCode}, func() error {
-		as[at[app]].Changes = append(as[at[app]].Changes, c)
+	var n int32
+	if _, err := pgx.ForEachRow(rows, []any{&app, &n}, func() error {
+		as[at[app]].ChangeCount = n
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("inventory: changes of %d ABC analyses applied: %w", len(as), err)
 	}
+	return withExponents(ctx, tx, as)
+}
+
+// withExponents reads the applications' currencies' digits.
+func withExponents(ctx context.Context, tx pgx.Tx, as []ABCApplication) error {
+	var err error
 	for i := range as {
 		if as[i].Exponent, err = currency.Exponent(ctx, tx, as[i].Currency, nil); err != nil {
 			return fmt.Errorf("inventory: ABC analysis applied %s: %w", as[i].ID, err)

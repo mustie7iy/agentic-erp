@@ -34327,8 +34327,8 @@ func (s *CycleCountAbcApplication) Validate() error {
 			return errors.New("nil is invalid value")
 		}
 		if err := (validate.Array{
-			MinLength:    0,
-			MinLengthSet: false,
+			MinLength:    1,
+			MinLengthSet: true,
 			MaxLength:    1000,
 			MaxLengthSet: true,
 		}).ValidateLength(len(s.Changes)); err != nil {
@@ -34448,6 +34448,29 @@ func (s *CycleCountAbcApplicationPage) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "next_page_token",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *CycleCountAbcApplicationSummary) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.TotalConsumption.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "total_consumption",
 			Error: err,
 		})
 	}
