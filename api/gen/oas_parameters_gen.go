@@ -92844,6 +92844,10 @@ type ListMaterialsParams struct {
 	MaterialType OptString `json:",omitempty,omitzero"`
 	// Only materials of this material group.
 	MaterialGroup OptString `json:",omitempty,omitzero"`
+	// Only the material one of whose units of measure, its base unit or an alternative unit, carries this
+	// GTIN (ADR-0082 As built S1a3), compared as GS1 compares GTINs, right-justified in 14 digits
+	// (`036000291452` finds `0036000291452`). A GTIN names at most one unit of one material in the tenant.
+	Gtin OptString `json:",omitempty,omitzero"`
 	// The language to answer each material's `description` in, a BCP 47 tag (ADR-0082 As built S1a2): the
 	// material's description in that language, found by RFC 4647 lookup (`ar-AE`, then `ar`), else its
 	// default description; `description_language` says which. Absent: the default description.
@@ -92902,6 +92906,15 @@ func unpackListMaterialsParams(packed middleware.Parameters) (params ListMateria
 		}
 		if v, ok := packed[key]; ok {
 			params.MaterialGroup = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "gtin",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Gtin = v.(OptString)
 		}
 	}
 	{
@@ -93254,6 +93267,74 @@ func decodeListMaterialsParams(args [0]string, argsEscaped bool, r *http.Request
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "material_group",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: gtin.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "gtin",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotGtinVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotGtinVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Gtin.SetTo(paramsDotGtinVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Gtin.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^([0-9]{8}|[0-9]{12,14})$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "gtin",
 			In:   "query",
 			Err:  err,
 		}

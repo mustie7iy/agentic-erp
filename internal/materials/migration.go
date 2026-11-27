@@ -49,11 +49,14 @@ type MigratedMaterial struct {
 	DescriptionLanguage string
 	Descriptions        []Description
 	BaseUnit            string
-	Type                string
-	Group               string
-	Plants              []PlantInput
-	Units               []UnitInput
-	Reason              string
+	// BaseMeasures are the base unit's dimensions, weights and GTIN; each
+	// of Units carries its own (S1a3).
+	BaseMeasures Measures
+	Type         string
+	Group        string
+	Plants       []PlantInput
+	Units        []UnitInput
+	Reason       string
 }
 
 // Number draws a migrated material's number from the material range of
@@ -79,7 +82,7 @@ func (m Migration) CreateMaterial(ctx context.Context, in MigratedMaterial) (uui
 		return uuid.Nil, err
 	}
 	input := Input{LegalEntityID: in.LegalEntityID, Description: in.Description, DescriptionLanguage: in.DescriptionLanguage,
-		Descriptions: in.Descriptions, BaseUnit: in.BaseUnit, Type: in.Type, Group: in.Group, Plants: in.Plants, Units: in.Units, Reason: in.Reason}.defaulted()
+		Descriptions: in.Descriptions, BaseUnit: in.BaseUnit, BaseMeasures: in.BaseMeasures, Type: in.Type, Group: in.Group, Plants: in.Plants, Units: in.Units, Reason: in.Reason}.defaulted()
 	companies, err := e.says(ctx, tx, input)
 	if err != nil {
 		return uuid.Nil, err
@@ -95,7 +98,8 @@ func (m Migration) CreateMaterial(ctx context.Context, in MigratedMaterial) (uui
 	if err := e.record(ctx, mat, change{action: "create", name: "created", detail: map[string]any{"number": mat.Number,
 		"description": mat.Description, "description_language": mat.DescriptionLanguage, "descriptions": descriptionDetail(mat.Descriptions),
 		"base_unit": mat.BaseUnit, "material_type": mat.Type, "material_group": mat.Group, "status": mat.Status,
-		"plants": plantIDs(mat.Plants), "alternative_units": unitDetail(mat.Units), "material_change_id": c.ID, "migrated": true}}, nil); err != nil {
+		"plants": plantIDs(mat.Plants), "alternative_units": unitDetail(mat.Units), "measures": measureDetail(mat.BaseUnit, mat.BaseMeasures, mat.Units),
+		"material_change_id": c.ID, "migrated": true}}, nil); err != nil {
 		return uuid.Nil, err
 	}
 	return mat.ID, recordChange(ctx, c, mat, "materials.change.apply", nil, nil)

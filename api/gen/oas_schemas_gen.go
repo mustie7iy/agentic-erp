@@ -73297,6 +73297,8 @@ type Material struct {
 	BaseUnit string `json:"base_unit"`
 	// The base unit's name.
 	BaseUnitName string `json:"base_unit_name"`
+	// One of the base unit's dimensions, weights and GTIN (S1a3); empty when it has none.
+	BaseUnitMeasures MaterialUnitMeasures `json:"base_unit_measures"`
 	// The material type. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	MaterialType string `json:"material_type"`
@@ -73395,6 +73397,11 @@ func (s *Material) GetBaseUnit() string {
 // GetBaseUnitName returns the value of BaseUnitName.
 func (s *Material) GetBaseUnitName() string {
 	return s.BaseUnitName
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *Material) GetBaseUnitMeasures() MaterialUnitMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetMaterialType returns the value of MaterialType.
@@ -73515,6 +73522,11 @@ func (s *Material) SetBaseUnit(val string) {
 // SetBaseUnitName sets the value of BaseUnitName.
 func (s *Material) SetBaseUnitName(val string) {
 	s.BaseUnitName = val
+}
+
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *Material) SetBaseUnitMeasures(val MaterialUnitMeasures) {
+	s.BaseUnitMeasures = val
 }
 
 // SetMaterialType sets the value of MaterialType.
@@ -73925,6 +73937,9 @@ type MaterialChangeRequested struct {
 	Descriptions []MaterialDescription `json:"descriptions"`
 	// The base unit (a create's only).
 	BaseUnit OptString `json:"base_unit"`
+	// The base unit's dimensions, weights and GTIN, replacing the material's (S1a3); an empty object
+	// removes them.
+	BaseUnitMeasures OptMaterialMeasures `json:"base_unit_measures"`
 	// The material type (a create's only).
 	MaterialType OptString `json:"material_type"`
 	// Whether the material is managed in batches (a create's only).
@@ -73939,7 +73954,7 @@ type MaterialChangeRequested struct {
 	// companies are left out, so an empty list may stand for plants the caller cannot see, as on
 	// `Material`.
 	Plants []MaterialChangePlant `json:"plants"`
-	// The alternative units with their conversions.
+	// The alternative units with their conversions and measures.
 	AlternativeUnits []MaterialUnitInput `json:"alternative_units"`
 }
 
@@ -73961,6 +73976,11 @@ func (s *MaterialChangeRequested) GetDescriptions() []MaterialDescription {
 // GetBaseUnit returns the value of BaseUnit.
 func (s *MaterialChangeRequested) GetBaseUnit() OptString {
 	return s.BaseUnit
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *MaterialChangeRequested) GetBaseUnitMeasures() OptMaterialMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetMaterialType returns the value of MaterialType.
@@ -74018,6 +74038,11 @@ func (s *MaterialChangeRequested) SetBaseUnit(val OptString) {
 	s.BaseUnit = val
 }
 
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *MaterialChangeRequested) SetBaseUnitMeasures(val OptMaterialMeasures) {
+	s.BaseUnitMeasures = val
+}
+
 // SetMaterialType sets the value of MaterialType.
 func (s *MaterialChangeRequested) SetMaterialType(val OptString) {
 	s.MaterialType = val
@@ -74069,6 +74094,8 @@ type MaterialCreate struct {
 	Descriptions []MaterialDescription `json:"descriptions"`
 	// The unit stock and quantities of the material are kept in; it does not change.
 	BaseUnit string `json:"base_unit"`
+	// One of the base unit's dimensions, weights and GTIN (S1a3; SAP MARA); none when absent.
+	BaseUnitMeasures OptMaterialMeasures `json:"base_unit_measures"`
 	// What kind of material it is (SAP's standard material types ROH, HALB, FERT, HAWA, NLAG and DIEN); it
 	// does not change. Open enumeration: values may be added within /v1.
 	MaterialType string `json:"material_type"`
@@ -74119,6 +74146,11 @@ func (s *MaterialCreate) GetDescriptions() []MaterialDescription {
 // GetBaseUnit returns the value of BaseUnit.
 func (s *MaterialCreate) GetBaseUnit() string {
 	return s.BaseUnit
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *MaterialCreate) GetBaseUnitMeasures() OptMaterialMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetMaterialType returns the value of MaterialType.
@@ -74184,6 +74216,11 @@ func (s *MaterialCreate) SetDescriptions(val []MaterialDescription) {
 // SetBaseUnit sets the value of BaseUnit.
 func (s *MaterialCreate) SetBaseUnit(val string) {
 	s.BaseUnit = val
+}
+
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *MaterialCreate) SetBaseUnitMeasures(val OptMaterialMeasures) {
+	s.BaseUnitMeasures = val
 }
 
 // SetMaterialType sets the value of MaterialType.
@@ -75134,6 +75171,137 @@ func (s *MaterialHeaders) SetResponse(val Material) {
 
 func (*MaterialHeaders) createMaterialRes() {}
 
+// A unit of measure's dimensions, weights and GTIN (ADR-0082 As built S1a3; SAP MARM's BRGEW, GEWEI,
+// VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM and EAN11, and MARA's NTGEW, from memory), each absent when
+// unknown. Every value is a decimal string above zero of up to ten digits and three decimals, never a
+// number, in the unit beside it: a weight unit of mass (`KG`, `G`, `T`), a volume unit of volume (`L`,
+// `M3`), a length unit of length (`M`). A unit is given with its values and only then; the net weight
+// is no more than the gross.
+// Ref: #/components/schemas/MaterialMeasures
+type MaterialMeasures struct {
+	// The unit's Global Trade Item Number (EAN/UPC): 8, 12, 13 or 14 digits ending in its GS1 check digit,
+	// of one unit of one material in the tenant.
+	Gtin OptString `json:"gtin"`
+	// What one of the unit weighs with its packaging, in `weight_unit`.
+	GrossWeight OptString `json:"gross_weight"`
+	// What one of the unit weighs without its packaging, in `weight_unit`; no more than `gross_weight`.
+	NetWeight OptString `json:"net_weight"`
+	// The unit of mass both weights are in; given with a weight and only then.
+	WeightUnit OptString `json:"weight_unit"`
+	// The space one of the unit takes, in `volume_unit`.
+	Volume OptString `json:"volume"`
+	// The unit of volume `volume` is in; given with it and only then.
+	VolumeUnit OptString `json:"volume_unit"`
+	// One of the unit's length, in `dimension_unit`.
+	Length OptString `json:"length"`
+	// Its width, in `dimension_unit`.
+	Width OptString `json:"width"`
+	// Its height, in `dimension_unit`.
+	Height OptString `json:"height"`
+	// The unit of length the length, width and height are in; given with one of them and only then.
+	DimensionUnit OptString `json:"dimension_unit"`
+}
+
+// GetGtin returns the value of Gtin.
+func (s *MaterialMeasures) GetGtin() OptString {
+	return s.Gtin
+}
+
+// GetGrossWeight returns the value of GrossWeight.
+func (s *MaterialMeasures) GetGrossWeight() OptString {
+	return s.GrossWeight
+}
+
+// GetNetWeight returns the value of NetWeight.
+func (s *MaterialMeasures) GetNetWeight() OptString {
+	return s.NetWeight
+}
+
+// GetWeightUnit returns the value of WeightUnit.
+func (s *MaterialMeasures) GetWeightUnit() OptString {
+	return s.WeightUnit
+}
+
+// GetVolume returns the value of Volume.
+func (s *MaterialMeasures) GetVolume() OptString {
+	return s.Volume
+}
+
+// GetVolumeUnit returns the value of VolumeUnit.
+func (s *MaterialMeasures) GetVolumeUnit() OptString {
+	return s.VolumeUnit
+}
+
+// GetLength returns the value of Length.
+func (s *MaterialMeasures) GetLength() OptString {
+	return s.Length
+}
+
+// GetWidth returns the value of Width.
+func (s *MaterialMeasures) GetWidth() OptString {
+	return s.Width
+}
+
+// GetHeight returns the value of Height.
+func (s *MaterialMeasures) GetHeight() OptString {
+	return s.Height
+}
+
+// GetDimensionUnit returns the value of DimensionUnit.
+func (s *MaterialMeasures) GetDimensionUnit() OptString {
+	return s.DimensionUnit
+}
+
+// SetGtin sets the value of Gtin.
+func (s *MaterialMeasures) SetGtin(val OptString) {
+	s.Gtin = val
+}
+
+// SetGrossWeight sets the value of GrossWeight.
+func (s *MaterialMeasures) SetGrossWeight(val OptString) {
+	s.GrossWeight = val
+}
+
+// SetNetWeight sets the value of NetWeight.
+func (s *MaterialMeasures) SetNetWeight(val OptString) {
+	s.NetWeight = val
+}
+
+// SetWeightUnit sets the value of WeightUnit.
+func (s *MaterialMeasures) SetWeightUnit(val OptString) {
+	s.WeightUnit = val
+}
+
+// SetVolume sets the value of Volume.
+func (s *MaterialMeasures) SetVolume(val OptString) {
+	s.Volume = val
+}
+
+// SetVolumeUnit sets the value of VolumeUnit.
+func (s *MaterialMeasures) SetVolumeUnit(val OptString) {
+	s.VolumeUnit = val
+}
+
+// SetLength sets the value of Length.
+func (s *MaterialMeasures) SetLength(val OptString) {
+	s.Length = val
+}
+
+// SetWidth sets the value of Width.
+func (s *MaterialMeasures) SetWidth(val OptString) {
+	s.Width = val
+}
+
+// SetHeight sets the value of Height.
+func (s *MaterialMeasures) SetHeight(val OptString) {
+	s.Height = val
+}
+
+// SetDimensionUnit sets the value of DimensionUnit.
+func (s *MaterialMeasures) SetDimensionUnit(val OptString) {
+	s.DimensionUnit = val
+}
+
 // One page of materials.
 // Ref: #/components/schemas/MaterialPage
 type MaterialPage struct {
@@ -75983,6 +76151,8 @@ type MaterialUnit struct {
 	Numerator int32 `json:"numerator"`
 	// Alternative units the `numerator` base units are.
 	Denominator int32 `json:"denominator"`
+	// One of the alternative unit's dimensions, weights and GTIN (S1a3); empty when it has none.
+	Measures MaterialUnitMeasures `json:"measures"`
 }
 
 // GetUnit returns the value of Unit.
@@ -76005,6 +76175,11 @@ func (s *MaterialUnit) GetDenominator() int32 {
 	return s.Denominator
 }
 
+// GetMeasures returns the value of Measures.
+func (s *MaterialUnit) GetMeasures() MaterialUnitMeasures {
+	return s.Measures
+}
+
 // SetUnit sets the value of Unit.
 func (s *MaterialUnit) SetUnit(val string) {
 	s.Unit = val
@@ -76025,6 +76200,11 @@ func (s *MaterialUnit) SetDenominator(val int32) {
 	s.Denominator = val
 }
 
+// SetMeasures sets the value of Measures.
+func (s *MaterialUnit) SetMeasures(val MaterialUnitMeasures) {
+	s.Measures = val
+}
+
 // An alternative unit of measure of a material and its exact conversion: one of it is `numerator`
 // divided by `denominator` base units (SAP MARM's UMREZ and UMREN).
 // Ref: #/components/schemas/MaterialUnitInput
@@ -76035,6 +76215,8 @@ type MaterialUnitInput struct {
 	Numerator int32 `json:"numerator"`
 	// Alternative units the `numerator` base units are.
 	Denominator int32 `json:"denominator"`
+	// One of the alternative unit's dimensions, weights and GTIN (S1a3; SAP MARM); none when absent.
+	Measures OptMaterialMeasures `json:"measures"`
 }
 
 // GetUnit returns the value of Unit.
@@ -76052,6 +76234,11 @@ func (s *MaterialUnitInput) GetDenominator() int32 {
 	return s.Denominator
 }
 
+// GetMeasures returns the value of Measures.
+func (s *MaterialUnitInput) GetMeasures() OptMaterialMeasures {
+	return s.Measures
+}
+
 // SetUnit sets the value of Unit.
 func (s *MaterialUnitInput) SetUnit(val string) {
 	s.Unit = val
@@ -76067,8 +76254,177 @@ func (s *MaterialUnitInput) SetDenominator(val int32) {
 	s.Denominator = val
 }
 
-// Merge patch of a material: its description, further descriptions, material group, status, plants or
-// alternative units. The number, the base unit and the material type do not change.
+// SetMeasures sets the value of Measures.
+func (s *MaterialUnitInput) SetMeasures(val OptMaterialMeasures) {
+	s.Measures = val
+}
+
+// A unit of measure's dimensions, weights and GTIN as a material gives them (ADR-0082 As built S1a3):
+// each absent when unknown, a decimal string in its unit, written without trailing zeros, each unit
+// with its name.
+// Ref: #/components/schemas/MaterialUnitMeasures
+type MaterialUnitMeasures struct {
+	// The unit's GTIN, as given.
+	Gtin OptString `json:"gtin"`
+	// What one of the unit weighs with its packaging, in `weight_unit`.
+	GrossWeight OptString `json:"gross_weight"`
+	// What it weighs without its packaging, in `weight_unit`.
+	NetWeight OptString `json:"net_weight"`
+	// The unit of mass of the weights.
+	WeightUnit OptString `json:"weight_unit"`
+	// That unit's name.
+	WeightUnitName OptString `json:"weight_unit_name"`
+	// The space one of the unit takes, in `volume_unit`.
+	Volume OptString `json:"volume"`
+	// The unit of volume.
+	VolumeUnit OptString `json:"volume_unit"`
+	// That unit's name.
+	VolumeUnitName OptString `json:"volume_unit_name"`
+	// Its length, in `dimension_unit`.
+	Length OptString `json:"length"`
+	// Its width, in `dimension_unit`.
+	Width OptString `json:"width"`
+	// Its height, in `dimension_unit`.
+	Height OptString `json:"height"`
+	// The unit of length of the length, width and height.
+	DimensionUnit OptString `json:"dimension_unit"`
+	// That unit's name.
+	DimensionUnitName OptString `json:"dimension_unit_name"`
+}
+
+// GetGtin returns the value of Gtin.
+func (s *MaterialUnitMeasures) GetGtin() OptString {
+	return s.Gtin
+}
+
+// GetGrossWeight returns the value of GrossWeight.
+func (s *MaterialUnitMeasures) GetGrossWeight() OptString {
+	return s.GrossWeight
+}
+
+// GetNetWeight returns the value of NetWeight.
+func (s *MaterialUnitMeasures) GetNetWeight() OptString {
+	return s.NetWeight
+}
+
+// GetWeightUnit returns the value of WeightUnit.
+func (s *MaterialUnitMeasures) GetWeightUnit() OptString {
+	return s.WeightUnit
+}
+
+// GetWeightUnitName returns the value of WeightUnitName.
+func (s *MaterialUnitMeasures) GetWeightUnitName() OptString {
+	return s.WeightUnitName
+}
+
+// GetVolume returns the value of Volume.
+func (s *MaterialUnitMeasures) GetVolume() OptString {
+	return s.Volume
+}
+
+// GetVolumeUnit returns the value of VolumeUnit.
+func (s *MaterialUnitMeasures) GetVolumeUnit() OptString {
+	return s.VolumeUnit
+}
+
+// GetVolumeUnitName returns the value of VolumeUnitName.
+func (s *MaterialUnitMeasures) GetVolumeUnitName() OptString {
+	return s.VolumeUnitName
+}
+
+// GetLength returns the value of Length.
+func (s *MaterialUnitMeasures) GetLength() OptString {
+	return s.Length
+}
+
+// GetWidth returns the value of Width.
+func (s *MaterialUnitMeasures) GetWidth() OptString {
+	return s.Width
+}
+
+// GetHeight returns the value of Height.
+func (s *MaterialUnitMeasures) GetHeight() OptString {
+	return s.Height
+}
+
+// GetDimensionUnit returns the value of DimensionUnit.
+func (s *MaterialUnitMeasures) GetDimensionUnit() OptString {
+	return s.DimensionUnit
+}
+
+// GetDimensionUnitName returns the value of DimensionUnitName.
+func (s *MaterialUnitMeasures) GetDimensionUnitName() OptString {
+	return s.DimensionUnitName
+}
+
+// SetGtin sets the value of Gtin.
+func (s *MaterialUnitMeasures) SetGtin(val OptString) {
+	s.Gtin = val
+}
+
+// SetGrossWeight sets the value of GrossWeight.
+func (s *MaterialUnitMeasures) SetGrossWeight(val OptString) {
+	s.GrossWeight = val
+}
+
+// SetNetWeight sets the value of NetWeight.
+func (s *MaterialUnitMeasures) SetNetWeight(val OptString) {
+	s.NetWeight = val
+}
+
+// SetWeightUnit sets the value of WeightUnit.
+func (s *MaterialUnitMeasures) SetWeightUnit(val OptString) {
+	s.WeightUnit = val
+}
+
+// SetWeightUnitName sets the value of WeightUnitName.
+func (s *MaterialUnitMeasures) SetWeightUnitName(val OptString) {
+	s.WeightUnitName = val
+}
+
+// SetVolume sets the value of Volume.
+func (s *MaterialUnitMeasures) SetVolume(val OptString) {
+	s.Volume = val
+}
+
+// SetVolumeUnit sets the value of VolumeUnit.
+func (s *MaterialUnitMeasures) SetVolumeUnit(val OptString) {
+	s.VolumeUnit = val
+}
+
+// SetVolumeUnitName sets the value of VolumeUnitName.
+func (s *MaterialUnitMeasures) SetVolumeUnitName(val OptString) {
+	s.VolumeUnitName = val
+}
+
+// SetLength sets the value of Length.
+func (s *MaterialUnitMeasures) SetLength(val OptString) {
+	s.Length = val
+}
+
+// SetWidth sets the value of Width.
+func (s *MaterialUnitMeasures) SetWidth(val OptString) {
+	s.Width = val
+}
+
+// SetHeight sets the value of Height.
+func (s *MaterialUnitMeasures) SetHeight(val OptString) {
+	s.Height = val
+}
+
+// SetDimensionUnit sets the value of DimensionUnit.
+func (s *MaterialUnitMeasures) SetDimensionUnit(val OptString) {
+	s.DimensionUnit = val
+}
+
+// SetDimensionUnitName sets the value of DimensionUnitName.
+func (s *MaterialUnitMeasures) SetDimensionUnitName(val OptString) {
+	s.DimensionUnitName = val
+}
+
+// Merge patch of a material: its description, further descriptions, material group, status, plants,
+// alternative units or the base unit's measures. The number, the base unit and the material type do
+// not change.
 // Ref: #/components/schemas/MaterialUpdate
 type MaterialUpdate struct {
 	// What the material is: its default description, in its default language.
@@ -76083,8 +76439,12 @@ type MaterialUpdate struct {
 	// The material's plants in the companies the caller may act in, replacing those it has there; plants
 	// of other companies stay.
 	Plants []MaterialPlantInput `json:"plants"`
-	// The material's alternative units, replacing those it has; an empty list removes them.
+	// The material's alternative units with their measures, replacing those it has; an empty list removes
+	// them.
 	AlternativeUnits []MaterialUnitInput `json:"alternative_units"`
+	// The base unit's dimensions, weights and GTIN, replacing those it has (S1a3); an empty object removes
+	// them.
+	BaseUnitMeasures OptMaterialMeasures `json:"base_unit_measures"`
 	// Why it is changed, kept on the change for the approver.
 	Reason OptString `json:"reason"`
 }
@@ -76117,6 +76477,11 @@ func (s *MaterialUpdate) GetPlants() []MaterialPlantInput {
 // GetAlternativeUnits returns the value of AlternativeUnits.
 func (s *MaterialUpdate) GetAlternativeUnits() []MaterialUnitInput {
 	return s.AlternativeUnits
+}
+
+// GetBaseUnitMeasures returns the value of BaseUnitMeasures.
+func (s *MaterialUpdate) GetBaseUnitMeasures() OptMaterialMeasures {
+	return s.BaseUnitMeasures
 }
 
 // GetReason returns the value of Reason.
@@ -76152,6 +76517,11 @@ func (s *MaterialUpdate) SetPlants(val []MaterialPlantInput) {
 // SetAlternativeUnits sets the value of AlternativeUnits.
 func (s *MaterialUpdate) SetAlternativeUnits(val []MaterialUnitInput) {
 	s.AlternativeUnits = val
+}
+
+// SetBaseUnitMeasures sets the value of BaseUnitMeasures.
+func (s *MaterialUpdate) SetBaseUnitMeasures(val OptMaterialMeasures) {
+	s.BaseUnitMeasures = val
 }
 
 // SetReason sets the value of Reason.
@@ -86043,6 +86413,52 @@ func (o OptMatchDecision) Get() (v MatchDecision, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMatchDecision) Or(d MatchDecision) MatchDecision {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMaterialMeasures returns new OptMaterialMeasures with value set to v.
+func NewOptMaterialMeasures(v MaterialMeasures) OptMaterialMeasures {
+	return OptMaterialMeasures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMaterialMeasures is optional MaterialMeasures.
+type OptMaterialMeasures struct {
+	Value MaterialMeasures
+	Set   bool
+}
+
+// IsSet returns true if OptMaterialMeasures was set.
+func (o OptMaterialMeasures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMaterialMeasures) Reset() {
+	var v MaterialMeasures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMaterialMeasures) SetTo(v MaterialMeasures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMaterialMeasures) Get() (v MaterialMeasures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMaterialMeasures) Or(d MaterialMeasures) MaterialMeasures {
 	if v, ok := o.Get(); ok {
 		return v
 	}

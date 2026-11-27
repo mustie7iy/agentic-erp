@@ -80,10 +80,13 @@ func TestDatabaseFailures(t *testing.T) {
 	id := uuid.MustParse(e.active(t, nil)["id"].(string))
 	other := uuid.MustParse(e.active(t, map[string]any{"description": "Copper wire"})["id"].(string))
 	pending := uuid.MustParse(e.change(t, other.String(), mustJSON(t, map[string]any{"material_group": "WIRE",
-		"plants":            []any{map[string]any{"plant_id": e.p2, "storage_location_ids": []any{e.s3}}},
-		"alternative_units": []any{map[string]any{"unit": "KG", "numerator": 3, "denominator": 1}},
-		"descriptions":      []any{map[string]any{"language": "ar", "description": arabic}}}))["id"].(string))
-	box := []gen.MaterialUnitInput{{Unit: "BOX", Numerator: 10, Denominator: 1}}
+		"plants":             []any{map[string]any{"plant_id": e.p2, "storage_location_ids": []any{e.s3}}},
+		"alternative_units":  []any{map[string]any{"unit": "KG", "numerator": 3, "denominator": 1, "measures": map[string]any{"gtin": otherGTIN}}},
+		"base_unit_measures": map[string]any{"gross_weight": "1", "weight_unit": "KG"},
+		"descriptions":       []any{map[string]any{"language": "ar", "description": arabic}}}))["id"].(string))
+	created := uuid.MustParse(e.create(t, map[string]any{"description": "Brass wire", "base_unit_measures": map[string]any{"gtin": eachGTIN}})["pending_change_id"].(string))
+	weighed := gen.NewOptMaterialMeasures(gen.MaterialMeasures{Gtin: gen.NewOptString(boxGTIN), GrossWeight: gen.NewOptString("2"), WeightUnit: gen.NewOptString("KG")})
+	box := []gen.MaterialUnitInput{{Unit: "BOX", Numerator: 10, Denominator: 1, Measures: weighed}}
 	where := []gen.MaterialPlantInput{{PlantID: e.p1, StorageLocationIds: []uuid.UUID{e.s2}}}
 	arabicToo := []gen.MaterialDescription{{Language: "ar", Description: arabic}}
 	decide := materials.Approvals{Endpoints: h}
@@ -91,7 +94,7 @@ func TestDatabaseFailures(t *testing.T) {
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateMaterial(ctx, &gen.MaterialCreate{LegalEntityID: e.DE, Description: "Machined bracket M10", BaseUnit: "EA",
 				MaterialType: "trading_good", MaterialGroup: "B", Plants: where, AlternativeUnits: box, ConfirmDuplicate: gen.NewOptBool(true),
-				Descriptions: arabicToo},
+				Descriptions: arabicToo, BaseUnitMeasures: gen.NewOptMaterialMeasures(gen.MaterialMeasures{Volume: gen.NewOptString("1"), VolumeUnit: gen.NewOptString("L")})},
 				gen.CreateMaterialParams{})
 			return err
 		},
@@ -109,7 +112,7 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"change": func(ctx context.Context) error {
 			_, err := h.UpdateMaterial(ctx, &gen.MaterialUpdate{Description: gen.NewOptString("Bolt"), Plants: where, AlternativeUnits: box,
-				Descriptions: arabicToo},
+				Descriptions: arabicToo, BaseUnitMeasures: gen.NewOptMaterialMeasures(gen.MaterialMeasures{Gtin: gen.NewOptString(otherGTIN)})},
 				gen.UpdateMaterialParams{ID: id, IfMatch: `"2"`})
 			return err
 		},
@@ -118,7 +121,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"list": func(ctx context.Context) error {
-			_, err := h.ListMaterials(ctx, gen.ListMaterialsParams{})
+			_, err := h.ListMaterials(ctx, gen.ListMaterialsParams{Gtin: gen.NewOptString(eachGTIN)})
 			return err
 		},
 		"get change": func(ctx context.Context) error {
@@ -129,9 +132,10 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.ListMaterialChanges(ctx, gen.ListMaterialChangesParams{})
 			return err
 		},
-		"approved":  func(ctx context.Context) error { return decide.Approved(ctx, pending, uuid.Nil) },
-		"rejected":  func(ctx context.Context) error { return decide.Rejected(ctx, pending, uuid.Nil, "No") },
-		"cancelled": func(ctx context.Context) error { return decide.Cancelled(ctx, pending, uuid.Nil, "No") },
+		"approved":        func(ctx context.Context) error { return decide.Approved(ctx, pending, uuid.Nil) },
+		"rejected":        func(ctx context.Context) error { return decide.Rejected(ctx, pending, uuid.Nil, "No") },
+		"cancelled":       func(ctx context.Context) error { return decide.Cancelled(ctx, pending, uuid.Nil, "No") },
+		"create rejected": func(ctx context.Context) error { return decide.Rejected(ctx, created, uuid.Nil, "No") },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {

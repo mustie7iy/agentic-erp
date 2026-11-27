@@ -57,11 +57,13 @@ type RequestedPlant struct {
 	StorageLocations []uuid.UUID `json:"storage_location_ids"`
 }
 
-// RequestedUnit is an alternative unit a change gives a material.
+// RequestedUnit is an alternative unit a change gives a material, with
+// its measures (S1a3).
 type RequestedUnit struct {
-	Code        string `json:"unit"`
-	Numerator   int32  `json:"numerator"`
-	Denominator int32  `json:"denominator"`
+	Code        string   `json:"unit"`
+	Numerator   int32    `json:"numerator"`
+	Denominator int32    `json:"denominator"`
+	Measures    Measures `json:"measures,omitzero"`
 }
 
 // Scope is the companies whose plants a change replaces: those its
@@ -80,8 +82,11 @@ type Requested struct {
 	DescriptionLanguage *string `json:"description_language,omitempty"`
 	// Descriptions are the further descriptions, replacing the
 	// material's (S1a2).
-	Descriptions *[]Description    `json:"descriptions,omitempty"`
-	BaseUnit     *string           `json:"base_unit,omitempty"`
+	Descriptions *[]Description `json:"descriptions,omitempty"`
+	BaseUnit     *string        `json:"base_unit,omitempty"`
+	// BaseMeasures are the base unit's measures, replacing the
+	// material's (S1a3).
+	BaseMeasures *Measures         `json:"base_unit_measures,omitempty"`
 	Type         *string           `json:"material_type,omitempty"`
 	Group        *string           `json:"material_group,omitempty"`
 	Status       *string           `json:"status,omitempty"`
@@ -300,7 +305,8 @@ func applied(kind string) string {
 }
 
 // Reject rejects a pending change: the material stays as it is, and a
-// rejected create leaves it pending, out of the duplicate checks.
+// rejected create leaves it pending, out of the duplicate checks, its
+// measures removed so its GTINs are free.
 func (e *Endpoints) Reject(ctx context.Context, id uuid.UUID) (MaterialChange, error) {
 	return e.decide(ctx, id, ChangeRejected, "reject")
 }
@@ -319,6 +325,13 @@ func (e *Endpoints) decide(ctx context.Context, id uuid.UUID, status, action str
 	c, m, err := decided(ctx, tx, id, action)
 	if err != nil {
 		return MaterialChange{}, err
+	}
+	if c.Kind == KindCreate {
+		// A material whose creation is refused never came to be, so its
+		// GTINs are free for another (ADR-0082 As built S1a3).
+		if err := removeMeasures(ctx, tx, p, m, true, true); err != nil {
+			return MaterialChange{}, err
+		}
 	}
 	return closeChange(ctx, tx, p, c, m, status, action)
 }
