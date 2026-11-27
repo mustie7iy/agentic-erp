@@ -36,7 +36,7 @@ const (
 	rc      = "01a1aa00-0000-7000-8000-000000000d03" // a proposal a later run replaced: cancelled
 	rd      = "01a1aa00-0000-7000-8000-000000000d04" // a proposal never read
 	re      = "01a1aa00-0000-7000-8000-000000000d05" // a proposal of two lots (ADR-0084 As built S2k2), a draft
-	rf      = "01a1aa00-0000-7000-8000-000000000d06" // a proposal of lots with fractions
+	rf      = "01a1aa00-0000-7000-8000-000000000d06" // a proposal of lots with fractions, answered out of item order
 	rg      = "01a1aa00-0000-7000-8000-000000000d07" // items of two materials: no proposal of one
 	rh      = "01a1aa00-0000-7000-8000-000000000d08" // items in two units: no proposal of one
 	ri      = "01a1aa00-0000-7000-8000-000000000d09" // no item
@@ -79,7 +79,7 @@ var answers = map[string]string{
 	"/v1/requisitions/" + rb: requisition(rb, "draft", "", gasket, "2.5", "KG"),
 	"/v1/requisitions/" + rc: requisition(rc, "cancelled", "", hinge, "30", "EA"),
 	"/v1/requisitions/" + re: lots(re, lot{1, hinge, "25", "EA"}, lot{2, hinge, "15", "EA"}),
-	"/v1/requisitions/" + rf: lots(rf, lot{1, hinge, "12.5", "EA"}, lot{2, hinge, "7.5", "EA"}, lot{3, hinge, "0.25", "EA"}),
+	"/v1/requisitions/" + rf: lots(rf, lot{2, hinge, "7.5", "EA"}, lot{1, hinge, "12.5", "EA"}, lot{3, hinge, "0.25", "EA"}),
 	"/v1/requisitions/" + rg: lots(rg, lot{1, hinge, "20", "EA"}, lot{2, gasket, "20", "EA"}),
 	"/v1/requisitions/" + rh: lots(rh, lot{1, hinge, "20", "EA"}, lot{2, hinge, "20", "BOX"}),
 	"/v1/requisitions/" + ri: lots(ri),

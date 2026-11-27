@@ -1,6 +1,7 @@
 package replenishmentagent
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"math/big"
@@ -103,7 +104,7 @@ type item struct {
 }
 
 // lotsOf is the material, total quantity, unit and lots of a proposal's
-// items, the total written as the run line's proposed is (trim_scale,
+// items, the lots in item order and the total written as the run line's proposed is (trim_scale,
 // money.PlainQuantity); no material when they are not lots of one
 // material in one unit.
 func lotsOf(items []item) (material, total, unit string, lots []lot) {
@@ -119,6 +120,8 @@ func lotsOf(items []item) (material, total, unit string, lots []lot) {
 	if len(lots) == 0 {
 		return "", "", "", nil
 	}
+	// In item order, whatever order an answer gives them in.
+	slices.SortFunc(lots, func(a, b lot) int { return cmp.Compare(a.itemNo, b.itemNo) })
 	return items[0].MaterialID, money.PlainQuantity(sum), items[0].Quantity.Unit, lots
 }
 
