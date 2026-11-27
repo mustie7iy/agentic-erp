@@ -12,6 +12,8 @@ END $$;
 DELETE FROM identity.sod_rule WHERE permission_a = 'mrp.sop.approve' OR permission_b = 'mrp.sop.approve';
 DELETE FROM identity.role_permission WHERE permission_code = 'mrp.sop.approve';
 DELETE FROM ref.permission WHERE code = 'mrp.sop.approve';
+DROP TRIGGER sop_plan_created ON mrp.sop_plan;
+DROP FUNCTION mrp.sop_plan_created();
 CREATE OR REPLACE FUNCTION mrp.sop_plan_fixed() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN

@@ -8,7 +8,8 @@
 -- context's, by id: no foreign key leaves the schema (02 §2.1).
 --
 -- Expand only (06 §6.4): a status, a column and a permission; the
--- triggers learn the new status.
+-- triggers learn the new status, and a new one keeps a version from being
+-- created submitted.
 
 ALTER TABLE mrp.sop_plan
   ADD COLUMN approval_request_id uuid, -- workflow context: its latest approval request
@@ -47,6 +48,19 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+
+-- A version is created a draft (or fixed, as before S2n2), never
+-- submitted and naming no approval request: only a submission names one
+-- (batch 97S integration).
+CREATE FUNCTION mrp.sop_plan_created() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.status = 'submitted' OR NEW.approval_request_id IS NOT NULL THEN
+    RAISE EXCEPTION 'S&OP plan %: a version is created a draft naming no approval request; it is submitted afterwards', NEW.number
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'sop_plan_created';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER sop_plan_created BEFORE INSERT ON mrp.sop_plan FOR EACH ROW EXECUTE FUNCTION mrp.sop_plan_created();
 
 -- Approving submitted S&OP plan versions: an approval permission, which
 -- agents never hold (ADR-0084 As built S2n2).

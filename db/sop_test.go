@@ -38,6 +38,14 @@ func (s sopScene) fixed() stmt { return step(sopFix, s.tenant, s.plan) }
 
 func (s sopScene) submitted() stmt { return step(sopSubmit, s.plan) }
 
+// created inserts the version numbered 1 with the status and approval
+// request given (batch 97S integration: sop_plan_created).
+func (s sopScene) created(status string, request any) stmt {
+	return step(`INSERT INTO mrp.sop_plan (tenant_id, id, legal_entity_id, number, status, approval_request_id, as_of, first_day, last_day, months,
+		created_by, updated_by) VALUES ($1, $2, $3, 1, $4, $5, '2026-11-22', '2026-11-23', '2026-12-31', 2, $1, $1)`, s.tenant, s.plan, s.company, status,
+		request)
+}
+
 // TestSopPlanRules (S2n, migration 000447; ADR-0084 As built S2n): a
 // version is numbered once per company, its horizon starts the day after
 // its review and ends on the last day of its last month, of 1 to 12
@@ -132,10 +140,8 @@ func TestSopPlanRules(t *testing.T) {
 		}, "permission denied"},
 		// S2n2, migration 000494: approval.
 		{"submitted", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted()} }, ""},
-		{"submitted without its request", func(s sopScene) []stmt { // inserted: an update meets the trigger first
-			return []stmt{step(`INSERT INTO mrp.sop_plan (tenant_id, id, legal_entity_id, number, status, as_of, first_day, last_day, months, created_by,
-				updated_by) VALUES ($1, $2, $3, 1, 'submitted', '2026-11-22', '2026-11-23', '2026-12-31', 2, $1, $1)`, s.tenant, s.plan, s.company)}
-		}, "sop_plan_submitted"},
+		{"created submitted", func(s sopScene) []stmt { return []stmt{s.created("submitted", uuid.New())} }, "a version is created a draft"},
+		{"created a draft naming a request", func(s sopScene) []stmt { return []stmt{s.created("draft", uuid.New())} }, "a version is created a draft"},
 		{"submitted, then fixed", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), s.fixed()} }, ""},
 		{"submitted, then a draft again", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan)} }, ""},
 		{"a submitted version changed", func(s sopScene) []stmt {
@@ -248,7 +254,9 @@ func TestSopPlanDownRefused(t *testing.T) {
 
 // TestSopPlanApprovalTriggersAsOwner (S2n2, migration 000494): past the
 // grants, as the owner, a submitted version changes only as it is decided,
-// and a draft names no request.
+// a draft names no request and none is created submitted; with the
+// triggers off, sop_plan_submitted still holds a submitted version to its
+// request.
 func TestSopPlanApprovalTriggersAsOwner(t *testing.T) {
 	need(t)
 	ctx := context.Background()
@@ -262,6 +270,11 @@ func TestSopPlanApprovalTriggersAsOwner(t *testing.T) {
 		"a draft naming a request": {func(s sopScene) []stmt {
 			return []stmt{step(`UPDATE mrp.sop_plan SET approval_request_id = gen_random_uuid() WHERE id = $1`, s.plan)}
 		}, "only as it is submitted"},
+		"created submitted": {func(s sopScene) []stmt { return []stmt{s.created("submitted", uuid.New())} }, "a version is created a draft"},
+		// sop_plan_submitted behind the triggers, which refuse first.
+		"submitted without its request": {func(s sopScene) []stmt {
+			return []stmt{step(`SET LOCAL session_replication_role = replica`), s.created("submitted", nil)}
+		}, "sop_plan_submitted"},
 		"a submitted version's consensus": {func(s sopScene) []stmt {
 			return []stmt{s.submitted(), step(`UPDATE mrp.sop_plan_line SET consensus = 9 WHERE plan_id = $1`, s.plan)}
 		}, "its plan version is submitted"},
