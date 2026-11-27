@@ -564,7 +564,7 @@ owner):
   and a new row, nothing else"). `cash` declares two ports, `Receivables`
   and `SalesOrders`, which `internal/app` answers from
   `receivables.Endpoints.CashItems` (the ordinary customer open items
-  with their net due dates and offsetting lines), `collections.Holds.Held`
+  with their net due dates), `collections.Holds.Held`
   (what collections holds back on a day) and `sales.Endpoints.CashOrders`
   (the open sales orders, valued). `cash` imports none of them, none
   imports `cash`, and collections' read joins because the dunning blocks
@@ -577,14 +577,16 @@ owner):
   out. Its day is its net due date by `ledger.ReceivableItem.NetDueDate`,
   the one rule the AR aging, dunning and the worklist keep (the terms it
   was posted with, else its document date), an overdue item on the read
-  date, moved to the next working day of the company's calendar. No cash
+  date, moved to the next working day of the company's calendar, before
+  the netting (review round 1: an invoice due on a Saturday and a credit
+  dated the Monday it moves to are netted on that Monday). No cash
   discount is assumed (default: whether a customer takes one is its
   choice, and SAP's planning level for customer items is the net due
   date, from memory, on the specialist list), no value days (the
   customer's bank, not ours, takes them), and no `late` flag (an overdue
   supplier item carries none either).
 - **Netting** (default). Per customer, currency and source, the items of
-  one day are one receipt, and a day whose items come to nothing or less
+  one working day are one receipt, and a day whose items come to nothing or less
   is carried to the customer's next day, as the customer deducts a credit
   from its next payment; a credit left after the last day is no flow (a
   refund is not forecast), as `payable` treats a supplier's debit
@@ -619,12 +621,15 @@ owner):
   company), and its receipt that day plus its payment term's net days
   (the read date when past), moved to the next working day; one flow per
   order, no netting.
-- **Liquidity items.** A customer item derives from its entry's
-  offsetting lines (`ledger.OpenItems.Offsetting`: revenue and output
-  tax, the tax following its base), an order from its open lines' revenue
-  accounts (the tax shared over them in proportion), both with the
-  inflow direction; no planning group (customers have none), so the
-  fallback is the inflow default.
+- **Liquidity items** (review round 1, default). Every receipt takes the
+  inflow default (`cash.derivation.defaults.inflow`), not its document's
+  revenue accounts: the actuals classify a statement line matched as
+  incoming by that default (As built T53f2), so a receipt derived from
+  its lines would be forecast under one item and received under another,
+  and the variance and the accuracy by item would count it twice as
+  error. A receipt is derived from its document's lines once the actuals
+  split an incoming payment by the customer items it cleared (T53l's
+  remainder, with the variance's match).
 - **Drill-down, snapshots, group, analytics.** A flow names its customer
   (`LiquidityForecastFlow.customer`, `CashSnapshotFlow.customer`) to a
   caller who may use `partner.supplier.read` (the partner context's read
@@ -638,18 +643,22 @@ owner):
 - **Not built (T53l's remainder).** The variance does not yet match a
   forecast receipt to the incoming payment that cleared it: a receipt
   forecast and received is `missing` and `new` until the actuals know an
-  incoming payment's cleared customer items (the next receipts slice);
+  incoming payment's cleared customer items, which the contract's
+  variance and its attribution say (the next receipts slice, which also
+  derives receipts by their documents' lines);
   the tax payable reader; intraday camt.052, bank calendars and a stored
   flow table, each when its trigger arrives.
 - **Evidence.** `cash.TestLiquidityForecastReceipts` (Maple Inc: an
   invoice by its terms, an overdue invoice and a credit memo received
-  together, a USD invoice moved past a weekend and a holiday, a special
+  together, an invoice due on a Saturday netted with a credit of the
+  holiday Monday on the Tuesday both move to, a USD invoice moved past a weekend and a holiday, a special
   G/L item, a released and an expired block ignored; a customer blocked
   for dunning and an item in an open dispute case apart, a rejected
   case's item counted; a customer's credit alone no flow; orders by
   delivery date, by lead days, billed and not posted, with tax and with a
   code that adds none; a draft, a credit-blocked and a fully posted order
-  nothing; the certainty cut, the drill-down, the liquidity items, the
+  nothing; the certainty cut, the drill-down, the inflows' default whatever
+  the revenue account's rule, the
   snapshot, the group forecast and the analytics' blocked shares),
   `TestLiquidityForecastReceiptsRefused`,
   `TestLiquidityForecastReceiptsFailures` (every database failure),

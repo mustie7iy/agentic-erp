@@ -20,9 +20,8 @@ import (
 // liquidity forecast reads it (ADR-0051 §4, §5, As built T53l1): the
 // order, its customer, its currency, the day it was ordered and the
 // delivery date it asks for (nil for none), its payment term with the
-// term's net days, what is open of it with its output tax (Gross, as the
-// customer's credit exposure values it), and its open lines by revenue
-// account, from which the forecast derives its liquidity items.
+// term's net days, and what is open of it with its output tax (Gross, as
+// the customer's credit exposure values it).
 type CashOrder struct {
 	ID              uuid.UUID
 	Number          string
@@ -33,32 +32,12 @@ type CashOrder struct {
 	PaymentTermCode string
 	NetDays         int
 	Gross           money.Minor
-	Lines           []CashOrderLine
 }
 
-// CashOrderLine is an open line of a CashOrder: its revenue account's
-// number, its net value not yet billed signed as billing would post it
-// (a credit, negative) and its output tax code ("" for none).
-type CashOrderLine struct {
-	Account string
-	Net     money.Minor
-	TaxCode string
-}
-
-// cashOrders reads the company's confirmed orders that are not blocked
-// for credit, with what is open of their items as openOrders reads it
-// for one customer, and the revenue account of each open item.
-const cashOrders = `SELECT o.id, o.document_number, o.customer_id, o.order_date, o.requested_delivery_date, o.currency, o.payment_term_code, x.lines
-	FROM sales.sales_order o CROSS JOIN LATERAL (
-		SELECT json_agg(json_build_object('item_no', t.item_no, 'net_amount', t.net_amount - p.posted, 'tax_code', t.tax_code,
-				'account_id', t.account_id) ORDER BY t.item_no) AS lines
-		FROM sales.sales_order_item t CROSS JOIN LATERAL (
-			SELECT coalesce(sum(i.net_amount), 0)::bigint AS posted
-			FROM sales.billing_document_item i JOIN sales.billing_document b ON b.tenant_id = i.tenant_id AND b.id = i.billing_document_id
-			WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no AND b.status = 'posted') p
-		WHERE t.tenant_id = o.tenant_id AND t.sales_order_id = o.id AND t.removed_in_change IS NULL AND t.net_amount > p.posted) x
-	WHERE o.legal_entity_id = $1 AND o.status = 'confirmed' AND o.credit_block <> 'blocked' AND x.lines IS NOT NULL
-	ORDER BY o.order_date, o.id`
+// cashOrders reads the company's open orders as openOrders reads one
+// customer's (openOrdersOf).
+const cashOrders = `SELECT o.id, o.document_number, o.customer_id, o.order_date, o.requested_delivery_date, o.currency, o.payment_term_code, x.lines` +
+	openOrdersOf + ` ORDER BY o.order_date, o.id`
 
 // cashOrder is a CashOrder as read, before it is valued.
 type cashOrder struct {
@@ -97,9 +76,6 @@ func (e *Endpoints) CashOrders(ctx context.Context, legalEntity uuid.UUID) ([]Ca
 	if err != nil {
 		return nil, err
 	}
-	if err := e.cashLines(ctx, orders); err != nil {
-		return nil, err
-	}
 	netDays := map[string]int{}
 	out := make([]CashOrder, len(orders))
 	for i, o := range orders {
@@ -127,32 +103,6 @@ func readCashOrders(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) ([]ca
 		return nil, fmt.Errorf("sales: read the open orders of legal entity %s: %w", legalEntity, err)
 	}
 	return orders, nil
-}
-
-// cashLines gives each order its open lines by their accounts' numbers,
-// the accounts read once for every order.
-func (e *Endpoints) cashLines(ctx context.Context, orders []cashOrder) error {
-	var ids []uuid.UUID
-	for _, o := range orders {
-		for _, l := range o.open.Lines {
-			ids = append(ids, l.AccountID)
-		}
-	}
-	accounts, err := e.References.AccountNames(ctx, ids)
-	if err != nil {
-		return fmt.Errorf("sales: accounts of the open orders: %w", err)
-	}
-	for i := range orders {
-		o := &orders[i]
-		o.Lines = make([]CashOrderLine, len(o.open.Lines))
-		for j, l := range o.open.Lines {
-			o.Lines[j] = CashOrderLine{Account: accounts[l.AccountID].Number, Net: -l.Net}
-			if l.TaxCode != nil {
-				o.Lines[j].TaxCode = *l.TaxCode
-			}
-		}
-	}
-	return nil
 }
 
 // netDays is the order's payment term's net days, each term read once; a

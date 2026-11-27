@@ -13,12 +13,10 @@ import (
 // CashItem is a customer open item as the liquidity forecast reads it
 // (ADR-0051 §4, §5, As built T53l1): the ledger's item, the day it is due
 // (ledger.ReceivableItem.NetDueDate, the one rule the AR aging, dunning
-// and the worklist keep), and its entry's offsetting lines (revenue and
-// output tax), from which the forecast derives its liquidity items.
+// and the worklist keep).
 type CashItem struct {
 	ledger.ReceivableItem
-	Due   time.Time
-	Lines []ledger.OffsettingLine
+	Due time.Time
 }
 
 // CashItems is the receivables context's published read for the
@@ -35,23 +33,10 @@ func (e *Endpoints) CashItems(ctx context.Context, legalEntity uuid.UUID) ([]Cas
 		return nil, fmt.Errorf("receivables: open items of %s for the forecast: %w", legalEntity, err)
 	}
 	var out []CashItem
-	var entries []ledger.EntryRef
 	for _, it := range items {
-		if it.SpecialGL != nil {
-			continue
+		if it.SpecialGL == nil {
+			out = append(out, CashItem{ReceivableItem: it, Due: it.NetDueDate()})
 		}
-		out = append(out, CashItem{ReceivableItem: it, Due: it.NetDueDate()})
-		entries = append(entries, it.Entry())
-	}
-	if len(out) == 0 {
-		return nil, nil
-	}
-	lines, err := e.OpenItems.Offsetting(ctx, entries)
-	if err != nil {
-		return nil, fmt.Errorf("receivables: offsetting lines of the open items of %s: %w", legalEntity, err)
-	}
-	for i := range out {
-		out[i].Lines = lines[out[i].Entry()]
 	}
 	return out, nil
 }

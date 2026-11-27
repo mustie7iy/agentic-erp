@@ -29,7 +29,7 @@ var receiptPerms = append(slices.Clone(drillPerms), "sales.order.read", "cash.sn
 // withReceipts is the drill-down's forecast (withDrill) with Maple Inc's
 // customer reconciliation account 121000, an output tax code O13 of 13%,
 // and sales revenue (400000) derived to an inflow item of its own,
-// REC_SALES.
+// REC_SALES, a rule the receipts do not follow (they take the inflows' default).
 func withReceipts(doc *config.Config) {
 	withDrill(doc)
 	co := doc.Company("3000")
@@ -117,6 +117,9 @@ func (e drillEnv) disputeCase(t *testing.T, customer, entry uuid.UUID, status st
 //     dispute case, apart, and one of 250.00 whose case was rejected,
 //     received that day;
 //   - Litware (BP70000004): a credit of 80.00 alone, no receipt;
+//   - Adatum (BP70000005): an invoice of 100.00 due Saturday the 18th and
+//     a credit memo of 150.00 of Monday the 20th, a holiday: both on
+//     Tuesday the 21st, netted there to a credit, no receipt;
 //   - Northwind's sales orders: SO-A confirmed on 10 April for a delivery
 //     on the 30th, 1,000.00, due NT30 on Saturday 30 May, received Monday 1
 //     June; SO-B confirmed on 1 February without a delivery date, 200.00
@@ -149,6 +152,9 @@ func (e drillEnv) receiptsScenario(t *testing.T) {
 	e.docs["rejected"] = e.receivable(t, contoso, "2026-04-01", "CAD", 25000, &terms{baseline: "2026-04-01", net: 23}, "400000", "")
 	e.disputeCase(t, contoso, e.docs["rejected"], "rejected")
 	e.receivable(t, litware, "2026-04-01", "CAD", -8000, nil, "400000", "")
+	adatum := e.Customer(t, "BP70000005", "Adatum")
+	e.receivable(t, adatum, "2026-04-15", "CAD", 10000, &terms{baseline: "2026-04-15", net: 3}, "400000", "")
+	e.receivable(t, adatum, "2026-04-20", "CAD", -15000, nil, "400000", "")
 
 	e.docs["SO-A"] = e.SalesOrder(t, e.le, north, "CAD", "2026-04-10", "confirmed", fixture.SalesItem{Net: 100000})
 	e.docs["SO-B"] = e.SalesOrder(t, e.le, north, "CAD", "2026-02-01", "confirmed", fixture.SalesItem{Net: 20000}, fixture.SalesItem{Net: 30000})
@@ -198,8 +204,8 @@ func receiptsOf(t *testing.T, f map[string]any) []string {
 // out; the items collections holds back apart, outside the totals unless
 // asked; each confirmed order's part not yet posted as an invoice planned
 // on its delivery date, else its order date plus the lead days, plus its
-// payment term's net days; each derived to its liquidity items by its
-// lines, drilled down to the customer and its documents, kept by a
+// payment term's net days; each under the inflows' default whatever
+// its revenue account (as the actuals classify a receipt), drilled down to the customer and its documents, kept by a
 // snapshot and summed by the group forecast.
 func TestLiquidityForecastReceipts(t *testing.T) {
 	e := drillEnv{forecastEnv: setupForecast(t, withReceipts, receiptPerms...), docs: map[string]uuid.UUID{}}
@@ -233,9 +239,9 @@ func TestLiquidityForecastReceipts(t *testing.T) {
 		"2026-06-01 sales_order/planned counted=true 1000.00 CAD share 1000.00: BP70000001; sales_order SO-A true 1000.00 (1)",
 	})
 	p, _ := e.drill(t, "&currency=CAD&liquidity_item=REC_SALES", 50)
-	want(t, "sales revenue's receipts, the tax following its line", amount(p["total"]), "3766.00 CAD")
+	want(t, "no receipt by its revenue account", amount(p["total"]), "0.00 CAD")
 	p, _ = e.drill(t, "&currency=CAD&liquidity_item=REC_CUSTOMERS", 50)
-	want(t, "the inflows' default", amount(p["total"]), "500.00 CAD")
+	want(t, "every receipt by the inflows' default, as the actuals classify one", amount(p["total"]), "4266.00 CAD")
 
 	t.Run("a snapshot keeps the receipts", func(t *testing.T) {
 		s := e.take(t, "Receipts")
@@ -259,11 +265,11 @@ func TestLiquidityForecastReceipts(t *testing.T) {
 		}
 		slices.Sort(lines)
 		want(t, "the snapshot's lines", lines, []string{
-			"2026-04-17 sales_order REC_SALES 526.00 CAD BP70000001 sales_order",
-			"2026-04-24 receivable_blocked REC_SALES 300.00 CAD BP70000002 journal_entry",
-			"2026-04-24 receivable_blocked REC_SALES 400.00 CAD BP70000003 journal_entry",
-			"2026-05-01 sales_order REC_SALES 1000.00 CAD BP70000001 sales_order",
-			"2026-05-29 sales_order REC_SALES 1000.00 CAD - per bucket",
+			"2026-04-17 sales_order REC_CUSTOMERS 526.00 CAD BP70000001 sales_order",
+			"2026-04-24 receivable_blocked REC_CUSTOMERS 300.00 CAD BP70000002 journal_entry",
+			"2026-04-24 receivable_blocked REC_CUSTOMERS 400.00 CAD BP70000003 journal_entry",
+			"2026-05-01 sales_order REC_CUSTOMERS 1000.00 CAD BP70000001 sales_order",
+			"2026-05-29 sales_order REC_CUSTOMERS 1000.00 CAD - per bucket",
 		})
 	})
 	t.Run("the group forecast sums them", func(t *testing.T) {

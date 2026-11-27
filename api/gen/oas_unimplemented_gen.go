@@ -5761,21 +5761,25 @@ func (UnimplementedHandler) GetLiquidityForecast(ctx context.Context, params Get
 // T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency,
 // liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days
 // before `from` (its daily snapshot of that date, else the last taken on demand that day; 409
-// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the
-// forecast's totals leave them out; the actuals are the statement lines by value date as
-// `getCashActuals` classifies them; the variance is the actual less the forecast, and
-// `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it
-// forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the
-// period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on
-// that day) with the variance attributed: each document the snapshot forecast is matched to the
-// statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier
-// item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down
-// payment request by its payment, a memo record by the line that realised it, a series' occurrence by
-// its override), and its part of the variance is `timing` when it was forecast in one bucket and paid
-// in another (paid before or after the period included), `amount` when paid in the bucket it was
-// forecast in, `missing` when nothing paid it; a statement line's part that pays no document the
-// snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to
-// the variance. The days after the document level up to `to` are compared per item only (`beyond`), up
+// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed and the
+// customers' receipts held back (`receivable_blocked`), as the forecast's totals leave them out; the
+// actuals are the statement lines by value date as `getCashActuals` classifies them; the variance is
+// the actual less the forecast, and `variance_percent` its size in percent of the forecast's size. A
+// snapshot keeps each document it forecast for 31 days from its date (`document_level_until`) and
+// bucket sums after (T53f), so the period's days up to that day are in `buckets` (of `grain` from
+// `from`, the last ending on `to` or on that day) with the variance attributed: each document the
+// snapshot forecast is matched to the statement lines that paid it (a run's payment or a payment in
+// transit by the payment, a supplier item by its journal entry, an invoice forecast before it was
+// posted by the entry it posted, a down payment request by its payment, a memo record by the line that
+// realised it, a series' occurrence by its override), and its part of the variance is `timing` when it
+// was forecast in one bucket and paid in another (paid before or after the period included), `amount`
+// when paid in the bucket it was forecast in, `missing` when nothing paid it; a statement line's part
+// that pays no document the snapshot forecast is `new`, or `unclassified` when the line has no decided
+// match. The five add up to the variance. A receipt from a customer (`receivable`, `sales_order`,
+// T53l1) is not yet matched to the incoming payment that received it (the statement line's match does
+// not name the customer items it cleared): forecast and received in one period, it shows as `missing`
+// and its receipt as `new`, which cancel out in the variance; matched in a later slice (ADR-0051 As
+// built T53l1). The days after the document level up to `to` are compared per item only (`beyond`), up
 // to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The
 // variance names no document or supplier, so `cash.forecast.read` is all it needs.
 //
@@ -8362,13 +8366,14 @@ func (UnimplementedHandler) ListLegalEntities(ctx context.Context, params ListLe
 // `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns
 // and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are
 // listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every
-// page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a
-// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
-// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
-// each document only to one who may use its context's read permission (`ledger.entry.read`,
-// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`, `procurement.order.read`); for
-// others it is left out, never refused, and `document_count` still counts it. A liquidity item the
-// configuration does not have lists nothing. A legal entity the caller cannot act in is 404.
+// page's flows that the forecast counts (a `payable_blocked` or `receivable_blocked` one only with
+// `include_blocked`), so a bucket's drill-down totals its cell of the item's row; `count` counts the
+// flows of every page. Each flow names its supplier, or a receipt its customer (`customer`, T53l1), by
+// number and name only to a caller who may use `partner.supplier.read`, and each document only to one
+// who may use its context's read permission (`ledger.entry.read`, `payables.invoice.read`,
+// `payments.run.read`, `cash.memo.read`, `procurement.order.read`, `sales.order.read`); for others it
+// is left out, never refused, and `document_count` still counts it. A liquidity item the configuration
+// does not have lists nothing. A legal entity the caller cannot act in is 404.
 //
 // GET /v1/liquidity-forecast-flows
 func (UnimplementedHandler) ListLiquidityForecastFlows(ctx context.Context, params ListLiquidityForecastFlowsParams) (r ListLiquidityForecastFlowsRes, _ error) {
@@ -12055,13 +12060,14 @@ func (UnimplementedHandler) SubmitRequisition(ctx context.Context, params Submit
 // Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f),
 // such as before a board meeting, kept like the daily ones the TakeCashSnapshot workflow takes. The
 // forecast is read as `getLiquidityForecast` reads it with the company's buckets, every source and
-// certainty, blocked suppliers' flows included (marked by their source, `payable_blocked`), from one
-// database state, and stored in transaction currency: at document level for value dates within 31 days
-// of the snapshot's date (each document a flow pays, under each liquidity item it is classified in,
-// `listCashSnapshotFlows`), and summed per bucket and liquidity item beyond, up to the last bucket;
-// flows after the last bucket are not kept. The liquidity items are those the active configuration
-// derived then: a later rule change does not restate it. A legal entity the caller cannot act in is
-// 404. Audited, and published as CashSnapshotTaken.
+// certainty, blocked suppliers' flows and customers' receipts held back included (marked by their
+// source, `payable_blocked`, `receivable_blocked`), from one database state, and stored in transaction
+// currency: at document level for value dates within 31 days of the snapshot's date (each document a
+// flow pays, under each liquidity item it is classified in, `listCashSnapshotFlows`), and summed per
+// bucket and liquidity item beyond, up to the last bucket; flows after the last bucket are not kept.
+// The liquidity items are those the active configuration derived then: a later rule change does not
+// restate it. A legal entity the caller cannot act in is 404. Audited, and published as
+// CashSnapshotTaken.
 //
 // POST /v1/cash-snapshots
 func (UnimplementedHandler) TakeCashSnapshot(ctx context.Context, req *CashSnapshotCreate, params TakeCashSnapshotParams) (r TakeCashSnapshotRes, _ error) {

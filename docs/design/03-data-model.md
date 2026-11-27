@@ -3778,7 +3778,8 @@ payment's. No migration; reading the actuals is `cash.forecast.read`.
 
 T53f3 compares a snapshot with the actuals, storing nothing: the
 `cash.snapshot` of the legal entity and date (`daily` first, else the
-last `on_demand`) and its `cash.snapshot_flow`s but `payable_blocked`;
+last `on_demand`) and its `cash.snapshot_flow`s but `payable_blocked` (and
+`receivable_blocked` since T53l1);
 the actuals' lines as T53f2 reads them, each matched payment's settled
 items with their `ledger.journal_entry` and that entry's
 `source_document_id` when `payables` posted it (the supplier invoice), a
@@ -3806,7 +3807,7 @@ T53l1 adds the receipts from customers, storing nothing new but a
 snapshot's customer: the ordinary customer open items of the leading
 ledger (`ledger.journal_line` on a customer reconciliation account, not
 cleared, not special G/L, through receivables' published read) with
-their `ledger.open_item_terms` and offsetting lines, those collections
+their `ledger.open_item_terms`, those collections
 holds back on the read date (a `collections.dunning_block` in force of
 the item or its customer, or an open `collections.dispute_case_item`)
 apart; and each confirmed `sales.sales_order` not blocked for credit with

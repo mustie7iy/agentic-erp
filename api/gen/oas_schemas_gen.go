@@ -22571,7 +22571,9 @@ type CashFlowTotal struct {
 	Amount Money `json:"amount"`
 	// How many flows: payments, memo records' occurrences, or in the liquidity forecast for `payable`,
 	// `payable_blocked`, `invoice_unposted` and `purchase_order` supplier payments (a supplier's documents
-	// netted into one payment, as a run nets them), not documents, and for `down_payment` requests.
+	// netted into one payment, as a run nets them), not documents, for `down_payment` requests, for
+	// `receivable` and `receivable_blocked` a customer's receipts (its items of a day netted into one),
+	// and for `sales_order` orders.
 	Count int32 `json:"count"`
 }
 
@@ -71264,8 +71266,8 @@ func (*LiquidityForecastFlowPage) listLiquidityForecastFlowsRes() {}
 
 // A row of a currency's liquidity forecast by liquidity item (ADR-0051 §4, §9, T53e3): the shares of
 // the flows its item derives, with its descendants', per bucket, counted as the buckets' totals count
-// them (a `payable_blocked` share only with `include_blocked`), and the item's own flows by source and
-// certainty.
+// them (a `payable_blocked` or `receivable_blocked` share only with `include_blocked`), and the item's
+// own flows by source and certainty.
 // Ref: #/components/schemas/LiquidityForecastItem
 type LiquidityForecastItem struct {
 	// The liquidity item's code (`cash.liquidity_items`); absent on the row of the flows no derivation
@@ -71285,7 +71287,7 @@ type LiquidityForecastItem struct {
 	Beyond  Money   `json:"beyond"`
 	// The item's own shares (not its descendants') by source and certainty, sorted by both; empty for an
 	// item listed for its descendants alone. Listed whether or not the totals count them: a
-	// `payable_blocked` row's amounts are its own.
+	// `payable_blocked` or `receivable_blocked` row's amounts are its own.
 	Flows []LiquidityForecastItemFlows `json:"flows"`
 }
 
@@ -71649,9 +71651,10 @@ func (*LiquidityForecastVariance) getLiquidityForecastVarianceRes() {}
 // forecast in one bucket and paid in another (a run moved, a discount not taken); `amount`, documents
 // paid in the bucket they were forecast in at another amount (a discount, a partial payment, a bank
 // charge); `new`, statement lines paying nothing the snapshot forecast (an invoice posted after it, an
-// unforecast receipt); `missing`, documents forecast and not paid (blocked later, a memo record not
-// realised); `unclassified`, statement lines with no decided match that pay nothing the snapshot
-// forecast.
+// unforecast receipt, and for now every customer's receipt); `missing`, documents forecast and not
+// paid (blocked later, a memo record not realised, and for now every customer's receipt forecast,
+// which the variance does not yet match to the incoming payment that received it, T53l1);
+// `unclassified`, statement lines with no decided match that pay nothing the snapshot forecast.
 // Ref: #/components/schemas/LiquidityForecastVarianceAttribution
 type LiquidityForecastVarianceAttribution struct {
 	Timing       Money `json:"timing"`

@@ -18584,7 +18584,7 @@ step_cash_snapshot() {
   say "Its CAD lines, the first ten: each document a flow pays under its liquidity item, then the buckets' sums:"
   api 200 '"  \(.count) lines, total \(.total.amount) \(.total.currency)", (.items[0:10][] | "  \(.value_date)\(if .bucket_end then "..\(.bucket_end)" else "" end) \(.source)/\(.certainty) \(.liquidity_item // "unclassified") \(.amount.amount)\(if .document then ": \(.document.kind) \(.document.number // "-")" else "" end)\(if .supplier then ", \(.supplier.name)" else "" end)")' \
     listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p page_size=500
-  lines_total=$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')
+  lines_total=$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select((.source | IN("payable_blocked", "receivable_blocked") | not)) | .amount.amount | c] | add // 0')
   expect "the lines add up to the snapshot's total" "$lines_total" "$forecast_cents"
   expect "per document within 31 days, per bucket after" \
     "$(field '[.items[] | select(.bucket_end == null) | .flow_count] | all(. == 1)')" true
@@ -19339,7 +19339,7 @@ step_cash_variance() {
   expect "the CAD actual, the day's statement lines (getCashActuals)" "$actual" "$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0] // "0.00"')"
   QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p "from=$day" -p "to=$day" -p page_size=500
   expect "the CAD forecast, the snapshot's lines of the day but blocked suppliers'" "$forecast" \
-    "$(amount "$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')")"
+    "$(amount "$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select((.source | IN("payable_blocked", "receivable_blocked") | not)) | .amount.amount | c] | add // 0')")"
   if [ "$kind" = on_demand ]; then
     expect "the snapshot compared, step 26's" "$snap" "$board"
   fi
@@ -20125,7 +20125,7 @@ ratio4() {
 # forecast for DAY at document level, blocked suppliers' flows left out.
 kept_on() {
   jq -r --arg d "$2" 'def c: sub("\\."; "") | tonumber;
-    [.items[] | select(.bucket_end == null and .value_date == $d and .source != "payable_blocked") | .amount.amount | c] | add // 0' "$1"
+    [.items[] | select(.bucket_end == null and .value_date == $d and (.source | IN("payable_blocked", "receivable_blocked") | not)) | .amount.amount | c] | add // 0' "$1"
 }
 
 # cad_on DAY is the CAD cents of the last query's rows of DAY (currency

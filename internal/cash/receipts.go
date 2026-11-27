@@ -37,22 +37,21 @@ type SalesOrders interface {
 
 // Receivable is a customer open item as the forecast reads it: its
 // customer and currency, its net due date, its open amount signed as
-// booked (a credit negative), whether collections holds it back, its
-// entry's offsetting lines and its journal entry.
+// booked (a credit negative), whether collections holds it back, and its
+// journal entry.
 type Receivable struct {
 	Customer uuid.UUID
 	Currency string
 	Due      time.Time
 	Amount   money.Minor
 	Held     bool
-	Lines    []DocumentLine
 	Document Document
 }
 
 // SalesOrder is a confirmed sales order's part not yet billed: its
 // customer and currency, its order date and the delivery date it asks for
 // (nil for none), its payment term's net days, what is open of it with
-// its output tax, its open lines and the order.
+// its output tax, and the order.
 type SalesOrder struct {
 	Customer     uuid.UUID
 	Currency     string
@@ -60,7 +59,6 @@ type SalesOrder struct {
 	DeliveryDate *time.Time
 	NetDays      int
 	Gross        money.Minor
-	Lines        []DocumentLine
 	Document     Document
 }
 
@@ -101,15 +99,21 @@ type receiving struct {
 }
 
 // receivableFlows are the receipts expected for the customer open items
-// (ADR-0051 §5, As built T53l1): each item on its net due date, an
-// overdue one on the read date, and per customer, currency and source the
-// items of a day received together, those carried from before with them,
-// on the working day on or after it. A day whose items come to nothing
+// (ADR-0051 §5, As built T53l1): each item on the working day on or after
+// its net due date, an overdue one on or after the read date, and per
+// customer, currency and source the items of that day received together,
+// those carried from before with them: the day the money moves is fixed
+// before the items are netted, so a credit dated on the working day an
+// invoice of the weekend moves to is deducted from it. A day whose items come to nothing
 // or less (a credit memo, a payment on account, more credits than
 // invoices) is carried to the customer's next day, as the customer would
 // deduct the credit from its next payment; what is still a credit after
 // its last day is no receipt and is left out. Items collections holds
-// back are netted alike as receivable_blocked, on their day as it is.
+// back are netted alike as receivable_blocked, on their day as it is
+// (the read date when overdue), not moved. Each receipt is classified by
+// the inflow default (no lines, no planning group), as the actuals
+// classify a statement line matched as incoming, so forecast and actuals
+// compare the same liquidity items (As built T53l1).
 func (r reader) receivableFlows(items []Receivable) []datedFlow {
 	groups := map[receiving][]int{}
 	var order []receiving
@@ -133,7 +137,13 @@ func (r reader) receivableFlows(items []Receivable) []datedFlow {
 // received are the receipts of one customer's items (receiving), in the
 // order of their days.
 func (r reader) received(k receiving, items []Receivable, at []int) []datedFlow {
-	day := func(i int) time.Time { return later(items[i].Due, r.read) }
+	day := func(i int) time.Time {
+		d := later(items[i].Due, r.read)
+		if k.source == SourceReceivable {
+			d = r.onOrAfter(d)
+		}
+		return d
+	}
 	slices.SortStableFunc(at, func(a, b int) int { return day(a).Compare(day(b)) })
 	var out []datedFlow
 	var carried []int
@@ -146,18 +156,14 @@ func (r reader) received(k receiving, items []Receivable, at []int) []datedFlow 
 		parts, docs := make([]part, len(carried)), make([]paidDocument, len(carried))
 		for j, c := range carried {
 			total = r.sums.add(total, items[c].Amount)
-			parts[j] = part{amount: items[c].Amount, lines: items[c].Lines}
+			parts[j] = part{amount: items[c].Amount}
 			docs[j] = paidDocument{Document: items[c].Document, amount: items[c].Amount}
 		}
 		if total <= 0 {
 			continue
 		}
-		on := day(i)
-		if k.source == SourceReceivable {
-			on = r.onOrAfter(on)
-		}
 		customer := k.customer
-		out = append(out, datedFlow{flow: flow{date: on, source: k.source, certainty: CertaintyExpected, amount: total}, currency: k.currency,
+		out = append(out, datedFlow{flow: flow{date: day(i), source: k.source, certainty: CertaintyExpected, amount: total}, currency: k.currency,
 			parts: parts, customer: &customer, documents: docs})
 		carried = nil
 	}
@@ -171,7 +177,8 @@ func (r reader) received(k receiving, items []Receivable, at []int) []datedFlow 
 // payment term's net days after (no cash discount is assumed: whether a
 // customer takes one is the customer's choice), the read date when that
 // is past, received on the working day on or after it; at what is open
-// of the order with its output tax, planned.
+// of the order with its output tax, planned, classified by the inflow
+// default as a customer item's receipt is.
 func (r reader) orderFlows(orders []SalesOrder) []datedFlow {
 	out := make([]datedFlow, 0, len(orders))
 	for _, o := range orders {
@@ -181,7 +188,7 @@ func (r reader) orderFlows(orders []SalesOrder) []datedFlow {
 		}
 		customer := o.Customer
 		out = append(out, datedFlow{flow: flow{date: r.onOrAfter(later(billed.AddDate(0, 0, o.NetDays), r.read)), source: SourceSalesOrder,
-			certainty: CertaintyPlanned, amount: o.Gross}, currency: o.Currency, parts: []part{{amount: o.Gross, lines: o.Lines}}, customer: &customer,
+			certainty: CertaintyPlanned, amount: o.Gross}, currency: o.Currency, parts: []part{{amount: o.Gross}}, customer: &customer,
 			documents: []paidDocument{{Document: o.Document, amount: o.Gross}}})
 	}
 	return out

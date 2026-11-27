@@ -325,7 +325,7 @@ func (c cashReceivables) Receivables(ctx context.Context, legalEntity uuid.UUID,
 	out := make([]cash.Receivable, len(items))
 	for i, it := range items {
 		out[i] = cash.Receivable{Customer: it.PartnerID, Currency: it.Currency, Due: it.Due, Amount: it.Amount,
-			Held: heldItems[it.ItemRef] || heldCustomers[it.PartnerID], Lines: cashLines(it.Lines),
+			Held:     heldItems[it.ItemRef] || heldCustomers[it.PartnerID],
 			Document: cash.Document{Kind: cash.DocJournalEntry, ID: it.EntryID, Number: it.Number}}
 	}
 	return out, nil
@@ -339,12 +339,8 @@ func (c cashSales) Orders(ctx context.Context, legalEntity uuid.UUID) ([]cash.Sa
 	orders, err := c.orders.CashOrders(ctx, legalEntity)
 	out := make([]cash.SalesOrder, len(orders))
 	for i, o := range orders {
-		lines := make([]cash.DocumentLine, len(o.Lines))
-		for j, l := range o.Lines {
-			lines[j] = cash.DocumentLine{Account: l.Account, Amount: l.Net, TaxCode: l.TaxCode}
-		}
 		out[i] = cash.SalesOrder{Customer: o.Customer, Currency: o.Currency, OrderDate: o.OrderDate, DeliveryDate: o.DeliveryDate, NetDays: o.NetDays,
-			Gross: o.Gross, Lines: lines, Document: cash.Document{Kind: cash.DocSalesOrder, ID: o.ID, Number: o.Number}}
+			Gross: o.Gross, Document: cash.Document{Kind: cash.DocSalesOrder, ID: o.ID, Number: o.Number}}
 	}
 	return out, err
 }
