@@ -1563,11 +1563,18 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A consolidated asset history sheet in the group's presentation currency with net exchange differences on translation, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(e)): today's sheet is one company's in its local currency",
-        "r": "ADR-0057 §9, As built (B14) · ADR-0059 · GET /v1/asset-history-sheet",
+        "s": "D",
+        "t": "A consolidated asset history sheet in the group's presentation currency with net exchange differences on translation, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(e)): today's sheet is one company's in its local currency. Built: GET /v1/consolidation-groups/{code}/asset-history-sheet, the companies of a run of the year's period 12 translated by the run's rates (closing values at period 12's closing rate, opening values at the previous period's, depreciation and impairment at their booked group amounts, each period's other movements at its own closing rate), exchange_differences and exchange_differences_accumulated the rest per column, reconciling to the cent; the class totals per period kept with every posting (ADR-0057 As built, the consolidated sheet; migration 000489)",
+        "r": "ADR-0057 §9, As built (B14, the consolidated sheet) · ADR-0059 §7 · GET /v1/consolidation-groups/{code}/asset-history-sheet",
         "src": "po:2026-11-09",
         "pilot": "po:2026-11-09 · adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The consolidated asset history sheet's walkthrough shows a non-zero net exchange difference on translation: today the only member of the group MAPLE that holds assets is in the group currency (Maple Inc, 3000, CAD) and Acme Corp US (1000, USD) holds none, so the step's sheet reconciles with every exchange difference 0.00 (the translation is proved by hand only in consolidation's TestConsolidatedAssetHistorySheet); a fixture change giving Acme Corp US asset classes and accounts, and an asset bought and depreciated there, would show one",
+        "r": "scripts/walkthrough.sh asset_sheet_consolidated (step 44) · internal/platform/fixture · ADR-0057 As built, the consolidated sheet · assetsheet's backlog",
+        "src": "review:batch96",
         "c": []
        },
        {
@@ -1963,9 +1970,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Forecast agent with variance explanations",
-      "r": "T53f · T53f2 · T53f3 · T53f4 · T53i",
+      "r": "T53f · T53f2 · T53f3 · T53f4 · T53i · done by T53f (the forecast's snapshots), T53f2 (cash actuals), T53f3 (the forecast variance), T53f4 (variance comments by people) and T53i (the forecast agent: agent type cash_forecast, internal/cashagent's read tools and two proposals, erp agent cash-variance, evals/cash replayed against the model stand-in, walkthrough step 39) under Cash position and liquidity forecast decided, and by batch 96F's integration: the agent's never list (cashagent.Never, TestNever: every other write of cash, every write of a payment run, a bank statement, a bank file, a dunning block and a configuration change request; every write of cash but the two proposals x-agent: false) · ADR-0051 As built (T53i, what it never does) · its live evaluation is the agents' own leaf (T43)",
       "src": "baseline",
       "c": []
      },
@@ -2166,16 +2173,30 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Accrual proposals by agent",
-      "r": "T64 · ADR-0058 §8, §12 · T64e, T64f, T64g",
+      "r": "T64 · ADR-0058 §8, §12 · T64e, T64f, T64g · done by T64e (accrual proposals parked for a person to post), T64f (deciding them) and T64g (the close agent proposing them through its tools, evals/close replayed against the model stand-in) under Financial close designed, and by accrualagent (batch 96): the close agent's never list (closeagent.Never, TestNever: every other write of closing, every journal entry and fiscal period write, the postings of the documents it reads, the period-end runs that post, the clearings and every approval decision; every write of closing but the two proposals x-agent: false), step_close showing the agent's own rejection and sign-off refused · ADR-0058 As built (accrual proposals by agent) · its live evaluation and the agent's own parked entries are the leaves below",
       "src": "baseline",
       "c": []
      },
      {
+      "s": "P",
+      "t": "Evaluation against the live Claude API: the close agent (type close, its accrual and variance cases as one suite, ADR-0058 decision 14) certified on the model erp-close routes to before it runs above level 0 in a tenant's cell; until then evals/close is replayed against the model stand-in only",
+      "r": "T43 (waits on: the user: a live Claude API key and spend) · evals/close/suite.yaml (TestEvalSuites, replay) · erp-server certify · ADR-0058 §12, As built (accrual proposals by agent) · ADR-0039",
+      "src": "adr:ADR-0058 · adr:ADR-0039",
+      "c": []
+     },
+     {
       "s": "T",
+      "t": "An agent can change or cancel the parked entry of its own accrual proposal: parkJournalEntry, updateParkedJournalEntry and cancelParkedJournalEntry are x-autonomy: propose and the ledger's owner rule lets the agent that parked an entry no person has taken on change or cancel it, so a level-1 close agent holding ledger.entry.park (which proposeAccrual needs) makes its proposal read modified or rejected without a person's decision, though ADR-0058 §12 says the API refuses it whatever its level; decide whether the ledger refuses an agent's change or cancel of a parked entry a closing proposal references (through a published port) or record the behaviour as accepted",
+      "r": "internal/ledger parked.go ownerAfter, takenOn · api/openapi.yaml updateParkedJournalEntry, cancelParkedJournalEntry · internal/closeagent Never (its tools keep it away today) · ADR-0058 §12, As built (accrual proposals by agent)",
+      "src": "review:batch96",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Variance commentary by agent",
-      "r": "T64 · ADR-0058 §9, §10, §12 · T64h, T64i, T64j",
+      "r": "T64 · ADR-0058 §9, §10, §12 · T64h, T64i, T64j · done by T64h (the variance report), T64i (variance comments: proposals, people's comments, their decisions and the check variances_explained) and T64j (the close agent's variance run: erp agent close-variances, its tools and prompt, the variance cases of evals/close replayed against the model stand-in, walkthrough step_close) under Financial close designed, and by accrualagent (batch 96): the close agent's never list (closeagent.Never, TestNever), which holds writing, accepting and rejecting a variance comment · ADR-0058 As built (accrual proposals by agent) · its live evaluation is the close agent's leaf above",
       "src": "baseline",
       "c": []
      },
@@ -3762,9 +3783,23 @@
        },
        {
         "s": "T",
-        "t": "Analytics: dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing",
-        "r": "T56i",
+        "t": "Analytics, what T56i1 leaves: the centers and their hierarchies extracted as snapshots (cost center names, periods, hierarchy nodes) with the dimensions cost_center_name and cost_center_node (a node's total its centers' under today's hierarchy), and the plan metrics plan_amount and plan_variance beside the actuals, on the database path and the store path with parity; isolation tests unchanged and passing",
+        "r": "T56i (two slices: T56i2 the snapshots and their dimensions, T56i3 the plan metrics) · ADR-0050 §7 · ADR-0044 As built T56i1",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Analytics: actuals by cost center, profit center and segment: the journal dataset carries each line's centers by code and the semantic layer's revenue, income and expenses are broken down and filtered by them, the store's answer the database's; isolation tests unchanged and passing",
+        "r": "T56i1 · analytics/datasets/v1/gl_lines.yaml cost_center, profit_center, segment (additive; the journal extracted again once, as batch 95's tax columns) · semantic dimensions cost_center, profit_center, segment of revenue, income and expenses · extract TestCenterColumns, TestJournalExtractedAgainForCenters · reader TestCenterColumns · store TestParity · ADR-0044 As built T56i1 · ADR-0050 §7 As built T56i1 · walkthrough step 79 (step_plan_version, center_actuals_analytics: CC-1100 by account against GET /v1/cost-center-balances)",
+        "src": "split:T56i · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Step 79's analytics center check compares both ways: center_actuals_analytics checks that every account analytics answers for CC-1100 agrees with the cost center's actual report, not that every account the report shows is in analytics' answer, so a journal line analytics lost would pass unseen",
+        "r": "scripts/walkthrough.sh center_actuals_analytics (step 79) · GET /v1/cost-center-balances · runAnalyticsQuery · ADR-0044 As built T56i1 · ccanalytics' backlog",
+        "src": "review:batch96",
         "c": []
        },
        {

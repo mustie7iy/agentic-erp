@@ -207,9 +207,10 @@ func TestAssetHistorySheet(t *testing.T) {
 	s.byAsset(t)
 }
 
-// totalsDiffer counts the tenant's asset year totals and class year totals
-// that differ from the sums of the movements they total (ADR-0057 §5),
-// either way, and the terms whose depreciation booked differs from minus
+// totalsDiffer counts the tenant's asset year totals, class year totals
+// and class period totals (As built, the consolidated sheet) that differ
+// from the sums of the movements they total (ADR-0057 §5), either way,
+// and the terms whose depreciation booked differs from minus
 // the sum of their asset's depreciation movements in their ledger (T57f3).
 func totalsDiffer(t *testing.T, tenant uuid.UUID) int {
 	t.Helper()
@@ -225,9 +226,24 @@ func totalsDiffer(t *testing.T, tenant uuid.UUID) int {
 			FROM m GROUP BY 1, 2, 3, 4),
 		k AS (SELECT legal_entity_id, ledger_id, fiscal_year, class_code, acquisitions::numeric AS a, retired_cost::numeric AS r,
 			transferred_cost::numeric AS t, depreciation::numeric AS d, retired_accumulated::numeric AS ra, transferred_accumulated::numeric AS ta
-			FROM assets.class_year_total WHERE tenant_id = $1)
+			FROM assets.class_year_total WHERE tenant_id = $1),
+		p AS (SELECT legal_entity_id, ledger_id, fiscal_year, fiscal_period, class_code,
+			coalesce(sum(cost) FILTER (WHERE kind = 'acquisition'), 0) AS a, coalesce(sum(cost) FILTER (WHERE kind = 'retirement'), 0) AS r,
+			coalesce(sum(cost) FILTER (WHERE kind LIKE 'transfer%'), 0) AS t, coalesce(sum(accumulated) FILTER (WHERE kind = 'depreciation'), 0) AS d,
+			coalesce(sum(accumulated) FILTER (WHERE kind = 'retirement'), 0) AS ra, coalesce(sum(accumulated) FILTER (WHERE kind LIKE 'transfer%'), 0) AS ta,
+			coalesce(sum(accumulated) FILTER (WHERE kind = 'impairment'), 0) AS il,
+			coalesce(sum(accumulated) FILTER (WHERE kind = 'impairment_reversal'), 0) AS ir,
+			coalesce(sum(accumulated_gc) FILTER (WHERE kind = 'depreciation'), 0) AS dg,
+			coalesce(sum(accumulated_gc) FILTER (WHERE kind = 'impairment'), 0) AS ilg,
+			coalesce(sum(accumulated_gc) FILTER (WHERE kind = 'impairment_reversal'), 0) AS irg
+		FROM assets.movement WHERE tenant_id = $1 GROUP BY 1, 2, 3, 4, 5),
+		q AS (SELECT legal_entity_id, ledger_id, fiscal_year, fiscal_period, class_code, acquisitions::numeric, retired_cost::numeric,
+			transferred_cost::numeric, depreciation::numeric, retired_accumulated::numeric, transferred_accumulated::numeric, impairment_losses::numeric,
+			impairment_reversals::numeric, depreciation_gc::numeric, impairment_losses_gc::numeric, impairment_reversals_gc::numeric
+			FROM assets.class_period_total WHERE tenant_id = $1)
 		SELECT (SELECT count(*) FROM ((SELECT * FROM m EXCEPT SELECT * FROM y) UNION ALL (SELECT * FROM y EXCEPT SELECT * FROM m)) a)
 			+ (SELECT count(*) FROM ((SELECT * FROM c EXCEPT SELECT * FROM k) UNION ALL (SELECT * FROM k EXCEPT SELECT * FROM c)) b)
+			+ (SELECT count(*) FROM ((SELECT * FROM p EXCEPT SELECT * FROM q) UNION ALL (SELECT * FROM q EXCEPT SELECT * FROM p)) d)
 			+ (SELECT count(*) FROM assets.asset_terms t WHERE t.tenant_id = $1 AND t.booked_depreciation <> -(SELECT coalesce(sum(d.accumulated), 0)
 				FROM assets.movement d WHERE d.tenant_id = t.tenant_id AND d.asset_id = t.asset_id AND d.ledger_id = t.ledger_id AND d.kind = 'depreciation'))`,
 		[]any{tenant}, &differences)

@@ -132,7 +132,7 @@ func TestSnapshotOperations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for id, want := range map[string]bool{"getCashPosition": true, "getAssetHistorySheet": true, "previewDepreciationRun": true,
+	for id, want := range map[string]bool{"getCashPosition": true, "getAssetHistorySheet": true, "getConsolidatedAssetHistorySheet": true, "previewDepreciationRun": true,
 		"getAsset": true, "listAssets": true, "getAssetSchedule": true, "getAssetAcquisition": true, "listAssetAcquisitions": true,
 		"getAssetRetirement": true, "listAssetRetirements": true, "getAssetTransfer": true, "listAssetTransfers": true, "getDepreciationRun": true,
 		"listDepreciationRuns": true, "listAssetClearingItems": true, "getProcessEventLog": true, "getProcessMap": true,

@@ -237,6 +237,7 @@ const (
 	GetCompanyAccessOperation                            OperationName = "GetCompanyAccess"
 	GetConfigVersionOperation                            OperationName = "GetConfigVersion"
 	GetConnectorOperation                                OperationName = "GetConnector"
+	GetConsolidatedAssetHistorySheetOperation            OperationName = "GetConsolidatedAssetHistorySheet"
 	GetConsolidatedStatementOperation                    OperationName = "GetConsolidatedStatement"
 	GetConsolidationGroupOperation                       OperationName = "GetConsolidationGroup"
 	GetConsolidationRunOperation                         OperationName = "GetConsolidationRun"

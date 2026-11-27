@@ -23488,6 +23488,541 @@ func (s *ConnectorUpdate) Validate() error {
 	return nil
 }
 
+func (s *ConsolidatedAssetHistorySheet) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := (validate.String{
+			MinLength:     0,
+			MinLengthSet:  false,
+			MaxLength:     0,
+			MaxLengthSet:  false,
+			Email:         false,
+			Hostname:      false,
+			Regex:         regexMap["^[A-Z]{3}$"],
+			MinNumeric:    0,
+			MinNumericSet: false,
+			MaxNumeric:    0,
+			MaxNumericSet: false,
+		}).Validate(string(s.Currency)); err != nil {
+			return errors.Wrap(err, "string")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "currency",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if s.Companies == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Companies {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "companies",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if s.Items == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Items {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "items",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Totals.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "totals",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ConsolidatedAssetHistorySheetCompany) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := (validate.String{
+			MinLength:     0,
+			MinLengthSet:  false,
+			MaxLength:     0,
+			MaxLengthSet:  false,
+			Email:         false,
+			Hostname:      false,
+			Regex:         regexMap["^[A-Z]{3}$"],
+			MinNumeric:    0,
+			MinNumericSet: false,
+			MaxNumeric:    0,
+			MaxNumericSet: false,
+		}).Validate(string(s.LocalCurrency)); err != nil {
+			return errors.Wrap(err, "string")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "local_currency",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if s.PeriodRates == nil {
+			return errors.New("nil is invalid value")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "period_rates",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Totals.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "totals",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ConsolidatedAssetHistorySheetRow) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.OpeningCost.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "opening_cost",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Acquisitions.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "acquisitions",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Retirements.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "retirements",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Transfers.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "transfers",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ExchangeDifferences.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "exchange_differences",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ClosingCost.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "closing_cost",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.OpeningAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "opening_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Depreciation.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "depreciation",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ImpairmentLosses.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "impairment_losses",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ImpairmentReversals.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "impairment_reversals",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.RetirementsAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "retirements_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.TransfersAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "transfers_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ExchangeDifferencesAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "exchange_differences_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ClosingAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "closing_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.OpeningNetBookValue.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "opening_net_book_value",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ClosingNetBookValue.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "closing_net_book_value",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ConsolidatedAssetHistorySheetValues) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.OpeningCost.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "opening_cost",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Acquisitions.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "acquisitions",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Retirements.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "retirements",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Transfers.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "transfers",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ExchangeDifferences.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "exchange_differences",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ClosingCost.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "closing_cost",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.OpeningAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "opening_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Depreciation.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "depreciation",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ImpairmentLosses.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "impairment_losses",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ImpairmentReversals.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "impairment_reversals",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.RetirementsAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "retirements_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.TransfersAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "transfers_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ExchangeDifferencesAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "exchange_differences_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ClosingAccumulated.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "closing_accumulated",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.OpeningNetBookValue.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "opening_net_book_value",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ClosingNetBookValue.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "closing_net_book_value",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
 func (s *ConsolidatedFigures) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -42404,6 +42939,38 @@ func (s *GetConnectorOKHeaders) Validate() error {
 	}
 	if len(failures) > 0 {
 		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *GetConsolidatedAssetHistorySheetBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetConsolidatedAssetHistorySheetForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetConsolidatedAssetHistorySheetNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetConsolidatedAssetHistorySheetUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

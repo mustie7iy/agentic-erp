@@ -45,3 +45,14 @@ columns:
   # again from the start by the next run (ADR-0044 As built batch 95).
   - {name: tax_jurisdiction, type: string, role: dimension, nullable: true}
   - {name: tax_base_minor, type: int64, role: measure, nullable: true}
+  # The line's account assignment by code, as the journal API shows it
+  # (cost_center_code, profit_center_code, segment_code; ADR-0050 §5): the
+  # cost center's code is unique in the line's company, the profit
+  # center's and the segment's in the tenant; null for a line without one.
+  # The semantic dimensions cost_center, profit_center and segment, so
+  # actuals are read by center. Added for T56i1; a journal written before
+  # them is extracted again from the start by the next run (ADR-0044 As
+  # built T56i1).
+  - {name: cost_center, type: string, role: dimension, nullable: true}
+  - {name: profit_center, type: string, role: dimension, nullable: true}
+  - {name: segment, type: string, role: dimension, nullable: true}

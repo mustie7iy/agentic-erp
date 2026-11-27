@@ -6407,7 +6407,7 @@ year_end_sign_off() {
 # through this period in the leading ledger by step 29's run, gets a
 # shorter useful life and a residual value from the next period on.
 step_asset_estimate() {
-  heading "Step 44 — A change in estimate and an impairment: the lathe's useful life and residual value changed from the next period on, the periods booked untouched; an impairment loss and its partial reversal"
+  heading "Step 44 — A change in estimate and an impairment: the lathe's useful life and residual value changed from the next period on, the periods booked untouched; an impairment loss and its partial reversal; the group's asset history sheet in its presentation currency"
   as carla
   say "At the year-end review Carla finds the lathe will last five years in all, not ten, and fetch CAD 500.00 at"
   say "the end (IAS 16.51). Its depreciation is booked through this period in the leading ledger, so its terms there"
@@ -6472,7 +6472,43 @@ step_asset_estimate() {
   sheet_reconciles "by asset, the lathe impaired"
   api 200 '"the lathe'"'"'s impairments: \([.items[] | "\(.kind) \(.amount.amount)"] | join(", "))"' listAssetImpairments -p "asset_id=$lathe"
   expect "the lathe's impairments" "$(field '[.items[].kind] | join(" ")')" "loss reversal"
+  asset_sheet_consolidated
   passed
+}
+
+# asset_sheet_consolidated is the group's asset history sheet in its
+# presentation currency (po:2026-11-09, B14; ADR-0057 As built, the
+# consolidated sheet), part of step_asset_estimate: Tom records the
+# dollar's rate of 31 December at the month-end's 1.40 (step 9), so the
+# year's period 12 has a closing rate and no amount changes; Carla reads
+# the group MAPLE's sheet for the year: Maple, in the group currency, at
+# rate 1 with no exchange differences, its rows its own sheet's by class;
+# Acme Corp US, which holds no assets, at its closing rate with nothing to
+# translate; every row, company and the totals reconcile, the net
+# exchange differences on translation included.
+asset_sheet_consolidated() {
+  local cols own
+  as tom
+  say "The group's sheet in its presentation currency translates each company's closing values at its closing rate of"
+  say "the year's period 12. Tom records the dollar's rate of 31 December, the month-end's 1.40 again:"
+  usd_rate "$YEAR-12-31" 1.40
+  as carla
+  say "Carla reads the group MAPLE's asset history sheet for $YEAR in CAD (IAS 16.73(e)): per class over Maple and Acme"
+  say "Corp US, the opening values at the previous period's closing rate, each period's movements at its own, the"
+  say "closing values at period 12's, and the net exchange differences on translation the rest (ADR-0057 As built):"
+  api 200 '"group \(.group_code) \(.group_name), \(.fiscal_year) (\(.start_date) to \(.end_date)) in \(.currency) at \(.rate_type) rates",
+    (.companies[] | "  \(.role) \(.company_code) \(.company_name) (\(.local_currency)): closing rate \(.closing_rate), \(.period_rates | length) period rates; net book value \(.totals.opening_net_book_value.amount) -> \(.totals.closing_net_book_value.amount), exchange differences \(.totals.exchange_differences.amount) and \(.totals.exchange_differences_accumulated.amount)"),
+    (.items[] | "  \(.class_code) \(.class_name // ""): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) + exchange \(.exchange_differences.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + \(.impairment_losses.amount) + \(.impairment_reversals.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) + exchange \(.exchange_differences_accumulated.amount) = \(.closing_accumulated.amount)")' \
+    getConsolidatedAssetHistorySheet -p code=MAPLE -p "fiscal_year=$YEAR"
+  expect "the companies and their closing rates" "$(field '[.companies[] | "\(.role) \(.company_code) \(.closing_rate) \(.period_rates | length)"] | join(", ")')" \
+    "parent $CC 1 0, member 1000 1.4 0"
+  expect "no exchange differences in the group currency" \
+    "$(field '[(.items[], .totals, .companies[].totals) | .exchange_differences.amount, .exchange_differences_accumulated.amount] | unique | join(" ")')" 0.00
+  cols='.opening_cost, .acquisitions, .retirements, .transfers, .closing_cost, .opening_accumulated, .depreciation, .impairment_losses, .impairment_reversals, .retirements_accumulated, .transfers_accumulated, .closing_accumulated'
+  sheet_reconciles "the group's sheet"
+  own="$(field "[.items[] | [.class_code, ($cols | .amount)] | join(\" \")] | join(\", \")")"
+  QUIET=1 api 200 '' getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "the group's rows, Maple's own sheet's" "$own" "$(field "[.items[] | [.class_code, ($cols | .amount)] | join(\" \")] | join(\", \")")"
 }
 
 # step_asset_held_for_sale is depreciation stopped at classification as
@@ -10119,7 +10155,32 @@ step_plan_version() {
     "$(field '[.items[] | select(.account_id == "'"$account"'" and (.cost_center_id == "'"$admin"'" or .cost_center_id == "'"$sales"'")) | "\(.cost_center_id) \(.plan.amount)"] | sort | join("; ")')" \
     "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
+  center_actuals_analytics "$admin"
   passed
+}
+
+# center_actuals_analytics CENTER is T56i1 (ADR-0044 As built T56i1): the
+# actual costs of cost center CC-1100 this year, asked of the semantic
+# layer as the governed metric expenses by account and cost center, which
+# the journal's lines carry by code, agree on every account with the cost
+# center's actual report (GET /v1/cost-center-balances, the authoritative
+# read): the settlement, distribution and assessment of steps 51-53 among
+# them.
+center_actuals_analytics() {
+  local center=$1 got want number
+  say "Carla asks the semantic layer for CC-1100's actual costs of $YEAR: the governed metric expenses by account and"
+  say "cost center, the journal's lines by the code of their cost center (ADR-0044 As built T56i1):"
+  api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value) on \(.[1].value): \(.[2].value) \(.[2].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"expenses\"], \"by\": [\"cost_center\", \"account\"], \"where\": [{\"dim\": \"cost_center\", \"op\": \"in\", \"values\": [\"CC-1100\"]}, {\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"], \"order_by\": \"account\"}"
+  got=$(field '[.rows[] | "\(.[1].value) \(.[2].value)"] | join("; ")')
+  [ -n "$got" ] || fail "no actual costs on CC-1100 in $YEAR: the earlier steps' postings are not there"
+  want=''
+  for number in $(field '[.rows[] | .[1].value] | join(" ")'); do
+    want="${want:+$want; }$number $(amount "$(center_costs "$center" "$(account "$number")")")"
+  done
+  say "The cost center's actual report, account by account (GET /v1/cost-center-balances):"
+  expect "expenses by cost center, the cost center report's actuals" "$got" "$want"
+  say "The governed metric expenses by cost center agrees with the report: CC-1100 $got CAD."
 }
 # step_planning_agent is T105e (ADR-0072, As built T105e): the planning
 # agent, erp agent plan through the model stand-in answering from a script
@@ -18810,8 +18871,9 @@ close_accrual_agent() {
 
 # close_accrual_decisions is T64f's part of step_close (ADR-0058 §6, §8):
 # the proposal Carla posted reads posted with its journal entry's number,
-# derived from its parked entry; the agent proposes a second accrual, which
-# Carla rejects with a reason, cancelling its parked entry; the close's
+# derived from its parked entry; the agent proposes a second accrual, may
+# neither reject it nor sign the close off (its never list), and Carla
+# rejects it with a reason, cancelling its parked entry; the close's
 # proposals are summed per status in CAD; and the check that every
 # proposal is decided passes.
 close_accrual_decisions() {
@@ -18834,8 +18896,15 @@ close_accrual_decisions() {
     proposeAccrual -body "{\"session_id\": \"$session\", \"close_id\": \"$close\", \"account_id\": \"$(account 6100)\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"45.00\", \"currency\": \"CAD\"}, \"description\": \"Implementation services of ${TODAY:0:7}\", \"reason\": \"Tyrell billed implementation services before; more may be owed for this month.\", \"evidence\": [{\"kind\": \"supplier_invoice\", \"document_id\": \"$invoice\"}]}"
   second=$(field .id)
   tag=$ETAG
+  say "It decides nothing (its never list, ADR-0058 §12): rejecting its own proposal and signing the close off are a"
+  say "person's, refused to an agent whatever its level."
+  refused 403 identity.agent_not_allowed rejectAccrualProposal -p "id=$second" -if-match "$tag" -body '{"reason": "Not needed after all."}'
+  refused 403 identity.agent_not_allowed signOffPeriodClose -p "id=$close" -if-match '"1"' -body '{}'
   QUIET=1 api 200 '' endAgentSession -p "id=$session" -if-match '*' -body '{"status": "completed", "input_tokens": 0, "output_tokens": 0}'
   as carla
+  QUIET=1 api 200 '' getAccrualProposal -p "id=$second"
+  expect "the proposal after the agent's refused rejection" "$(field .status)" proposed
+  tag=$ETAG
   say "The implementation was invoiced in full: Carla rejects the proposal with her reason, which cancels its parked entry."
   api 200 '"  proposal \(.id[0:8])…: \(.status) by \(.decided_by_name): \(.decision_reason)"' \
     rejectAccrualProposal -p "id=$second" -if-match "$tag" -body '{"reason": "The implementation was invoiced in full; nothing more is owed."}'
@@ -19609,13 +19678,16 @@ step_cash_orders() {
 # reconcile from opening to closing for cost and for accumulated
 # depreciation, impairment losses and their reversals included (ADR-0057
 # As built, impairment), and each net book value is its cost plus its
-# accumulated depreciation.
+# accumulated depreciation; for the group's sheet in its presentation
+# currency, its companies' totals too and the net exchange differences on
+# translation among the columns (As built, the consolidated sheet).
 sheet_reconciles() {
   expect "$1: rows and totals that do not reconcile from opening to closing" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
-    [(.items[], .totals) | select(
-      (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) != (.closing_cost | c)
+    def x(f): (f // {amount: "0"}) | c;
+    [(.items[], .totals, .companies[]?.totals) | select(
+      (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) + x(.exchange_differences) != (.closing_cost | c)
       or (.opening_accumulated | c) + (.depreciation | c) + (.impairment_losses | c) + (.impairment_reversals | c) + (.retirements_accumulated | c)
-        + (.transfers_accumulated | c) != (.closing_accumulated | c)
+        + (.transfers_accumulated | c) + x(.exchange_differences_accumulated) != (.closing_accumulated | c)
       or (.opening_cost | c) + (.opening_accumulated | c) != (.opening_net_book_value | c)
       or (.closing_cost | c) + (.closing_accumulated | c) != (.closing_net_book_value | c))] | length')" 0
 }

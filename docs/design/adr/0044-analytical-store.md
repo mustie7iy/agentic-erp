@@ -1298,6 +1298,62 @@ line as the journal API shows it (`tax_jurisdiction`, `tax_base_lc`).
   every metric's breakdowns, and the Dubai sale's 200.00 under AE-DU);
   analytics `TestDatasetContractShape` (a measure is a nullable int64).
 
+**The journal's centers (T56i1, ADR-0050 §7; decided by default).**
+Dataset `gl_lines` gains three nullable columns, additive in v1:
+`cost_center`, `profit_center` and `segment`, each line's account
+assignment by code, read from the line as the journal API shows it
+(`cost_center_code`, `profit_center_code`, `segment_code`, ADR-0050 §5).
+They are the semantic dimensions of the same names, of `revenue`, `income`
+and `expenses` (so of `operating_profit` and `operating_margin` too), read
+by the database path from `/v1/journal-entries` and by the store from the
+columns, null and empty alike being none; parity covers them. This is the
+first of T56i's three slices; the centers' names, periods and hierarchy
+nodes as snapshot datasets (`cost_center_name`, `cost_center_node`) are
+T56i2 and the plan metrics (`plan_amount`, `plan_variance`) T56i3.
+- *Codes, not ids.* A person filters by the code, as `account` is the
+  account's number and spend's `cost_center` the center's code (T91b),
+  whose dimension this is: one dimension for the cost center, whichever
+  dataset names it. A cost center's code is unique within its company
+  (`cost_center_code_once`), a profit center's and a segment's within
+  the tenant, so a breakdown by cost center over two companies adds two
+  companies' centers of one code together, as spend's does; the
+  dimension's description says so, and a person breaks down by company
+  too. The amounts are each line's local currency, and the currency guard
+  refuses a sum over two (product owner 2026-11-13).
+- *All three columns in one change.* A changed column list extracts the
+  journal again from the start (batch 95's mechanism, the manifest's
+  `columns`; no second one), once per contract change, so the profit
+  center and the segment come with the cost center rather than in a
+  second re-extraction. Until a tenant's next run has written the journal
+  again, the reader's view does not bind over the older files and the
+  store answers from the database (reader `TestCenterColumns`).
+- *Which metrics.* Revenue lines may carry a statistical cost center and
+  carry a profit center (ADR-0050 §5's table), expense lines both, so the
+  three journal metrics of the profit and loss take all three
+  dimensions. `open_payables` does not: a supplier line is on a balance
+  sheet account, which carries no cost center and a profit center only
+  when one is entered (P3).
+- *Permissions: the journal's.* The codes are on the journal lines the
+  API returns under `ledger.entry.read`, which every journal metric
+  already needs, so no permission is added; spend's `cost_center` needs
+  `ledger.cost_center.read` because its database path reads the codes
+  from `/v1/cost-centers`. The center balance reports' two permissions
+  (ADR-0050 §7, product owner 2026-10-25) keep their amounts behind the
+  entry read, which analytics' journal metrics hold too.
+- *Isolation.* The reader's and parity's isolation tests are unchanged
+  and pass; the reader's view is unchanged.
+- *Walkthrough.* Step 79 (`step_plan_version`, `center_actuals_analytics`)
+  asks CC-1100's expenses of the year by account and cost center and
+  finds each account's figure equal to the cost center's actual report
+  (`GET /v1/cost-center-balances`), the API's read being the
+  authoritative figure (lineage, above): the settlement, distribution and
+  assessment of steps 51-53 among them.
+- *Evidence.* extract `TestCenterColumns`,
+  `TestJournalExtractedAgainForCenters` (a manifest naming batch 95's
+  columns extracted again); reader `TestCenterColumns`; store `TestParity`
+  (the dimensions in every journal metric's breakdowns, and a reposting's
+  50.00 under CC100, PC10 and its 25.00 of revenue under SEG1).
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the

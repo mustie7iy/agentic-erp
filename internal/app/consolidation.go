@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/consolidation"
@@ -15,12 +16,12 @@ import (
 )
 
 // Consolidation is the consolidation context as the API wires it
-// (ADR-0059 §2): a leaf that reads the configuration, tenancy, ledger and
-// operations contexts through the adapters below, so none of them imports
-// it and it imports none of them.
+// (ADR-0059 §2): a leaf that reads the configuration, tenancy, ledger,
+// assets and operations contexts through the adapters below, so none of
+// them imports it and it imports none of them.
 func Consolidation(cfg Config) *consolidation.Endpoints {
 	return &consolidation.Endpoints{Settings: configuration.Settings{}, Companies: consolidationCompanies{}, Ledger: consolidationLedger{},
-		People: consolidationPeople{}, Runs: runOperations{kind: consolidation.KindRun}, Pages: cfg.Pages}
+		Assets: consolidationAssets{}, People: consolidationPeople{}, Runs: runOperations{kind: consolidation.KindRun}, Pages: cfg.Pages}
 }
 
 // consolidationCompanies gives the consolidation context the tenant's
@@ -38,6 +39,28 @@ func (consolidationCompanies) Entities(ctx context.Context) ([]consolidation.Com
 
 func (consolidationCompanies) GroupCurrency(ctx context.Context) (string, error) {
 	return tenancy.Directory{}.GroupCurrency(ctx)
+}
+
+// consolidationAssets gives the consolidation context the assets
+// context's class totals in the leading ledger (ADR-0057 As built, the
+// consolidated sheet), over the assets context's published
+// ConsolidationReads.
+type consolidationAssets struct{}
+
+func (consolidationAssets) ClassTotals(ctx context.Context, company uuid.UUID, year int16) ([]consolidation.AssetClassTotal, error) {
+	leading, err := ledger.ConsolidationReads{}.LeadingLedger(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ts, err := assets.ConsolidationReads{}.ClassTotals(ctx, company, leading, year)
+	out := make([]consolidation.AssetClassTotal, len(ts))
+	for i, x := range ts {
+		out[i] = consolidation.AssetClassTotal{Class: x.Class, Period: x.Period, AssetColumns: consolidation.AssetColumns{Acquisitions: x.Acquisitions,
+			Retirements: x.Retirements, Transfers: x.Transfers, Depreciation: x.Depreciation, ImpairmentLosses: x.ImpairmentLosses,
+			ImpairmentReversals: x.ImpairmentReversals, RetirementsAccumulated: x.RetirementsAccumulated, TransfersAccumulated: x.TransfersAccumulated},
+			Booked: consolidation.AssetBooked{Depreciation: x.DepreciationGC, ImpairmentLosses: x.ImpairmentLossesGC, ImpairmentReversals: x.ImpairmentReversalsGC}}
+	}
+	return out, err
 }
 
 // consolidationLedger gives the consolidation context the ledger's
