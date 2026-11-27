@@ -19,10 +19,11 @@ import (
 // profit center assigned to it) and with a period covering the day, but
 // judges activity before the company, unlike centerState, so a pending
 // profit center, assigned to its companies only at approval, is named not
-// active rather than another company's (costObjectState). It reads without locks, as CheckAssignments reads a document's items:
-// the document's next write and its posting check again. The centers'
-// locks are not read: they hold back postings of actual costs, revenue or
-// plan, and a custom field posts nothing.
+// active rather than another company's (costObjectState). It reads
+// without locks, as CheckAssignments reads a document's items: the
+// document's next write and its posting check again. The centers' locks
+// are not read: they hold back postings of actual costs, revenue or plan,
+// and a custom field posts nothing.
 type CostObjectReferences struct{}
 
 // CostObject implements extensions.CostObjects.
