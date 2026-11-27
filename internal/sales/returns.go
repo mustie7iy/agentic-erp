@@ -40,12 +40,12 @@ type ReturnsItem struct {
 	OrderItemNo   int32      `json:"order_item_no"`
 	MaterialID    *uuid.UUID `json:"material_id"`
 	ItemKey       *string    `json:"item_key"`
-	Description   string  `json:"description"`
-	Unit          string  `json:"unit"`
-	Billed        string  `json:"billed_quantity"`
-	Quantity      string  `json:"quantity"`
-	Received      string  `json:"received_quantity"`
-	Open          string  `json:"open_quantity"`
+	Description   string     `json:"description"`
+	Unit          string     `json:"unit"`
+	Billed        string     `json:"billed_quantity"`
+	Quantity      string     `json:"quantity"`
+	Received      string     `json:"received_quantity"`
+	Open          string     `json:"open_quantity"`
 }
 
 // ReturnsOrder is a row of sales.returns_order with its items: quantities
