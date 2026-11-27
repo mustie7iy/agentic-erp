@@ -52,6 +52,7 @@ var documentReadPermissions = map[string]string{
 	DocPaymentRun:         "payments.run.read",
 	DocMemoRecord:         "cash.memo.read",
 	DocPurchaseOrder:      "procurement.order.read",
+	DocSalesOrder:         "sales.order.read",
 }
 
 // FlowsQuery is what a drill-down lists: the legal entity's flows in the
@@ -91,7 +92,8 @@ type FlowPage struct {
 // ListedFlow is a flow as the drill-down lists it: its day, source,
 // certainty and lateness, whether the totals count it, its amount and the
 // share of the item asked for (its amount when none was), its supplier
-// (nil for a memo record or a caller who may not read suppliers), and the
+// (nil for a memo record or a caller who may not read suppliers), the
+// customer a receipt is from (T53l1, nil likewise), and the
 // documents it pays that the caller may read, out of DocumentCount.
 type ListedFlow struct {
 	Date              time.Time
@@ -99,6 +101,7 @@ type ListedFlow struct {
 	Late, Counted     bool
 	Amount, Share     money.Minor
 	Supplier          *PartnerName
+	Customer          *PartnerName
 	DocumentCount     int
 	Documents         []ListedDocument
 }
@@ -201,9 +204,9 @@ func drillHorizon(r reader, q FlowsQuery) (time.Time, error) {
 }
 
 // counted reports whether the forecast's totals count the flow: a blocked
-// supplier's only when asked.
+// supplier's, or a receipt held back, only when asked.
 func counted(f datedFlow, includeBlocked bool) bool {
-	return includeBlocked || f.source != SourcePayableBlocked
+	return includeBlocked || !blockedSource(f.source)
 }
 
 // drill are the flows of the query's currency in its range with a share
@@ -287,11 +290,7 @@ func (e *Endpoints) shown(ctx context.Context, page []keyed, includeBlocked bool
 		f := k.f
 		lf := ListedFlow{Date: f.date, Source: f.source, Certainty: f.certainty, Late: f.late, Counted: counted(f, includeBlocked), Amount: f.amount,
 			Share: k.share, DocumentCount: len(f.documents), Documents: []ListedDocument{}}
-		if f.supplier != nil {
-			if n, ok := names[*f.supplier]; ok {
-				lf.Supplier = &n
-			}
-		}
+		lf.Supplier, lf.Customer = lineRefs{names: names}.named(f.supplier), lineRefs{names: names}.named(f.customer)
 		for _, d := range f.documents {
 			v, err := mayUse(documentReadPermissions[d.Kind])
 			if err != nil {
@@ -323,19 +322,24 @@ func mayUse(ctx context.Context) func(permission string) (bool, error) {
 	}
 }
 
-// supplierNames are the page's suppliers by id (partnerNames).
+// supplierNames are the page's suppliers and customers by id
+// (partnerNames).
 func (e *Endpoints) supplierNames(ctx context.Context, page []keyed, mayUse func(string) (bool, error)) (map[uuid.UUID]PartnerName, error) {
 	var ids []uuid.UUID
 	for _, k := range page {
-		if k.f.supplier != nil && !slices.Contains(ids, *k.f.supplier) {
-			ids = append(ids, *k.f.supplier)
+		for _, id := range []*uuid.UUID{k.f.supplier, k.f.customer} {
+			if id != nil && !slices.Contains(ids, *id) {
+				ids = append(ids, *id)
+			}
 		}
 	}
 	return e.partnerNames(ctx, ids, mayUse)
 }
 
-// partnerNames are the suppliers by id, read only when there are some and
-// the caller may read suppliers; none otherwise.
+// partnerNames are the suppliers and customers by id, read only when
+// there are some and the caller may read business partners
+// (partner.supplier.read, the partner context's read of every partner);
+// none otherwise.
 func (e *Endpoints) partnerNames(ctx context.Context, ids []uuid.UUID, mayUse func(string) (bool, error)) (map[uuid.UUID]PartnerName, error) {
 	if len(ids) == 0 {
 		return nil, nil

@@ -8,6 +8,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/agents"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
+	"github.com/mustie7iy/agentic-erp/internal/collections"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
@@ -17,13 +18,16 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
+	"github.com/mustie7iy/agentic-erp/internal/receivables"
+	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Cash is the cash context as the API wires it (ADR-0051 §2): a leaf that
 // reads the tenancy, payments, ledger, payables and agents contexts through the
-// adapters below, and procurement's orders through payables, so none of
-// them imports it and it imports none of them.
+// adapters below, and procurement's orders through payables, and since
+// T53l1 the receivables, collections and sales contexts' published reads,
+// so none of them imports it and it imports none of them.
 func Cash(cfg Config) *cash.Endpoints {
 	// Posting's own dependencies: the forecast reads an invoice, and an
 	// order's open value, as posting would (T53e2, T53g).
@@ -31,7 +35,8 @@ func Cash(cfg Config) *cash.Endpoints {
 	return &cash.Endpoints{LegalEntities: cashCompanies{}, Settings: configuration.Settings{},
 		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}, Owed: ledger.OpenItems{}, Payees: partner.Payees{},
 			Unposted: invoices, Requests: downPayments{}, Orders: invoices}},
-		Ledger: cashLedger{}, Sessions: agents.Sessions{}, Partners: cashPartners{},
+		Ledger: cashLedger{}, Receivables: cashReceivables{items: Receivables(cfg), holds: collections.Holds{}}, SalesOrders: cashSales{orders: Sales(cfg)},
+		Sessions: agents.Sessions{}, Partners: cashPartners{},
 		Treasury: cashTreasury{integration.TreasuryChannels{Secrets: resolver(cfg.Secrets), Control: cfg.SFTPControl}},
 		Pages:    cfg.Pages, Now: cfg.Now, Consistent: consistent(cfg)}
 }
@@ -297,4 +302,45 @@ func (cashDisclosure) Disclose(_ context.Context, e configuration.Evidence, acce
 	}
 	e.Detail, e.Summary = detail, summary
 	return e, nil
+}
+
+// cashReceivables gives the forecast the customer open items receivables
+// publishes (receivables.Endpoints.CashItems), each marked held when
+// collections holds it back on the day (collections.Holds), as the
+// forecast reads them (ADR-0051 §4, As built T53l1).
+type cashReceivables struct {
+	items *receivables.Endpoints
+	holds collections.Holds
+}
+
+func (c cashReceivables) Receivables(ctx context.Context, legalEntity uuid.UUID, on time.Time) ([]cash.Receivable, error) {
+	items, err := c.items.CashItems(ctx, legalEntity)
+	if err != nil || len(items) == 0 {
+		return nil, err
+	}
+	heldItems, heldCustomers, err := c.holds.Held(ctx, legalEntity, on)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]cash.Receivable, len(items))
+	for i, it := range items {
+		out[i] = cash.Receivable{Customer: it.PartnerID, Currency: it.Currency, Due: it.Due, Amount: it.Amount,
+			Held:     heldItems[it.ItemRef] || heldCustomers[it.PartnerID],
+			Document: cash.Document{Kind: cash.DocJournalEntry, ID: it.EntryID, Number: it.Number}}
+	}
+	return out, nil
+}
+
+// cashSales gives the forecast the open sales orders sales publishes
+// (sales.Endpoints.CashOrders, ADR-0051 §4, As built T53l1).
+type cashSales struct{ orders *sales.Endpoints }
+
+func (c cashSales) Orders(ctx context.Context, legalEntity uuid.UUID) ([]cash.SalesOrder, error) {
+	orders, err := c.orders.CashOrders(ctx, legalEntity)
+	out := make([]cash.SalesOrder, len(orders))
+	for i, o := range orders {
+		out[i] = cash.SalesOrder{Customer: o.Customer, Currency: o.Currency, OrderDate: o.OrderDate, DeliveryDate: o.DeliveryDate, NetDays: o.NetDays,
+			Gross: o.Gross, Document: cash.Document{Kind: cash.DocSalesOrder, ID: o.ID, Number: o.Number}}
+	}
+	return out, err
 }

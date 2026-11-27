@@ -710,7 +710,8 @@ snapshot of each date, with `snapshot_id` (its id), `line_no`, `company`,
 (its code, null for a flow of no bank), `flow_source` (the line's source,
 named so that it is not read as the answer's own `source`, review of
 T53j2, renamed in v1 before any release), `certainty`, `blocked`
-(a blocked supplier's flow, source `payable_blocked`), `liquidity_item` and
+(a blocked supplier's flow, source `payable_blocked`, or since T53l1 a
+customer's receipt held back, `receivable_blocked`), `liquidity_item` and
 `liquidity_item_name` (null for no item), and the signed amount as
 `amount_minor`, `currency`, `exponent`; one file per month of value dates.
 The semantic layer's metrics `forecast_lag_0`, `forecast_lag_7` and
@@ -742,7 +743,7 @@ Decisions:
   version, a changed grain).
 - *Blocked suppliers' flows kept, and left out by the metrics.* The
   forecast's totals and the variance leave `payable_blocked` out (ADR-0051
-  §9 As built T53e2); the rows keep them, as listCashSnapshotFlows does,
+  §9 As built T53e2), and `receivable_blocked` since T53l1; the rows keep them, as listCashSnapshotFlows does,
   and the metrics filter `blocked` false, as `open_payables` filters
   `cleared`, so a source added later (ADR-0051 §4: receivables, tax) is
   counted without the metric changing.
