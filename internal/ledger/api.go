@@ -320,13 +320,9 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 		return &gen.JournalEntryPage{Items: []gen.JournalEntry{}}, nil
 	}
 	where, args := entryFilter(params, ledgerID)
-	// The page is chosen in a subquery and only its entries are read with
-	// their lines, names and currencies. In one query the lines' subquery,
-	// costed per entry the scan returns, made the scans along a ledger page
-	// index and along the page index without the ledger cost the same
-	// within the planner's 1% margin, and the shallower one, without the
-	// ledger, won on its start-up cost: a page read its copies in the other
-	// ledger too (TestListReadsOnlyItsLedgersPage, ADR-0045 As built finfix).
+	// The page is chosen in a subquery, so the lines' per-entry cost does
+	// not reach the scan's choice of index, which it once tipped to the page
+	// index without the ledger (ADR-0045 As built finfix).
 	pageSQL, args := ks.SQL(`SELECT e.* FROM ledger.journal_entry e WHERE ($1 OR e.legal_entity_id = ANY($2))`+where,
 		append([]any{access.All, access.IDs}, args...))
 	rows, _ := tx.Query(ctx, entryColumns+` FROM (`+pageSQL+`) e`+entryJoins+` ORDER BY `+ks.Order(), args...)

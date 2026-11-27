@@ -189,8 +189,8 @@ start-up cost and a page read its copies too. One case is left: when the
 statistics put the company at about one entry (a company they have not
 yet seen, as in a journal shared by more companies than the statistics
 keep values of), both scans cost one entry and the shallower ledger-less
-index still wins, reading at most the page's copies in the company's
-other ledgers besides; dropping the ledger-less page indexes, the
+index still wins, reading about the page again per other ledger of the
+company (the rows stay right); dropping the ledger-less page indexes, the
 contract step below, closes it. **Decided by default** (for the
 product owner's review): no extended statistics object. The planner's
 misestimate of the ledger's selectivity (across every tenant's ledgers)
