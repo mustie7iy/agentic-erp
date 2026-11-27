@@ -7461,13 +7461,14 @@ erDiagram
   sop_plan { uuid id PK
     uuid legal_entity_id "tenancy"
     integer number "from 1, once per company"
-    text status "draft, fixed"
+    text status "draft, submitted, fixed"
     date as_of "the company's day reviewed on"
     date first_day "as_of + 1"
     date last_day "its last month's last day"
     smallint months "1 to 12"
     timestamptz fixed_at "once fixed"
     uuid fixed_by "once fixed"
+    uuid approval_request_id "workflow: its latest request"
     integer version }
   sop_plan_line { uuid plan_id PK
     text material_group PK
@@ -7486,13 +7487,16 @@ erDiagram
 ```
 
 - `mrp.sop_plan`: a version of a company numbered from 1, once per
-  company (`sop_plan_number_once`, `sop_plan_number_check`), `draft` or
-  `fixed` (`sop_plan_status_check`), of 1 to 12 months
+  company (`sop_plan_number_once`, `sop_plan_number_check`), `draft`,
+  `submitted` (S2n2: waiting for its approval request, which it names,
+  `sop_plan_submitted`) or `fixed` (`sop_plan_status_check`), of 1 to 12 months
   (`sop_plan_months_check`) from the day after its review to the last day
   of its last month (`sop_plan_horizon`); a fixed one names who fixed it
   and when (`sop_plan_fixed_by`). A fixed version changes no more, its
-  company, number and horizon never, and none is deleted
-  (`sop_plan_fixed`, a trigger). Its version moves with every change
+  company, number and horizon never, a submitted one only as its request
+  is decided (fixed, or a draft again), it names a new request only as it
+  is submitted, and none is deleted (`sop_plan_fixed`, a trigger;
+  migration 000494). Its version moves with every change
   (`sop_plan_touch`); lists read by `sop_plan_by_created_at`.
 - `mrp.sop_plan_line`: a version's line per material group
   (`sop_plan_line_material_group_check`), base unit
@@ -7501,6 +7505,7 @@ erDiagram
   (`sop_plan_line_*_check`), its forecast never below its orders
   (`sop_plan_line_forecast_covers_orders`). A line is added to a draft
   alone, only its consensus changes, and only while its version is a
-  draft; no line is deleted (`sop_plan_line_fixed`, a trigger). The application updates
+  draft (not while submitted); no line is deleted (`sop_plan_line_fixed`, a trigger). The application updates
   the consensus alone.
-- Permissions `mrp.sop.read` and `mrp.sop.write`.
+- Permissions `mrp.sop.read` and `mrp.sop.write`; `mrp.sop.approve`, an
+  approval permission (S2n2, migration 000494).

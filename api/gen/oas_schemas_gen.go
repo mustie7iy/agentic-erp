@@ -29664,6 +29664,7 @@ func (*ConflictHeaders) submitChangeRequestRes()                         {}
 func (*ConflictHeaders) submitPaymentRunRes()                            {}
 func (*ConflictHeaders) submitPurchaseOrderChangeRes()                   {}
 func (*ConflictHeaders) submitRequisitionRes()                           {}
+func (*ConflictHeaders) submitSopPlanRes()                               {}
 func (*ConflictHeaders) takeCashSnapshotRes()                            {}
 func (*ConflictHeaders) terminateContractRes()                           {}
 func (*ConflictHeaders) transmitBankFileRes()                            {}
@@ -52591,6 +52592,10 @@ type FixSopPlanPreconditionRequired Problem
 
 func (*FixSopPlanPreconditionRequired) fixSopPlanRes() {}
 
+type FixSopPlanUnprocessableEntity Problem
+
+func (*FixSopPlanUnprocessableEntity) fixSopPlanRes() {}
+
 // A document a variance comment cites: one the attribution of the variance it explains lists
 // (`listForecastVarianceDocuments`).
 // Ref: #/components/schemas/ForecastVarianceCitation
@@ -58377,6 +58382,7 @@ func (s *GetSopPlanOKHeaders) SetResponse(val SopPlan) {
 
 func (*GetSopPlanOKHeaders) fixSopPlanRes()    {}
 func (*GetSopPlanOKHeaders) getSopPlanRes()    {}
+func (*GetSopPlanOKHeaders) submitSopPlanRes() {}
 func (*GetSopPlanOKHeaders) updateSopPlanRes() {}
 
 type GetStatisticalKeyFigureBadRequest Problem
@@ -122361,8 +122367,10 @@ type SopPlan struct {
 	CompanyCode string `json:"company_code"`
 	// The version's number in the company, from 1.
 	Number int32 `json:"number"`
-	// `draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients
-	// must accept and preserve values not listed here; values may be added within /v1.
+	// `draft` while its consensus changes; `submitted` while its approval request is pending, where the
+	// company's plans are approved (`submitSopPlan`), back to `draft` when the request is rejected or
+	// withdrawn; then `fixed`, which changes no more. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The company's day it reviewed on.
 	AsOf time.Time `json:"as_of"`
@@ -122374,8 +122382,15 @@ type SopPlan struct {
 	Months int32 `json:"months"`
 	// When it was fixed; absent while it is a draft.
 	FixedAt OptDateTime `json:"fixed_at"`
-	// Who fixed it; absent while it is a draft.
+	// Who fixed it: the planner who fixed or submitted it where the company's plans need no approval, else
+	// the approver of the approval's last step; absent until it is fixed.
 	FixedBy OptUUID `json:"fixed_by"`
+	// Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason,
+	// and its `status`, which says how it ended): pending while it is `submitted`, approved when it was
+	// `fixed` by that approval, rejected or cancelled after it went back to `draft`. A version fixed
+	// without approval (its company asking none any more) after a rejection or withdrawal keeps naming
+	// that rejected or cancelled request; absent while it was never submitted.
+	ApprovalRequestID OptUUID `json:"approval_request_id"`
 	// Per material group, unit and month, by group, unit and month.
 	Lines []SopPlanLine `json:"lines"`
 }
@@ -122458,6 +122473,11 @@ func (s *SopPlan) GetFixedAt() OptDateTime {
 // GetFixedBy returns the value of FixedBy.
 func (s *SopPlan) GetFixedBy() OptUUID {
 	return s.FixedBy
+}
+
+// GetApprovalRequestID returns the value of ApprovalRequestID.
+func (s *SopPlan) GetApprovalRequestID() OptUUID {
+	return s.ApprovalRequestID
 }
 
 // GetLines returns the value of Lines.
@@ -122543,6 +122563,11 @@ func (s *SopPlan) SetFixedAt(val OptDateTime) {
 // SetFixedBy sets the value of FixedBy.
 func (s *SopPlan) SetFixedBy(val OptUUID) {
 	s.FixedBy = val
+}
+
+// SetApprovalRequestID sets the value of ApprovalRequestID.
+func (s *SopPlan) SetApprovalRequestID(val OptUUID) {
+	s.ApprovalRequestID = val
 }
 
 // SetLines sets the value of Lines.
@@ -125127,6 +125152,30 @@ func (*SubmitRequisitionPreconditionRequired) submitRequisitionRes() {}
 type SubmitRequisitionUnprocessableEntity Problem
 
 func (*SubmitRequisitionUnprocessableEntity) submitRequisitionRes() {}
+
+type SubmitSopPlanBadRequest Problem
+
+func (*SubmitSopPlanBadRequest) submitSopPlanRes() {}
+
+type SubmitSopPlanForbidden Problem
+
+func (*SubmitSopPlanForbidden) submitSopPlanRes() {}
+
+type SubmitSopPlanNotFound Problem
+
+func (*SubmitSopPlanNotFound) submitSopPlanRes() {}
+
+type SubmitSopPlanPreconditionFailed Problem
+
+func (*SubmitSopPlanPreconditionFailed) submitSopPlanRes() {}
+
+type SubmitSopPlanPreconditionRequired Problem
+
+func (*SubmitSopPlanPreconditionRequired) submitSopPlanRes() {}
+
+type SubmitSopPlanUnprocessableEntity Problem
+
+func (*SubmitSopPlanUnprocessableEntity) submitSopPlanRes() {}
 
 // Company-specific supplier data.
 // Ref: #/components/schemas/SupplierCompany
@@ -130248,6 +130297,7 @@ func (*TooManyRequestsHeaders) submitChangeRequestRes()                         
 func (*TooManyRequestsHeaders) submitPaymentRunRes()                            {}
 func (*TooManyRequestsHeaders) submitPurchaseOrderChangeRes()                   {}
 func (*TooManyRequestsHeaders) submitRequisitionRes()                           {}
+func (*TooManyRequestsHeaders) submitSopPlanRes()                               {}
 func (*TooManyRequestsHeaders) takeCashSnapshotRes()                            {}
 func (*TooManyRequestsHeaders) terminateContractRes()                           {}
 func (*TooManyRequestsHeaders) transmitBankFileRes()                            {}
@@ -131263,6 +131313,7 @@ func (*UnauthorizedHeaders) submitChangeRequestRes()                         {}
 func (*UnauthorizedHeaders) submitPaymentRunRes()                            {}
 func (*UnauthorizedHeaders) submitPurchaseOrderChangeRes()                   {}
 func (*UnauthorizedHeaders) submitRequisitionRes()                           {}
+func (*UnauthorizedHeaders) submitSopPlanRes()                               {}
 func (*UnauthorizedHeaders) takeCashSnapshotRes()                            {}
 func (*UnauthorizedHeaders) terminateContractRes()                           {}
 func (*UnauthorizedHeaders) transmitBankFileRes()                            {}

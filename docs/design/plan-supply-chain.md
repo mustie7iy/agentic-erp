@@ -1318,7 +1318,8 @@ plant from its goods issues and open orders and states its accuracy
 capacity by material group and month and fixes a consensus plan version.
 **Later for Demand forecasting and S&OP:** statistical models beyond the
 agent's, promotions, collaborative forecasts with customers, IBP's
-supply optimisation.
+supply optimisation, scenario comparison, capacity, approval tiers by a
+plan's value or deviation (the consensus plan's approval is S2n2).
 
 - **Detailed and as built** (lane sop, 2026-11-22; one slice, one leaf;
   decided by default, ADR-0082 As built S2n and ADR-0084 As built S2n):
@@ -1338,6 +1339,19 @@ supply optimisation.
   inventory's `PlantIssues`, sales' `PlantRequirementsDue` and
   procurement's `TransportReceipts` and `IntercompanyDue`, new in their published APIs.
   Migration 000447; walkthrough step 159 (`step_sop_review`).
+- **S2n2 approval of the consensus plan** (lane sopapprove, 2026-11-26;
+  the first item of "later: S&OP variants"; ADR-0084 As built S2n2).
+  **Adds:** `companies[].sop_approval.steps` (off by default),
+  `submitSopPlan`, status `submitted` and `approval_request_id`, object
+  type `sop_plan` with the approval permission `mrp.sop.approve`, problems
+  `mrp.sop_plan_submitted` and `mrp.sop_approval_required`; migration
+  000494. **Acceptance:** where a company names steps, a version is
+  submitted, not fixed; its consensus changes no more while it waits;
+  approved by distinct people step by step it is fixed by the last
+  approver; rejected or withdrawn it is a draft again; a company without
+  steps fixes as before. A planning run does not read the consensus plan
+  today, so nothing links runs to approved plans. **Walkthrough:** step
+  159, `step_sop_review`.
 
 ### S2o SAP migration of the material master (pilot)
 

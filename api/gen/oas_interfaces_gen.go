@@ -2641,6 +2641,10 @@ type SubmitRequisitionRes interface {
 	submitRequisitionRes()
 }
 
+type SubmitSopPlanRes interface {
+	submitSopPlanRes()
+}
+
 type TakeCashSnapshotRes interface {
 	takeCashSnapshotRes()
 }

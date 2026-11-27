@@ -6223,8 +6223,15 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "An S&OP plan version is submitted and approved through the approval engine by its company's steps (companies[].sop_approval, off by default), frozen once approved; rejected or withdrawn, a draft again; people only",
+      "r": "S2n2 · docs/design/plan-supply-chain.md §S2n (S2n2) · ADR-0084 As built S2n2 · internal/mrp sopapprove.go · migration 000494 · submitSopPlan · approvals.SopPlan · mrp.sop.approve · mrp.sop_plan_submitted, mrp.sop_approval_required · TestSopApproval, TestSopSubmitWithoutApproval, TestSopApprovalRefusals · walkthrough step_sop_review (step 159)",
+      "src": "po:2026-11-17 · adr:ADR-0084",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: S&OP variants: capacity and supply optimisation, scenario comparison, approval of the consensus plan (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: S&OP variants: capacity and supply optimisation, scenario comparison (the consensus plan's approval is S2n2; after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2n, Later",
       "src": "baseline",
       "c": []

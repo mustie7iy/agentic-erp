@@ -332,6 +332,10 @@ func TestSopDatabaseFailures(t *testing.T) {
 			_, err := h.FixSopPlan(ctx, gen.FixSopPlanParams{ID: id, IfMatch: tag})
 			return err
 		},
+		"submit": func(ctx context.Context) error {
+			_, err := h.SubmitSopPlan(ctx, gen.SubmitSopPlanParams{ID: id, IfMatch: tag})
+			return err
+		},
 		"list": func(ctx context.Context) error { _, err := h.ListSopPlans(ctx, gen.ListSopPlansParams{}); return err },
 	}
 	for name, call := range calls {

@@ -316,6 +316,18 @@ type Company struct {
 	// payments (ADR-0063 §6): the payment differences it writes off
 	// (T75f). None: a receipt is applied exactly.
 	Receivables Receivables `yaml:"receivables,omitempty" json:"receivables,omitzero"`
+	// SopApproval is how the company's S&OP plan versions are approved
+	// before they are fixed as its consensus plan (ADR-0084 As built S2n2;
+	// approvals.SopPlan). No steps, the default: a planner fixes a version
+	// at once, as before approval existed.
+	SopApproval SopApproval `yaml:"sop_approval,omitempty" json:"sop_approval,omitzero"`
+}
+
+// SopApproval is the steps an S&OP plan version's approval takes, in
+// order: each a role and the number of distinct people holding it who
+// approve (ADR-0084 As built S2n2).
+type SopApproval struct {
+	Steps []ApprovalStep `yaml:"steps,omitempty" json:"steps,omitempty"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a

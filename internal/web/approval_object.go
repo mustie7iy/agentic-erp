@@ -166,6 +166,10 @@ var objectReads = map[string]objectRead{
 		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetPhysicalInventoryDocument(ctx, gen.GetPhysicalInventoryDocumentParams{ID: id})
 		})},
+	"sop_plan": {op: Operation{ID: "getSopPlan", HiddenBy: "mrp.sop.read", PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+			return c.GetSopPlan(ctx, gen.GetSopPlanParams{ID: id})
+		})},
 }
 
 // creditLimitSummary is a credit limit change as its approver judges it:

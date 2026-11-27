@@ -666,6 +666,7 @@ const (
 	SubmitPaymentRunOperation                            OperationName = "SubmitPaymentRun"
 	SubmitPurchaseOrderChangeOperation                   OperationName = "SubmitPurchaseOrderChange"
 	SubmitRequisitionOperation                           OperationName = "SubmitRequisition"
+	SubmitSopPlanOperation                               OperationName = "SubmitSopPlan"
 	TakeCashSnapshotOperation                            OperationName = "TakeCashSnapshot"
 	TerminateContractOperation                           OperationName = "TerminateContract"
 	TransmitBankFileOperation                            OperationName = "TransmitBankFile"

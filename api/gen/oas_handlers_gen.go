@@ -3666,10 +3666,11 @@ func (s *Server) handleApplyPlanBatchRequest(args [0]string, argsEscaped bool, w
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 // `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
 // is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of
-// `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that
-// refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
-// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
-// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
+// `tax_manager` who did not prepare it, an S&OP plan version (`sop_plan`) becomes `fixed`, fixed by
+// the approver of the last step). A manual entry is checked again as it is posted: when that refuses
+// it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name
+// the parked entry's), the approval is refused and the request stays pending; so is a bank statement
+// line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
 // `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
 // the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's
 // release (`payment_run_release`) is approved by a holder of the release role who did not propose the
@@ -5633,7 +5634,8 @@ func (s *Server) handleCallOffScheduleLineRequest(args [2]string, argsEscaped bo
 // handleCancelApprovalRequestRequest handles cancelApprovalRequest operation.
 //
 // Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may
-// cancel requests they raised (cancelling is not an approval decision). Recorded as a decision.
+// cancel requests they raised (cancelling is not an approval decision). Recorded as a decision. A
+// withdrawn S&OP plan version (`sop_plan`) goes back to `draft`.
 //
 // POST /v1/approval-requests/{id}:cancel
 func (s *Server) handleCancelApprovalRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -39993,8 +39995,10 @@ func (s *Server) handleFinalizeConsolidationRunRequest(args [1]string, argsEscap
 // Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built
 // S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus
 // included (the database refuses any change); the company's consensus plan is its fixed version with
-// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only
-// (`x-agent: false`).
+// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted 409
+// `mrp.sop_plan_submitted`. Where the company's plans are approved (its configuration's `sop_approval`
+// names steps), a planner does not fix one: 409 `mrp.sop_approval_required`, submit it
+// (`submitSopPlan`). Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/sop-plans/{id}:fix
 func (s *Server) handleFixSopPlanRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -124756,7 +124760,8 @@ func (s *Server) handleRejectAccrualProposalRequest(args [1]string, argsEscaped 
 // object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 // supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
 // (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax
-// return (`tax_return`) releases its tax items.
+// return (`tax_return`) releases its tax items; a rejected S&OP plan version (`sop_plan`) goes back to
+// `draft`, its consensus to be changed and submitted again.
 //
 // POST /v1/approval-requests/{id}:reject
 func (s *Server) handleRejectApprovalRequestRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -139265,6 +139270,211 @@ func (s *Server) handleSubmitRequisitionRequest(args [1]string, argsEscaped bool
 	}
 }
 
+// handleSubmitSopPlanRequest handles submitSopPlan operation.
+//
+// Submits a `draft` plan version for approval at the caller's version (`If-Match`, 412 otherwise;
+// ADR-0084 As built S2n2): where its company's configuration names approval steps
+// (`companies[].sop_approval`: each a role and the number of distinct approvers it needs, in order),
+// an approval request is opened (object type `sop_plan`, `approval_request_id`; approvers hold
+// `mrp.sop.approve` and the step's role, never the requester) and the version is `submitted`: its
+// consensus changes no more while the request is pending (409 `mrp.sop_plan_submitted`); approved at
+// its last step it becomes `fixed`, fixed by that approver; rejected or withdrawn it goes back to
+// `draft`. Where the company names no steps (the default) it is fixed at once, as `fixSopPlan` fixes
+// it. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted already 409
+// `mrp.sop_plan_submitted`; a step naming a role that is not active is 422 `workflow.unknown_role`.
+// Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/sop-plans/{id}:submit
+func (s *Server) handleSubmitSopPlanRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("submitSopPlan"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/sop-plans/{id}:submit"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), SubmitSopPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: SubmitSopPlanOperation,
+			ID:   "submitSopPlan",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, SubmitSopPlanOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeSubmitSopPlanParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response SubmitSopPlanRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    SubmitSopPlanOperation,
+			OperationSummary: "Submit an S&OP plan version for approval",
+			OperationID:      "submitSopPlan",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = SubmitSopPlanParams
+			Response = SubmitSopPlanRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackSubmitSopPlanParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.SubmitSopPlan(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.SubmitSopPlan(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeSubmitSopPlanResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleTakeCashSnapshotRequest handles takeCashSnapshot operation.
 //
 // Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f),
@@ -148262,8 +148472,10 @@ func (s *Server) handleUpdateSegmentRequest(args [1]string, argsEscaped bool, w 
 // key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set
 // to `null` is refused (400); a change to what every named line already is is 422
 // `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A
-// fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's
-// consensus before and after. Human-only (`x-agent: false`).
+// fixed version changes no more (409 `mrp.sop_plan_fixed`); a submitted one not while its approval
+// request is pending (409 `mrp.sop_plan_submitted`: withdraw the request, `cancelApprovalRequest`, to
+// change it). JSON Merge Patch. Audited with each line's consensus before and after. Human-only
+// (`x-agent: false`).
 //
 // PATCH /v1/sop-plans/{id}
 func (s *Server) handleUpdateSopPlanRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

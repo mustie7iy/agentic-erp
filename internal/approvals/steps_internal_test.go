@@ -428,3 +428,25 @@ func TestReleaseSteps(t *testing.T) {
 		t.Errorf("permission: got %q, want %q", got, want)
 	}
 }
+
+// TestSopPlanSteps (ADR-0084 As built S2n2): an S&OP plan version takes
+// its company's sop_approval steps in order; a company without them, or
+// one the configuration lacks, asks none, so the version is fixed at once.
+func TestSopPlanSteps(t *testing.T) {
+	doc := &config.Config{Companies: []config.Company{{Code: "1000", SopApproval: config.SopApproval{Steps: []config.ApprovalStep{
+		{Role: "sop_lead", Approvals: 2}, {Role: "controller", Approvals: 1}}}}, {Code: "2000"}}}
+	for company, want := range map[string]string{"1000": "[{sop_lead 2} {controller 1}]", "2000": "[]", "9999": "[]"} {
+		t.Run(company, func(t *testing.T) {
+			got, err := steps(context.Background(), nil, doc, NewRequest{ObjectType: SopPlan, Company: company})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(got) != want {
+				t.Errorf("got %v, want %s", got, want)
+			}
+		})
+	}
+	if got, want := ObjectPermissions[SopPlan], "mrp.sop.approve"; got != want {
+		t.Errorf("its permission: got %s, want %s", got, want)
+	}
+}

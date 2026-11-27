@@ -57,9 +57,9 @@ var Reads = []string{"listPlanCategories", "listPlanLines", "listCostCenterPlanA
 // category and creating one, every write of planning, which its tools
 // hold none of; materials' planning data at plants (S2k, ADR-0084),
 // which a person keeps; and S&OP plan versions (S2n), which a planner
-// fixes.
+// fixes or submits for approval (S2n2).
 var Never = []string{"applyPlanBatch", "copyPlanCategory", "lockPlanCategory", "unlockPlanCategory", "createPlanCategory", "createMaterialPlan", "updateMaterialPlan",
-	"createSopPlan", "updateSopPlan", "fixSopPlan"}
+	"createSopPlan", "updateSopPlan", "fixSopPlan", "submitSopPlan"}
 
 const system = `You propose the plan of a fiscal year for a plan category of a company, for a controller to decide and apply.
 

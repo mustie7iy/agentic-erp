@@ -481,6 +481,7 @@ func approvalHandlers(cfg Config) map[string]approvals.Handler {
 		approvals.MaterialChange:      materials.Approvals{Endpoints: Materials(cfg)},
 		approvals.CreditLimitChange:   credit.Approvals{Endpoints: Credit(cfg)},
 		approvals.InventoryDifference: inventory.Approvals{Endpoints: Inventory(cfg)},
+		approvals.SopPlan:             mrp.SopApprovals{},
 	}
 }
 
