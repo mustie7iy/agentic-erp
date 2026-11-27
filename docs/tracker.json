@@ -2188,8 +2188,8 @@
      },
      {
       "s": "T",
-      "t": "An agent can change or cancel the parked entry of its own accrual proposal: parkJournalEntry, updateParkedJournalEntry and cancelParkedJournalEntry are x-autonomy: propose and the ledger's owner rule lets the agent that parked an entry no person has taken on change or cancel it, so a level-1 close agent holding ledger.entry.park (which proposeAccrual needs) makes its proposal read modified or rejected without a person's decision, though ADR-0058 §12 says the API refuses it whatever its level; decide whether the ledger refuses an agent's change or cancel of a parked entry a closing proposal references (through a published port) or record the behaviour as accepted",
-      "r": "internal/ledger parked.go ownerAfter, takenOn · api/openapi.yaml updateParkedJournalEntry, cancelParkedJournalEntry · internal/closeagent Never (its tools keep it away today) · ADR-0058 §12, As built (accrual proposals by agent)",
+      "t": "An agent can change or cancel the parked entry of its own accrual proposal, and the controlling agent its repostings (T56j1): parkJournalEntry, updateParkedJournalEntry and cancelParkedJournalEntry are x-autonomy: propose and the ledger's owner rule lets the agent that parked an entry no person has taken on change or cancel it, so a level-1 close agent holding ledger.entry.park (which proposeAccrual needs) makes its proposal read modified or rejected without a person's decision, though ADR-0058 §12 says the API refuses it whatever its level; decide whether the ledger refuses an agent's change or cancel of a parked entry a closing proposal references (through a published port) or record the behaviour as accepted",
+      "r": "internal/ledger parked.go ownerAfter, takenOn · api/openapi.yaml updateParkedJournalEntry, cancelParkedJournalEntry · internal/closeagent Never, internal/controllingagent Never (their tools keep them away today) · ADR-0058 §12, As built (accrual proposals by agent) · ADR-0050 §12, As built T56j1",
       "src": "review:batch96",
       "c": []
      },
@@ -3804,6 +3804,13 @@
        },
        {
         "s": "T",
+        "t": "A metric's filter names only keys its source's facts carry: internal/analytics model.go checks a metric's dimensions against the declared ones but not its filter's keys, so a misspelled key matches no fact and the metric answers 0 without an error; the semantic model's check needs each source's fact keys declared to refuse one",
+        "r": "internal/analytics model.go checkSourceMetric, query.go matchAll · internal/analytics/semantic.yaml filter · ADR-0044 As built T56i2 · ccsnap's review",
+        "src": "review:batch97",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "Step 79's analytics center check compares both ways: center_actuals_analytics checks that every account analytics answers for CC-1100 agrees with the cost center's actual report, not that every account the report shows is in analytics' answer, so a journal line analytics lost would pass unseen",
         "r": "scripts/walkthrough.sh center_actuals_analytics (step 79) · GET /v1/cost-center-balances · runAnalyticsQuery · ADR-0044 As built T56i1 · ccanalytics' backlog",
         "src": "review:batch96",
@@ -3825,6 +3832,13 @@
        },
        {
         "s": "T",
+        "t": "The controlling agent's summary tells a park whose answer was lost from a refused one: a parkJournalEntry whose response is lost in transport is counted as refused although the entry may be parked, and the next run finds it by its reference and does not propose the line again; the summary should name it unknown, not refused",
+        "r": "internal/controllingagent reposting.go · cmd/erp agent repost · ADR-0050 §12, As built T56j1 · ccagent's review",
+        "src": "review:batch97",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "The controlling agent's once-per-line rule held by the database: two runs on one company at the same moment can each park a reposting of one line under one reference (the agent's check is a read), and a person who posts both moves the line twice; a partial unique index on ledger.parked_entry (tenant_id, legal_entity_id, reference) for agents' entries, or the ledger refusing the second, makes it a database rule",
         "r": "internal/controllingagent reposting.go unproposed · internal/ledger parked.go · ADR-0050 §12, As built T56j1 (Once per line)",
         "src": "review:T56j1",
@@ -3842,6 +3856,13 @@
         "t": "Cost object custom fields: ADR-0046's cost_object reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended",
         "r": "T56k · internal/platform/extensions schema.go (format cost_object, x-cost-object cost_center | profit_center; purchase order and supplier invoice only), write.go (Document, CostObjects, not_found/not_active/not_in_company/not_valid_on_date) · internal/ledger costobjects.go (CostObjectReferences) · procurement and payables: the order date, the invoice's posting date else invoice date, again at posting · api/openapi.yaml (CustomFieldSchema description) · TestCostObjectReferences, TestCostObjectFields (procurement, payables), TestWritesCheck, TestCompileRefusals · ADR-0046 As built T56k, ADR-0050 §6 · scripts/walkthrough.sh step_custom_fields",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A posting naming a pending profit center is refused not_active, not not_in_company: internal/ledger assignment.go's centerState judges the company before activity, and a pending profit center is assigned to its companies only at approval, so the posting's refusal names the wrong reason (the cost object check, costObjectState, already judges activity first)",
+        "r": "internal/ledger assignment.go centerState · costobjects.go costObjectState · ADR-0050 §5 · ADR-0046 As built T56k · costobj's review",
+        "src": "review:batch97",
         "c": []
        },
        {

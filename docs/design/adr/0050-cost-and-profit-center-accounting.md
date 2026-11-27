@@ -1716,6 +1716,15 @@ recommendation. Decided by default (for the product owner's review):
   code); changing or cancelling an entry it parked that no person has taken
   on is kept from it by its tools alone, as for the close agent, a gap that
   waits for the product owner with that agent's (review:batch96).
+- **Custom fields and the close agent** (batch 97F's integration). The
+  reposting copies no custom field: a cost object custom field (ADR-0046
+  As built T56k) is on purchase orders and supplier invoices, not on
+  journal entries, and the reposting's target center goes through the
+  ledger's own assignment checks when it is parked and again when it is
+  posted. The close agent's tools and never list keep it from posting,
+  changing or cancelling a reposting, and closing's sign-off is unchanged.
+  A cost object custom field's value is a center's id while the analytics
+  dimensions (As built T56i2) carry codes and names: nothing joins them.
 - **Not in this slice** (T56j, what T56j1 leaves): the lines on the
   company's default profit center, which the agent cannot tell without
   reading the configuration (`default_profit_center`); cost centers
