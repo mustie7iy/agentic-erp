@@ -437,4 +437,18 @@ Decided by default while building (listed for the product owner):
 - **Unchanged.** The permission, the locks (delivery, valuations, stock,
   batch stock, serial numbers, then order) and the agents' never lists:
   no operation is added, and the goods issue was on them already.
+- **With S2j2 and the counts** (batch 96S integration). A batch-managed
+  item confirmed in part on the replenishment lead time is delivered and
+  issued by batch as any, and the reversal of its goods issue holds the
+  availability check's lock of the material at the plant until it
+  commits and gives each batch back (`TestTrackedOnTheLeadTime`): the
+  reversal's path is unchanged by S2f2, and S2f2's change to sales'
+  material checks removed only the tracked materials' refusal, which the
+  lead time check never read. A reversal's "due for a count again"
+  (S2c2) and a count's book quantity after a tracked issue do not arise:
+  a batch- or serial-managed material takes neither a cycle counting
+  indicator nor a count document (`inventory.batch_not_supported`,
+  `inventory.serial_not_supported`; `TestCycleCountMaterials`,
+  `TestBatchRefusals`, `TestSerialRefusals`), counts by batch and serial
+  number being in the variants' remainder.
 

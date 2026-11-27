@@ -773,6 +773,9 @@ and only the latest count is posted.
 - **Later:** a recount by a new document linked to the first (SAP MI11's),
   a recount while differences wait for approval, difference reasons,
   approval tiers by value.
+- **Integration** (batch 96S, migration 000490): the names kept with
+  counts and recounts are in the personal data inventory (ADR-0082 As
+  built S2d2).
 
 ### S2e Count planning agent
 
@@ -920,6 +923,9 @@ storage location's.
   batches named at picking, internal batch numbers, changing a batch's
   dates, batch status, an expired batch's check at issue, stock by batch
   as at a date, 309, FEFO, classification, where-used, recall).
+  **Integration** (batch 96S, migration 000491): an item confirmed in part
+  on the lead time (S2j2) is issued by batch and reversed under the
+  availability lock (ADR-0083 As built S2f2).
 
 ### S2g Serial numbers
 
@@ -1145,7 +1151,9 @@ says which part rests on it.
   (SAP PLIFZ and WEBAZ, from memory), working-day calendars.
 - **As built** (2026-11-25): ADR-0082 As built S2j2, ADR-0084 As built
   (replenishment lead time), migrations 000492 and 000493, walkthrough
-  step 150.
+  step 150. Integrated with S2k2's lot sizing (batch 96S): a plan carries
+  both, a merge patch naming one leaves the other, and a run sizes by the
+  lot sizing alone.
 
 ### S2k MRP net requirements
 

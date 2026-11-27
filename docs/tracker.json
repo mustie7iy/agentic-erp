@@ -5817,7 +5817,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2f2 A batch-managed material is sold and delivered, its delivery's goods issue naming the batches its picked quantity leaves from by number, each with its quantity and checked against the batch's stock at the storage location; the delivery's items name them, and the goods issue's reversal (602) gives each batch back what it issued",
       "r": "S2f2 · docs/design/plan-supply-chain.md §S2f, S2f2 · ADR-0083 As built S2f2 · db/migrations/000491 · shipping.outbound_delivery_issue_line · the optional body of POST /v1/outbound-deliveries/{id}:postGoodsIssue, issue_lines on its items · shipping.tracking_required, .item_not_tracked, .issue_quantity_mismatch · walkthrough step_goods_issue (step 143)",
       "src": "po:2026-11-17",
@@ -5838,7 +5838,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "S2g2 A serial-managed material is sold and delivered, its delivery's goods issue naming the serial number of each unit issued, each in stock at the storage location; the delivery's items name them, and the goods issue's reversal (602) takes them into stock there again, refusing one in stock again since",
       "r": "S2g2 · docs/design/plan-supply-chain.md §S2g, S2g2 · ADR-0083 As built S2f2 · db/migrations/000491 · shipping.outbound_delivery_issue_line · the optional body of POST /v1/outbound-deliveries/{id}:postGoodsIssue, issue_lines on its items · shipping.tracking_required, .item_not_tracked, .issue_quantity_mismatch · walkthrough step_goods_issue (step 143)",
       "src": "po:2026-11-17",
@@ -9342,6 +9342,12 @@
       "r": "db/migrations/*.down.sql (the guards' DO blocks) · 000428_batches.down.sql and TestBatchDownRefused (the pattern) · db/migrator_test.go asMigrator · ADR-0003 · 06 §6.4 (a down migration loses no data) · migguards' list of the downs (batch 93)",
       "src": "review:batch93",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: db's TestMigrationsRevertCleanly reverts and re-applies the whole chain, so it cannot see a down migration that reverts nothing, whose up's columns an earlier down later drops with its tables (found in batch 95S); TestDownsRevert checks the downs it names one at a time (batch 95S: 000484–000486; batch 96S: 000490–000493): a check over every down, comparing the schema after it with the schema before its up",
+      "r": "db/migrator_test.go TestDownsRevert · TestMigrationsRevertCleanly · 06 §6.4",
+      "src": "review:batch95"
      }
     ]
    },
@@ -10060,6 +10066,12 @@
        }
       ],
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67"
+     },
+     {
+      "s": "T",
+      "t": "places that rename a refused call's field errors to the caller's request by hand, copying or changing the problem in place, could use problem.Renamed (S2f2's helper, which copies it and leaves out fields the request does not have): for example internal/ledger/itemassign.go, internal/procurement/stock.go, internal/sales/order_items.go and internal/payables/expenses.go (pre-existing; gibatch's note)",
+      "r": "internal/platform/problem/led.go Renamed · ADR-0083 As built S2f2",
+      "src": "review:batch96"
      }
     ]
    },

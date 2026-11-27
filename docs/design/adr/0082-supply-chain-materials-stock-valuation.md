@@ -1144,6 +1144,15 @@ recount indicator, all from memory, for the specialist):
   the count planning and demand forecasting agents (ADR-0072 As built
   S2e, S2m). The counts due (S2c2) and the count planning agent's last
   count read posted documents only, so a recount changes neither.
+- **Personal data** (batch 96S integration): the three names as named
+  then, `count_item.counted_by_name`, `count_item_recount.counted_by_name`
+  and `recounted_by_name`, are entries of the personal data inventory
+  (ADR-0079 §9, `internal/records`), counted for the principal they name
+  (`counted_by`, `recounted_by`), as sales' and shipping's names as
+  released are; records' `TestInventoryCoversTheDatabase` refused the
+  lane's tip without them. No deletion run blanks a principal's name
+  (T100c blanks business partners'), so they stay with the count as the
+  others stay with theirs.
 - Walkthrough step 141, `step_count`, extended: Wade's first count of the
   brackets is sent for a recount by Ines, recounted, both counts shown in
   order, the latest posted; a posted document's item is not recounted.

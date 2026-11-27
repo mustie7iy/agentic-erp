@@ -1661,6 +1661,17 @@ A later slice adds its row here and its section under "As built".
   though the other's is cheaper; its replay reads the run's year (`from`,
   `to` the proposal's day), which the check reads too, so a run that
   crosses midnight names the same measures.
+- Batch 96S integration: the recount (`recountPhysicalInventoryItems`,
+  S2d2) is not on this agent's never list. Its list holds the writes of
+  procurement and planning (requisitions, purchase orders, schedule
+  lines, RFQs, stock transport orders, planning runs, materials' planning
+  data, S&OP plans), none of a count, as it holds none of
+  `enterPhysicalInventoryCount` or `postPhysicalInventoryDifferences`;
+  `TestNever`'s names and paths do not catch it, and its tools are reads.
+  The count planning and demand forecasting agents, whose lists hold
+  every count write, name it. The evaluation suite (version 2) still
+  plans what it says on the merged tree with lot sizing and lead times
+  (`TestEvalSuites/replenishment`): a run does not read the lead time.
 
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
 
