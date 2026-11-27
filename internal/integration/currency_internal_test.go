@@ -204,6 +204,9 @@ func TestJournalLineTwice(t *testing.T) {
 			e.ACDOCA = append(e.ACDOCA, e.ACDOCA[len(e.ACDOCA)-2:]...)
 		}, []string{"2000/2026/0100000011/000001: the journal line is in the extract twice", "2000/2026/0100000011/000002: the journal line is in the extract twice"}},
 		{"an earlier year's line repeated", func(e *sap.Extract, _ *target) {
+			// A line of an earlier year's document that a clearing of the year
+			// reaches, not itself cleared in it (AUGGJ a later year), so no
+			// clearing of the year needs its date (clearingYears).
 			l := sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2025", BELNR: "0100000099", DOCLN: "000001", RACCT: "0000211000", HSL: "-50.00",
 				LIFNR: "0000000001", AUGBL: "0100000013", AUGGJ: "2027", BUDAT: "20251210", BLART: "KR"}
 			e.ClearedEarlier = append(e.ClearedEarlier, l, l)

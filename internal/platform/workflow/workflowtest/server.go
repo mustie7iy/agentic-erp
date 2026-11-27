@@ -122,16 +122,18 @@ func dial(addr string, exited <-chan struct{}) error {
 	}()
 	timed, stop := context.WithTimeout(ctx, time.Minute)
 	defer stop()
+	var last error // the latest dial's failure, which a wait cut short would hide
 	err := backoff.Retry(timed, 300, backoff.Constant(200*time.Millisecond), func() error {
 		c, err := client.DialContext(timed, client.Options{HostPort: addr})
 		if err != nil {
-			return fmt.Errorf("dialing %s: %w", addr, err)
+			last = fmt.Errorf("dialing %s: %w", addr, err)
+			return last
 		}
 		c.Close()
 		return nil
 	})
 	if err != nil && errors.Is(context.Cause(ctx), errExited) {
-		return fmt.Errorf("%w while dialing %s: %w", errExited, addr, err)
+		return fmt.Errorf("%w: %w", errExited, last)
 	}
 	return err
 }
