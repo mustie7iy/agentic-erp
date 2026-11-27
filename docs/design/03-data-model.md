@@ -5700,6 +5700,18 @@ erDiagram
     uuid returns_order_id "the receipt's returns order"
     numeric quantity "above zero"
   }
+  return_receipt ||--o| return_receipt_posting : "is posted into stock by (S2b4)"
+  return_receipt_posting ||--|{ return_receipt_item_cost : "costs"
+  return_receipt_item ||--o| return_receipt_item_cost : "has"
+  return_receipt_posting { uuid receipt_id PK
+    uuid material_document_id "the 653, once"
+    text material_document_number
+    text currency "the company's"
+  }
+  return_receipt_item_cost { uuid receipt_id PK
+    int item_no PK "an item of the receipt"
+    bigint cost_amount "at least zero"
+  }
   billing_document ||--o{ credit_memo_request : "is credited by"
   returns_order |o--o{ credit_memo_request : "is credited by"
   credit_memo_request ||--|{ credit_memo_request_item : "has"
@@ -6038,8 +6050,10 @@ erDiagram
   nothing, and `sales.check_returns_order_change` admits a confirmed
   returns order's version moved from a trigger alone). Insert-only
   (`platform.forbid_mutation`); the list reads a returns order's
-  receipts by date (`return_receipt_by_date`). It moves no stock and
-  posts nothing, and the sales order is not touched.
+  receipts by date (`return_receipt_by_date`). The sales order is not
+  touched. Its items of materials kept in stock are posted into stock
+  by a 653 since S2b4 (`sales.return_receipt_posting`, §3.36); its
+  other items move no stock and post nothing.
 - `sales.return_receipt_item`: a quantity above zero
   (`return_receipt_item_quantity_positive`) of an item of the receipt's
   own returns order (`return_receipt_item_receipt_fkey`,
@@ -7336,6 +7350,26 @@ erDiagram
   what is billed (`sales_order_item_quantities`), and moves the order's
   version, only a confirmed order's (`delivery_order_confirmed`; the
   security definer trigger `delivery_reversal_delivered`).
+- S2b4 (migrations 000494, 000495; ADR-0083 As built S2b4):
+  `inventory.material_document` takes the movement type `653`, a
+  customer's return received into stock, which sales' return receipt
+  posts with the returns order's number as its `reference` and no
+  original (`material_document_movement_type_check`,
+  `material_document_reference`, widened NOT VALID and validated by
+  000495). `sales.return_receipt_posting`: the 653 that received a
+  return receipt's items of materials kept in stock
+  (`return_receipt_posting_receipt_fkey`, with the receipt's returns
+  order), once per receipt (the primary key) and once per document
+  (`return_receipt_posting_document_once`), its number of 1 to 40
+  characters (`return_receipt_posting_material_document_number_check`)
+  and the company's currency the costs are in
+  (`return_receipt_posting_currency_fkey`); `sales.return_receipt_item_cost`:
+  what an item of that receipt (`return_receipt_item_cost_item_fkey`) of
+  a posted receipt (`return_receipt_item_cost_posting_fkey`) took back
+  from the cost of goods sold, not below zero
+  (`return_receipt_item_cost_check`), once per item (the primary key).
+  Both insert-only (`platform.forbid_mutation`), even for the tables'
+  owner.
 
 ## 3.37 Material requirements planning (`mrp`)
 

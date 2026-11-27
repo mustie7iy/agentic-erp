@@ -6027,9 +6027,16 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "A sales administrator's return receipt puts a customer's returned items of materials kept in stock into the storage location it names (653, unrestricted: no stock types yet), each at its share of what its order item's goods issues not reversed cost less what earlier receipts took back, the cost of goods sold credited in the same posting and cost of sales by segment reduced on the receipt's date; refused beyond what the goods issues delivered and is not back in stock; an order item no goods issue delivered at the valuation's price; batches by number and serial numbers not in stock; the 653 not reversed by hand; the credit memo unchanged",
+      "r": "S2b4 · docs/design/plan-supply-chain.md §S2b4 · ADR-0083 As built S2b4 · ADR-0067 As built T85b (Into stock) · db/migrations/000494, 000495 · inventory.material_document movement type 653 · inventory.Endpoints.ReceiveForReturn · sales.return_receipt_posting, return_receipt_item_cost · ReturnReceipt.material_document_id, items[].cost · ReturnReceived · sales.storage_location_required, sales.storage_location_invalid, sales.return_not_stocked, sales.exceeds_issued_quantity, inventory.reverse_customer_return · countagent never list · TestCustomerReturnIntoStock, TestCustomerReturnRefused, TestCustomerReturnCosts, TestCustomerReturnWithoutGoodsIssue, TestCustomerReturnTracked, TestCustomerReturnAvailable, TestCustomerReturnsAtOnce, TestProfitabilityCostOfSalesReturned, TestCustomerReturnDocuments, TestCustomerReturnPostingRules, TestCustomerReturnStockDownRefused · walkthrough step_return_into_stock (step 163)",
+      "src": "po:2026-11-17 · adr:ADR-0083",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: delivery variants: packing and handling units, shipping points and routes, delivery split and grouping, proof of delivery, delivery notes, returns deliveries (after the plan's slices; product owner 2026-11-17)",
-      "r": "docs/design/plan-supply-chain.md §S2a, Later",
+      "t": "later: delivery variants: packing and handling units, shipping points and routes, delivery split and grouping, proof of delivery, delivery notes, returns deliveries as a document of their own with its goods receipt, into blocked or quality inspection stock, the 653's reversal, a receipt naming the delivery it returns at that delivery's cost, a returned serial number checked against the customer's deliveries, a warehouse system's return receipt (after the plan's slices; product owner 2026-11-17; returns received into stock split off as S2b4)",
+      "r": "docs/design/plan-supply-chain.md §S2a, Later; §S2b4, Later",
       "src": "baseline",
       "c": []
      },
