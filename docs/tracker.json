@@ -5852,8 +5852,15 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Recounts with history: a counted item of a count document whose difference is not posted is sent for a recount by a person, its count kept as an earlier count with who counted it and when, the item counted again and only its latest count posted; the document shows each item's counts in order",
+      "r": "S2d2 · docs/design/plan-supply-chain.md §S2d2 · ADR-0082 As built S2d2 · ADR-0072 As built S2e, S2m · db/migrations/000490 · inventory.count_item_recount · count_item.recounts · POST /v1/physical-inventory-documents/{id}:recount · PhysicalInventoryItem.count_no, .earlier_counts · PhysicalInventoryRecountRequested · inventory.item_not_counted, inventory.recount_limit · countagent and demandagent never lists · TestRecount, TestRecountRefused, TestRecountAndPostAtOnce, TestRecountLimit, TestRecountRules, TestRecountTriggersAsOwner, TestRecountDownRefused · walkthrough step_count",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: difference posting variants: recounts with history, difference reasons, approval tiers by value (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: difference posting variants: a recount by a new document linked to the first (SAP MI11's), a recount while differences wait for approval, difference reasons, approval tiers by value (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2d, Later",
       "src": "baseline",
       "c": []
@@ -5894,8 +5901,15 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "S2f2 A batch-managed material is sold and delivered, its delivery's goods issue naming the batches its picked quantity leaves from by number, each with its quantity and checked against the batch's stock at the storage location; the delivery's items name them, and the goods issue's reversal (602) gives each batch back what it issued",
+      "r": "S2f2 · docs/design/plan-supply-chain.md §S2f, S2f2 · ADR-0083 As built S2f2 · db/migrations/000491 · shipping.outbound_delivery_issue_line · the optional body of POST /v1/outbound-deliveries/{id}:postGoodsIssue, issue_lines on its items · shipping.tracking_required, .item_not_tracked, .issue_quantity_mismatch · walkthrough step_goods_issue (step 143)",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: batch variants: batches in the delivery's goods issue and its reversal (602), stock transport orders (an intercompany one's 643 goods issue included, which still refuses a batch-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a batch-managed material until then), internal batch numbers, batch dates changed, batch status, stock by batch as at a date, transfer to another batch (309), classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: batch variants: batches in stock transport orders (an intercompany one's 643 goods issue included, which still refuses a batch-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt or goods issue (refused for a batch-managed material until then), batches named at picking, internal batch numbers, batch dates changed, batch status, an expired batch's check at goods issue, stock by batch as at a date, transfer to another batch (309), classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2f, Later",
       "src": "baseline",
       "c": []
@@ -5908,8 +5922,15 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "S2g2 A serial-managed material is sold and delivered, its delivery's goods issue naming the serial number of each unit issued, each in stock at the storage location; the delivery's items name them, and the goods issue's reversal (602) takes them into stock there again, refusing one in stock again since",
+      "r": "S2g2 · docs/design/plan-supply-chain.md §S2g, S2g2 · ADR-0083 As built S2f2 · db/migrations/000491 · shipping.outbound_delivery_issue_line · the optional body of POST /v1/outbound-deliveries/{id}:postGoodsIssue, issue_lines on its items · shipping.tracking_required, .item_not_tracked, .issue_quantity_mismatch · walkthrough step_goods_issue (step 143)",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: serial number variants: serial numbers in the delivery's goods issue and its reversal (602), stock transport orders (an intercompany one's 643 goods issue included, which still refuses a serial-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt (refused for a serial-managed material until then), serial number profiles per plant and other serial number usages, serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: serial number variants: serial numbers in stock transport orders (an intercompany one's 643 goods issue included, which still refuses a serial-managed material), counts, the SAP stock take-over and a WMS-reported goods receipt or goods issue (refused for a serial-managed material until then), serial numbers named at picking, serial number profiles per plant and other serial number usages, serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2g, Later",
       "src": "baseline",
       "c": []
@@ -6076,9 +6097,16 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Checking with the replenishment lead time: a material's planning data at a plant names its replenishment lead time in days; the availability check confirms in full an item of an order asked for on or after the company's date today plus it, the stock first and the rest on the lead time, which the item names with the day the lead time ends; without a lead time or a date that reaches it, the stock alone",
+      "r": "S2j2 · docs/design/plan-supply-chain.md §S2j2 · ADR-0082 As built S2j2 · ADR-0084 As built (replenishment lead time) · db/migrations/000492, 000493 · mrp.material_plan.replenishment_lead_time_days · sales.sales_order_item.lead_time_quantity, .lead_time_date · createMaterialPlan, updateMaterialPlan replenishment_lead_time_days · SalesOrderItem lead_time_quantity, lead_time_date · mrp.Plans.LeadTimes · sales.LeadTimes · mrp.invalid_lead_time · TestConfirmOnTheLeadTime, TestJudged, TestConfirmationOnTheLeadTime, TestLeadTimeOnAChange, TestLeadTimeDatabaseFailures, TestLeadTimes, TestLeadTimeChecks, TestLeadTimesFailures, TestLeadTimeRules · walkthrough step_available_to_promise (lead_time_check, step 150)",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: ATP variants: checking rules with replenishment lead time, back-order processing, product allocation, global ATP across plants (after the plan's slices; product owner 2026-11-17)",
-      "r": "docs/design/plan-supply-chain.md §S2j, Later",
+      "t": "later: ATP variants: back-order processing, product allocation, global ATP across plants, planned receipts in the check, confirmation on a later date than asked for (schedule lines), a recheck when only the requested date changes, the lead time from planned delivery and goods receipt processing times, working-day calendars (after the plan's slices; product owner 2026-11-17; checking with the replenishment lead time split off as S2j2)",
+      "r": "docs/design/plan-supply-chain.md §S2j, Later; §S2j2, Later",
       "src": "baseline",
       "c": []
      }
@@ -9398,6 +9426,13 @@
       "r": "db/migrations/*.down.sql (the guards' DO blocks) · 000428_batches.down.sql and TestBatchDownRefused (the pattern) · db/migrator_test.go asMigrator · ADR-0003 · 06 §6.4 (a down migration loses no data) · migguards' list of the downs (batch 93)",
       "src": "review:batch93",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: db's TestMigrationsRevertCleanly reverts and re-applies the whole chain, so it cannot see a down migration that reverts nothing, whose up's columns an earlier down later drops with its tables (found in batch 95S); TestDownsRevert checks the downs it names one at a time (batch 95S: 000484–000486; batch 96S: 000490–000493): a check over every down, comparing the schema after it with the schema before its up",
+      "r": "db/migrator_test.go TestDownsRevert · TestMigrationsRevertCleanly · 06 §6.4",
+      "src": "review:batch95",
+      "c": []
      }
     ]
    },
@@ -10116,6 +10151,13 @@
        }
       ],
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67"
+     },
+     {
+      "s": "T",
+      "t": "places that rename a refused call's field errors to the caller's request by hand, copying or changing the problem in place, could use problem.Renamed (S2f2's helper, which copies it and leaves out fields the request does not have): for example internal/ledger/itemassign.go, internal/procurement/stock.go, internal/sales/order_items.go and internal/payables/expenses.go (pre-existing; gibatch's note)",
+      "r": "internal/platform/problem/led.go Renamed · ADR-0083 As built S2f2",
+      "src": "review:batch96",
+      "c": []
      }
     ]
    },

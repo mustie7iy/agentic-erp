@@ -256,8 +256,8 @@ func TestBatchRefusals(t *testing.T) {
 	}
 	h, m := endpoints(t), uuid.MustParse(e.sealant)
 	calls := map[string]func(ctx context.Context) error{
-		"delivery": func(ctx context.Context) error {
-			_, err := h.IssueForDelivery(ctx, "OD1", []inventory.DeliveryItem{{MaterialID: m, PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}})
+		"intercompany": func(ctx context.Context) error {
+			_, err := h.IssueForIntercompany(ctx, "PO1", []inventory.DeliveryItem{{MaterialID: m, PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}})
 			return err
 		},
 		"stock transport": func(ctx context.Context) error {

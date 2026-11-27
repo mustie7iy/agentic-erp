@@ -36,8 +36,8 @@ func (s countScene) item(doc uuid.UUID, no int, material uuid.UUID, book string)
 
 // counted sets the item's count whole.
 func (s countScene) counted(no int) stmt {
-	return step(`UPDATE inventory.count_item SET counted_quantity = 9, entry_quantity = 9, entry_uom_code = 'EA', counted_at = now(), counted_by = $1
-		WHERE count_document_id = $2 AND item_no = $3`, s.tenant, s.count, no)
+	return step(`UPDATE inventory.count_item SET counted_quantity = 9, entry_quantity = 9, entry_uom_code = 'EA', counted_at = now(), counted_by = $1,
+		counted_by_name = 'Wade' WHERE count_document_id = $2 AND item_no = $3`, s.tenant, s.count, no)
 }
 
 // TestCountRules (S2c, migration 000406; ADR-0082 As built S2c): a count

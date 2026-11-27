@@ -29592,6 +29592,7 @@ func (*ConflictHeaders) publishRfqRes()                                  {}
 func (*ConflictHeaders) realiseMemoRecordRes()                           {}
 func (*ConflictHeaders) reconcileMigrationRunRes()                       {}
 func (*ConflictHeaders) recordAgentToolCallRes()                         {}
+func (*ConflictHeaders) recountPhysicalInventoryItemsRes()               {}
 func (*ConflictHeaders) redateCostCenterRes()                            {}
 func (*ConflictHeaders) redateProfitCenterRes()                          {}
 func (*ConflictHeaders) redeliverWebhookDeliveryRes()                    {}
@@ -50165,6 +50166,7 @@ func (s *EnterPhysicalInventoryCountOKHeaders) SetResponse(val PhysicalInventory
 
 func (*EnterPhysicalInventoryCountOKHeaders) enterPhysicalInventoryCountRes()      {}
 func (*EnterPhysicalInventoryCountOKHeaders) postPhysicalInventoryDifferencesRes() {}
+func (*EnterPhysicalInventoryCountOKHeaders) recountPhysicalInventoryItemsRes()    {}
 
 type EnterPhysicalInventoryCountPreconditionFailed Problem
 
@@ -76507,6 +76509,9 @@ type MaterialPlan struct {
 	AccountID uuid.UUID `json:"account_id"`
 	// That account's number.
 	AccountNumber string `json:"account_number"`
+	// The material's replenishment lead time at the plant in calendar days, which sales orders'
+	// availability checks confirm on (S2j2). Absent: none.
+	ReplenishmentLeadTimeDays OptInt32 `json:"replenishment_lead_time_days"`
 }
 
 // GetID returns the value of ID.
@@ -76629,6 +76634,11 @@ func (s *MaterialPlan) GetAccountNumber() string {
 	return s.AccountNumber
 }
 
+// GetReplenishmentLeadTimeDays returns the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlan) GetReplenishmentLeadTimeDays() OptInt32 {
+	return s.ReplenishmentLeadTimeDays
+}
+
 // SetID sets the value of ID.
 func (s *MaterialPlan) SetID(val uuid.UUID) {
 	s.ID = val
@@ -76749,6 +76759,11 @@ func (s *MaterialPlan) SetAccountNumber(val string) {
 	s.AccountNumber = val
 }
 
+// SetReplenishmentLeadTimeDays sets the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlan) SetReplenishmentLeadTimeDays(val OptInt32) {
+	s.ReplenishmentLeadTimeDays = val
+}
+
 // A material's planning data at a plant to create.
 // Ref: #/components/schemas/MaterialPlanCreate
 type MaterialPlanCreate struct {
@@ -76788,6 +76803,12 @@ type MaterialPlanCreate struct {
 	// A lot is rounded up to a multiple of it, in the base unit, more than zero (a pack size); the minimum
 	// and maximum lot sizes are multiples of it. Not given with a fixed lot.
 	RoundingValue OptString `json:"rounding_value"`
+	// The material's replenishment lead time at the plant in calendar days (S2j2; SAP MARC-WZEIT, from
+	// memory): how long the plant takes to have more of it. The availability check of a sales order
+	// delivering from the plant (`confirmSalesOrder`) confirms in full an item of the material asked for
+	// on or after the company's date today plus it, what the stock does not cover resting on it. Absent:
+	// none, and the check counts the stock alone.
+	ReplenishmentLeadTimeDays OptInt32 `json:"replenishment_lead_time_days"`
 }
 
 // GetPlantID returns the value of PlantID.
@@ -76845,6 +76866,11 @@ func (s *MaterialPlanCreate) GetRoundingValue() OptString {
 	return s.RoundingValue
 }
 
+// GetReplenishmentLeadTimeDays returns the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanCreate) GetReplenishmentLeadTimeDays() OptInt32 {
+	return s.ReplenishmentLeadTimeDays
+}
+
 // SetPlantID sets the value of PlantID.
 func (s *MaterialPlanCreate) SetPlantID(val uuid.UUID) {
 	s.PlantID = val
@@ -76898,6 +76924,11 @@ func (s *MaterialPlanCreate) SetMaximumLotSize(val OptString) {
 // SetRoundingValue sets the value of RoundingValue.
 func (s *MaterialPlanCreate) SetRoundingValue(val OptString) {
 	s.RoundingValue = val
+}
+
+// SetReplenishmentLeadTimeDays sets the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanCreate) SetReplenishmentLeadTimeDays(val OptInt32) {
+	s.ReplenishmentLeadTimeDays = val
 }
 
 // MaterialPlanHeaders wraps MaterialPlan with response headers.
@@ -77002,6 +77033,9 @@ type MaterialPlanUpdate struct {
 	MaximumLotSize OptNilString `json:"maximum_lot_size"`
 	// The rounding value; null removes it.
 	RoundingValue OptNilString `json:"rounding_value"`
+	// The replenishment lead time in calendar days; `null` removes it, so the availability check counts
+	// the stock alone.
+	ReplenishmentLeadTimeDays OptNilInt32 `json:"replenishment_lead_time_days"`
 }
 
 // GetMrpType returns the value of MrpType.
@@ -77049,6 +77083,11 @@ func (s *MaterialPlanUpdate) GetRoundingValue() OptNilString {
 	return s.RoundingValue
 }
 
+// GetReplenishmentLeadTimeDays returns the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanUpdate) GetReplenishmentLeadTimeDays() OptNilInt32 {
+	return s.ReplenishmentLeadTimeDays
+}
+
 // SetMrpType sets the value of MrpType.
 func (s *MaterialPlanUpdate) SetMrpType(val OptString) {
 	s.MrpType = val
@@ -77092,6 +77131,11 @@ func (s *MaterialPlanUpdate) SetMaximumLotSize(val OptNilString) {
 // SetRoundingValue sets the value of RoundingValue.
 func (s *MaterialPlanUpdate) SetRoundingValue(val OptNilString) {
 	s.RoundingValue = val
+}
+
+// SetReplenishmentLeadTimeDays sets the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanUpdate) SetReplenishmentLeadTimeDays(val OptNilInt32) {
+	s.ReplenishmentLeadTimeDays = val
 }
 
 // A plant a material is extended to (SAP MARC), with its storage locations (MARD).
@@ -88456,6 +88500,52 @@ func (o OptOperationResult) Or(d OperationResult) OperationResult {
 	return d
 }
 
+// NewOptOutboundDeliveryGoodsIssue returns new OptOutboundDeliveryGoodsIssue with value set to v.
+func NewOptOutboundDeliveryGoodsIssue(v OutboundDeliveryGoodsIssue) OptOutboundDeliveryGoodsIssue {
+	return OptOutboundDeliveryGoodsIssue{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptOutboundDeliveryGoodsIssue is optional OutboundDeliveryGoodsIssue.
+type OptOutboundDeliveryGoodsIssue struct {
+	Value OutboundDeliveryGoodsIssue
+	Set   bool
+}
+
+// IsSet returns true if OptOutboundDeliveryGoodsIssue was set.
+func (o OptOutboundDeliveryGoodsIssue) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptOutboundDeliveryGoodsIssue) Reset() {
+	var v OutboundDeliveryGoodsIssue
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptOutboundDeliveryGoodsIssue) SetTo(v OutboundDeliveryGoodsIssue) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptOutboundDeliveryGoodsIssue) Get() (v OutboundDeliveryGoodsIssue, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptOutboundDeliveryGoodsIssue) Or(d OutboundDeliveryGoodsIssue) OutboundDeliveryGoodsIssue {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptOutboundDeliveryShipment returns new OptOutboundDeliveryShipment with value set to v.
 func NewOptOutboundDeliveryShipment(v OutboundDeliveryShipment) OptOutboundDeliveryShipment {
 	return OptOutboundDeliveryShipment{
@@ -90734,6 +90824,84 @@ func (s *OutboundDeliveryCreate) SetItems(val []OutboundDeliveryItemInput) {
 	s.Items = val
 }
 
+// What an outbound delivery's goods issue issues of its picked items of batch-managed and
+// serial-managed materials (S2f2, S2g2); every other item issues its picked quantity.
+// Ref: #/components/schemas/OutboundDeliveryGoodsIssue
+type OutboundDeliveryGoodsIssue struct {
+	// Each picked item of a batch-managed or serial-managed material, once per batch it issues from (once
+	// for a material without batches); no other item.
+	Items []OutboundDeliveryGoodsIssueItem `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *OutboundDeliveryGoodsIssue) GetItems() []OutboundDeliveryGoodsIssueItem {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *OutboundDeliveryGoodsIssue) SetItems(val []OutboundDeliveryGoodsIssueItem) {
+	s.Items = val
+}
+
+// What a picked item of a batch-managed or serial-managed material issues, or part of it (S2f2, S2g2;
+// ADR-0083 As built S2f2): a quantity, from one batch, with the serial numbers of its units. An item
+// issued from several batches is named once per batch.
+// Ref: #/components/schemas/OutboundDeliveryGoodsIssueItem
+type OutboundDeliveryGoodsIssueItem struct {
+	// The delivery's item.
+	ItemNo int32 `json:"item_no"`
+	// The quantity issued, more than zero, in the item's unit; an item's entries add up to its picked
+	// quantity.
+	Quantity Quantity `json:"quantity"`
+	// The batch of a batch-managed material it issues from, by its number
+	// (`GET /v1/batch-stock?material_id=`); absent for another material.
+	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers of the units of a serial-managed material it issues, one for each unit of the
+	// base unit, each in stock at the delivery's storage location (`GET /v1/serial-numbers?material_id=`);
+	// absent for another material.
+	SerialNumbers []string `json:"serial_numbers"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *OutboundDeliveryGoodsIssueItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *OutboundDeliveryGoodsIssueItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *OutboundDeliveryGoodsIssueItem) GetBatchNumber() OptString {
+	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *OutboundDeliveryGoodsIssueItem) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *OutboundDeliveryGoodsIssueItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *OutboundDeliveryGoodsIssueItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *OutboundDeliveryGoodsIssueItem) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *OutboundDeliveryGoodsIssueItem) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
+}
+
 // OutboundDeliveryHeaders wraps OutboundDelivery with response headers.
 type OutboundDeliveryHeaders struct {
 	ETag               OptString
@@ -90784,6 +90952,74 @@ func (s *OutboundDeliveryHeaders) SetResponse(val OutboundDelivery) {
 
 func (*OutboundDeliveryHeaders) createOutboundDeliveryRes() {}
 
+// What a line of an outbound delivery's goods issue issued of a batch-managed or serial-managed
+// material's item (S2f2, S2g2): a quantity, its batch and its units' serial numbers.
+// Ref: #/components/schemas/OutboundDeliveryIssueLine
+type OutboundDeliveryIssueLine struct {
+	// The goods issue's material document line (`material_document_id`'s `lines[].line_no`).
+	LineNo int32 `json:"line_no"`
+	// The quantity it issued, in the item's unit.
+	Quantity Quantity `json:"quantity"`
+	// The batch it issued from, of a batch-managed material (`GET /v1/batches/{id}`); absent for another
+	// material.
+	BatchID OptUUID `json:"batch_id"`
+	// That batch's number; absent with it.
+	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers of the units it issued, of a serial-managed material
+	// (`GET /v1/serial-numbers?number=`), sorted by number; absent for another material.
+	SerialNumbers []string `json:"serial_numbers"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *OutboundDeliveryIssueLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *OutboundDeliveryIssueLine) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetBatchID returns the value of BatchID.
+func (s *OutboundDeliveryIssueLine) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *OutboundDeliveryIssueLine) GetBatchNumber() OptString {
+	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *OutboundDeliveryIssueLine) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *OutboundDeliveryIssueLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *OutboundDeliveryIssueLine) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetBatchID sets the value of BatchID.
+func (s *OutboundDeliveryIssueLine) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *OutboundDeliveryIssueLine) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *OutboundDeliveryIssueLine) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
+}
+
 // An item of an outbound delivery (SAP LIPS): a quantity of a sales order item of a material kept in
 // stock, and what is picked of it.
 // Ref: #/components/schemas/OutboundDeliveryItem
@@ -90805,6 +91041,10 @@ type OutboundDeliveryItem struct {
 	// Once the goods issue is posted (S2b1): what the quantity issued took from the stock, its cost of
 	// goods sold, in the company's local currency; absent before and on an item picked at nothing.
 	Cost OptMoney `json:"cost"`
+	// Once the goods issue is posted, for an item of a batch-managed or serial-managed material (S2f2,
+	// S2g2): what each of its lines issued, by line, one per batch; its reversal gives them back. Absent
+	// before, on another item and on one picked at nothing.
+	IssueLines []OutboundDeliveryIssueLine `json:"issue_lines"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -90847,6 +91087,11 @@ func (s *OutboundDeliveryItem) GetCost() OptMoney {
 	return s.Cost
 }
 
+// GetIssueLines returns the value of IssueLines.
+func (s *OutboundDeliveryItem) GetIssueLines() []OutboundDeliveryIssueLine {
+	return s.IssueLines
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *OutboundDeliveryItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -90885,6 +91130,11 @@ func (s *OutboundDeliveryItem) SetPickedQuantity(val Quantity) {
 // SetCost sets the value of Cost.
 func (s *OutboundDeliveryItem) SetCost(val OptMoney) {
 	s.Cost = val
+}
+
+// SetIssueLines sets the value of IssueLines.
+func (s *OutboundDeliveryItem) SetIssueLines(val []OutboundDeliveryIssueLine) {
+	s.IssueLines = val
 }
 
 // An item of an outbound delivery to create: a quantity of a sales order item.
@@ -97211,11 +97461,12 @@ type PhysicalInventoryDocument struct {
 	StorageLocationName string `json:"storage_location_name"`
 	// The company's date it was created on.
 	DocumentDate time.Time `json:"document_date"`
-	// `counting` until every item is counted, then `counted`; `pending_approval` while its differences
-	// wait for approval; `posted` once they are posted; `rejected` or `withdrawn` when their approval was
-	// refused or withdrawn, nothing posted. The posting block holds until it is `posted`, `rejected` or
-	// `withdrawn`. Open enumeration: clients must accept and preserve values not listed here; values may
-	// be added within /v1.
+	// `counting` until every item is counted, then `counted`, and `counting` again while an item sent for
+	// a recount waits for it (S2d2); `pending_approval` while its differences wait for approval; `posted`
+	// once they are posted; `rejected` or `withdrawn` when their approval was refused or withdrawn,
+	// nothing posted. The posting block holds until it is `posted`, `rejected` or `withdrawn`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Status string `json:"status"`
 	// The approval request (`GET /v1/approval-requests/{id}`) of differences above the company's tolerance
 	// (S2d); absent when none was asked.
@@ -97558,6 +97809,121 @@ func (s *PhysicalInventoryDocumentPage) SetNextPageToken(val OptString) {
 
 func (*PhysicalInventoryDocumentPage) listPhysicalInventoryDocumentsRes() {}
 
+// An earlier count of a count document's item, sent for a recount (S2d2; SAP MI11, from memory): kept
+// as it was counted, never posted.
+// Ref: #/components/schemas/PhysicalInventoryEarlierCount
+type PhysicalInventoryEarlierCount struct {
+	// Its number among the item's counts, from 1.
+	CountNo int32 `json:"count_no"`
+	// The quantity it counted, in the material's base unit.
+	CountedQuantity Quantity `json:"counted_quantity"`
+	// The quantity as it was entered, in the unit it was entered in.
+	EntryQuantity Quantity `json:"entry_quantity"`
+	// When it was entered.
+	CountedAt time.Time `json:"counted_at"`
+	// Who entered it.
+	CountedBy uuid.UUID `json:"counted_by"`
+	// That person's name as it was when they entered it; absent for a count entered before names were
+	// kept.
+	CountedByName OptString `json:"counted_by_name"`
+	// When the item was sent for a recount, which set this count aside.
+	RecountedAt time.Time `json:"recounted_at"`
+	// Who sent it for the recount.
+	RecountedBy uuid.UUID `json:"recounted_by"`
+	// That person's name as it was then.
+	RecountedByName string `json:"recounted_by_name"`
+}
+
+// GetCountNo returns the value of CountNo.
+func (s *PhysicalInventoryEarlierCount) GetCountNo() int32 {
+	return s.CountNo
+}
+
+// GetCountedQuantity returns the value of CountedQuantity.
+func (s *PhysicalInventoryEarlierCount) GetCountedQuantity() Quantity {
+	return s.CountedQuantity
+}
+
+// GetEntryQuantity returns the value of EntryQuantity.
+func (s *PhysicalInventoryEarlierCount) GetEntryQuantity() Quantity {
+	return s.EntryQuantity
+}
+
+// GetCountedAt returns the value of CountedAt.
+func (s *PhysicalInventoryEarlierCount) GetCountedAt() time.Time {
+	return s.CountedAt
+}
+
+// GetCountedBy returns the value of CountedBy.
+func (s *PhysicalInventoryEarlierCount) GetCountedBy() uuid.UUID {
+	return s.CountedBy
+}
+
+// GetCountedByName returns the value of CountedByName.
+func (s *PhysicalInventoryEarlierCount) GetCountedByName() OptString {
+	return s.CountedByName
+}
+
+// GetRecountedAt returns the value of RecountedAt.
+func (s *PhysicalInventoryEarlierCount) GetRecountedAt() time.Time {
+	return s.RecountedAt
+}
+
+// GetRecountedBy returns the value of RecountedBy.
+func (s *PhysicalInventoryEarlierCount) GetRecountedBy() uuid.UUID {
+	return s.RecountedBy
+}
+
+// GetRecountedByName returns the value of RecountedByName.
+func (s *PhysicalInventoryEarlierCount) GetRecountedByName() string {
+	return s.RecountedByName
+}
+
+// SetCountNo sets the value of CountNo.
+func (s *PhysicalInventoryEarlierCount) SetCountNo(val int32) {
+	s.CountNo = val
+}
+
+// SetCountedQuantity sets the value of CountedQuantity.
+func (s *PhysicalInventoryEarlierCount) SetCountedQuantity(val Quantity) {
+	s.CountedQuantity = val
+}
+
+// SetEntryQuantity sets the value of EntryQuantity.
+func (s *PhysicalInventoryEarlierCount) SetEntryQuantity(val Quantity) {
+	s.EntryQuantity = val
+}
+
+// SetCountedAt sets the value of CountedAt.
+func (s *PhysicalInventoryEarlierCount) SetCountedAt(val time.Time) {
+	s.CountedAt = val
+}
+
+// SetCountedBy sets the value of CountedBy.
+func (s *PhysicalInventoryEarlierCount) SetCountedBy(val uuid.UUID) {
+	s.CountedBy = val
+}
+
+// SetCountedByName sets the value of CountedByName.
+func (s *PhysicalInventoryEarlierCount) SetCountedByName(val OptString) {
+	s.CountedByName = val
+}
+
+// SetRecountedAt sets the value of RecountedAt.
+func (s *PhysicalInventoryEarlierCount) SetRecountedAt(val time.Time) {
+	s.RecountedAt = val
+}
+
+// SetRecountedBy sets the value of RecountedBy.
+func (s *PhysicalInventoryEarlierCount) SetRecountedBy(val uuid.UUID) {
+	s.RecountedBy = val
+}
+
+// SetRecountedByName sets the value of RecountedByName.
+func (s *PhysicalInventoryEarlierCount) SetRecountedByName(val string) {
+	s.RecountedByName = val
+}
+
 // An item of a count document (SAP ISEG): a material, its book quantity frozen as the document was
 // created and, once counted, the quantity counted.
 // Ref: #/components/schemas/PhysicalInventoryItem
@@ -97582,6 +97948,9 @@ type PhysicalInventoryItem struct {
 	CountedAt OptDateTime `json:"counted_at"`
 	// Who entered it; absent with it.
 	CountedBy OptUUID `json:"counted_by"`
+	// That person's name as it was when they entered it (S2d2); absent with it, and for a count entered
+	// before names were kept.
+	CountedByName OptString `json:"counted_by_name"`
 	// Once the document is posted, the counted quantity less the book quantity, in the base unit: positive
 	// a gain, negative a loss, zero none (S2d); absent before.
 	Difference OptQuantity `json:"difference"`
@@ -97593,6 +97962,12 @@ type PhysicalInventoryItem struct {
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// That document's number; absent with it.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
+	// The number of the item's latest count, the one `counted_quantity` gives and its difference is posted
+	// from: 1 until it is sent for a recount, one more at each recount (S2d2).
+	CountNo int32 `json:"count_no"`
+	// The item's earlier counts, each sent for a recount, in the order they were counted (by `count_no`),
+	// before its latest; empty when it was never recounted (S2d2).
+	EarlierCounts []PhysicalInventoryEarlierCount `json:"earlier_counts"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -97640,6 +98015,11 @@ func (s *PhysicalInventoryItem) GetCountedBy() OptUUID {
 	return s.CountedBy
 }
 
+// GetCountedByName returns the value of CountedByName.
+func (s *PhysicalInventoryItem) GetCountedByName() OptString {
+	return s.CountedByName
+}
+
 // GetDifference returns the value of Difference.
 func (s *PhysicalInventoryItem) GetDifference() OptQuantity {
 	return s.Difference
@@ -97658,6 +98038,16 @@ func (s *PhysicalInventoryItem) GetMaterialDocumentID() OptUUID {
 // GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
 func (s *PhysicalInventoryItem) GetMaterialDocumentNumber() OptString {
 	return s.MaterialDocumentNumber
+}
+
+// GetCountNo returns the value of CountNo.
+func (s *PhysicalInventoryItem) GetCountNo() int32 {
+	return s.CountNo
+}
+
+// GetEarlierCounts returns the value of EarlierCounts.
+func (s *PhysicalInventoryItem) GetEarlierCounts() []PhysicalInventoryEarlierCount {
+	return s.EarlierCounts
 }
 
 // SetItemNo sets the value of ItemNo.
@@ -97705,6 +98095,11 @@ func (s *PhysicalInventoryItem) SetCountedBy(val OptUUID) {
 	s.CountedBy = val
 }
 
+// SetCountedByName sets the value of CountedByName.
+func (s *PhysicalInventoryItem) SetCountedByName(val OptString) {
+	s.CountedByName = val
+}
+
 // SetDifference sets the value of Difference.
 func (s *PhysicalInventoryItem) SetDifference(val OptQuantity) {
 	s.Difference = val
@@ -97725,6 +98120,16 @@ func (s *PhysicalInventoryItem) SetMaterialDocumentNumber(val OptString) {
 	s.MaterialDocumentNumber = val
 }
 
+// SetCountNo sets the value of CountNo.
+func (s *PhysicalInventoryItem) SetCountNo(val int32) {
+	s.CountNo = val
+}
+
+// SetEarlierCounts sets the value of EarlierCounts.
+func (s *PhysicalInventoryItem) SetEarlierCounts(val []PhysicalInventoryEarlierCount) {
+	s.EarlierCounts = val
+}
+
 // A material to count.
 // Ref: #/components/schemas/PhysicalInventoryItemInput
 type PhysicalInventoryItemInput struct {
@@ -97740,6 +98145,40 @@ func (s *PhysicalInventoryItemInput) GetMaterialID() uuid.UUID {
 // SetMaterialID sets the value of MaterialID.
 func (s *PhysicalInventoryItemInput) SetMaterialID(val uuid.UUID) {
 	s.MaterialID = val
+}
+
+// Counted items of a count document to recount.
+// Ref: #/components/schemas/PhysicalInventoryRecount
+type PhysicalInventoryRecount struct {
+	// The items to recount, each once.
+	Items []PhysicalInventoryRecountInput `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *PhysicalInventoryRecount) GetItems() []PhysicalInventoryRecountInput {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *PhysicalInventoryRecount) SetItems(val []PhysicalInventoryRecountInput) {
+	s.Items = val
+}
+
+// An item to recount.
+// Ref: #/components/schemas/PhysicalInventoryRecountInput
+type PhysicalInventoryRecountInput struct {
+	// The item's number in the document.
+	ItemNo int32 `json:"item_no"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *PhysicalInventoryRecountInput) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *PhysicalInventoryRecountInput) SetItemNo(val int32) {
+	s.ItemNo = val
 }
 
 type PickOutboundDeliveryBadRequest Problem
@@ -105553,6 +105992,30 @@ func (*RecordAgentToolCallPreconditionRequired) recordAgentToolCallRes() {}
 type RecordAgentToolCallUnprocessableEntity Problem
 
 func (*RecordAgentToolCallUnprocessableEntity) recordAgentToolCallRes() {}
+
+type RecountPhysicalInventoryItemsBadRequest Problem
+
+func (*RecountPhysicalInventoryItemsBadRequest) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsForbidden Problem
+
+func (*RecountPhysicalInventoryItemsForbidden) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsNotFound Problem
+
+func (*RecountPhysicalInventoryItemsNotFound) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsPreconditionFailed Problem
+
+func (*RecountPhysicalInventoryItemsPreconditionFailed) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsPreconditionRequired Problem
+
+func (*RecountPhysicalInventoryItemsPreconditionRequired) recountPhysicalInventoryItemsRes() {}
+
+type RecountPhysicalInventoryItemsUnprocessableEntity Problem
+
+func (*RecountPhysicalInventoryItemsUnprocessableEntity) recountPhysicalInventoryItemsRes() {}
 
 type RedateCostCenterBadRequest Problem
 
@@ -118890,6 +119353,17 @@ type SalesOrderItem struct {
 	// `in_delivery_quantity` never above it. Absent for an item not checked: one of an order without a
 	// plant or not yet confirmed, or one not of a material kept in stock.
 	ConfirmedQuantity OptQuantity `json:"confirmed_quantity"`
+	// The part of `confirmed_quantity` that rests on the material's replenishment lead time at the order's
+	// plant (S2j2), in the item's unit: what the plant's stock did not cover when the availability check
+	// last confirmed the item, which the plant replenishes by `lead_time_date`. Absent when the stock
+	// covered all that is confirmed.
+	LeadTimeQuantity OptQuantity `json:"lead_time_quantity"`
+	// The day the replenishment lead time ends: the company's date of the check that put the part on the
+	// lead time plus the material's lead time, on or before the requested delivery date that check was
+	// for. A later change that asks for an earlier date, or checks the item again for a date the lead time
+	// does not reach, keeps the part (less stock that arrived since) and this day, so it may fall after
+	// the order's requested delivery date as it is now. Absent with `lead_time_quantity`.
+	LeadTimeDate OptDate `json:"lead_time_date"`
 	// The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's
 	// unit; at most `delivered_quantity`.
 	BilledQuantity Quantity `json:"billed_quantity"`
@@ -118990,6 +119464,16 @@ func (s *SalesOrderItem) GetInDeliveryQuantity() Quantity {
 // GetConfirmedQuantity returns the value of ConfirmedQuantity.
 func (s *SalesOrderItem) GetConfirmedQuantity() OptQuantity {
 	return s.ConfirmedQuantity
+}
+
+// GetLeadTimeQuantity returns the value of LeadTimeQuantity.
+func (s *SalesOrderItem) GetLeadTimeQuantity() OptQuantity {
+	return s.LeadTimeQuantity
+}
+
+// GetLeadTimeDate returns the value of LeadTimeDate.
+func (s *SalesOrderItem) GetLeadTimeDate() OptDate {
+	return s.LeadTimeDate
 }
 
 // GetBilledQuantity returns the value of BilledQuantity.
@@ -119095,6 +119579,16 @@ func (s *SalesOrderItem) SetInDeliveryQuantity(val Quantity) {
 // SetConfirmedQuantity sets the value of ConfirmedQuantity.
 func (s *SalesOrderItem) SetConfirmedQuantity(val OptQuantity) {
 	s.ConfirmedQuantity = val
+}
+
+// SetLeadTimeQuantity sets the value of LeadTimeQuantity.
+func (s *SalesOrderItem) SetLeadTimeQuantity(val OptQuantity) {
+	s.LeadTimeQuantity = val
+}
+
+// SetLeadTimeDate sets the value of LeadTimeDate.
+func (s *SalesOrderItem) SetLeadTimeDate(val OptDate) {
+	s.LeadTimeDate = val
 }
 
 // SetBilledQuantity sets the value of BilledQuantity.
@@ -129682,6 +130176,7 @@ func (*TooManyRequestsHeaders) publishRfqRes()                                  
 func (*TooManyRequestsHeaders) realiseMemoRecordRes()                           {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()                       {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()                         {}
+func (*TooManyRequestsHeaders) recountPhysicalInventoryItemsRes()               {}
 func (*TooManyRequestsHeaders) redateCostCenterRes()                            {}
 func (*TooManyRequestsHeaders) redateProfitCenterRes()                          {}
 func (*TooManyRequestsHeaders) redeliverWebhookDeliveryRes()                    {}
@@ -130696,6 +131191,7 @@ func (*UnauthorizedHeaders) publishRfqRes()                                  {}
 func (*UnauthorizedHeaders) realiseMemoRecordRes()                           {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()                       {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()                         {}
+func (*UnauthorizedHeaders) recountPhysicalInventoryItemsRes()               {}
 func (*UnauthorizedHeaders) redateCostCenterRes()                            {}
 func (*UnauthorizedHeaders) redateProfitCenterRes()                          {}
 func (*UnauthorizedHeaders) redeliverWebhookDeliveryRes()                    {}

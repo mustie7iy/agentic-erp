@@ -17,5 +17,5 @@ import (
 func Inventory(cfg Config) *inventory.Endpoints {
 	return &inventory.Endpoints{Pages: cfg.Pages, Materials: materials.Materials{}, LegalEntities: tenancy.Directory{}, CostCenters: ledger.AssignmentBalances{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Postings: postings(), Accounts: ledger.Accounts{},
-		Requests: opener(), Now: cfg.Now}
+		Requests: opener(), People: LedgerPeople{}, Now: cfg.Now}
 }

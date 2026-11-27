@@ -2353,6 +2353,10 @@ type RecordAgentToolCallRes interface {
 	recordAgentToolCallRes()
 }
 
+type RecountPhysicalInventoryItemsRes interface {
+	recountPhysicalInventoryItemsRes()
+}
+
 type RedateCostCenterRes interface {
 	redateCostCenterRes()
 }

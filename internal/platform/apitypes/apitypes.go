@@ -82,6 +82,24 @@ func OptInt32(v *int32) gen.OptInt32 {
 	return gen.NewOptInt32(*v)
 }
 
+// OptNil maps a merge-patch field of any generated nullable optional
+// type: absent → nil, null → pointer to nil, a value → pointer to a
+// pointer to it. New code uses it; OptNilString, OptNilDate and
+// OptNilUUID below predate it and do the same for their types.
+func OptNil[T any](o interface {
+	IsSet() bool
+	Get() (T, bool)
+}) **T {
+	if !o.IsSet() {
+		return nil
+	}
+	var p *T
+	if v, ok := o.Get(); ok { // not null
+		p = &v
+	}
+	return &p
+}
+
 // OptNilString maps a merge-patch field: absent → nil, null → pointer to
 // nil, a value → pointer to a pointer to it.
 func OptNilString(s gen.OptNilString) **string {

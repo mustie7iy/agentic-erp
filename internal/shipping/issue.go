@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -33,8 +32,12 @@ import (
 // goods-issued, naming the day, the material document and the cost's
 // currency; its audit record and OutboundDeliveryChanged are written in
 // the request's transaction. Locks are taken delivery, valuations and
-// stock, then order; nothing takes them the other way round.
-func (e *Endpoints) PostGoodsIssue(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Delivery, error) {
+// stock, then order; nothing takes them the other way round. A picked
+// item of a batch-managed or serial-managed material issues what in
+// names of it: the batches it leaves from, each a line of the 601, and
+// its units' serial numbers, which the delivery's item keeps by line
+// (issuePlan; S2f2, S2g2, ADR-0083 As built S2f2).
+func (e *Endpoints) PostGoodsIssue(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, in []IssueInput) (Delivery, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Delivery{}, err
@@ -46,31 +49,27 @@ func (e *Endpoints) PostGoodsIssue(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := tradeHeld(d); err != nil {
 		return Delivery{}, err
 	}
-	var items []inventory.DeliveryItem
-	var picked []int // the delivery's items picked, in the material document's item order
-	for i, it := range d.Items {
-		if money.ParseRat(it.Picked).Sign() > 0 {
-			items = append(items, inventory.DeliveryItem{MaterialID: it.MaterialID, PlantID: d.PlantID, StorageLocationID: d.StorageLocationID,
-				Quantity: it.Picked, Unit: it.Unit})
-			picked = append(picked, i)
-		}
-	}
-	if len(items) == 0 {
-		return Delivery{}, problem.Conflict("shipping.nothing_picked", "Outbound delivery "+d.Number+" has nothing picked; its goods issue issues what is picked.")
-	}
-	doc, err := e.Stock.IssueForDelivery(ctx, d.Number, items)
+	plan, err := e.issuePlan(ctx, d, in)
 	if err != nil {
 		return Delivery{}, err
+	}
+	if len(plan.items) == 0 {
+		return Delivery{}, problem.Conflict("shipping.nothing_picked", "Outbound delivery "+d.Number+" has nothing picked; its goods issue issues what is picked.")
+	}
+	doc, err := e.Stock.IssueForDelivery(ctx, d.Number, plan.items)
+	if err != nil {
+		return Delivery{}, plan.asRequest(err)
 	}
 	issued := sales.GoodsIssue{OrderID: d.OrderID, DeliveryID: d.ID, DeliveryNumber: d.Number, PlantID: d.PlantID, MaterialDocumentID: doc.ID,
 		MaterialDocumentNumber: doc.Number, Date: doc.PostingDate, Currency: doc.Currency, Items: make([]sales.IssuedItem, len(d.Items))}
 	for i, it := range d.Items {
 		issued.Items[i] = sales.IssuedItem{ItemNo: it.OrderItemNo, Held: it.Quantity, Issued: it.Picked}
 	}
-	for _, l := range doc.Lines { // one line per item: an issue's item moves one location
-		issued.Items[picked[l.ItemNo-1]].Cost = -l.Amount
-	}
+	plan.costs(doc, issued.Items)
 	if _, err := e.Shipments.Issue(ctx, issued); err != nil {
+		return Delivery{}, err
+	}
+	if err := plan.writeLines(ctx, tx, d, doc); err != nil {
 		return Delivery{}, err
 	}
 	after, err := goodsIssued(ctx, tx, p, d, issued)

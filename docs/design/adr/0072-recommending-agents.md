@@ -217,7 +217,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
 | `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner`, `getSupplierDeliveryPerformance` (S2l1) | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan`, and of stock transport orders (`createStockTransportOrder`, `cancelStockTransportOrder`; review:batch92) |
-| `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
+| `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `recountPhysicalInventoryItems` (S2d2), `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
 | `demand_forecast` | `internal/demandagent`, `erp agent demand-forecast -company CODE -material NUMBER` (S2m) | `getMaterial`, `listMaterials`, `listMaterialDocuments`, `getMaterialDocument`, `listSalesOrders`, `getSalesOrder` | on `material`: `demand_forecast` | every goods movement and count (`createMaterialDocument`, `reverseMaterialDocument` and the postings that post one), every write of sales and returns orders and their deliveries, the replenishment agent's never list of requisitions and purchase orders (schedule lines and their call-off included), `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 
 A later slice adds its row here and its section under "As built".
@@ -1303,7 +1303,7 @@ A later slice adds its row here and its section under "As built".
   `reverseOutboundDeliveryGoodsIssue`, S2b3; cycle counting's
   `createCycleCountIndicator`, `updateCycleCountIndicator`,
   `createCycleCountMaterial`, `updateCycleCountMaterial`, S2c2;
-  `TestNever` keeps it whole against the contract's writes named
+  `recountPhysicalInventoryItems`, S2d2; `TestNever` keeps it whole against the contract's writes named
   `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt`, `GoodsIssue` or
   `CycleCount`),
   none among its tools, and each `x-agent: false` but the purchase order
@@ -1661,6 +1661,17 @@ A later slice adds its row here and its section under "As built".
   though the other's is cheaper; its replay reads the run's year (`from`,
   `to` the proposal's day), which the check reads too, so a run that
   crosses midnight names the same measures.
+- Batch 96S integration: the recount (`recountPhysicalInventoryItems`,
+  S2d2) is not on this agent's never list. Its list holds the writes of
+  procurement and planning (requisitions, purchase orders, schedule
+  lines, RFQs, stock transport orders, planning runs, materials' planning
+  data, S&OP plans), none of a count, as it holds none of
+  `enterPhysicalInventoryCount` or `postPhysicalInventoryDifferences`;
+  `TestNever`'s names and paths do not catch it, and its tools are reads.
+  The count planning and demand forecasting agents, whose lists hold
+  every count write, name it. The evaluation suite (version 2) still
+  plans what it says on the merged tree with lot sizing and lead times
+  (`TestEvalSuites/replenishment`): a run does not read the lead time.
 
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
 

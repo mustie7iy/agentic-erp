@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -21,7 +22,8 @@ import (
 // Materials' planning data at plants (ADR-0084 §4; SAP MARC's MRP view):
 // how a material is planned at a plant, its reorder point and how its
 // proposals are sized (lotsize.go) in its base unit, maintained by a
-// planner at its version, read by the plant's runs.
+// planner at its version, read by the plant's runs; and its replenishment
+// lead time (leadtime.go), read by sales orders' availability checks.
 
 // Plan is a material's planning data at a plant.
 type Plan struct {
@@ -31,18 +33,23 @@ type Plan struct {
 	Version                                           int32
 	CreatedAt, UpdatedAt                              time.Time
 	CreatedBy, UpdatedBy                              uuid.UUID
+	// LeadDays is the replenishment lead time in days (S2j2), nil for
+	// none.
+	LeadDays *int32
 }
 
 const planSelect = `SELECT id, legal_entity_id, plant_id, material_id, account_id, mrp_type, trim_scale(reorder_point)::text, lot_size,
 		trim_scale(fixed_lot_size)::text, trim_scale(maximum_stock_level)::text, trim_scale(minimum_lot_size)::text,
-		trim_scale(maximum_lot_size)::text, trim_scale(rounding_value)::text, version, created_at, updated_at, created_by, updated_by
+		trim_scale(maximum_lot_size)::text, trim_scale(rounding_value)::text, version, created_at, updated_at, created_by, updated_by,
+		replenishment_lead_time_days
 	FROM mrp.material_plan`
 
 func scanPlan(row pgx.Row) (Plan, error) {
 	var p Plan
 	l := &p.Lots
 	err := row.Scan(&p.ID, &p.LegalEntityID, &p.PlantID, &p.MaterialID, &p.AccountID, &p.MRPType, &p.ReorderPoint, &l.Procedure, &l.Fixed,
-		&l.MaximumLevel, &l.Minimum, &l.Maximum, &l.Rounding, &p.Version, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy, &p.UpdatedBy)
+		&l.MaximumLevel, &l.Minimum, &l.Maximum, &l.Rounding, &p.Version, &p.CreatedAt, &p.UpdatedAt, &p.CreatedBy, &p.UpdatedBy,
+		&p.LeadDays)
 	return p, errs.Wrapf(err, "scan material plan")
 }
 
@@ -69,6 +76,7 @@ type PlanInput struct {
 	PlantID, MaterialID, AccountID uuid.UUID
 	MRPType, ReorderPoint          string
 	Lots                           LotSizing // its Procedure empty: lot for lot
+	LeadDays                       *int32    // nil: none
 }
 
 // plant reads an active plant of a company the caller may act in, with
@@ -109,8 +117,8 @@ func (e *Endpoints) plannable(ctx context.Context, id uuid.UUID, plant tenancy.U
 	return m, nil
 }
 
-// checkPlan checks the MRP type, reorder point, lot sizing and account of
-// a plan of the company.
+// checkPlan checks the MRP type, reorder point, lot sizing, lead time and
+// account of a plan of the company.
 func (e *Endpoints) checkPlan(ctx context.Context, le uuid.UUID, p Plan) error {
 	if p.MRPType != ReorderPoint && p.MRPType != NoPlanning {
 		return problem.Invalid("mrp.invalid_mrp_type", "mrp_type", "reorder_point or no_planning")
@@ -120,6 +128,9 @@ func (e *Endpoints) checkPlan(ctx context.Context, le uuid.UUID, p Plan) error {
 			money.QuantityIntDigits, money.QuantityDecimals))
 	}
 	if err := p.Lots.check(p.ReorderPoint); err != nil {
+		return err
+	}
+	if err := checkLeadDays(p.LeadDays); err != nil {
 		return err
 	}
 	ok, err := e.Accounts.IsPostable(ctx, le, p.AccountID)
@@ -153,15 +164,16 @@ func (e *Endpoints) CreatePlan(ctx context.Context, in PlanInput) (Plan, error) 
 	if in.Lots.Procedure == "" {
 		in.Lots.Procedure = LotForLot
 	}
-	if err := e.checkPlan(ctx, le.ID, Plan{MRPType: in.MRPType, ReorderPoint: in.ReorderPoint, Lots: in.Lots, AccountID: in.AccountID}); err != nil {
+	if err := e.checkPlan(ctx, le.ID, Plan{MRPType: in.MRPType, ReorderPoint: in.ReorderPoint, Lots: in.Lots, AccountID: in.AccountID,
+		LeadDays: in.LeadDays}); err != nil {
 		return Plan{}, err
 	}
 	id, l := uuid.Must(uuid.NewV7()), in.Lots
 	if _, err := tx.Exec(ctx, `INSERT INTO mrp.material_plan (tenant_id, id, legal_entity_id, plant_id, material_id, mrp_type, reorder_point, account_id,
-			lot_size, fixed_lot_size, maximum_stock_level, minimum_lot_size, maximum_lot_size, rounding_value, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9, $10::numeric, $11::numeric, $12::numeric, $13::numeric, $14::numeric, $15, $15)`,
+			lot_size, fixed_lot_size, maximum_stock_level, minimum_lot_size, maximum_lot_size, rounding_value, created_by, updated_by, replenishment_lead_time_days)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9, $10::numeric, $11::numeric, $12::numeric, $13::numeric, $14::numeric, $15, $15, $16)`,
 		p.TenantID, id, le.ID, plant.ID, m.ID, in.MRPType, in.ReorderPoint, in.AccountID, l.Procedure, l.Fixed, l.MaximumLevel, l.Minimum, l.Maximum,
-		l.Rounding, p.ID); err != nil {
+		l.Rounding, p.ID, in.LeadDays); err != nil {
 		return Plan{}, fmt.Errorf("mrp: plan material %s at plant %s: %w", m.Number, plant.Code, err)
 	}
 	out, err := loadPlan(ctx, tx, id, false)
@@ -174,12 +186,13 @@ func (e *Endpoints) CreatePlan(ctx context.Context, in PlanInput) (Plan, error) 
 }
 
 // PlanChange is a merge patch of a plan; nil leaves a field as it is.
-// A lot sizing quantity is set to its value, or removed when it points
-// to nil.
+// A lot sizing quantity or the lead time is set to its value, or
+// removed when it points to nil.
 type PlanChange struct {
 	MRPType, ReorderPoint, LotSize                                            *string
 	AccountID                                                                 *uuid.UUID
 	FixedLotSize, MaximumStockLevel, MinimumLotSize, MaximumLotSize, Rounding **string
+	LeadDays                                                                  **int32
 }
 
 // apply is the plan with the change, and whether it changes anything.
@@ -204,7 +217,11 @@ func (c PlanChange) apply(p Plan) (Plan, bool) {
 			*f.to = *f.from
 		}
 	}
-	same := p.MRPType == before.MRPType && p.AccountID == before.AccountID && sameQuantity(p.ReorderPoint, before.ReorderPoint) && p.Lots.same(before.Lots)
+	if c.LeadDays != nil {
+		p.LeadDays = *c.LeadDays
+	}
+	same := p.MRPType == before.MRPType && p.AccountID == before.AccountID && sameQuantity(p.ReorderPoint, before.ReorderPoint) &&
+		p.Lots.same(before.Lots) && apitypes.SamePtr(p.LeadDays, before.LeadDays)
 	return p, !same
 }
 
@@ -216,7 +233,8 @@ func sameQuantity(a, b string) bool {
 }
 
 // ChangePlan changes a plan at its version (412 otherwise): its MRP type,
-// reorder point, lot sizing or account, checked as on creation, the
+// reorder point, lot sizing, account or lead time, checked as on
+// creation (a field the change does not name stays as it is), the
 // plan as it is after the change; a change to what it is is 422
 // mrp.nothing_to_change. Audited with the values before and after.
 func (e *Endpoints) ChangePlan(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch PlanChange) (Plan, error) {
@@ -241,9 +259,9 @@ func (e *Endpoints) ChangePlan(ctx context.Context, id uuid.UUID, ifMatch func(i
 	l := after.Lots
 	if _, err := tx.Exec(ctx, `UPDATE mrp.material_plan SET mrp_type = $2, reorder_point = $3::numeric, account_id = $4, lot_size = $5,
 			fixed_lot_size = $6::numeric, maximum_stock_level = $7::numeric, minimum_lot_size = $8::numeric, maximum_lot_size = $9::numeric,
-			rounding_value = $10::numeric, version = version + 1, updated_by = $11
+			rounding_value = $10::numeric, version = version + 1, updated_by = $11, replenishment_lead_time_days = $12
 		WHERE id = $1`, id, after.MRPType, after.ReorderPoint, after.AccountID, l.Procedure, l.Fixed, l.MaximumLevel, l.Minimum, l.Maximum, l.Rounding,
-		p.ID); err != nil {
+		p.ID, after.LeadDays); err != nil {
 		return Plan{}, fmt.Errorf("mrp: change material plan %s: %w", id, err)
 	}
 	out, err := loadPlan(ctx, tx, id, false)
@@ -258,7 +276,7 @@ func (e *Endpoints) ChangePlan(ctx context.Context, id uuid.UUID, ifMatch func(i
 func planAudit(p Plan) map[string]any {
 	out := p.Lots.auditOf()
 	out["mrp_type"], out["reorder_point"], out["account_id"] = p.MRPType, p.ReorderPoint, p.AccountID
-	return out
+	return withLead(out, p.LeadDays)
 }
 
 // planned reads the plant's plans by reorder point, by material, under

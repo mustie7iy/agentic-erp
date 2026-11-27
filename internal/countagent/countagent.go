@@ -57,16 +57,16 @@ var Reads = []string{"listStock", "listMaterials", "getMaterial", "listMaterialD
 	"getPhysicalInventoryDocument", "listCycleCountMaterials"}
 
 // Never are the operations the agent never calls (ADR-0072, S2e): a count
-// document created, counted or its differences posted, and every goods
-// movement: a material document posted or reversed, and the postings of
-// other contexts that post one (a purchase order's goods receipt and its
-// reversal, an outbound delivery's goods issue and its reversal, S2b3, a
-// stock transport order's issue and receipt, an intercompany order's
-// goods issue, S2i1), and cycle counting's indicators of plants and
-// materials (S2c2), which the controller keeps. Its tools hold none of
+// document created, counted, recounted (S2d2) or its differences posted,
+// and every goods movement: a material document posted or reversed, and
+// the postings of other contexts that post one (a purchase order's goods
+// receipt and its reversal, an outbound delivery's goods issue and its
+// reversal, S2b3, a stock transport order's issue and receipt, an
+// intercompany order's goods issue, S2i1), and cycle counting's
+// indicators of plants and materials (S2c2), which the controller keeps. Its tools hold none of
 // them: they are reads and createRecommendation.
-var Never = []string{"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences", "createMaterialDocument",
-	"reverseMaterialDocument", "postGoodsReceipt", "postOutboundDeliveryGoodsIssue", "postStockTransportGoodsIssue",
+var Never = []string{"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "recountPhysicalInventoryItems", "postPhysicalInventoryDifferences",
+	"createMaterialDocument", "reverseMaterialDocument", "postGoodsReceipt", "postOutboundDeliveryGoodsIssue", "postStockTransportGoodsIssue",
 	"postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue", "reverseGoodsReceipt", "reverseOutboundDeliveryGoodsIssue",
 	"createCycleCountIndicator", "updateCycleCountIndicator", "createCycleCountMaterial", "updateCycleCountMaterial"}
 

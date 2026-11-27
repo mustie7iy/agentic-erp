@@ -443,3 +443,48 @@ specialist):
   weekly, monthly), optimising procedures (part period, least unit cost,
   Groff), scrap and firming in a planning time fence, beside the leaf's
   safety stock, MRP areas, planned orders and calendars.
+
+### Replenishment lead time (S2j2, 2026-11-25)
+
+A material's planning data at a plant gains its replenishment lead time
+(`replenishment_lead_time_days`, 1 to 999 calendar days, optional;
+migration 000492; SAP MARC-WZEIT, from memory), which the sales
+context's availability check reads (ADR-0082 As built S2j2). Decided by
+default:
+
+- **Where it lives**: on the planning data, not on a new master nor on
+  the material's plant data (`materials.plant_data`, SAP MARC's key):
+  SAP keeps the total replenishment lead time on the material's MRP view
+  at the plant (from memory), the planner who maintains the reorder
+  point maintains it, and the planning data is already versioned,
+  audited and changed by merge patch; the material master's plant data
+  holds no field a person maintains, and adding one would bring it under
+  the material's governed change requests (ADR-0082 §9) for a planning
+  figure.
+- **Whatever the MRP type**: a `no_planning` material may have one, as
+  SAP's lead time does not depend on the MRP type; planning runs do not
+  read it (scheduling with lead times and calendars is Later).
+- **Read by sales through a port** (`sales.LeadTimes`, answered by
+  `mrp.Plans.LeadTimes`, wired by the composition root): sales does not
+  import mrp, so mrp stays a leaf (§1) and no import direction is added
+  (`internal/layout`); it is the reverse of mrp's ports of sales, data
+  read in the request's transaction, as §2's are.
+- **Without a lock**: a lead time is one input of a check, and no rule
+  spans it and what the check writes, so a change committed after the
+  check's read orders after the check.
+- Audited only when set: a plan without one is recorded as before.
+  `createMaterialPlan`/`updateMaterialPlan` (`null` removes it; 422
+  `mrp.invalid_lead_time` for the context's other callers, the contract
+  bounding it); `TestLeadTimes`, `TestLeadTimeChecks`,
+  `TestLeadTimesFailures`, `TestLeadTimeRules` (db).
+- **With lot sizing (S2k2)**: the planning data carries both, each its
+  own fields of the merge patch, so a change naming the lot sizing leaves
+  the lead time as it is and one naming the lead time leaves the lot
+  sizing; a planning run sizes by the lot sizing and does not read the
+  lead time (batch 96S integration, `TestPlanLotSizingAndLeadTime`).
+- **Down migrations refuse** (batch 96S integration; 06 §6.4): the downs
+  of 000493 and 000492 refuse, reading every tenant's rows with
+  `row_security = off`, while an order item is confirmed in part on the
+  lead time or a plan names a lead time, rather than drop them
+  (`TestLeadTimeDownsRefused`); with neither they drop what their ups
+  added (`TestDownsRevert`).

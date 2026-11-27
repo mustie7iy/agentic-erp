@@ -753,10 +753,12 @@ type Invoker interface {
 	// checked. A confirmed order with a plant has the items the change adds, and those whose quantity it
 	// changes, checked for availability again as a confirmation checks them (`confirmSalesOrder`, S2j): an
 	// item keeps what it had confirmed, up to its new quantity, and has more confirmed as far as the plant
-	// has it available. The change is kept, numbered within the order, with its reason and its values
-	// before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted.
-	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
-	// changed order. Human-only (`x-agent: false`).
+	// has it available, or in full on the material's replenishment lead time when the order, as changed,
+	// asks for delivery on or after the company's date today plus that lead time (S2j2). The change is
+	// kept, numbered within the order, with its reason and its values before and after
+	// (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and
+	// published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:change
 	ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
@@ -1070,16 +1072,21 @@ type Invoker interface {
 	// have not yet delivered, item after item in the order's item order. An item may be confirmed in full,
 	// in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a
 	// shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the
-	// requested delivery date as it is today. Its outbound deliveries take at most what is confirmed
-	// (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked
-	// one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
-	// limit and the exposure when the customer has a limit and each item's confirmed quantity, and
-	// published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
-	// with the same `Idempotency-Key` answers the confirmed order. An order without a plant that has an
-	// item of a material kept in stock is not confirmed (422 `sales.plant_required` naming `plant_id`;
-	// product owner 2026-11-21): its availability could not be checked; such a draft is cancelled and
-	// created again with its `plant_id`. An order of services and non-stock items needs none. Human-only
-	// (`x-agent: false`).
+	// requested delivery date as it is today, unless the material has a replenishment lead time at the
+	// plant (S2j2, `replenishment_lead_time_days` of `createMaterialPlan`; SAP's check with the
+	// replenishment lead time): an item of such a material whose order asks for delivery on or after the
+	// company's date today plus the lead time is confirmed in full, what the stock does not cover resting
+	// on the lead time, which the item names (`lead_time_quantity`, `lead_time_date`). An order without a
+	// requested delivery date, or one asked for sooner, is checked against the stock alone. Its outbound
+	// deliveries take at most what is confirmed (`createOutboundDelivery`). Two orders confirmed at once
+	// for the same material and plant are checked one after the other, so the last quantity is confirmed
+	// once. Audited, with the amount checked, the limit and the exposure when the customer has a limit and
+	// each item's confirmed quantity, and published as SalesOrderChanged, and as SalesOrderCreditBlocked
+	// when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. An
+	// order without a plant that has an item of a material kept in stock is not confirmed (422
+	// `sales.plant_required` naming `plant_id`; product owner 2026-11-21): its availability could not be
+	// checked; such a draft is cancelled and created again with its `plant_id`. An order of services and
+	// non-stock items needs none. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
@@ -2400,9 +2407,11 @@ type Invoker interface {
 	// with up to six decimals (422 `mrp.invalid_quantity`): a fixed lot size exactly with `fixed`, a
 	// maximum stock level not below the reorder point exactly with `replenish_to_maximum`, no minimum or
 	// maximum lot size or rounding value with a fixed lot, a minimum lot size not above the maximum and
-	// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field). A material is
-	// planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same
-	// `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`).
+	// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field); a replenishment
+	// lead time, if given, of 1 to 999 days (422 `mrp.invalid_lead_time`), which sales orders'
+	// availability checks at the plant confirm on (S2j2), whatever the MRP type. A material is planned
+	// once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key`
+	// answers the planning data created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-plans
 	CreateMaterialPlan(ctx context.Context, request *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error)
@@ -2510,11 +2519,11 @@ type Invoker interface {
 	// dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's
 	// date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
 	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
-	// Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
-	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
-	// material too, as it carries no serial numbers yet (S2g). A delivery at a plant an active `gts`
-	// connector names is created with its `trade_compliance` `pending` (S2s): a trade compliance service
-	// screens it (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
+	// Human-only (`x-agent: false`). An item of a batch-managed or serial-managed material is delivered as
+	// any (S2f2, S2g2): its goods issue names its batches and serial numbers
+	// (`postOutboundDeliveryGoodsIssue`). A delivery at a plant an active `gts` connector names is created
+	// with its `trade_compliance` `pending` (S2s): a trade compliance service screens it
+	// (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
@@ -2709,27 +2718,28 @@ type Invoker interface {
 	// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
 	// `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a
 	// `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422
-	// `request.reference_not_found` naming `items[i].material_id`) that is `active`, not managed in
-	// batches and without a serial number profile (422 `sales.material_not_usable`; a delivery carries no
-	// batch or serial number yet, S2f, S2g), whose number is then the item's `item_key` (another key is
-	// refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the
-	// item's when it sends none; its quantity is in the material's base unit or one of its alternative
-	// units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity`
-	// naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the
-	// reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit`
-	// naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when
-	// absent; sent without a unit price it is refused, 422 `request.validation_failed` naming
-	// `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the
-	// quotation's date in the item's unit and the quotation's currency, the customer's before its price
-	// group's (by its sales data in the company, `createCustomerSalesData`) before the general one and
-	// then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a
-	// price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
-	// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
-	// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code
-	// that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is
-	// levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or
-	// none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
+	// `request.reference_not_found` naming `items[i].material_id`) that is `active` (422
+	// `sales.material_not_usable`; one managed in batches or with a serial number profile too since S2f2
+	// and S2g2, its delivery's goods issue naming its batches and serial numbers), whose number is then
+	// the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming
+	// `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the
+	// material's base unit or one of its alternative units and converts to the base unit exactly in six
+	// decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a
+	// quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity`
+	// naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit
+	// price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is
+	// refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price
+	// recorded for its `item_key` that is valid on the quotation's date in the item's unit and the
+	// quotation's currency, the customer's before its price group's (by its sales data in the company,
+	// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+	// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+	// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+	// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+	// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+	// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code that
+	// levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is levied in,
+	// `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or none, 422
+	// `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
 	// `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's
 	// minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`,
 	// or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
@@ -2990,27 +3000,27 @@ type Invoker interface {
 	// message); the quotation stays accepted. Without `quotation_id`, the request gives `legal_entity_id`,
 	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
 	// the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed
-	// or serial-managed material is refused, 422 `sales.material_not_usable`, S2f, S2g), on the order's
-	// date: an item without a `unit_price` takes the price recorded for its `item_key` (422
-	// `sales.no_price` when there is none). Either way the order needs the customer's data in the company,
-	// as a receivables document does: a customer that is not active, has no customer role, has no data in
-	// the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming
-	// `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term
-	// (422 `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is
-	// the plant the order delivers from: an active plant of the order's company (422
-	// `sales.plant_invalid`); its confirmation then checks the availability of its items of a material
-	// kept in stock there (S2j, `confirmSalesOrder`). Without it the order delivers from the company's
-	// only active plant when it has exactly one (product owner 2026-11-21), else from none, and an order
-	// without a plant is not confirmed while it has an item of a material kept in stock (422
-	// `sales.plant_required`). A UAE item that names no `tax_jurisdiction` takes the seller's emirate: its
-	// plant's `region` for an item of a material kept in stock of an order with a plant, else the
-	// company's establishment, the region of its postal address (`SalesItemCreate`); an order from a
-	// quotation keeps its items' emirates as offered, the company's establishment's for a stock item even
-	// when the order has a plant (a quotation has none). It is created `draft`, dated the company's date
-	// today in its time zone, with a document number from the company's `sales_order` number range of that
-	// date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is
-	// posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers
-	// the order created. Human-only (`x-agent: false`).
+	// or serial-managed material too, S2f2, S2g2), on the order's date: an item without a `unit_price`
+	// takes the price recorded for its `item_key` (422 `sales.no_price` when there is none). Either way
+	// the order needs the customer's data in the company, as a receivables document does: a customer that
+	// is not active, has no customer role, has no data in the company or is blocked for posting there is
+	// refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's
+	// payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the
+	// customer's in the company. `plant_id`, with either, is the plant the order delivers from: an active
+	// plant of the order's company (422 `sales.plant_invalid`); its confirmation then checks the
+	// availability of its items of a material kept in stock there (S2j, `confirmSalesOrder`). Without it
+	// the order delivers from the company's only active plant when it has exactly one (product owner
+	// 2026-11-21), else from none, and an order without a plant is not confirmed while it has an item of a
+	// material kept in stock (422 `sales.plant_required`). A UAE item that names no `tax_jurisdiction`
+	// takes the seller's emirate: its plant's `region` for an item of a material kept in stock of an order
+	// with a plant, else the company's establishment, the region of its postal address
+	// (`SalesItemCreate`); an order from a quotation keeps its items' emirates as offered, the company's
+	// establishment's for a stock item even when the order has a plant (a quotation has none). It is
+	// created `draft`, dated the company's date today in its time zone, with a document number from the
+	// company's `sales_order` number range of that date's fiscal year; each item starts with nothing
+	// delivered or billed. Amounts are net; nothing is posted. Audited, and published as
+	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
@@ -3471,10 +3481,11 @@ type Invoker interface {
 	// request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
 	// `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
 	// alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
-	// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
-	// recount is a new document, once this one is closed. A material blocked since is still counted. Items
-	// may be entered in several calls; once every item is counted the document is `counted`, its
-	// differences ready to post (S2d). A document no longer `counting` takes no count (409
+	// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`) until it
+	// is sent for a recount (`recountPhysicalInventoryItems`, S2d2), which keeps its count as an earlier
+	// count; its recount is entered here as its first count was. A material blocked since is still
+	// counted. Items may be entered in several calls; once every item is counted the document is
+	// `counted`, its differences ready to post (S2d). A document no longer `counting` takes no count (409
 	// `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
 	// Audited. Human-only (`x-agent: false`).
 	//
@@ -5005,8 +5016,9 @@ type Invoker interface {
 	// GetMaterialPlan invokes getMaterialPlan operation.
 	//
 	// A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code,
-	// number and description, its MRP type, its reorder point in the material's base unit and the account
-	// its proposals name, by number. One of a company the caller cannot act in is not found.
+	// number and description, its MRP type, its reorder point in the material's base unit, the account its
+	// proposals name, by number, and its replenishment lead time, if it has one (S2j2). One of a company
+	// the caller cannot act in is not found.
 	//
 	// GET /v1/material-plans/{id}
 	GetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (GetMaterialPlanRes, error)
@@ -8358,12 +8370,27 @@ type Invoker interface {
 	// refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
 	// `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
 	// MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
-	// delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422
-	// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
-	// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
+	// delivery as it left it. Human-only (`x-agent: false`). Batches and serial numbers (S2f2, S2g2;
+	// ADR-0083 As built S2f2): the optional body names, for each picked item of a batch-managed or
+	// serial-managed material, what its picked quantity issues, and such an item not named is refused (422
+	// `shipping.tracking_required`, naming it), as is an item named of another material (422
+	// `shipping.item_not_tracked`) or one the delivery lacks (422 `shipping.unknown_item`). An item's
+	// entries (`item_no` repeated for a batch split) each give a quantity more than zero (422
+	// `shipping.invalid_quantity`) in the item's unit (422 `shipping.unit_mismatch`), together its picked
+	// quantity exactly (422 `shipping.issue_quantity_mismatch`), and each is a line of the 601: the batch
+	// of a batch-managed material by its number, one of the material's (422 `inventory.batch_invalid`;
+	// `inventory.batch_required`, `inventory.batch_not_allowed`), its quantity in stock in that batch at
+	// the storage location (409 `inventory.insufficient_stock`, naming the batch); the serial numbers of a
+	// serial-managed material's units, one per unit of the base unit (422 `inventory.serial_required`,
+	// `inventory.serial_quantity`; another material's none, `inventory.serial_not_allowed`), each once
+	// (422 `inventory.serial_repeated`) and in stock at the storage location (409
+	// `inventory.serial_not_in_stock`), out of stock once issued. A batch's expiry date is not checked,
+	// and no batch is chosen for the person (batch determination is Later). The delivery's items name what
+	// each line issued (`issue_lines`). A goods issue reported by a warehouse system names no batch or
+	// serial number yet, so such an item is refused there too.
 	//
 	// POST /v1/outbound-deliveries/{id}:postGoodsIssue
-	PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error)
+	PostOutboundDeliveryGoodsIssue(ctx context.Context, request OptOutboundDeliveryGoodsIssue, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error)
 	// PostParkedJournalEntry invokes postParkedJournalEntry operation.
 	//
 	// Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal
@@ -8736,6 +8763,25 @@ type Invoker interface {
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, request *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
+	// RecountPhysicalInventoryItems invokes recountPhysicalInventoryItems operation.
+	//
+	// Sends counted items of a `counting` or `counted` document for a recount at the caller's version
+	// (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422
+	// `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's
+	// count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when
+	// and who sent it for the recount and when, each by id and by name as named then) and the item is open
+	// to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is
+	// `counting` until every item is counted again. Only an item's latest count is posted
+	// (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not
+	// entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409
+	// `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were
+	// rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are
+	// counted by a new document. One of a company the caller may not act in is not found (404). The
+	// posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/physical-inventory-documents/{id}:recount
+	RecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (RecountPhysicalInventoryItemsRes, error)
 	// RedateCostCenter invokes redateCostCenter operation.
 	//
 	// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
@@ -9523,10 +9569,13 @@ type Invoker interface {
 	// what then stays delivered (409 `sales.delivery_billed`): its billing document is cancelled first
 	// (`cancelBillingDocument`). The reversal waits for, and is waited for by, the availability check of
 	// its materials at the plant, so a check never counts the stock given back against the demand before
-	// it. Trade compliance is not asked again. The delivery is `goods_issue_reversed` and changes no more
-	// but for its shipment. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
-	// SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key` answers the delivery as it left
-	// it. Human-only (`x-agent: false`); the goods issue's permission.
+	// it. Each line of a batch-managed material gives its batch back what it issued, and one of a
+	// serial-managed material takes its serial numbers into stock at the storage location again, unless
+	// one is in stock again since (409 `inventory.serial_in_stock`, naming it: received again by another
+	// document) (S2f2, S2g2). Trade compliance is not asked again. The delivery is `goods_issue_reversed`
+	// and changes no more but for its shipment. Audited, and published as OutboundDeliveryChanged,
+	// MaterialDocumentPosted and SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key`
+	// answers the delivery as it left it. Human-only (`x-agent: false`); the goods issue's permission.
 	//
 	// POST /v1/outbound-deliveries/{id}:reverseGoodsIssue
 	ReverseOutboundDeliveryGoodsIssue(ctx context.Context, params ReverseOutboundDeliveryGoodsIssueParams) (ReverseOutboundDeliveryGoodsIssueRes, error)
@@ -10419,9 +10468,11 @@ type Invoker interface {
 	// UpdateMaterialPlan invokes updateMaterialPlan operation.
 	//
 	// Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
-	// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity) or account, checked as on
-	// creation, the planning data as it is after the change (422 `mrp.invalid_mrp_type`,
-	// `mrp.invalid_quantity`, `mrp.invalid_lot_size`, `mrp.account_not_postable`: changing `lot_size`
+	// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity), account or replenishment
+	// lead time (`null` removes it); a field the patch does not name stays as it is, so a change of lot
+	// sizing leaves the lead time and a change of lead time the lot sizing, checked as on creation, the
+	// planning data as it is after the change (422 `mrp.invalid_mrp_type`, `mrp.invalid_quantity`,
+	// `mrp.invalid_lot_size`, `mrp.account_not_postable`, `mrp.invalid_lead_time`: changing `lot_size`
 	// removes or adds the quantities the procedures use in the same patch); a change to what it already is
 	// is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the
 	// plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only
@@ -18458,10 +18509,12 @@ func (c *Client) sendChangeMaterialPrice(ctx context.Context, request *MaterialP
 // checked. A confirmed order with a plant has the items the change adds, and those whose quantity it
 // changes, checked for availability again as a confirmation checks them (`confirmSalesOrder`, S2j): an
 // item keeps what it had confirmed, up to its new quantity, and has more confirmed as far as the plant
-// has it available. The change is kept, numbered within the order, with its reason and its values
-// before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted.
-// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
-// changed order. Human-only (`x-agent: false`).
+// has it available, or in full on the material's replenishment lead time when the order, as changed,
+// asks for delivery on or after the company's date today plus that lead time (S2j2). The change is
+// kept, numbered within the order, with its reason and its values before and after
+// (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and
+// published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:change
 func (c *Client) ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error) {
@@ -21272,16 +21325,21 @@ func (c *Client) sendConfirmSalesDelivery(ctx context.Context, request *SalesDel
 // have not yet delivered, item after item in the order's item order. An item may be confirmed in full,
 // in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a
 // shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the
-// requested delivery date as it is today. Its outbound deliveries take at most what is confirmed
-// (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked
-// one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
-// limit and the exposure when the customer has a limit and each item's confirmed quantity, and
-// published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
-// with the same `Idempotency-Key` answers the confirmed order. An order without a plant that has an
-// item of a material kept in stock is not confirmed (422 `sales.plant_required` naming `plant_id`;
-// product owner 2026-11-21): its availability could not be checked; such a draft is cancelled and
-// created again with its `plant_id`. An order of services and non-stock items needs none. Human-only
-// (`x-agent: false`).
+// requested delivery date as it is today, unless the material has a replenishment lead time at the
+// plant (S2j2, `replenishment_lead_time_days` of `createMaterialPlan`; SAP's check with the
+// replenishment lead time): an item of such a material whose order asks for delivery on or after the
+// company's date today plus the lead time is confirmed in full, what the stock does not cover resting
+// on the lead time, which the item names (`lead_time_quantity`, `lead_time_date`). An order without a
+// requested delivery date, or one asked for sooner, is checked against the stock alone. Its outbound
+// deliveries take at most what is confirmed (`createOutboundDelivery`). Two orders confirmed at once
+// for the same material and plant are checked one after the other, so the last quantity is confirmed
+// once. Audited, with the amount checked, the limit and the exposure when the customer has a limit and
+// each item's confirmed quantity, and published as SalesOrderChanged, and as SalesOrderCreditBlocked
+// when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. An
+// order without a plant that has an item of a material kept in stock is not confirmed (422
+// `sales.plant_required` naming `plant_id`; product owner 2026-11-21): its availability could not be
+// checked; such a draft is cancelled and created again with its `plant_id`. An order of services and
+// non-stock items needs none. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:confirm
 func (c *Client) ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error) {
@@ -29089,9 +29147,11 @@ func (c *Client) sendCreateMaterialDocument(ctx context.Context, request *Materi
 // with up to six decimals (422 `mrp.invalid_quantity`): a fixed lot size exactly with `fixed`, a
 // maximum stock level not below the reorder point exactly with `replenish_to_maximum`, no minimum or
 // maximum lot size or rounding value with a fixed lot, a minimum lot size not above the maximum and
-// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field). A material is
-// planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same
-// `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`).
+// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field); a replenishment
+// lead time, if given, of 1 to 999 days (422 `mrp.invalid_lead_time`), which sales orders'
+// availability checks at the plant confirm on (S2j2), whatever the MRP type. A material is planned
+// once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key`
+// answers the planning data created. Human-only (`x-agent: false`).
 //
 // POST /v1/material-plans
 func (c *Client) CreateMaterialPlan(ctx context.Context, request *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error) {
@@ -29943,11 +30003,11 @@ func (c *Client) sendCreateOrgUnit(ctx context.Context, request *OrgUnitCreate, 
 // dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's
 // date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
 // OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
-// Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
-// `shipping.material_not_usable`): a delivery carries no batch yet (S2f); one of a serial-managed
-// material too, as it carries no serial numbers yet (S2g). A delivery at a plant an active `gts`
-// connector names is created with its `trade_compliance` `pending` (S2s): a trade compliance service
-// screens it (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
+// Human-only (`x-agent: false`). An item of a batch-managed or serial-managed material is delivered as
+// any (S2f2, S2g2): its goods issue names its batches and serial numbers
+// (`postOutboundDeliveryGoodsIssue`). A delivery at a plant an active `gts` connector names is created
+// with its `trade_compliance` `pending` (S2s): a trade compliance service screens it
+// (`listGTSMessages`), and its goods issue waits for the service's release, or a person's.
 //
 // POST /v1/outbound-deliveries
 func (c *Client) CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error) {
@@ -31649,27 +31709,28 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 // `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
 // `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a
 // `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422
-// `request.reference_not_found` naming `items[i].material_id`) that is `active`, not managed in
-// batches and without a serial number profile (422 `sales.material_not_usable`; a delivery carries no
-// batch or serial number yet, S2f, S2g), whose number is then the item's `item_key` (another key is
-// refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the
-// item's when it sends none; its quantity is in the material's base unit or one of its alternative
-// units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity`
-// naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the
-// reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit`
-// naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when
-// absent; sent without a unit price it is refused, 422 `request.validation_failed` naming
-// `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the
-// quotation's date in the item's unit and the quotation's currency, the customer's before its price
-// group's (by its sales data in the company, `createCustomerSalesData`) before the general one and
-// then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a
-// price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
-// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
-// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code
-// that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is
-// levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or
-// none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
+// `request.reference_not_found` naming `items[i].material_id`) that is `active` (422
+// `sales.material_not_usable`; one managed in batches or with a serial number profile too since S2f2
+// and S2g2, its delivery's goods issue naming its batches and serial numbers), whose number is then
+// the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming
+// `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the
+// material's base unit or one of its alternative units and converts to the base unit exactly in six
+// decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a
+// quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity`
+// naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit
+// price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is
+// refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price
+// recorded for its `item_key` that is valid on the quotation's date in the item's unit and the
+// quotation's currency, the customer's before its price group's (by its sales data in the company,
+// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code that
+// levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is levied in,
+// `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or none, 422
+// `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
 // `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's
 // minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`,
 // or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
@@ -33704,27 +33765,27 @@ func (c *Client) sendCreateRoleAssignment(ctx context.Context, request *RoleAssi
 // message); the quotation stays accepted. Without `quotation_id`, the request gives `legal_entity_id`,
 // `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
 // the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed
-// or serial-managed material is refused, 422 `sales.material_not_usable`, S2f, S2g), on the order's
-// date: an item without a `unit_price` takes the price recorded for its `item_key` (422
-// `sales.no_price` when there is none). Either way the order needs the customer's data in the company,
-// as a receivables document does: a customer that is not active, has no customer role, has no data in
-// the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming
-// `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term
-// (422 `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is
-// the plant the order delivers from: an active plant of the order's company (422
-// `sales.plant_invalid`); its confirmation then checks the availability of its items of a material
-// kept in stock there (S2j, `confirmSalesOrder`). Without it the order delivers from the company's
-// only active plant when it has exactly one (product owner 2026-11-21), else from none, and an order
-// without a plant is not confirmed while it has an item of a material kept in stock (422
-// `sales.plant_required`). A UAE item that names no `tax_jurisdiction` takes the seller's emirate: its
-// plant's `region` for an item of a material kept in stock of an order with a plant, else the
-// company's establishment, the region of its postal address (`SalesItemCreate`); an order from a
-// quotation keeps its items' emirates as offered, the company's establishment's for a stock item even
-// when the order has a plant (a quotation has none). It is created `draft`, dated the company's date
-// today in its time zone, with a document number from the company's `sales_order` number range of that
-// date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is
-// posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers
-// the order created. Human-only (`x-agent: false`).
+// or serial-managed material too, S2f2, S2g2), on the order's date: an item without a `unit_price`
+// takes the price recorded for its `item_key` (422 `sales.no_price` when there is none). Either way
+// the order needs the customer's data in the company, as a receivables document does: a customer that
+// is not active, has no customer role, has no data in the company or is blocked for posting there is
+// refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's
+// payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the
+// customer's in the company. `plant_id`, with either, is the plant the order delivers from: an active
+// plant of the order's company (422 `sales.plant_invalid`); its confirmation then checks the
+// availability of its items of a material kept in stock there (S2j, `confirmSalesOrder`). Without it
+// the order delivers from the company's only active plant when it has exactly one (product owner
+// 2026-11-21), else from none, and an order without a plant is not confirmed while it has an item of a
+// material kept in stock (422 `sales.plant_required`). A UAE item that names no `tax_jurisdiction`
+// takes the seller's emirate: its plant's `region` for an item of a material kept in stock of an order
+// with a plant, else the company's establishment, the region of its postal address
+// (`SalesItemCreate`); an order from a quotation keeps its items' emirates as offered, the company's
+// establishment's for a stock item even when the order has a plant (a quotation has none). It is
+// created `draft`, dated the company's date today in its time zone, with a document number from the
+// company's `sales_order` number range of that date's fiscal year; each item starts with nothing
+// delivered or billed. Amounts are net; nothing is posted. Audited, and published as
+// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/sales-orders
 func (c *Client) CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error) {
@@ -38828,10 +38889,11 @@ func (c *Client) sendEnterIntercompanySupplierInvoice(ctx context.Context, param
 // request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
 // `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
 // alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
-// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
-// recount is a new document, once this one is closed. A material blocked since is still counted. Items
-// may be entered in several calls; once every item is counted the document is `counted`, its
-// differences ready to post (S2d). A document no longer `counting` takes no count (409
+// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`) until it
+// is sent for a recount (`recountPhysicalInventoryItems`, S2d2), which keeps its count as an earlier
+// count; its recount is entered here as its first count was. A material blocked since is still
+// counted. Items may be entered in several calls; once every item is counted the document is
+// `counted`, its differences ready to post (S2d). A document no longer `counting` takes no count (409
 // `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
 // Audited. Human-only (`x-agent: false`).
 //
@@ -54829,8 +54891,9 @@ func (c *Client) sendGetMaterialDocument(ctx context.Context, params GetMaterial
 // GetMaterialPlan invokes getMaterialPlan operation.
 //
 // A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code,
-// number and description, its MRP type, its reorder point in the material's base unit and the account
-// its proposals name, by number. One of a company the caller cannot act in is not found.
+// number and description, its MRP type, its reorder point in the material's base unit, the account its
+// proposals name, by number, and its replenishment lead time, if it has one (S2j2). One of a company
+// the caller cannot act in is not found.
 //
 // GET /v1/material-plans/{id}
 func (c *Client) GetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (GetMaterialPlanRes, error) {
@@ -113552,17 +113615,32 @@ func (c *Client) sendPostJournalEntry(ctx context.Context, request *JournalEntry
 // refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
 // `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
 // MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
-// delivery as it left it. Human-only (`x-agent: false`). A batch-managed material is refused (422
-// `inventory.batch_not_supported`): a delivery's goods issue carries no batch yet (S2f); a
-// serial-managed material too (422 `inventory.serial_not_supported`, S2g).
+// delivery as it left it. Human-only (`x-agent: false`). Batches and serial numbers (S2f2, S2g2;
+// ADR-0083 As built S2f2): the optional body names, for each picked item of a batch-managed or
+// serial-managed material, what its picked quantity issues, and such an item not named is refused (422
+// `shipping.tracking_required`, naming it), as is an item named of another material (422
+// `shipping.item_not_tracked`) or one the delivery lacks (422 `shipping.unknown_item`). An item's
+// entries (`item_no` repeated for a batch split) each give a quantity more than zero (422
+// `shipping.invalid_quantity`) in the item's unit (422 `shipping.unit_mismatch`), together its picked
+// quantity exactly (422 `shipping.issue_quantity_mismatch`), and each is a line of the 601: the batch
+// of a batch-managed material by its number, one of the material's (422 `inventory.batch_invalid`;
+// `inventory.batch_required`, `inventory.batch_not_allowed`), its quantity in stock in that batch at
+// the storage location (409 `inventory.insufficient_stock`, naming the batch); the serial numbers of a
+// serial-managed material's units, one per unit of the base unit (422 `inventory.serial_required`,
+// `inventory.serial_quantity`; another material's none, `inventory.serial_not_allowed`), each once
+// (422 `inventory.serial_repeated`) and in stock at the storage location (409
+// `inventory.serial_not_in_stock`), out of stock once issued. A batch's expiry date is not checked,
+// and no batch is chosen for the person (batch determination is Later). The delivery's items name what
+// each line issued (`issue_lines`). A goods issue reported by a warehouse system names no batch or
+// serial number yet, so such an item is refused there too.
 //
 // POST /v1/outbound-deliveries/{id}:postGoodsIssue
-func (c *Client) PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error) {
-	res, err := c.sendPostOutboundDeliveryGoodsIssue(ctx, params)
+func (c *Client) PostOutboundDeliveryGoodsIssue(ctx context.Context, request OptOutboundDeliveryGoodsIssue, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error) {
+	res, err := c.sendPostOutboundDeliveryGoodsIssue(ctx, request, params)
 	return res, err
 }
 
-func (c *Client) sendPostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (res PostOutboundDeliveryGoodsIssueRes, err error) {
+func (c *Client) sendPostOutboundDeliveryGoodsIssue(ctx context.Context, request OptOutboundDeliveryGoodsIssue, params PostOutboundDeliveryGoodsIssueParams) (res PostOutboundDeliveryGoodsIssueRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("postOutboundDeliveryGoodsIssue"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -113626,6 +113704,9 @@ func (c *Client) sendPostOutboundDeliveryGoodsIssue(ctx context.Context, params 
 	r, err := ht.NewRequest(ctx, "POST", u)
 	if err != nil {
 		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostOutboundDeliveryGoodsIssueRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
 	}
 
 	stage = "EncodeHeaderParams"
@@ -116777,6 +116858,179 @@ func (c *Client) sendRecordAgentToolCall(ctx context.Context, request *AgentTool
 
 	stage = "DecodeResponse"
 	result, err := decodeRecordAgentToolCallResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RecountPhysicalInventoryItems invokes recountPhysicalInventoryItems operation.
+//
+// Sends counted items of a `counting` or `counted` document for a recount at the caller's version
+// (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422
+// `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's
+// count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when
+// and who sent it for the recount and when, each by id and by name as named then) and the item is open
+// to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is
+// `counting` until every item is counted again. Only an item's latest count is posted
+// (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not
+// entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409
+// `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were
+// rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are
+// counted by a new document. One of a company the caller may not act in is not found (404). The
+// posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:recount
+func (c *Client) RecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (RecountPhysicalInventoryItemsRes, error) {
+	res, err := c.sendRecountPhysicalInventoryItems(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (res RecountPhysicalInventoryItemsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("recountPhysicalInventoryItems"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/physical-inventory-documents/{id}:recount"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RecountPhysicalInventoryItemsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/physical-inventory-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":recount"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRecountPhysicalInventoryItemsRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RecountPhysicalInventoryItemsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRecountPhysicalInventoryItemsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -125236,10 +125490,13 @@ func (c *Client) sendReverseMaterialDocument(ctx context.Context, params Reverse
 // what then stays delivered (409 `sales.delivery_billed`): its billing document is cancelled first
 // (`cancelBillingDocument`). The reversal waits for, and is waited for by, the availability check of
 // its materials at the plant, so a check never counts the stock given back against the demand before
-// it. Trade compliance is not asked again. The delivery is `goods_issue_reversed` and changes no more
-// but for its shipment. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
-// SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key` answers the delivery as it left
-// it. Human-only (`x-agent: false`); the goods issue's permission.
+// it. Each line of a batch-managed material gives its batch back what it issued, and one of a
+// serial-managed material takes its serial numbers into stock at the storage location again, unless
+// one is in stock again since (409 `inventory.serial_in_stock`, naming it: received again by another
+// document) (S2f2, S2g2). Trade compliance is not asked again. The delivery is `goods_issue_reversed`
+// and changes no more but for its shipment. Audited, and published as OutboundDeliveryChanged,
+// MaterialDocumentPosted and SalesOrderDeliveryReversed. A retry with the same `Idempotency-Key`
+// answers the delivery as it left it. Human-only (`x-agent: false`); the goods issue's permission.
 //
 // POST /v1/outbound-deliveries/{id}:reverseGoodsIssue
 func (c *Client) ReverseOutboundDeliveryGoodsIssue(ctx context.Context, params ReverseOutboundDeliveryGoodsIssueParams) (ReverseOutboundDeliveryGoodsIssueRes, error) {
@@ -133605,9 +133862,11 @@ func (c *Client) sendUpdateMaterial(ctx context.Context, request *MaterialUpdate
 // UpdateMaterialPlan invokes updateMaterialPlan operation.
 //
 // Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
-// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity) or account, checked as on
-// creation, the planning data as it is after the change (422 `mrp.invalid_mrp_type`,
-// `mrp.invalid_quantity`, `mrp.invalid_lot_size`, `mrp.account_not_postable`: changing `lot_size`
+// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity), account or replenishment
+// lead time (`null` removes it); a field the patch does not name stays as it is, so a change of lot
+// sizing leaves the lead time and a change of lead time the lot sizing, checked as on creation, the
+// planning data as it is after the change (422 `mrp.invalid_mrp_type`, `mrp.invalid_quantity`,
+// `mrp.invalid_lot_size`, `mrp.account_not_postable`, `mrp.invalid_lead_time`: changing `lot_size`
 // removes or adds the quantities the procedures use in the same patch); a change to what it already is
 // is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the
 // plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only

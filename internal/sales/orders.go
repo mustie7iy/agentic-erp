@@ -62,7 +62,10 @@ type OrderItem struct {
 	// material kept in stock of an order with a plant (S2j), what its
 	// outbound deliveries take at most; nil for any other item, and for
 	// one of an order not yet confirmed.
-	Confirmed       *string        `json:"confirmed_quantity"`
+	Confirmed *string `json:"confirmed_quantity"`
+	// LeadTime is the part of Confirmed that rests on the material's
+	// replenishment lead time at the plant (S2j2), nil for none.
+	LeadTime        *LeadPart      `json:"lead_time"`
 	Billed          string         `json:"billed_quantity"`
 	Returned        string         `json:"returned_quantity"`
 	RemovedInChange *int32         `json:"removed_in_change"`
@@ -160,7 +163,9 @@ func orderQuery(extra string) string {
 		o.cancelled_by, o.cancelled_by_name, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'in_delivery_quantity', trim_scale(t.in_delivery_quantity)::text,
-				'confirmed_quantity', trim_scale(t.confirmed_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
+				'confirmed_quantity', trim_scale(t.confirmed_quantity)::text, 'lead_time', CASE WHEN t.lead_time_quantity IS NOT NULL THEN
+					json_build_object('quantity', trim_scale(t.lead_time_quantity)::text, 'date', to_char(t.lead_time_date, 'YYYY-MM-DD"T00:00:00Z"')) END,
+				'billed_quantity', trim_scale(t.billed_quantity)::text,
 				'returned_quantity', trim_scale(t.returned_quantity)::text, 'removed_in_change', t.removed_in_change`+extra) + `,
 		o.capture, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`
@@ -542,7 +547,7 @@ func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		id, Confirmed, p.ID, check.block); err != nil {
 		return Order{}, fmt.Errorf("sales: mark sales order %s confirmed: %w", id, err)
 	}
-	promises, err := e.availability(ctx, tx, o, o.Items, func(OrderItem) bool { return true })
+	promises, err := e.availability(ctx, tx, o, le, o.Items, func(OrderItem) bool { return true })
 	if err != nil {
 		return Order{}, err
 	}

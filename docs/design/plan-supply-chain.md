@@ -740,7 +740,42 @@ enters the counted quantities.
   material documents are not reversed (409 `inventory.reverse_count`): a
   new count corrects them. **Later:** a tolerance per item and per user
   group, difference reasons, partial posting of a document's items,
-  recount history (MI11 linking the documents).
+  recount history (first slice S2d2: recounts on the same document; MI11
+  linking the documents stays Later).
+
+### S2d2 Recounts with history (difference posting variants, first slice)
+
+**Capability.** An inventory controller sends counted items of a count
+document whose differences are not posted for a recount; the earlier
+counts are kept with who counted and when, the items are counted again,
+and only the latest count is posted.
+
+- **Adds** (lane recount, 2026-11-25; the tracker's "later: difference
+  posting variants" split, its first item; decided by default, ADR-0082
+  As built S2d2): `POST /v1/physical-inventory-documents/{id}:recount`
+  (SAP MI11, from memory; `If-Match`, permission `inventory.count.write`,
+  human-only) on a `counting` or `counted` document, by item number: each
+  counted item's count is kept in `inventory.count_item_recount`
+  (insert-only, numbered from 1, with who counted it and when and who
+  sent it for the recount and when), the item open to be counted again
+  through `:enterCount`, the document `counting` until every item is
+  counted. 409 `inventory.item_not_counted` for an item not counted, 409
+  `inventory.recount_limit` past 99 counts, 409
+  `inventory.count_invalid_status` once the differences are posted, wait
+  for approval, or were rejected or withdrawn. Each item reads
+  `count_no` and `earlier_counts`, in count order. Audited
+  (`inventory.count_document.recount`) and published as
+  PhysicalInventoryRecountRequested. On the count planning and demand
+  forecasting agents' never lists.
+- **Walkthrough:** extends `step_count`. **Acceptance:** an earlier
+  count is kept and shown in order; only the latest count is posted; a
+  posted item is not recounted (409).
+- **Later:** a recount by a new document linked to the first (SAP MI11's),
+  a recount while differences wait for approval, difference reasons,
+  approval tiers by value.
+- **Integration** (batch 96S, migration 000490): the names kept with
+  counts and recounts are in the personal data inventory (ADR-0082 As
+  built S2d2).
 
 ### S2e Count planning agent
 
@@ -867,6 +902,30 @@ storage location's.
   counts, the SAP take-over, a WMS-reported receipt naming a batch,
   internal batch numbers, changing a batch's dates, batch status, stock
   by batch as at a date, 309, FEFO, classification, where-used, recall).
+- **S2f2 Batches in the outbound delivery's goods issue** (lane gibatch,
+  2026-11-25; split from the batch variants, decided by default, ADR-0083
+  As built S2f2). **Adds:** an order item and a delivery of a
+  batch-managed material (refused until now); an optional body on
+  `POST /v1/outbound-deliveries/{id}:postGoodsIssue` naming, per item,
+  the batches its picked quantity leaves from by number with the
+  quantity of each (a batch split, SAP's batch split items, from
+  memory), each a line of the 601 checked against the batch's stock at
+  the storage location; the delivery's items naming what each batch
+  issued (`issue_lines`); its reversal (602) giving each batch back what
+  it issued. The person names the batch: batch determination is Later.
+  **Acceptance:** a picked item of a batch-managed material whose goods
+  issue names no batch is refused; the batches named add up to the
+  picked quantity; a batch short of the quantity is refused; the 602
+  gives the batch's stock back, so stock by batch still adds up to the
+  storage location's. **Later:** the batch variants left (stock
+  transport orders, an intercompany one's 643 included, counts, the SAP
+  take-over, a WMS-reported goods receipt or goods issue naming a batch,
+  batches named at picking, internal batch numbers, changing a batch's
+  dates, batch status, an expired batch's check at issue, stock by batch
+  as at a date, 309, FEFO, classification, where-used, recall).
+  **Integration** (batch 96S, migration 000491): an item confirmed in part
+  on the lead time (S2j2) is issued by batch and reversed under the
+  availability lock (ADR-0083 As built S2f2).
 
 ### S2g Serial numbers
 
@@ -902,6 +961,22 @@ and its history. **Acceptance:** a serial number is in stock at most once.
   transport orders, counts, the SAP take-over, a WMS-reported receipt
   naming serial numbers, profiles per plant, other usages, maintenance
   and service, serialization at delivery only).
+- **S2g2 Serial numbers in the outbound delivery's goods issue** (lane
+  gibatch, 2026-11-25; split from the serial number variants, decided by
+  default, ADR-0083 As built S2f2). **Adds:** an order item and a
+  delivery of a serial-managed material; `serial_numbers` on the goods
+  issue's items, one per unit of the base unit, each in stock at the
+  delivery's storage location, out of stock after the 601; the
+  delivery's items naming them; the reversal (602) taking them into
+  stock there again. **Acceptance:** a picked item of a serial-managed
+  material whose goods issue names no serial numbers, or one not in
+  stock there, is refused; the 602 refuses a serial number in stock
+  again since (409 `inventory.serial_in_stock`). **Later:** the serial
+  number variants left (stock transport orders, an intercompany one's
+  643 included, counts, the SAP take-over, a WMS-reported goods receipt
+  or goods issue naming serial numbers, serial numbers named at
+  picking, profiles per plant, other usages, maintenance and service,
+  serialization at delivery only).
 
 **Later for Batch and serial number management:** batch classification
 and determination (FEFO), where-used lists, recall, serial numbers in
@@ -1022,8 +1097,8 @@ available quantity at the plant (stock less confirmed open orders and
 deliveries) and confirms what is available on the requested date.
 **Acceptance:** two orders racing for the last quantity confirm it once.
 **Later for Available-to-promise:** checking rules with replenishment lead
-time, back-order processing, product allocation, global ATP across
-plants.
+time (first slice S2j2), back-order processing, product allocation,
+global ATP across plants.
 
 - **Detailed** (lane atp, 2026-11-20; ADR-0082 As built S2j, decided by
   default): the order names its plant (`plant_id`, optional, kept);
@@ -1036,6 +1111,49 @@ plants.
   join the Later list.
 - **As built** (2026-11-20): ADR-0082 As built S2j, migration 000430,
   walkthrough step 150.
+
+#### S2j2 Checking with the replenishment lead time (ATP variants, first slice)
+
+**Capability.** A planner gives a material at a plant its replenishment
+lead time in days; a sales clerk's confirmation of an order asked for on
+or after the company's date today plus that lead time confirms the item
+in full, the stock first and the rest on the lead time, and the order
+says which part rests on it.
+
+- **Adds** (lane atplead, 2026-11-25; the tracker's "later: ATP
+  variants" split, its first item; decided by default, ADR-0082 As built
+  S2j2): `replenishment_lead_time_days` (1 to 999 calendar days,
+  optional) on a material's planning data at the plant
+  (`mrp.material_plan`, SAP MARC-WZEIT, from memory), set and removed by
+  `createMaterialPlan` and `updateMaterialPlan`, whatever the MRP type;
+  sales reads it through a port the composition root wires (`mrp.Plans`).
+  An order item's `lead_time_quantity` and `lead_time_date`
+  (`sales.sales_order_item`): the part of `confirmed_quantity` the stock
+  did not cover at the check, and the day the lead time ends.
+- **The check** (`confirmSalesOrder`, and `changeSalesOrder` for the
+  items it rechecks): an item of a material with a lead time at the
+  order's plant, of an order asked for on or after today plus the lead
+  time (the company's day), is confirmed in full: what the stock covers,
+  as before, and the rest on the lead time. Sooner, or with no requested
+  date, or without a lead time: the stock alone, as S2j. What rests on
+  the lead time counts as promised for later checks, under the same lock
+  per material and plant (`database.LockTenant` `sales.availability`,
+  which the goods issue reversal takes too). Audited per item with the
+  lead time it was judged on.
+- **Walkthrough:** extends `step_available_to_promise`. **Acceptance:**
+  an order asked for beyond the lead time is confirmed in full with the
+  part beyond the stock named; one asked for sooner gets only the stock;
+  a material without a lead time behaves as before.
+- **Later:** planned receipts (open purchase orders) in the check, a
+  confirmation on a later date than asked for (schedule lines at the
+  lead time's end), a recheck when only the requested date changes, the
+  lead time from the planned delivery and goods receipt processing times
+  (SAP PLIFZ and WEBAZ, from memory), working-day calendars.
+- **As built** (2026-11-25): ADR-0082 As built S2j2, ADR-0084 As built
+  (replenishment lead time), migrations 000492 and 000493, walkthrough
+  step 150. Integrated with S2k2's lot sizing (batch 96S): a plan carries
+  both, a merge patch naming one leaves the other, and a run sizes by the
+  lot sizing alone.
 
 ### S2k MRP net requirements
 

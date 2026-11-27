@@ -91,7 +91,8 @@ type movementType struct {
 	// tracked: an item of a batch-managed material names its batch
 	// (S2f), and one of a serial-managed material the serial number of
 	// each unit (S2g); a purchase order's goods receipt and its reversal
-	// carry both since S2f1 and S2g1; the other movement types carry
+	// carry both since S2f1 and S2g1, a delivery's goods issue and its
+	// reversal since S2f2 and S2g2; the other movement types carry
 	// neither yet, and refuse such a material.
 	tracked bool
 }
@@ -101,8 +102,8 @@ type movementType struct {
 // order's goods receipt and its reversal, which procurement posts
 // (ReceiveForOrder, ReverseForOrder), a count's differences, which
 // PostDifferences posts (S2d), and an outbound delivery's goods issue,
-// which shipping posts (IssueForDelivery; its reversal, 602, is named
-// for the database's rule and posted by no one yet, ADR-0083), and a
+// which shipping posts (IssueForDelivery; its reversal, 602, through
+// ReverseForDelivery, S2b3), and a
 // stock transport order's goods issue, which procurement posts
 // (IssueForTransport, S2h; its receipt is a 101 of its own kind,
 // transportReceipt), and an intercompany stock transport order's goods
@@ -124,8 +125,8 @@ var movementTypes = map[string]movementType{
 	"301": {name: "Transfer between plants", sign: -1, transfer: betweenPlants, reversal: "302", tracked: true},
 	"302": {name: "Reversal of a transfer between plants", sign: 1, transfer: betweenPlants, reverses: "301", tracked: true},
 	"351": {name: "Goods issue for a stock transport order", sign: -1, transfer: betweenPlants, transport: true},
-	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true},
-	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true},
+	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true, tracked: true},
+	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true, tracked: true},
 	"643": {name: "Goods issue for an intercompany stock transport order", sign: -1, intercompany: true},
 	"701": {name: "Physical inventory surplus", sign: 1, count: true},
 	"702": {name: "Physical inventory shortage", sign: -1, count: true},
@@ -189,6 +190,13 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 }
 
+// People names principals by id (the identity context, through the app's
+// adapter): a count names who entered it and who sent it for a recount,
+// as they were named then (S2d2). An id of none is left out.
+type People interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Settings reads the active configuration: a company's time zone and
 // valuation classes (configuration context).
 type Settings interface {
@@ -209,6 +217,8 @@ type Endpoints struct {
 	// Requests opens the approval requests of count differences above a
 	// company's tolerance (S2d).
 	Requests Opener
+	// People names who counts and who sends an item for a recount (S2d2).
+	People People
 	// Now is the clock a document is dated by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time

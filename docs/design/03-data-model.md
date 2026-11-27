@@ -5614,6 +5614,8 @@ erDiagram
     numeric billed_quantity "at most delivered_quantity"
     numeric returned_quantity "at most billed_quantity (T85a)"
     numeric confirmed_quantity "optional, the availability check's (S2j)"
+    numeric lead_time_quantity "optional, of it on the lead time (S2j2)"
+    date lead_time_date "with lead_time_quantity (S2j2)"
   }
   sales_order ||--o{ delivery : "is delivered by"
   delivery ||--|{ delivery_item : "has"
@@ -5856,8 +5858,14 @@ erDiagram
   too), not below zero nor below what is delivered and in delivery of it
   (`sales_order_item_confirmed`); the application may update it.
   `sales_order_item_promised` indexes the items that promised more than
-  is delivered, by material. The same migration adds
-  `sales.delivery_assignment.plant_id`, the plant the delivery ships
+  is delivered, by material. S2j2 (migration 000493; ADR-0082 As built
+  S2j2) adds `lead_time_quantity` and `lead_time_date`: the part of the
+  confirmed quantity the plant's stock did not cover when the check
+  confirmed it, which the material's replenishment lead time covers by
+  that day; set and cleared together, only beside a confirmed quantity,
+  more than zero and at most what is confirmed
+  (`sales_order_item_lead_time`); the application may update them. S2j's
+  migration 000430 also adds `sales.delivery_assignment.plant_id`, the plant the delivery ships
   from (the existing ones take their delivery's; NOT NULL since the
   contract step 000458/000459, which gave any assignment still without it
   its delivery's), indexed by `delivery_assignment_by_plant`: what
@@ -7043,6 +7051,24 @@ erDiagram
   difference naming its material document and a zero one none, only once
   the item is closed (`count_item_posted`), each set once
   (`count_item_once`).
+- S2d2 (migration 000490): `inventory.count_item` gains `recounts`, how
+  often the item was sent for a recount, 0 to 98
+  (`count_item_recounts_check`: at most 99 counts), and
+  `counted_by_name`, who entered the count as named then, only with a
+  count (`count_item_counted_by_name_check`; none before this version).
+  `inventory.count_item_recount`: an item's earlier count, numbered 1 to
+  98 among its counts (`count_item_recount_count_no_check`), of an item of
+  the document (`count_item_recount_item_fkey`), with its quantity counted
+  and entry of zero or more in a known unit, when and by whom (by id and
+  name), and when and by whom (id and name) it was sent for the recount; the open, unposted item's count
+  as it is, numbered after the item's earlier ones
+  (`count_item_recount_check`, a trigger after the row's checks);
+  insert-only (`count_item_recount_insert_only`). A count is taken off an
+  item only with its `recounts` one more and that earlier count kept
+  (`count_item_once`, widened), and a counted document goes back to
+  counting only while an item of it is not counted
+  (`count_document_status_flow`, widened). The down migration refuses
+  while an earlier count or a count's name exists.
 - S2h (migrations 000418, 000419): `inventory.material_document` takes
   the movement type `351`, a stock transport order's goods issue, which
   names its order's number as its `reference`, as the order's goods
@@ -7129,7 +7155,8 @@ erDiagram
   indicator and version alone. Neither is deleted. The counts due are
   read, not stored (`GET /v1/cycle-counts-due`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
-  (`MaterialDocumentPosted`, `MaterialPriceChanged`).
+  (`MaterialDocumentPosted`, `MaterialPriceChanged`,
+  `PhysicalInventoryRecountRequested`, S2d2).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
   `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
   `inventory.count.post` and the approval permission
@@ -7176,6 +7203,14 @@ erDiagram
     text uom_code "ref"
     numeric picked_quantity "0 to quantity"
     bigint cost_amount "the goods issue's, not below 0" }
+  outbound_delivery_item ||--o{ outbound_delivery_issue_line : "goods issue lines (S2f2)"
+  outbound_delivery_issue_line { uuid outbound_delivery_id PK
+    smallint line_no PK "the 601's line, 1 to 200"
+    integer item_no "the delivery's item"
+    numeric quantity "above 0, the item's unit"
+    uuid batch_id "inventory: the batch, with batch_number"
+    text batch_number
+    text_array serial_numbers "1 to 1000, sorted" }
 ```
 
 - `shipping.outbound_delivery`: a delivery (SAP LIKP), numbered 1 to 40
@@ -7229,6 +7264,20 @@ erDiagram
   The application updates its picked quantity and cost alone, while its
   delivery is created (`outbound_delivery_item_issued_fixed`, a trigger),
   and deletes none (`outbound_delivery_item_no_delete`).
+- `shipping.outbound_delivery_issue_line` (S2f2, S2g2, migration 000491;
+  ADR-0083 As built S2f2): what a line of a delivery's goods issue (its
+  601's `line_no`, 1 to 200, `outbound_delivery_issue_line_no_check`,
+  once per delivery) issued of an item of a batch-managed or
+  serial-managed material (`outbound_delivery_issue_line_item_fkey`): a
+  quantity above zero in the item's unit
+  (`outbound_delivery_issue_line_quantity_check`), the batch by id and
+  number together (`outbound_delivery_issue_line_batch`), one to 1000
+  serial numbers (`outbound_delivery_issue_line_serial_numbers`), sorted,
+  and at least one of the two (`outbound_delivery_issue_line_tracked`).
+  Written with the goods issue, insert-only
+  (`outbound_delivery_issue_line_insert_only`); an item issued from
+  several batches has a line for each. Its reversal (602) gives the same
+  back and writes nothing here.
 - `sales.sales_order_item` gains `in_delivery_quantity`, 0 by default:
   what outbound deliveries not yet issued hold of the item, never below
   zero and, while above zero, with what is delivered at most what was
@@ -7317,6 +7366,7 @@ erDiagram
     numeric maximum_lot_size "not with fixed"
     numeric rounding_value "not with fixed"
     uuid account_id "ledger: its proposals'"
+    integer replenishment_lead_time_days "optional, 1 to 999 (S2j2)"
     integer version }
   run { uuid id PK
     uuid legal_entity_id "tenancy"
@@ -7366,7 +7416,10 @@ erDiagram
   quantity above zero (`material_plan_*_check`), the minimum not above
   the maximum (`material_plan_lot_bounds`) and both multiples of the
   rounding value (`material_plan_rounding`). The list reads by `material_plan_by_created_at`; a run reads the
-  plant's plans under a share lock.
+  plant's plans under a share lock. Its replenishment lead time
+  (migration 000492, S2j2) is absent or 1 to 999 calendar days
+  (`material_plan_replenishment_lead_time_days_check`); sales orders'
+  availability checks read it by `material_plan_once`, without a lock.
 - `mrp.run`: a planning run of a plant with its Operation, `queued`,
   `completed` or `failed` (`run_status_check`), one queued per plant
   (`run_one_at_a_time`); a completed run names its day and counts, not

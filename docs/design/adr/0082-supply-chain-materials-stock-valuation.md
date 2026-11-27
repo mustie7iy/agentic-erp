@@ -1039,8 +1039,9 @@ references are `integration.external_ref`'s.
   company's date then; rejection (`rejected`) or the requester's
   withdrawal (`withdrawn`) posts nothing and closes the document, lifting
   the posting block: the materials are recounted by a new document
-  (MI11's link between the two is Later). The posting block holds while
-  the differences wait, so the book quantity is still the frozen one.
+  (MI11's link between the two is Later; an item recounted on its own
+  document before posting is S2d2's). The posting block holds while the
+  differences wait, so the book quantity is still the frozen one.
 - **Locks:** the count document's row, then the valuations and stock rows
   of every item with a difference in the order every posting takes them
   (`lockCount`, so the second material document locks nothing new), then
@@ -1058,6 +1059,108 @@ references are `integration.external_ref`'s.
   the object type, headless otherwise.
 - Walkthrough step 141 extended: the pilot's settings add account 5198,
   the class's `difference` account, and a tolerance of CAD 50.00.
+
+### S2d2 (2026-11-25)
+
+Recounts with history, the first item of the tracker's "later:
+difference posting variants" leaf (plan-supply-chain.md §S2d2), decided
+by default from SAP's recount (MI11, ISEG's recount counter ZAEHL and the
+recount indicator, all from memory, for the specialist):
+
+- **The same document, not a new one.** SAP's MI11 marks the item and
+  creates a new document for the recount, linked to the old (from
+  memory); here the recount stays on its item, as the brief and S2c's
+  one open count per material and location make simpler: the item keeps
+  its book quantity, its posting block and its number, and a second
+  document never holds the material while the first waits. Recounting by
+  a new document linked to the first is in the leaf's remainder.
+- `POST /v1/physical-inventory-documents/{id}:recount`
+  (`recountPhysicalInventoryItems`, `If-Match`, permission
+  `inventory.count.write`, as entering a count: SAP's MI11 is the
+  counting clerk's transaction too, from memory), human-only
+  (`x-agent: false`), by item number (422 `inventory.unknown_item`,
+  `inventory.duplicate_item`). Each item's count is kept as an **earlier
+  count** (`inventory.count_item_recount`, migration 000490), numbered
+  from 1 among the item's counts, with what it counted in the base unit
+  and as entered, when and by whom, and when and by whom it was sent for
+  the recount; the item is then open to be counted again through
+  `:enterCount`, its `count_no` one more, and the document is `counting`
+  until every item is counted (from `counted`, the one way back the
+  status flow allows, and only while an item is uncounted). Only the
+  latest count is posted: `:postDifferences` reads the item's count as
+  before, and an earlier count is never posted.
+- **When.** An item is recounted while its document is `counting` or
+  `counted` and the item is counted (409 `inventory.item_not_counted`
+  otherwise). A document `pending_approval` is not recounted (409
+  `inventory.count_invalid_status`, as `posted`, `rejected`,
+  `withdrawn`): its approval request names the value of the counts it was
+  asked for, so the approver rejects and a new document counts again, as
+  S2d has it; a recount asked while differences wait for approval
+  (withdrawing the request) is in the remainder. A posted item is not
+  recounted (409).
+- **At most 99 counts** of an item (98 recounts, 409
+  `inventory.recount_limit`; `count_item_recounts_check`): SAP sets no
+  limit that we know of (from memory); a bound keeps a document's history
+  finite.
+- **The database holds the history** (03 §3.35): an earlier count is
+  insert-only and is the open, unposted item's count as it is, numbered
+  after the item's earlier ones (`count_item_recount_check`); a count is
+  taken off an item only with its recounts one more and that earlier
+  count written (`count_item_once`, widened); a counted document goes back
+  to `counting` only while an item of it is uncounted
+  (`count_document_status_flow`, widened); a count's name goes with the
+  count (`count_item_counted_by_name_check`, `count_item_once`); the down
+  migration refuses while an earlier count or a count's name exists. Schema tests `TestRecountRules`,
+  `TestRecountTriggersAsOwner` (as the owner), `TestRecountDownRefused`
+  (as a migrating role held to RLS).
+- **Locks.** The count document's row (`FOR UPDATE`), which `:enterCount`
+  and `:postDifferences` take first, then its items; the earlier count's
+  foreign key takes the item's key share, which the item's own update
+  (no key column) does not conflict with. A recount and a posting at once
+  are ordered by the document's lock and the second refused at the
+  version it read (`TestRecountAndPostAtOnce`).
+- **Read.** Each item gives `count_no` and `earlier_counts` (in count
+  order, empty when never recounted), so the document shows each item's
+  counts in order: its earlier counts, then its latest
+  (`counted_quantity`). **Who** counted and who sent an item back are
+  given by id and by name as named then (`counted_by_name`,
+  `recounted_by_name`, read through the new `People` port, the app's
+  `LedgerPeople`, when the count or recount is written, as sales' credit
+  release and shipping's trade compliance release keep theirs): a count
+  entered from this version on names its counter, an earlier one has no
+  name. The audit record and the event carry the ids alone (ADR-0079, PO
+  2026-11-05).
+- **Audited and published.** `inventory.count_document.recount` names
+  the document, each item's count number and the counts set aside
+  (`recounted`). Unlike the count's other steps, a recount publishes
+  **PhysicalInventoryRecountRequested** (asyncapi, inventory channel):
+  whoever counts again (a counting device or a warehouse system) learns
+  that an item is open again; it names the document, its company, plant
+  and storage location, its status and version, and each item, in the
+  request's order, with its material and the count set aside, by person
+  id, never a name. Not
+  offered to webhooks until a consumer asks.
+- **Agents.** `recountPhysicalInventoryItems` is on the never lists of
+  the count planning and demand forecasting agents (ADR-0072 As built
+  S2e, S2m). The counts due (S2c2) and the count planning agent's last
+  count read posted documents only, so a recount changes neither.
+- **Personal data** (batch 96S integration): the three names as named
+  then, `count_item.counted_by_name`, `count_item_recount.counted_by_name`
+  and `recounted_by_name`, are entries of the personal data inventory
+  (ADR-0079 §9, `internal/records`), counted for the principal they name
+  (`counted_by`, `recounted_by`), as sales' and shipping's names as
+  released are; records' `TestInventoryCoversTheDatabase` refused the
+  lane's tip without them. No deletion run blanks a principal's name
+  (T100c blanks business partners'), so they stay with the count as the
+  others stay with theirs.
+- Walkthrough step 141, `step_count`, extended: Wade's first count of the
+  brackets is sent for a recount by Ines, recounted, both counts shown in
+  order, the latest posted; a posted document's item is not recounted.
+
+**Later** (the leaf's remainder): a recount by a new document linked to
+the first (SAP MI11's), a recount while differences wait for approval,
+difference reasons, approval tiers by value, a tolerance per item and
+per user group, partial posting of a document's items.
 
 **S2b1** (ADR-0083, lane ship, 2026-11-19): movement types `601` (goods
 issue for a delivery, posted by shipping through
@@ -1496,7 +1599,10 @@ specialist) and S2i's and S2i2's decisions above.
   version serves (a stock row an earlier version writes is not
   batch-managed); the plan's slice names the
   batch on movements and stock, which the person's goods movements
-  carry. Decided by default.
+  carry. Decided by default. S2f1 lifted the purchase order's refusal,
+  and S2f2 the quotation's, the sales order's and the delivery's: a
+  delivery's goods issue (601) and its reversal (602) carry the batch
+  (ADR-0083 As built S2f2).
 - **Stock by batch beside the location's**, not a wider stock key:
   `inventory.batch_stock` (SAP MCHB beside MARD), rather than the plan's
   "stock key extended, expand-migrate-contract", so `inventory.stock` and
@@ -1597,7 +1703,9 @@ specialist) and S2i's and S2i2's decisions above.
   naming `items[i].material_id`, `TestMaterialItemRefusals`), added
   beside S2f's refusal at batch 87's integration (the sales order's code
   was another lane's); the delivery's own refusal stays as a second
-  guard.
+  guard. S2g2 lifted both, as S2f2 lifted a batch-managed material's: a
+  delivery's goods issue names its units' serial numbers (ADR-0083 As
+  built S2f2).
 - `GET /v1/serial-numbers` (material, number, plant, storage location,
   in stock) and `/{id}` with its history (each movement's material
   document, movement type, location and whether it received or issued the
@@ -1764,7 +1872,7 @@ specialist) and S2i's and S2i2's decisions above.
   confirming stays `sales.order.confirm`, human-only.
 - Walkthrough step 150, `step_available_to_promise`.
 - **Not built** (Later, plan §S2j): checking rules with replenishment
-  lead time and planned receipts, back-order processing, product
+  lead time (first slice S2j2, below) and planned receipts, back-order processing, product
   allocation, global ATP across plants, per-item plants.
 - **Contract step** (lane salesfix, batch 92; leaf src review:batch86):
   migrations 000458 and 000459 make `sales.delivery_assignment.plant_id`
@@ -1823,6 +1931,65 @@ The product owner's answer of 2026-11-21 to S2j's question above
   there; step 150 (`step_available_to_promise`) has an order of the hinge
   without a plant refused on confirm in the Canadian company, which has
   two, and a UAE order without one delivering from its only plant.
+
+### S2j2: checking with the replenishment lead time (2026-11-25)
+
+The first item of the tracker's "later: ATP variants" (plan-supply-chain
+§S2j2; migrations 000492, 000493). Decided by default, for the product
+owner's review (SAP's check with the replenishment lead time, from
+memory, for the SAP specialist):
+
+- **The lead time** is the material's at the plant, on its planning data
+  (`replenishment_lead_time_days` of `createMaterialPlan` and
+  `updateMaterialPlan`, 1 to 999 calendar days, optional; why there:
+  ADR-0084 As built, replenishment lead time). None, the default: the
+  check counts the stock alone, as S2j. Calendar days, as the company's
+  dates are; working-day calendars are Later.
+- **When it counts**: for an order asked for on or after the company's
+  date today (`config.DocumentDay`, the confirmation's or the change's
+  day) plus the lead time. An order asked for sooner, or for no date
+  (read as today, as SAP defaults the requested date, from memory), is
+  checked against the stock alone: the plant could not replenish in time.
+- **What it confirms**: such an item in full, the stock first, as far as
+  S2j's check reaches, and the rest on the lead time (the alternative,
+  an order beyond the lead time taking no stock so that nearer orders
+  keep it, was not taken: the stock is then left idle while more is
+  ordered, and SAP's cumulative ATP gives the stock to the first check,
+  from memory). The item names that rest (`lead_time_quantity`, in its
+  unit) and the day the lead time ends (`lead_time_date`). All it
+  confirms counts as promised for later checks, so the stock is never
+  promised twice: a later order asked for sooner gets what is left.
+- **Checked again** (a change that adds an item or changes its quantity,
+  S2j): an order asked for in time, as changed, has the item confirmed in
+  full again, the rest on the lead time from the change's day; one asked
+  for sooner keeps what it had confirmed (a promise is never taken back)
+  with as much of it on the lead time as rested on it before, less the
+  stock that arrived since, until the day it did; a check of stock alone
+  never moves a promise onto the lead time. A change of the requested
+  date alone checks nothing again (S2j); a recheck on it is Later, with
+  confirmation on a later date than asked for (schedule lines at the lead
+  time's end) and planned receipts in the check.
+- **Locks**: unchanged. The lead times are read after the materials'
+  locks (`database.LockTenant` `sales.availability`), under which the
+  demand and stock are read; the goods issue reversal takes the same
+  lock (S2b3). The planning data is read without a lock (ADR-0084 As
+  built).
+- **What a delivery takes**: at most what is confirmed (S2j); its goods
+  issue still needs the stock (inventory refuses a shortage), so a part on
+  the lead time is shipped once the stock has arrived.
+- Audited in the confirmation's and the change's `availability` detail:
+  each item of a material with a lead time names `lead_time_days`,
+  `lead_time` (what rests on it now and until when) and
+  `lead_time_before`. No event, permission or never-list change: no new
+  operation.
+- `TestConfirmOnTheLeadTime`, `TestJudged` (sales),
+  `TestConfirmationOnTheLeadTime`, `TestLeadTimeOnAChange`,
+  `TestLeadTimeDatabaseFailures` (shipping, on an injected clock),
+  `TestLeadTimeRules` (db). Walkthrough step 150
+  (`step_available_to_promise`, `lead_time_check`): a door latch with 20
+  in stock and 10 days' lead time; an order of 50 asked for in two weeks
+  is confirmed 50, 30 on the lead time; one of 5 asked for in three days
+  is confirmed none.
 
 ### Planning (2026-11-21)
 
