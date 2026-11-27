@@ -7356,7 +7356,7 @@ components:
         version: {type: integer, description: "The returns order's version after the change."}
     ReturnReceivedV1:
       type: object
-      required: [receipt_id, receipt_no, returns_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, receipt_date, items, material_document_id, material_document_number, version]
+      required: [receipt_id, receipt_no, returns_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, receipt_date, items, version]
       properties:
         receipt_id: {$ref: '#/components/schemas/Uuid', description: '`sales.return_receipt.id`.'}
         receipt_no: {type: integer, description: "The receipt's number within its returns order, from 1."}
@@ -7376,14 +7376,14 @@ components:
           description: "The returns order's items received, by item number."
           items:
             type: object
-            required: [item_no, billing_item_no, quantity, received_quantity, cost]
+            required: [item_no, billing_item_no, quantity, received_quantity]
             properties:
               item_no: {type: integer, description: "The returns order item's number."}
               billing_item_no: {type: integer, description: "The number of the billing document's item it returns from."}
               quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity of this receipt, in the item's unit."}
               received_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is received of the returns order item after this receipt.'}
               cost: {oneOf: [{$ref: '#/components/schemas/Money'}, {type: 'null'}], description: "Of an item received into stock (S2b4): what it took back from the cost of goods sold, in the company's currency; null for another item."}
-        material_document_id: {type: [string, 'null'], format: uuid, description: "The material document (653) that received the receipt's items of materials kept in stock into stock: `inventory.material_document.id`; null when it has none (S2b4)."}
+        material_document_id: {type: [string, 'null'], format: uuid, description: "The material document (653) that received the receipt's items of materials kept in stock into stock: `inventory.material_document.id`; null when it has none (S2b4). Not among the required fields (ADR-0041)."}
         material_document_number: {type: [string, 'null'], description: "That material document's number; null with it."}
         version: {type: integer, description: "The returns order's version after the receipt."}
     CreditMemoRequestChangedV1:
