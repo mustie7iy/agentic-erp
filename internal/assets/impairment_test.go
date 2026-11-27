@@ -144,6 +144,7 @@ func TestImpairment(t *testing.T) {
 	}
 	want(t, "the classes' impairment accounts", strings.Join(accounts, "; "),
 		"LAND <nil> <nil>; MACHINES map[name:Impairment of machinery number:695000] map[name:Reversal of impairments number:495000]")
+	want(t, "year and period totals that differ from their movements' sums, the impairments' group amounts among them", totalsDiffer(t, e.Tenant.ID), 0)
 }
 
 // TestImpairmentRefused: what an impairment refuses before it posts.

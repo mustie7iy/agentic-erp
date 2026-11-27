@@ -57,7 +57,7 @@ func sheetEnv(t *testing.T) fixture.Env {
 // and 100.00 depreciated in 2025/8 (booked EUR 80.50); 500.00 acquired in
 // 2026/3, 20.01 depreciated in 2026/11 (booked 17.03), 200.00 of cost and
 // 40.00 of accumulated depreciation retired in 2026/12, and an impairment
-// loss of 10.00 in 2026/13 (booked 9.60). Company 2000 (EUR): TOOLS, a
+// loss of 10.00 and a reversal of 4.00 in 2026/13 (booked 9.60 and 3.90). Company 2000 (EUR): TOOLS, a
 // class the configuration does not have, 300.00 acquired and 30.00
 // depreciated in 2026/6, its booked group amount written as 29.99 so that
 // a sheet showing it rather than the local amount fails; LAND, 100.00
@@ -71,12 +71,12 @@ func sheetTotals(t *testing.T, e fixture.Env) {
 		class                                  string
 		year, period                           int
 		acq, ret, dep, imp, retiredAccumulated int64
-		depGC, impGC                           int64
+		depGC, impGC, rev, revGC               int64
 	}{
-		{e.US, "MACHINES", 2025, 3, 100000, 0, 0, 0, 0, 0, 0}, {e.US, "MACHINES", 2025, 8, 0, 0, -10000, 0, 0, -8050, 0},
-		{e.US, "MACHINES", 2026, 3, 50000, 0, 0, 0, 0, 0, 0}, {e.US, "MACHINES", 2026, 11, 0, 0, -2001, 0, 0, -1703, 0},
-		{e.US, "MACHINES", 2026, 12, 0, -20000, 0, 0, 4000, 0, 0}, {e.US, "MACHINES", 2026, 13, 0, 0, 0, -1000, 0, 0, -960},
-		{e.DE, "TOOLS", 2026, 6, 30000, 0, -3000, 0, 0, -2999, 0}, {e.DE, "LAND", 2025, 2, 10000, -10000, 0, 0, 0, 0, 0},
+		{e.US, "MACHINES", 2025, 3, 100000, 0, 0, 0, 0, 0, 0, 0, 0}, {e.US, "MACHINES", 2025, 8, 0, 0, -10000, 0, 0, -8050, 0, 0, 0},
+		{e.US, "MACHINES", 2026, 3, 50000, 0, 0, 0, 0, 0, 0, 0, 0}, {e.US, "MACHINES", 2026, 11, 0, 0, -2001, 0, 0, -1703, 0, 0, 0},
+		{e.US, "MACHINES", 2026, 12, 0, -20000, 0, 0, 4000, 0, 0, 0, 0}, {e.US, "MACHINES", 2026, 13, 0, 0, 0, -1000, 0, 0, -960, 400, 390},
+		{e.DE, "TOOLS", 2026, 6, 30000, 0, -3000, 0, 0, -2999, 0, 0, 0}, {e.DE, "LAND", 2025, 2, 10000, -10000, 0, 0, 0, 0, 0, 0, 0},
 	} {
 		for _, table := range []string{"class_period_total", "class_year_total"} {
 			period := ", fiscal_period"
@@ -92,9 +92,12 @@ func sheetTotals(t *testing.T, e fixture.Env) {
 				table, period, strings.Replace(period, "fiscal_period", "$9", 1)), e.Tenant.ID, r.company, leading, r.year, r.class, r.acq, r.ret, r.dep,
 				r.period, r.imp, r.retiredAccumulated)
 		}
-		pgtest.Exec(t, `UPDATE assets.class_period_total SET depreciation_gc = $6, impairment_losses_gc = $7
+		pgtest.Exec(t, `UPDATE assets.class_period_total SET depreciation_gc = $6, impairment_losses_gc = $7, impairment_reversals = $8,
+				impairment_reversals_gc = $9
 			WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = $3 AND fiscal_period = $4 AND class_code = $5`,
-			e.Tenant.ID, r.company, r.year, r.period, r.class, r.depGC, r.impGC)
+			e.Tenant.ID, r.company, r.year, r.period, r.class, r.depGC, r.impGC, r.rev, r.revGC)
+		pgtest.Exec(t, `UPDATE assets.class_year_total SET impairment_reversals = impairment_reversals + $5
+			WHERE tenant_id = $1 AND legal_entity_id = $2 AND fiscal_year = $3 AND class_code = $4`, e.Tenant.ID, r.company, r.year, r.class, r.rev)
 	}
 }
 
@@ -198,11 +201,11 @@ func sheetLines(t *testing.T, sheet map[string]any) []string {
 // -100.00: 820.00 and -82.00); its movements of the balances at their
 // period's closing rates: 500.00 at 0.84 (420.00) and the retirement's
 // -200.00 and 40.00 at 0.95 (-190.00, 38.00), so only periods 3 and 12
-// need rates; its depreciation and impairment at their booked -17.03 and
-// -9.60 (ADR-0059 §7: income and expenses as booked); it closes at 0.95
-// (1,300.00 and -90.01: 1,235.00 and -85.5095: -85.51), the exchange
-// differences 1,235.00 - 820.00 - 230.00 = 185.00 and
-// -85.51 + 82.00 - 11.37 = -14.88. Company 2000 is at rate 1 with no
+// need rates; its depreciation, impairment and reversal at their booked
+// -17.03, -9.60 and 3.90 (ADR-0059 §7: income and expenses as booked); it
+// closes at 0.95 (1,300.00 and -86.01: 1,235.00 and -81.7095: -81.71), the
+// exchange differences 1,235.00 - 820.00 - 230.00 = 185.00 and
+// -81.71 + 82.00 - 15.27 = -14.98. Company 2000 is at rate 1 with no
 // differences, its depreciation its local -30.00, its TOOLS unnamed (not
 // configured), its LAND, which opens with nothing and did not move, not
 // shown. In 2025 company 1000, first consolidated from 2025/6, opens with
@@ -217,10 +220,10 @@ func TestConsolidatedAssetHistorySheet(t *testing.T) {
 		"ACME Acme group 2026 2026-01-01..2026-12-31 EUR average",
 		"2000 parent EUR opening <nil>@<nil> closing 1@<nil> periods []: EUR 0.00 300.00 0.00 0.00 0.00 300.00 0.00 -30.00 0.00 0.00 0.00 0.00 0.00 -30.00 0.00 270.00",
 		"1000 member USD opening 0.82@2025-12-01 closing 0.95@2026-12-01 periods [3=0.84@2026-03-01 12=0.95@2026-12-01]: " +
-			"EUR 820.00 420.00 -190.00 0.00 185.00 1235.00 -82.00 -17.03 -9.60 0.00 38.00 0.00 -14.88 -85.51 738.00 1149.49",
-		"MACHINES Machinery and equipment: EUR 820.00 420.00 -190.00 0.00 185.00 1235.00 -82.00 -17.03 -9.60 0.00 38.00 0.00 -14.88 -85.51 738.00 1149.49",
+			"EUR 820.00 420.00 -190.00 0.00 185.00 1235.00 -82.00 -17.03 -9.60 3.90 38.00 0.00 -14.98 -81.71 738.00 1153.29",
+		"MACHINES Machinery and equipment: EUR 820.00 420.00 -190.00 0.00 185.00 1235.00 -82.00 -17.03 -9.60 3.90 38.00 0.00 -14.98 -81.71 738.00 1153.29",
 		"TOOLS <nil>: EUR 0.00 300.00 0.00 0.00 0.00 300.00 0.00 -30.00 0.00 0.00 0.00 0.00 0.00 -30.00 0.00 270.00",
-		"totals: EUR 820.00 720.00 -190.00 0.00 185.00 1535.00 -82.00 -47.03 -9.60 0.00 38.00 0.00 -14.88 -115.51 738.00 1419.49",
+		"totals: EUR 820.00 720.00 -190.00 0.00 185.00 1535.00 -82.00 -47.03 -9.60 3.90 38.00 0.00 -14.98 -111.71 738.00 1423.29",
 	}, "\n")
 	if got != want {
 		t.Errorf("the sheet of 2026:\ngot  %s\nwant %s", got, want)

@@ -2896,9 +2896,9 @@ Decided by default (ADR-0053 d), for the product owner to overrule:
   opening (period 12 of the year before). The profit and loss columns,
   depreciation, impairment losses and their reversals, at their booked
   group amounts (each posting's own rate, the movements' `accumulated_gc`,
-  kept per period in `class_period_total`): §7 translates income and
-  expenses so, with no period average rate, so the sheet's depreciation
-  is the consolidated profit and loss's. The other movements, of cost
+  kept per period in `class_period_total`): as §7 translates income and
+  expenses (no period average rate), so the sheet's depreciation is the
+  consolidated profit and loss's. The other movements, of cost
   (acquisitions, retirements, transfers) and what retirements and
   transfers took of accumulated depreciation, which move balances alone,
   at their period's own closing rate, the rate a run of that period

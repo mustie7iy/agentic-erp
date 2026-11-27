@@ -58,6 +58,7 @@ func TestAssetClassPeriodTotalsBackfilled(t *testing.T) {
 			{mill, f.ledger, "acquisition", "acquisition", 2025, 3, 1200, 0}, {mill, f.ledger, "depreciation", "acquisition", 2026, 1, 0, -10},
 			{mill, f.ledger, "depreciation", "acquisition", 2026, 2, 0, -10}, {mill, f.ledger, "depreciation", "acquisition", 2026, 2, 0, -5},
 			{mill, f.ledger, "retirement", "acquisition", 2026, 2, -300, 45}, {mill, f.ledger, "impairment", "impairment", 2026, 12, 0, -20},
+			{mill, f.ledger, "impairment_reversal", "impairment", 2026, 12, 0, 8},
 			{mill, f.ledger, "transfer_out", "acquisition", 2026, 13, -300, 45}, {plot, f.ledger, "transfer_in", "acquisition", 2026, 13, 300, -45},
 			{mill, ledger2, "acquisition", "acquisition", 2026, 2, 1200, 0},
 		} {
@@ -90,7 +91,7 @@ func TestAssetClassPeriodTotalsBackfilled(t *testing.T) {
 	})
 	want := []string{"LAND 0L 2026/13: [0 0 300 0 0 -45 0 0 0 0 0]", "MACHINES 0L 2025/3: [1200 0 0 0 0 0 0 0 0 0 0]",
 		"MACHINES 0L 2026/1: [0 0 0 -10 0 0 0 0 -20 0 0]", "MACHINES 0L 2026/2: [0 -300 0 -15 45 0 0 0 -30 0 0]",
-		"MACHINES 2L 2026/2: [1200 0 0 0 0 0 0 0 0 0 0]", "MACHINES 0L 2026/12: [0 0 0 0 0 0 -20 0 0 -40 0]",
+		"MACHINES 2L 2026/2: [1200 0 0 0 0 0 0 0 0 0 0]", "MACHINES 0L 2026/12: [0 0 0 0 0 0 -20 8 0 -40 16]",
 		"MACHINES 0L 2026/13: [0 0 -300 0 0 45 0 0 0 0 0]"}
 	if g, w := strings.Join(got, "; "), strings.Join(want, "; "); g != w {
 		t.Errorf("class period totals:\ngot  %s\nwant %s", g, w)
