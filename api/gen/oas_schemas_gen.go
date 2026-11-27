@@ -76901,10 +76901,13 @@ type MaterialDocument struct {
 	// A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number`
 	// (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock
 	// against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409
-	// `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1):
-	// the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods
-	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods
-	// issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number`
+	// `inventory.reverse_goods_receipt` here). A return to the supplier (122) or its reversal (123; S1e2):
+	// the goods movement's `document_number` likewise, its WE entry debiting GR/IR; a 122 is reversed by
+	// reversing the goods movement (`reverseGoodsReceipt`, 409 `inventory.reverse_goods_receipt` here). An
+	// outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number`
+	// (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet
+	// (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt
+	// (101; S2h, its lines in transit `in_transit`): the order's `number`
 	// (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409
 	// `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643,
 	// S2i1, the supplying company's): the purchase order's `document_number`

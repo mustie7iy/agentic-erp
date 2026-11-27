@@ -135259,19 +135259,21 @@ func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bo
 // (each keeping its original item's `item_no`), posted on the company's date today and numbered from
 // its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
-// nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
-// (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409
-// `inventory.reverse_stock_transport`), nor a customer's return received into stock yet (653, S2b4;
-// 409 `inventory.reverse_customer_return`), nor a count's differences (409 `inventory.reverse_count`:
-// a new count corrects the stock); two reversals at once post one. The reversal moves the stock back,
-// so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`,
-// naming the material, the location and both quantities). It is refused, as a posting is, while an
-// open count document counts one of its materials at one of its storage locations (409
-// `inventory.posting_blocked`). The material may have been blocked since; the reversal is still
-// posted. Each line is valued at what its original line was, given back: what the stock does not take
-// of it at its price now is a price difference, and the value is posted through the ledger as the
-// original's was, reversed. A document of a company the caller may not act in is not found (404).
-// Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
+// nor a document twice (409 `inventory.already_reversed`), nor a purchase order's goods receipt (101)
+// or return to the supplier (122, S1e2), which are reversed by reversing their goods movement
+// (`reverseGoodsReceipt`; 409 `inventory.reverse_goods_receipt`), nor an outbound delivery's goods
+// issue yet (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or
+// receipt yet (409 `inventory.reverse_stock_transport`), nor a customer's return received into stock
+// yet (653, S2b4; 409 `inventory.reverse_customer_return`), nor a count's differences (409
+// `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The
+// reversal moves the stock back, so it is refused when the stock the original received has gone (409
+// `inventory.insufficient_stock`, naming the material, the location and both quantities). It is
+// refused, as a posting is, while an open count document counts one of its materials at one of its
+// storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the
+// reversal is still posted. Each line is valued at what its original line was, given back: what the
+// stock does not take of it at its price now is a price difference, and the value is posted through
+// the ledger as the original's was, reversed. A document of a company the caller may not act in is not
+// found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents/{id}:reverse
 func (s *Server) handleReverseMaterialDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

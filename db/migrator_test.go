@@ -79,7 +79,8 @@ func TestDownsRevert(t *testing.T) {
 		names                 []string // the migrations reverted, latest first
 		schema, table, column string   // a column the first up added
 		// check, for an up that adds no column, is true while what it
-		// changed is still there.
+		// changed is still there; schema, table and column then only name
+		// the case in a failure.
 		check string
 	}{
 		{[]string{"000496_cycle_count_removal"}, "inventory", "cycle_count_material", "status", ""},

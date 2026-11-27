@@ -2,12 +2,14 @@ package shipping_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	gomoney "github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -71,7 +73,7 @@ func (e returnsEnv) stockAccount(t *testing.T) string {
 	pgtest.Scan(t, `SELECT coalesce(sum(l.amount_lc), 0)::bigint FROM ledger.journal_line l JOIN ledger.gl_account a ON a.id = l.account_id
 		WHERE l.tenant_id = $1 AND l.legal_entity_id = $2 AND a.number = '150000'
 			AND l.ledger_id = (SELECT g.id FROM ledger.ledger g WHERE g.tenant_id = l.tenant_id AND g.is_leading)`, []any{e.Tenant.ID, e.DE}, &cents)
-	return fmt.Sprintf("%d.%02d EUR", cents/100, cents%100)
+	return gomoney.Minor(cents).Plain(2) + " EUR"
 }
 
 // reconciles checks that the bracket's valuation holds the stock on hand
@@ -130,7 +132,7 @@ func TestReturnsBothWays(t *testing.T) {
 	if _, o := e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "1000 EA")); confirmedOf(t, o) != "176 EA" {
 		t.Errorf("an order of 1000 EA: got %s confirmed, want the 176 EA on hand after both returns", confirmedOf(t, o))
 	}
-	if got, want := e.countsDue(t), []string{"S1 true A never"}; len(got) != 1 || got[0] != want[0] {
+	if got, want := e.countsDue(t), []string{"S1 true A never"}; !slices.Equal(got, want) {
 		t.Errorf("the counts due after both returns: got %v, want %v", got, want)
 	}
 	from := time.Now().UTC().AddDate(0, 0, -29).Format(time.DateOnly)
