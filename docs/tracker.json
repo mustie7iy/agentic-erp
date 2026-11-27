@@ -3783,8 +3783,8 @@
        },
        {
         "s": "T",
-        "t": "Analytics, what T56i1 leaves: the centers and their hierarchies extracted as snapshots (cost center names, periods, hierarchy nodes) with the dimensions cost_center_name and cost_center_node (a node's total its centers' under today's hierarchy), and the plan metrics plan_amount and plan_variance beside the actuals, on the database path and the store path with parity; isolation tests unchanged and passing",
-        "r": "T56i (two slices: T56i2 the snapshots and their dimensions, T56i3 the plan metrics) · ADR-0050 §7 · ADR-0044 As built T56i1",
+        "t": "Analytics, what T56i1 and T56i2 leave (T56i3): the plan metrics plan_amount and plan_variance beside the actuals, on the database path and the store path with parity; isolation tests unchanged and passing",
+        "r": "T56i (its third slice, T56i3; T56i1 and T56i2 built) · ADR-0050 §7 · ADR-0044 As built T56i1, T56i2",
         "src": "baseline",
         "c": []
        },
@@ -3792,6 +3792,13 @@
         "s": "D",
         "t": "Analytics: actuals by cost center, profit center and segment: the journal dataset carries each line's centers by code and the semantic layer's revenue, income and expenses are broken down and filtered by them, the store's answer the database's; isolation tests unchanged and passing",
         "r": "T56i1 · analytics/datasets/v1/gl_lines.yaml cost_center, profit_center, segment (additive; the journal extracted again once, as batch 95's tax columns) · semantic dimensions cost_center, profit_center, segment of revenue, income and expenses · extract TestCenterColumns, TestJournalExtractedAgainForCenters · reader TestCenterColumns · store TestParity · ADR-0044 As built T56i1 · ADR-0050 §7 As built T56i1 · walkthrough step 79 (step_plan_version, center_actuals_analytics: CC-1100 by account against GET /v1/cost-center-balances)",
+        "src": "split:T56i · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Analytics: actuals by the centers' names and today's hierarchy nodes: the active cost centers (by company and code), the active profit centers and the segments extracted as snapshots with their names and their nodes in the standard hierarchies, and the dimensions cost_center_name, cost_center_node, profit_center_name, profit_center_node and segment_name of revenue, income and expenses on the database path and the store path, parity-tested; a cost center's code resolved within the line's company; a node's figure its own centers'; naming them needs ledger.cost_center.read; isolation tests unchanged and passing",
+        "r": "T56i2 · analytics/datasets/v1/cost_centers.yaml, profit_centers.yaml, segments.yaml (joined to gl_lines) · extract TestCenterSnapshots · reader TestCenterSnapshots · analytics TestSourceReadsCenters, TestSourceWithoutCenters, TestNamesCenters · store TestParity · ADR-0044 As built T56i2 · ADR-0050 §7 As built T56i2 · walkthrough step 79 (step_plan_version, center_node_analytics: node ADMIN by account against GET /v1/cost-center-balances by hierarchy_node_id)",
         "src": "split:T56i · adr:ADR-0050",
         "c": []
        },

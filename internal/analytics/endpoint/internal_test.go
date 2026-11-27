@@ -3,11 +3,13 @@ package endpoint
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/analytics"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/httpapi"
@@ -106,4 +108,30 @@ func TestFailures(t *testing.T) {
 		// No claims in the context: the loopback serves no one.
 		inRequest(t, 0, func(ctx context.Context) { pgtest.CheckErr(t, run(e, ctx), "loopback") })
 	})
+}
+
+// TestPermissionsOfCenters: a query naming a center's name or node reads
+// the centers, so a kept result of it is read only with
+// ledger.cost_center.read; one by the centers' codes needs no more than
+// the journal's (T56i2).
+func TestPermissionsOfCenters(t *testing.T) {
+	m, err := analytics.DefaultModel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Endpoints{}
+	for name, c := range map[string]struct {
+		q    analytics.Query
+		want bool
+	}{
+		"by a node":    {analytics.Query{Measures: []string{"expenses"}, By: []string{"cost_center_node"}}, true},
+		"of a name":    {analytics.Query{Measures: []string{"revenue"}, Where: []analytics.Filter{{Dim: "segment_name", Op: "in", Values: []string{"Canada"}}}}, true},
+		"by the codes": {analytics.Query{Measures: []string{"expenses"}, By: []string{"cost_center", "profit_center"}}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := slices.Contains(e.Permissions(m, c.q), "ledger.cost_center.read"); got != c.want {
+				t.Errorf("ledger.cost_center.read among %v: got %v, want %v", e.Permissions(m, c.q), got, c.want)
+			}
+		})
+	}
 }

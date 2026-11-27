@@ -48,6 +48,11 @@ type Facts struct {
 	AsOf       time.Time
 	// DataThrough is the latest posting or document date in the data.
 	DataThrough string
+	// Centers: the journal's facts carry the CenterDimensions, read from
+	// the centers (Source.Centers) or answered by the store; a query
+	// naming one over facts without them is refused, never answered as
+	// though every line had none.
+	Centers bool
 }
 
 // fiscal maps an ISO date to fiscal year and period. With a start month

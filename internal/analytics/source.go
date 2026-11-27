@@ -29,6 +29,12 @@ type Source struct {
 	// cash_accuracy); nil, as for a source that reads the API alone,
 	// builds none of them.
 	Cash Cash
+	// Centers reads the centers and the standard hierarchies for the
+	// journal's CenterDimensions (T56i2), which a query naming one needs
+	// (NamesCenters): only then is ledger.cost_center.read required, so a
+	// journal query naming no center's name or node is answered without
+	// it.
+	Centers bool
 }
 
 // Permissions are those the reads of Facts need, in the order it reads,
@@ -43,6 +49,9 @@ func (s Source) Permissions() []string {
 	}
 	if s.namesAccounts() {
 		out = append(out, "ledger.account.read")
+	}
+	if s.namesCenters() {
+		out = append(out, "ledger.cost_center.read")
 	}
 	for _, d := range FactDatasets {
 		// The cash actuals, forecast and accuracy are read with one
@@ -87,6 +96,10 @@ func (s Source) builds(dataset string) bool {
 func (s Source) namesPartners() bool {
 	return s.builds("gl_lines") || s.builds("po_lines") || s.builds("ap_invoices") || s.builds(spendLines) || s.builds(salesLines)
 }
+
+// namesCenters reports whether it reads the centers' names and nodes,
+// for the journal's lines alone.
+func (s Source) namesCenters() bool { return s.Centers && s.builds("gl_lines") }
 
 // namesAccounts reports whether a fact table it builds names accounts,
 // which it reads from /v1/accounts.
@@ -168,10 +181,14 @@ type journalEntry struct {
 		// (a UAE sale's emirate, ADR-0049 §7); "" for a line without one.
 		TaxJurisdiction string `json:"tax_jurisdiction"`
 		// The line's cost center, profit center and segment by code
-		// (ADR-0050 §5); "" for a line without one.
+		// (ADR-0050 §5) and by id, which names them in the centers read
+		// for CenterDimensions; "" for a line without one.
 		CostCenterCode   string `json:"cost_center_code"`
 		ProfitCenterCode string `json:"profit_center_code"`
 		SegmentCode      string `json:"segment_code"`
+		CostCenterID     string `json:"cost_center_id"`
+		ProfitCenterID   string `json:"profit_center_id"`
+		SegmentID        string `json:"segment_id"`
 	}
 }
 
@@ -222,18 +239,14 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 		vendors:    map[string]partner{},
 		parallel:   map[string][]string{},
 	}
-	if s.builds("gl_lines") {
-		ledgers, err := apitools.List[ledgerOf](ctx, s.API, "/v1/ledgers", nil)
-		if err != nil {
+	if err := s.readLedgers(ctx, b); err != nil {
+		return nil, err
+	}
+	if s.namesCenters() {
+		if b.centers, err = readCenters(ctx, s.API); err != nil {
 			return nil, err
 		}
-		for _, l := range ledgers {
-			for _, le := range l.LegalEntityIDs {
-				if !l.IsLeading {
-					b.parallel[le] = append(b.parallel[le], l.ID)
-				}
-			}
-		}
+		b.f.Centers = true
 	}
 	for _, p := range partners {
 		b.vendors[p.ID] = p
@@ -246,6 +259,26 @@ func (s Source) Facts(ctx context.Context, m *Model, asOf time.Time) (*Facts, er
 	return b.f, nil
 }
 
+// readLedgers records each legal entity's parallel ledgers, for the
+// journal's lines alone.
+func (s Source) readLedgers(ctx context.Context, b *factBuilder) error {
+	if !s.builds("gl_lines") {
+		return nil
+	}
+	ledgers, err := apitools.List[ledgerOf](ctx, s.API, "/v1/ledgers", nil)
+	if err != nil {
+		return err
+	}
+	for _, l := range ledgers {
+		for _, le := range l.LegalEntityIDs {
+			if !l.IsLeading {
+				b.parallel[le] = append(b.parallel[le], l.ID)
+			}
+		}
+	}
+	return nil
+}
+
 // factBuilder accumulates the fact tables across legal entities.
 type factBuilder struct {
 	f          *Facts
@@ -254,6 +287,8 @@ type factBuilder struct {
 	// parallel is each legal entity's non-leading ledgers: the journal
 	// list reads one ledger, the leading one by default (ADR-0045).
 	parallel map[string][]string
+	// centers names the journal lines' centers; nil when not read.
+	centers *centers
 }
 
 // calendar adds the date as the dimension named dateDim (a journal line's
@@ -350,6 +385,9 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 			"determination": a.determination(le.ID), "document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
 			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)]), "tax_jurisdiction": l.TaxJurisdiction,
 			"cost_center": l.CostCenterCode, "profit_center": l.ProfitCenterCode, "segment": l.SegmentCode}
+		if b.centers != nil {
+			b.centers.dims(dims, l.CostCenterID, l.ProfitCenterID, l.SegmentID)
+		}
 		amt, err := b.minor(l.AmountLC)
 		if err == nil {
 			err = b.calendar(dims, "posting_date", je.PostingDate)

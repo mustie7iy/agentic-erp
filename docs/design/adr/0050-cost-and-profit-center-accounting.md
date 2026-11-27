@@ -916,6 +916,19 @@ As built T56i1): the journal dataset carries each line's `cost_center`,
 The centers' snapshots with `cost_center_name` and `cost_center_node`
 are T56i2, the plan metrics `plan_amount` and `plan_variance` T56i3.
 
+As built in T56i2 (ADR-0044 As built T56i2): the store keeps snapshots of
+the active cost centers (by company and code), the active profit centers
+and the segments with their names and their nodes in today's standard
+hierarchies (decision P7), and `cost_center_name`, `cost_center_node`,
+`profit_center_name`, `profit_center_node` and `segment_name` are
+dimensions of the same three metrics. A cost center's code is resolved
+within the line's company, never across companies. A line is under the
+node its center is placed at: a node's figure is its own centers', not
+its subtree's (the center reports' node filter sums the subtree). The
+centers' periods are not extracted: the lines carry what a period gave
+them. Naming a center's name or node needs `ledger.cost_center.read`
+beside the journal's permissions; the codes do not.
+
 ### 8. Plan values (minimal, decision P5)
 `controlling.plan_category` (code, name, e.g. `PLAN`, `FORECAST`; locked or
 open) and `controlling.plan_line` (category, fiscal year, period, company,
@@ -1708,7 +1721,7 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56f | **Actual reports** (built, see §7 as built) | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |
 | T56h | **SAP migration** (split: T56h1 centers and segments, built, see §10 as built; T56h2 hierarchies and categories; T56h3 OKB9 defaults; T56h4 ACDOCA's centers and center totals) | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |
-| T56i | **Analytics** (split: T56i1 the journal's centers and their dimensions, built, see §7 as built; T56i2 the centers' and hierarchies' snapshots; T56i3 the plan metrics) | Dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing |
+| T56i | **Analytics** (split: T56i1 the journal's centers and their dimensions, built, see §7 as built; T56i2 the centers' and hierarchies' snapshots, built, see §7 as built; T56i3 the plan metrics) | Dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing |
 | T56j | **Controlling agent** | Proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks |
 | T56k | **Cost object custom fields** | ADR-0046's `cost_object` reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended |
 | T56l | **Document splitting** (deferred, P3) | Not built now; if needed later, its own ADR amendment first, from a fiscal year start |
