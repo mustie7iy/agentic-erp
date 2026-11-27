@@ -144,6 +144,8 @@ func (e drillEnv) receiptsScenario(t *testing.T) {
 	e.dunningBlock(t, fab, nil, "2026-12-31", false)
 	e.docs["disputed"] = e.receivable(t, contoso, "2026-04-01", "CAD", 40000, &terms{baseline: "2026-04-01", net: 23}, "400000", "")
 	e.disputeCase(t, contoso, e.docs["disputed"], "open")
+	disputed := e.docs["disputed"]
+	e.dunningBlock(t, contoso, &disputed, "2026-12-31", false) // held by a block too: still one flow apart
 	e.docs["rejected"] = e.receivable(t, contoso, "2026-04-01", "CAD", 25000, &terms{baseline: "2026-04-01", net: 23}, "400000", "")
 	e.disputeCase(t, contoso, e.docs["rejected"], "rejected")
 	e.receivable(t, litware, "2026-04-01", "CAD", -8000, nil, "400000", "")
@@ -289,14 +291,19 @@ func TestLiquidityForecastReceipts(t *testing.T) {
 	})
 }
 
-// TestLiquidityForecastReceiptsRefused: an open sales order whose
-// payment term is not configured refuses the forecast rather than guess
-// its due date.
+// TestLiquidityForecastReceiptsRefused: an open sales order whose value
+// with its tax is out of range, or whose payment term is not configured,
+// refuses the forecast rather than guess its amount or its due date.
 func TestLiquidityForecastReceiptsRefused(t *testing.T) {
 	e := drillEnv{forecastEnv: setupForecast(t, withReceipts, receiptPerms...), docs: map[string]uuid.UUID{}}
 	north := e.Customer(t, "BP70000001", "Northwind")
 	order := e.SalesOrder(t, e.le, north, "CAD", "2026-04-10", "confirmed", fixture.SalesItem{Net: 100000})
 	e.exec(t, `SET session_replication_role = replica`)
+	e.exec(t, `UPDATE sales.sales_order_item SET net_amount = 9000000000000000000, tax_code = 'O13' WHERE sales_order_id = $1`, order)
+	e.exec(t, `RESET session_replication_role`)
+	e.Problem(422, "sales.amount_too_large", "GET", "/v1/liquidity-forecast?legal_entity_id="+e.le.String(), "", "")
+	e.exec(t, `SET session_replication_role = replica`)
+	e.exec(t, `UPDATE sales.sales_order_item SET net_amount = 100000, tax_code = NULL WHERE sales_order_id = $1`, order)
 	e.exec(t, `UPDATE sales.sales_order SET payment_term_code = 'NOPE' WHERE id = $1`, order)
 	e.exec(t, `RESET session_replication_role`)
 	e.Problem(422, "sales.unknown_payment_term", "GET", "/v1/liquidity-forecast?legal_entity_id="+e.le.String(), "", "")
