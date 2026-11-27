@@ -826,7 +826,7 @@ one outcome and its notes:
 | Down payment account | T074 | `BUKRS/KOART/UMSKZ/reconciliation account` |
 | Tax code | T007A | `BUKRS/MWSKZ` |
 | Invoice tolerance | T169G | `BUKRS/TOLSL` |
-| House bank account | T012K | `BUKRS/HBKID`, and ` (account n)` for its n-th row |
+| House bank account | T012K | `BUKRS/HBKID`; `BUKRS/HBKID/HKTID` for an account of a house bank of several, each with its ID; ` (account n)` for the n-th row of one whose accounts have no IDs |
 | Payment method, with its name (T042Z), bank ranking (T042A) and subaccounts (T042I) | T042E | `ZBUKR/ZLSCH` |
 | Bank ranking of a method the company does not set up | T042A | `ZBUKR/ZLSCH` |
 | Payment term | T052 | `ZTERM` |
@@ -1063,6 +1063,23 @@ others record a confirmation.
   OData extract's items load without a fixed method and are paid by the
   company's run order. Fixed methods are entered, and migrated, only once
   an upgrade of the cell has completed.
+- A house bank's account by payment method (ADR-0038 As built): the
+  extract's T012K carries each account's ID (HKTID). A house bank of one
+  account keeps its code (HBKID). A house bank of several accounts, each
+  with its own ID, gives each account a house bank of its own, coded house
+  bank and account ID (HBKID + HKTID, at most ten characters; product
+  owner 2026-11-10), and the payment methods' ranking names, per method
+  and currency, the account T042I names (A4 [H]); for a T042A row without
+  a currency, the accounts T042I names for the method, each ranked for its
+  own currency. Where T042I names no account of such a bank, its first
+  account is ranked, as before, with a note; an account T042I names that
+  T012K lacks is ranked by the code it would have, which validation
+  refuses, with a note. An extract without account IDs keeps one account
+  per house bank, the first, with a note. **Check on the pilot system:**
+  that the pilot's T012K and T042I carry HKTID as stated, that HKTID is at
+  most five characters (written from memory), and whether a T042I row
+  without a currency is used (the draft matches T042I's currency to the
+  T042A row's, and takes every T042I row for a T042A row without one).
 - Vendor addresses: the load first took the vendor's street with house
   number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
   REGIO (product owner 2026-11-04, ADR-0054 As built), field names written

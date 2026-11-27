@@ -715,25 +715,32 @@ func (g *mockGen) receivedInUSD(cc string) {
 	})
 }
 
+// mockAccountID is the ID of each mock house bank's one account (T012K
+// HKTID), which T042I names for its payments.
+const mockAccountID = "00001"
+
 // mockHouseBanks are a company's house bank MAIN in its currency: by
 // IBAN, or for company 3000 a Canadian account, which has none, by its bank
 // key (the routing as 0 + institution + transit) and account number; and
 // company 3000's second house bank, MUSD, an account in USD at the same
-// bank.
+// bank. Each has one account, mockAccountID.
 func mockHouseBanks(cc string, banks map[string][2]string) []T012K {
 	if cc == "3000" {
 		return []T012K{
-			{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012345", WAERS: mockCurrency(cc)},
-			{BUKRS: cc, HBKID: "MUSD", HKONT: usdBankAccount, SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012346", WAERS: "USD"},
+			{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012345", WAERS: mockCurrency(cc),
+				HKTID: mockAccountID},
+			{BUKRS: cc, HBKID: "MUSD", HKONT: usdBankAccount, SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001", BANKN: "5012346", WAERS: "USD",
+				HKTID: mockAccountID},
 		}
 	}
-	return []T012K{{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", IBAN: banks[cc][0], SWIFT: banks[cc][1], WAERS: mockCurrency(cc)}}
+	return []T012K{{BUKRS: cc, HBKID: "MAIN", HKONT: "0000100000", IBAN: banks[cc][0], SWIFT: banks[cc][1], WAERS: mockCurrency(cc), HKTID: mockAccountID}}
 }
 
 // mockPaymentMethods sets the company up to pay by bank transfer: the
 // method in its country (T042Z), in the company code (T042E), and each of
 // its house banks ranked first for the method in its account's currency
-// (T042A), posting to the bank's own G/L account (T042I).
+// (T042A), paying from its account and posting to the bank's own G/L
+// account (T042I).
 func (g *mockGen) mockPaymentMethods(c T001) {
 	if !slices.ContainsFunc(g.e.T042Z, func(z T042Z) bool { return z.LAND1 == c.LAND1 }) {
 		g.e.T042Z = append(g.e.T042Z, T042Z{LAND1: c.LAND1, ZLSCH: transfer, TEXT1: "Bank transfer"})
@@ -742,7 +749,7 @@ func (g *mockGen) mockPaymentMethods(c T001) {
 	for _, b := range g.e.T012K {
 		if b.BUKRS == c.BUKRS {
 			g.e.T042A = append(g.e.T042A, T042A{ZBUKR: c.BUKRS, ZLSCH: transfer, WAERS: b.WAERS, RANGF: "00001", HBKID: b.HBKID})
-			g.e.T042I = append(g.e.T042I, T042I{ZBUKR: c.BUKRS, HBKID: b.HBKID, ZLSCH: transfer, WAERS: b.WAERS, HKTID: "00001", UKONT: b.HKONT})
+			g.e.T042I = append(g.e.T042I, T042I{ZBUKR: c.BUKRS, HBKID: b.HBKID, ZLSCH: transfer, WAERS: b.WAERS, HKTID: b.HKTID, UKONT: b.HKONT})
 		}
 	}
 }

@@ -113,10 +113,11 @@ func ranked(mp string, a sap.T042A, note func(path, msg string)) int {
 // currency; SAP uses a row without one for a currency the method has no
 // row for, and a house bank here pays only in its own currency (ADR-0051
 // §3), so such a bank is ranked for its account's currency unless the
-// method ranks that currency already. A bank the company does not have,
-// one ranked for another currency than its account's, or one ranked twice
-// is kept and noted: validation refuses it until a reviewer corrects the
-// ranking.
+// method ranks that currency already. Of a bank of several accounts the
+// ranking names the account T042I names for the method and currency
+// (chosen). A bank the company does not have, one ranked for another
+// currency than its account's, or one ranked twice is kept and noted:
+// validation refuses it until a reviewer corrects the ranking.
 func (g *gen) ranking(o objRef, mp string, co *config.Company, code string) []config.BankRanking {
 	banks := map[string]string{} // house bank -> its currency
 	for _, hb := range co.AllHouseBanks() {
@@ -139,17 +140,27 @@ func (g *gen) ranking(o objRef, mp string, co *config.Company, code string) []co
 		return nil
 	}
 	slices.SortStableFunc(rows, func(x, y row) int { return cmp.Compare(x.order, y.order) })
-	byCurrency := map[string][]string{} // "": the rows without a currency
+	accounts := g.accountsOf(co.Code)
+	seen := map[string][]string{}       // T042A's banks per currency, "": the rows without one
+	byCurrency := map[string][]string{} // the house banks ranked per currency
+	var anyCurrency []string
 	for _, r := range rows {
 		bank, currency := r.a.HBKID, strings.TrimSpace(r.a.WAERS) // HBKID as T012K's, which names the house banks
-		g.rankedBank(o, mp, bank, currency, banks)
-		if slices.Contains(byCurrency[currency], bank) {
+		if slices.Contains(seen[currency], bank) {
 			g.note(o, mp+".ranking", fmt.Sprintf("T042A ranks house bank %s twice %s; rank it once (validation refuses it)", bank, rowsFor(currency)))
 		}
-		byCurrency[currency] = append(byCurrency[currency], bank)
+		seen[currency] = append(seen[currency], bank)
+		for _, k := range g.chosen(o, mp, accounts, banks, code, bank, currency) {
+			if !k.refused {
+				g.rankedBank(o, mp, k.code, currency, banks)
+			}
+			if currency == "" {
+				anyCurrency = append(anyCurrency, k.code)
+				continue
+			}
+			byCurrency[currency] = append(byCurrency[currency], k.code)
+		}
 	}
-	anyCurrency := byCurrency[""]
-	delete(byCurrency, "")
 	g.withoutCurrency(o, mp, co.Currency, anyCurrency, banks, byCurrency)
 	out := make([]config.BankRanking, 0, len(byCurrency))
 	for _, currency := range sortedKeys(byCurrency) {
@@ -180,9 +191,9 @@ func (g *gen) rankedBank(o objRef, mp, bank, currency string, banks map[string]s
 }
 
 // withoutCurrency ranks the banks of T042A rows without a currency, each
-// for its account's currency (the company's for a bank the company does
-// not have, which validation refuses), unless the method ranks that
-// currency with rows of its own, which SAP would take instead.
+// for its account's currency (the company's for a bank or account the
+// company does not have, which validation refuses), unless the method
+// ranks that currency with rows of its own, which SAP would take instead.
 func (g *gen) withoutCurrency(o objRef, mp, companyCurrency string, unranked []string, banks map[string]string, byCurrency map[string][]string) {
 	if len(unranked) == 0 {
 		return
@@ -207,20 +218,26 @@ func (g *gen) withoutCurrency(o objRef, mp, companyCurrency string, unranked []s
 // subaccounts notes T042I's bank subaccounts that are not the house
 // bank's ledger account: SAP posts a payment by the method to the
 // subaccount, the platform credits the bank's one clearing account for
-// every method (ADR-0038).
+// every method (ADR-0038). Of a bank of several accounts it is the ledger
+// account of the account T042I names.
 func (g *gen) subaccounts(o objRef, mp string, co *config.Company, code string) {
+	accounts := g.accountsOf(co.Code)
 	for _, i := range g.e.T042I {
 		if i.ZBUKR != co.Code || i.ZLSCH != code {
 			continue
 		}
-		at := slices.IndexFunc(co.AllHouseBanks(), func(hb config.HouseBank) bool { return hb.Name != "" && hb.Name == i.HBKID })
+		name := i.HBKID
+		if accounts.identified(i.HBKID) {
+			name, _ = accounts.named(i.HBKID, i.HKTID) // an account the company does not have is no house bank below, and pays nothing
+		}
+		at := slices.IndexFunc(co.AllHouseBanks(), func(hb config.HouseBank) bool { return hb.Name != "" && hb.Name == name })
 		if at < 0 {
 			continue // a bank the company does not have pays nothing
 		}
 		account, sub := co.HouseBankAccount(co.AllHouseBanks()[at]), sap.Alpha(strings.TrimSpace(i.UKONT))
 		if sub != "" && sub != account {
 			g.note(o, mp, fmt.Sprintf("SAP posts payments by the method from house bank %s in %q to its bank subaccount %s (T042I UKONT); the platform "+
-				"credits the bank's one clearing account %s for every method: check it is the account SAP's outgoing payments clear", i.HBKID,
+				"credits the bank's one clearing account %s for every method: check it is the account SAP's outgoing payments clear", name,
 				strings.TrimSpace(i.WAERS), sub, account))
 		}
 	}

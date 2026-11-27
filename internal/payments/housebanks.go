@@ -47,7 +47,12 @@ func init() {
 	fieldcrypt.Register(fieldcrypt.Column{Table: "payments.house_bank", Keys: []string{"id"}, Cipher: "iban_cipher", Versioned: true})
 }
 
-var houseBankCode = regexp.MustCompile(`^[A-Z0-9]{1,5}$`)
+// houseBankCode is a house bank's code: SAP's house bank (HBKID) for a
+// bank of one account, or house bank and account ID (HBKID + HKTID) for
+// an account of a bank of several, the code being per account (product
+// owner 2026-11-10; ADR-0038 As built, a house bank's account by payment
+// method), so up to ten characters (000490).
+var houseBankCode = regexp.MustCompile(`^[A-Z0-9]{1,10}$`)
 
 // Check refuses names that are not house bank codes, new bank details or
 // another currency under the name of an existing house bank, and a
@@ -81,7 +86,7 @@ func (h HouseBanks) checkCompany(ctx context.Context, tx pgx.Tx, tenant uuid.UUI
 			path = "companies[" + co.Code + "].house_banks[" + hb.Name + "]"
 		}
 		if !houseBankCode.MatchString(hb.Name) {
-			out = append(out, config.Finding{Severity: config.SevError, Path: path + ".name", Message: "a house bank's name is its code: 1-5 upper-case letters or digits"})
+			out = append(out, config.Finding{Severity: config.SevError, Path: path + ".name", Message: "a house bank's name is its code: 1-10 upper-case letters or digits"})
 			continue
 		}
 		channel, err := h.checkChannel(ctx, path, hb)

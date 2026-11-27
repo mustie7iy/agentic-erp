@@ -703,6 +703,13 @@ type T012K struct {
 	// G/L account's (SKB1 WAERS of HKONT; A5 [M]) and refuses an account
 	// neither gives one rather than guess the company's currency.
 	WAERS string `json:"WAERS,omitempty"`
+	// HKTID is the account's ID under its house bank, which T042I names
+	// per payment method and currency: the account a payment run pays
+	// from (SAP specialist, po:2026-11-09, A4 [H]: T042I gives "HBKID →
+	// HKTID, i.e. which T012K account is used"). An extract without it
+	// leaves the configuration draft one account per house bank (ADR-0038
+	// As built, a house bank's account by payment method).
+	HKTID string `json:"HKTID,omitempty"`
 }
 
 // T042Z - payment methods for automatic payment, per country: the
