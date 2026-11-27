@@ -3769,9 +3769,23 @@
        },
        {
         "s": "T",
-        "t": "Controlling agent: proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks",
-        "r": "T56j",
+        "t": "Controlling agent, what T56j1 leaves: cost centers proposed on captured invoices and parked entries (assignments), repostings of lines on the company's default profit center (the agent cannot tell it without reading the configuration), new centers and hierarchy changes as change requests, explanations of plan/actual variances; evaluation suite; never approves or locks",
+        "r": "T56j (T56j1 the repostings, built; the rest as stated) · ADR-0050 §12, As built T56j1 · ADR-0072",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Controlling agent: repostings proposed as parked entries for a person to post (split from T56j): agent type controlling, erp agent repost -company CODE -year YYYY -period P; the model reads the period's journal, entries, accounts, centers, their balances and the parked entries and names a line on a wrong center, the center it belongs on and why (proposeReposting, the agent's own tool); the agent's code reads the line itself and parks the entry it builds: the whole line on its account off its center and onto that one, dated as posted, in the ledgers of its posting, its reference naming the line, which is not proposed again; never list; evaluation suite; listParkedJournalEntries filters by reference (additive)",
+        "r": "T56j1 · internal/controllingagent (Agent.Repostings, proposeReposting, Never, TestNever, TestRepostings, TestRepostingLedgers) · internal/ledger parked_api.go (reference filter, TestListParkedJournalEntries) · api/openapi.yaml listParkedJournalEntries reference, agent type controlling (asyncapi too) · internal/platform/autonomy Types · cmd/erp agent repost, controllingEval · evals/controlling · walkthrough step 163 (step_controlling_agent) · ADR-0050 §12 As built T56j1 · ADR-0072 As built T56j1 · ADR-0039 · 04 §4.13",
+        "src": "split:T56j · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "P",
+        "t": "Evaluation against the live Claude API: the controlling agent (type controlling, evals/controlling) certified on the model erp-default routes to before it runs above level 0 in a tenant's cell; until then evals/controlling is replayed against the model stand-in only",
+        "r": "T43 (waits on: the user: a live Claude API key and spend) · evals/controlling/suite.yaml (TestEvalSuites, replay) · erp-server certify · ADR-0050 §12, As built T56j1 · ADR-0039",
+        "src": "adr:ADR-0050 · adr:ADR-0039",
         "c": []
        },
        {

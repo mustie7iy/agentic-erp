@@ -18004,6 +18004,106 @@ step_gts() {
   passed
 }
 
+# step_controlling_agent is T56j1 (ADR-0050 §12, As built T56j1): Carla
+# posts the sales team's trade fair travel on the finance office, CC-1100,
+# by mistake. The controlling agent, erp agent repost through the model
+# stand-in answering from a script of turns (its suite's replay,
+# evals/controlling), reads the month's entries on 6000, the entry and the
+# cost centers, and proposes the line's reposting: first onto CC-1100, its
+# own center, which its check refuses, then onto CC-1300, the sales
+# office. Its code reads the line itself and parks an entry moving the
+# whole line on 6000 from CC-1100 to CC-1300, dated as the line was
+# posted, its reference naming the line. Posting it is a person's: the API
+# refuses the agent. Carla posts it, and the cost centers' reports show
+# the travel on the sales office.
+step_controlling_agent() {
+  heading "Step 163 — The controlling agent: a line posted on the wrong cost center proposed for reposting, parked for a person; its own center refused; Carla posts it and the cost moves to the sales office"
+  local month office admin sales role agent entry number got session parked before_admin before_sales
+  month=$((10#${TODAY:5:2}))
+  as carla
+  accounts
+  office=$(account 6000)
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  admin=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  sales=$(field '.items[0].id')
+  say "Carla posts the sales team's trade fair travel, CAD 300.00 on 6000, and by mistake names the finance office, CC-1100:"
+  api 201 '"entry \(.document_number): \(.lines[0].amount.amount) \(.lines[0].amount.currency) on \(.lines[0].cost_center_code)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Trade fair travel\", \"lines\": [{\"account_id\": \"$office\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$admin\", \"line_text\": \"Trade fair travel of the sales team\"}, {\"account_id\": \"$(account 100000)\", \"amount\": {\"amount\": \"-300.00\", \"currency\": \"CAD\"}}]}"
+  entry=$(field .id) number=$(field .document_number)
+  before_admin=$(center_costs "$admin" "$office") before_sales=$(center_costs "$sales" "$office")
+  controlling_agent_setup
+  say "The agent runs: erp agent repost starts a session on erp-default for $CC's period $month of $YEAR. The model is the"
+  say "stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/controlling): it"
+  say "reads the month's entries on 6000, entry $number and the cost centers, and proposes the travel's line for the sales"
+  say "office. Its first proposal names CC-1100, the line's own center, which the agent's check refuses; its second names"
+  say "CC-1300. The agent's code then reads the line itself and parks the reposting from what the API returned."
+  jq -n --arg le "$LE" --argjson year "$YEAR" --argjson month "$month" --arg office "$office" --arg entry "$entry" \
+    --arg admin "$admin" --arg sales "$sales" '
+    "The line is the sales team'"'"'s trade fair travel; the company posts the sales office'"'"'s costs on CC-1300." as $why |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listJournalEntries", input: {legal_entity_id: $le, fiscal_year: $year, fiscal_period: $month, account_id: $office}},
+      {tool: "getJournalEntry", input: {id: $entry}},
+      {tool: "listCostCenters", input: {legal_entity_id: $le}},
+      {tool: "proposeReposting", input: {journal_entry_id: $entry, line_no: 1, cost_center_id: $admin, reason: $why}},
+      {tool: "proposeReposting", input: {journal_entry_id: $entry, line_no: 1, cost_center_id: $sales, reason: $why}},
+      {final: "Proposed the trade fair travel'"'"'s reposting from CC-1100 to CC-1300; a person posts it."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent repost -company "$CC" -year "$YEAR" -period "$month"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/controlling-agent") "$ERP" agent repost -company "$CC" -year "$YEAR" -period "$month" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent repost failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent proposed" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "repostings parked 1, refused 1."
+  parked=$(printf '%s\n' "$got" | sed -nE 's/^  parked entry ([0-9a-f-]{36}): .*/\1/p')
+  [ -n "$parked" ] || fail "erp agent repost printed no parked entry"
+  as controlling-agent
+  say "Proposing is all it may do: posting a parked entry is a person's (x-agent: false), erp agent builds it no tool"
+  say "for it, and the API refuses its own call:"
+  refused 403 identity.agent_not_allowed postParkedJournalEntry -p "id=$parked" -if-match '"1"' -body '{}'
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "listJournalEntries getJournalEntry listCostCenters proposeReposting parkJournalEntry proposeReposting"
+  as carla
+  say "Carla reads the parked reposting: the whole line on 6000, off CC-1100 and onto CC-1300, dated as it was posted,"
+  say "its reference naming the line and the agent's reason its header text:"
+  api 200 '"  \(.status), by \(.created_by_kind), \(.reference), \(.posting_date): \(.header_text)", (.lines[] | "    \(.amount.amount) \(.amount.currency) on \(.cost_center_code)")' \
+    getParkedJournalEntry -p "id=$parked"
+  expect "the reposting's lines" "$(field '[.lines[] | "\(.account_id == "'"$office"'") \(.amount.amount) \(.cost_center_id)"] | join("; ")')" \
+    "true -300.00 $admin; true 300.00 $sales"
+  expect "its reference" "$(field .reference)" "RP $YEAR SA $number/1"
+  expect "its date" "$(field .posting_date)" "$TODAY"
+  api 200 '"parked entry \(.status) as journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$parked" -if-match "$ETAG" -body '{}'
+  expect "the reposting" "$(field .status)" posted
+  expect "CC-1100's costs on 6000, the travel moved off" "$(center_costs "$admin" "$office")" "$((before_admin - 30000))"
+  expect "CC-1300's costs on 6000, the travel moved on" "$(center_costs "$sales" "$office")" "$((before_sales + 30000))"
+  say "The travel's CAD 300.00 is on the sales office, CC-1300, and off the finance office."
+  passed
+}
+
+# controlling_agent_setup has Ada set up the controlling agent (ADR-0050
+# §12, ADR-0072): an agent principal of type controlling at autonomy level
+# 1, whose role reads the companies, the journal, the accounts and the
+# cost centers, parks entries, and records its sessions; none of its
+# permissions posts an entry.
+controlling_agent_setup() {
+  local role
+  as ada
+  say "Ada sets up the controlling agent (ADR-0050 §12): an agent principal of type controlling at autonomy level 1 on"
+  say "erp-default. Its role reads the companies, the journal, the accounts and the cost centers, parks entries, and"
+  say "records its sessions; it holds no permission that posts an entry."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "controlling_agent", "name": "Controlling agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read ledger.entry.read ledger.entry.park ledger.account.read ledger.cost_center.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "controlling-agent", "display_name": "Controlling agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "controlling", "model": "erp-default", "description": "Proposes repostings for a person to post (ADR-0050 §12)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  printf '%s\tControlling agent\n' "$(field .principal_id)" >>"$WORK/names"
+  token controlling-agent "Controlling agent"
+}
+
 # wms_acknowledged ID waits for the exchange to acknowledge the warehouse
 # system's confirmation ID to the stand-in, which polls every 10 s.
 wms_acknowledged() {
@@ -20063,7 +20163,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_controlling_agent step_close'
 
 main() {
   stop_unseen
