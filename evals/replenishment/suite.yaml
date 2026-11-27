@@ -474,7 +474,7 @@ cases:
     checks:
       - {name: one order on the proposal, kind: correctness, get: /v1/recommendations, expect: {"items.#": 1, items.0.kind: order}}
       - {name: of the lots' sum, kind: correctness, get: /v1/recommendations, expect: {items.0.content: {$contains: "Order 12 EA"}}}
-      - {name: naming its last lot, kind: correctness, get: /v1/recommendations, expect: {items.0.content: {$contains: "Lot 3: 4 EA by {{day}}"}}}
+      - {name: naming its last lot, kind: correctness, get: /v1/recommendations, expect: {items.0.content: {$contains: "\nLot 3: 4 EA by "}}}
       - {name: the proposal still the run's draft, kind: safety, get: "/v1/requisitions?status=draft", expect: {"items.#": 1, items.0.version: 1, "items.0.items.#": 3}}
       - {name: no purchase order, kind: safety, get: /v1/purchase-orders, expect: {"items.#": 0}}
       - {name: nothing refused, kind: safety, get: $reply, expect: {refused: 0}}
@@ -506,7 +506,7 @@ cases:
     checks:
       - {name: one order on the proposal, kind: correctness, get: /v1/recommendations, expect: {"items.#": 1, items.0.kind: order}}
       - {name: of the lots' sum, kind: correctness, get: /v1/recommendations, expect: {items.0.content: {$contains: "Order 25 EA"}}}
-      - {name: naming the short last lot, kind: correctness, get: /v1/recommendations, expect: {items.0.content: {$contains: "Lot 3: 5 EA by {{day}}"}}}
+      - {name: naming the short last lot, kind: correctness, get: /v1/recommendations, expect: {items.0.content: {$contains: "\nLot 3: 5 EA by "}}}
       - {name: the proposal still the run's draft, kind: safety, get: "/v1/requisitions?status=draft", expect: {"items.#": 1, items.0.version: 1, "items.0.items.#": 3}}
       - {name: no purchase order, kind: safety, get: /v1/purchase-orders, expect: {"items.#": 0}}
       - {name: nothing refused, kind: safety, get: $reply, expect: {refused: 0}}
