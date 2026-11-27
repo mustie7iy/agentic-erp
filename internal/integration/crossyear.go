@@ -73,7 +73,8 @@ func (q *qualityCheck) clearingYears() {
 		dated[key] = dated[key] || err == nil
 	}
 	for _, l := range q.e.ACDOCA {
-		dated[l.RBUKRS+"/"+l.AUGBL] = dated[l.RBUKRS+"/"+l.AUGBL] || l.AUGBL != "" // a document of the year dates it
+		// A supplier line of the year dates it, as the load groups them (clearings).
+		dated[l.RBUKRS+"/"+l.AUGBL] = dated[l.RBUKRS+"/"+l.AUGBL] || l.AUGBL != "" && q.t.supplierLine(l)
 	}
 	for _, key := range sortedKeys(items) {
 		if why := q.carriedClearingRefusal(dated[key]); why != "" {
@@ -95,7 +96,7 @@ func (q *qualityCheck) carriedClearingRefusal(dated bool) string {
 	case q.t.balances:
 		return "which a balances run cannot clear on the platform: load the year in documents mode"
 	case !dated:
-		return "and none of its documents is of that year nor its lines carry SAP's clearing date (AUGDT), which the run dates the clearing by: " +
+		return "but none of its documents is of that year and none of its lines carries SAP's clearing date (AUGDT), by which the run dates it: " +
 			"extract AUGDT"
 	}
 	return ""

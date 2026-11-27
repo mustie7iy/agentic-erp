@@ -153,8 +153,8 @@ func TestClearedInALaterYearRefused(t *testing.T) {
 			"which a balances run cannot clear on the platform: load the year in documents mode"},
 		"no clearing year": {noYear, "documents", `the clearing's fiscal year (AUGGJ) "20x6" is no fiscal year`},
 		"no document of the year nor a clearing date": {undated, "documents", "SAP cleared items of an earlier fiscal year " +
-			"(2000/2025/0100000004/000002, 2000/2025/0100000005/000002) with it in 2026, and none of its documents is of that year nor its lines " +
-			"carry SAP's clearing date (AUGDT), which the run dates the clearing by: extract AUGDT"},
+			"(2000/2025/0100000004/000002, 2000/2025/0100000005/000002) with it in 2026, but none of its documents is of that year and none of its " +
+			"lines carries SAP's clearing date (AUGDT), by which the run dates it: extract AUGDT"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := yearsSetup(t)
