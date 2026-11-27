@@ -2484,7 +2484,21 @@ reconciliation and close agents leave it open):
 - **What it never does.** It never confirms, changes or closes a memo
   record, writes, accepts or rejects a comment, changes configuration,
   proposes or releases a payment run, blocks an item or moves money: none
-  of those operations is among its tools, and each is `x-agent: false`.
+  of those operations is among its tools. As built (batch 96F's
+  integration, which found the agent without the never list the later
+  agents have, ADR-0072): `cashagent.Never` names them, every write of
+  cash but the two proposals, of a payment run, a bank statement, a bank
+  file, a dunning block, a business partner's block and a configuration
+  change request, and
+  `cashagent.TestNever` holds the list to the contract, a new write of any
+  of those kinds failing it until it is listed. Every write of cash but
+  the proposals is `x-agent: false`; `proposePaymentRun`,
+  `importBankStatements`, `matchBankStatement`, `proposeBankStatementLine`,
+  `transmitBankFile`, `reportBankFileStatus`, `blockBusinessPartner`,
+  `unblockBusinessPartner` and the change requests but
+  `activateChangeRequest` are not, and are kept from the agent by its
+  tools, its role and its level (decided by default: the list, not the
+  contract, as for the close agent).
 - **Evaluation** (`evals/cash`, ADR-0039), replayed in CI to level 2 with
   the scripted model: each case on company 2000's variance of today at
   lag 0, against a snapshot taken on demand after the case's documents:

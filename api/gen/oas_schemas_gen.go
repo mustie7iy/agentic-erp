@@ -29483,6 +29483,7 @@ func (*ConflictHeaders) getBankStatementRulesRes()                       {}
 func (*ConflictHeaders) getCashActualsRes()                              {}
 func (*ConflictHeaders) getCashPositionRes()                             {}
 func (*ConflictHeaders) getCloseCalendarRes()                            {}
+func (*ConflictHeaders) getConsolidatedAssetHistorySheetRes()            {}
 func (*ConflictHeaders) getConsolidatedStatementRes()                    {}
 func (*ConflictHeaders) getConsolidationGroupRes()                       {}
 func (*ConflictHeaders) getConsolidationRunRes()                         {}
@@ -30317,6 +30318,719 @@ func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
 		*s = m
 	}
 	return m
+}
+
+// A consolidation group's asset history sheet for a fiscal year in the group currency
+// (`getConsolidatedAssetHistorySheet`; ADR-0057 As built, the consolidated sheet): per asset class
+// over the group's companies, the reconciliation of cost and accumulated depreciation from the year's
+// opening to its closing with the net exchange differences on translation (IAS 16.73(e)(viii)), each
+// company's rates and totals, and the totals.
+// Ref: #/components/schemas/ConsolidatedAssetHistorySheet
+type ConsolidatedAssetHistorySheet struct {
+	// The group's code.
+	GroupCode string `json:"group_code"`
+	// The group's name.
+	GroupName string `json:"group_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The parent's fiscal year's first day: the opening values are those before it (for a member first
+	// consolidated in the year, before its first period).
+	StartDate time.Time `json:"start_date"`
+	// The last day of the parent's period 12, whose closing rates translate the closing values.
+	EndDate time.Time `json:"end_date"`
+	// The group currency, the presentation currency every amount is in.
+	Currency string `json:"currency"`
+	// The rate type the closing rates are of (`consolidation.rate_type`).
+	RateType string `json:"rate_type"`
+	// The companies the sheet translates, the parent first and then the members by company code, each with
+	// its rates and totals.
+	Companies []ConsolidatedAssetHistorySheetCompany `json:"companies"`
+	// One row per asset class with an opening value or a movement in the year at any of the companies, by
+	// class code: the companies' translated values of the class summed.
+	Items  []ConsolidatedAssetHistorySheetRow  `json:"items"`
+	Totals ConsolidatedAssetHistorySheetValues `json:"totals"`
+}
+
+// GetGroupCode returns the value of GroupCode.
+func (s *ConsolidatedAssetHistorySheet) GetGroupCode() string {
+	return s.GroupCode
+}
+
+// GetGroupName returns the value of GroupName.
+func (s *ConsolidatedAssetHistorySheet) GetGroupName() string {
+	return s.GroupName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ConsolidatedAssetHistorySheet) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *ConsolidatedAssetHistorySheet) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *ConsolidatedAssetHistorySheet) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ConsolidatedAssetHistorySheet) GetCurrency() string {
+	return s.Currency
+}
+
+// GetRateType returns the value of RateType.
+func (s *ConsolidatedAssetHistorySheet) GetRateType() string {
+	return s.RateType
+}
+
+// GetCompanies returns the value of Companies.
+func (s *ConsolidatedAssetHistorySheet) GetCompanies() []ConsolidatedAssetHistorySheetCompany {
+	return s.Companies
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidatedAssetHistorySheet) GetItems() []ConsolidatedAssetHistorySheetRow {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *ConsolidatedAssetHistorySheet) GetTotals() ConsolidatedAssetHistorySheetValues {
+	return s.Totals
+}
+
+// SetGroupCode sets the value of GroupCode.
+func (s *ConsolidatedAssetHistorySheet) SetGroupCode(val string) {
+	s.GroupCode = val
+}
+
+// SetGroupName sets the value of GroupName.
+func (s *ConsolidatedAssetHistorySheet) SetGroupName(val string) {
+	s.GroupName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ConsolidatedAssetHistorySheet) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *ConsolidatedAssetHistorySheet) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *ConsolidatedAssetHistorySheet) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ConsolidatedAssetHistorySheet) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetRateType sets the value of RateType.
+func (s *ConsolidatedAssetHistorySheet) SetRateType(val string) {
+	s.RateType = val
+}
+
+// SetCompanies sets the value of Companies.
+func (s *ConsolidatedAssetHistorySheet) SetCompanies(val []ConsolidatedAssetHistorySheetCompany) {
+	s.Companies = val
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidatedAssetHistorySheet) SetItems(val []ConsolidatedAssetHistorySheetRow) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ConsolidatedAssetHistorySheet) SetTotals(val ConsolidatedAssetHistorySheetValues) {
+	s.Totals = val
+}
+
+func (*ConsolidatedAssetHistorySheet) getConsolidatedAssetHistorySheetRes() {}
+
+// A company of a group's consolidated asset history sheet: who it is, the rates its values were
+// translated at and its totals in the group currency.
+// Ref: #/components/schemas/ConsolidatedAssetHistorySheetCompany
+type ConsolidatedAssetHistorySheetCompany struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The company's place in the group. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Role string `json:"role"`
+	// The company's local currency, its own sheet's.
+	LocalCurrency string `json:"local_currency"`
+	// The rate its opening values were translated at, local to group currency: the closing rate of the
+	// period before the year's first (before its first, for a member first consolidated in the year); 1 in
+	// the group currency; absent when it has no opening values.
+	OpeningRate OptString `json:"opening_rate"`
+	// The day the opening rate is valid from; absent at rate 1 or without opening values.
+	OpeningRateValidFrom OptDate `json:"opening_rate_valid_from"`
+	// The rate its closing values were translated at: its closing rate of period 12, as a run of that
+	// period shows it; 1 in the group currency.
+	ClosingRate string `json:"closing_rate"`
+	// The day the closing rate is valid from; absent at rate 1.
+	ClosingRateValidFrom OptDate `json:"closing_rate_valid_from"`
+	// The rates its movements other than depreciation and impairment (which are at their booked group
+	// amounts) were translated at, one per period with such a movement, by period (a special period's
+	// being period 12's closing rate); none in the group currency.
+	PeriodRates []ConsolidatedAssetHistorySheetRate `json:"period_rates"`
+	Totals      ConsolidatedAssetHistorySheetValues `json:"totals"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidatedAssetHistorySheetCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidatedAssetHistorySheetCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidatedAssetHistorySheetCompany) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetRole returns the value of Role.
+func (s *ConsolidatedAssetHistorySheetCompany) GetRole() string {
+	return s.Role
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *ConsolidatedAssetHistorySheetCompany) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetOpeningRate returns the value of OpeningRate.
+func (s *ConsolidatedAssetHistorySheetCompany) GetOpeningRate() OptString {
+	return s.OpeningRate
+}
+
+// GetOpeningRateValidFrom returns the value of OpeningRateValidFrom.
+func (s *ConsolidatedAssetHistorySheetCompany) GetOpeningRateValidFrom() OptDate {
+	return s.OpeningRateValidFrom
+}
+
+// GetClosingRate returns the value of ClosingRate.
+func (s *ConsolidatedAssetHistorySheetCompany) GetClosingRate() string {
+	return s.ClosingRate
+}
+
+// GetClosingRateValidFrom returns the value of ClosingRateValidFrom.
+func (s *ConsolidatedAssetHistorySheetCompany) GetClosingRateValidFrom() OptDate {
+	return s.ClosingRateValidFrom
+}
+
+// GetPeriodRates returns the value of PeriodRates.
+func (s *ConsolidatedAssetHistorySheetCompany) GetPeriodRates() []ConsolidatedAssetHistorySheetRate {
+	return s.PeriodRates
+}
+
+// GetTotals returns the value of Totals.
+func (s *ConsolidatedAssetHistorySheetCompany) GetTotals() ConsolidatedAssetHistorySheetValues {
+	return s.Totals
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidatedAssetHistorySheetCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidatedAssetHistorySheetCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidatedAssetHistorySheetCompany) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetRole sets the value of Role.
+func (s *ConsolidatedAssetHistorySheetCompany) SetRole(val string) {
+	s.Role = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *ConsolidatedAssetHistorySheetCompany) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetOpeningRate sets the value of OpeningRate.
+func (s *ConsolidatedAssetHistorySheetCompany) SetOpeningRate(val OptString) {
+	s.OpeningRate = val
+}
+
+// SetOpeningRateValidFrom sets the value of OpeningRateValidFrom.
+func (s *ConsolidatedAssetHistorySheetCompany) SetOpeningRateValidFrom(val OptDate) {
+	s.OpeningRateValidFrom = val
+}
+
+// SetClosingRate sets the value of ClosingRate.
+func (s *ConsolidatedAssetHistorySheetCompany) SetClosingRate(val string) {
+	s.ClosingRate = val
+}
+
+// SetClosingRateValidFrom sets the value of ClosingRateValidFrom.
+func (s *ConsolidatedAssetHistorySheetCompany) SetClosingRateValidFrom(val OptDate) {
+	s.ClosingRateValidFrom = val
+}
+
+// SetPeriodRates sets the value of PeriodRates.
+func (s *ConsolidatedAssetHistorySheetCompany) SetPeriodRates(val []ConsolidatedAssetHistorySheetRate) {
+	s.PeriodRates = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ConsolidatedAssetHistorySheetCompany) SetTotals(val ConsolidatedAssetHistorySheetValues) {
+	s.Totals = val
+}
+
+// The rate a company's movements of cost, and what retirements and transfers took of accumulated
+// depreciation, of one period were translated at: the period's closing rate.
+// Ref: #/components/schemas/ConsolidatedAssetHistorySheetRate
+type ConsolidatedAssetHistorySheetRate struct {
+	// The fiscal period (1-16).
+	Period int32 `json:"period"`
+	// The rate, local to group currency.
+	Rate string `json:"rate"`
+	// The day the rate is valid from.
+	ValidFrom time.Time `json:"valid_from"`
+}
+
+// GetPeriod returns the value of Period.
+func (s *ConsolidatedAssetHistorySheetRate) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetRate returns the value of Rate.
+func (s *ConsolidatedAssetHistorySheetRate) GetRate() string {
+	return s.Rate
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *ConsolidatedAssetHistorySheetRate) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// SetPeriod sets the value of Period.
+func (s *ConsolidatedAssetHistorySheetRate) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetRate sets the value of Rate.
+func (s *ConsolidatedAssetHistorySheetRate) SetRate(val string) {
+	s.Rate = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *ConsolidatedAssetHistorySheetRate) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// One asset class of a group's consolidated asset history sheet: the companies' translated values of
+// the class summed, the columns of `ConsolidatedAssetHistorySheetValues` with the same signs, which
+// reconcile as they do.
+// Ref: #/components/schemas/ConsolidatedAssetHistorySheetRow
+type ConsolidatedAssetHistorySheetRow struct {
+	// The asset class (`GET /v1/asset-classes`).
+	ClassCode string `json:"class_code"`
+	// The class's name; absent when the active configuration no longer has the class.
+	ClassName                      OptString `json:"class_name"`
+	OpeningCost                    Money     `json:"opening_cost"`
+	Acquisitions                   Money     `json:"acquisitions"`
+	Retirements                    Money     `json:"retirements"`
+	Transfers                      Money     `json:"transfers"`
+	ExchangeDifferences            Money     `json:"exchange_differences"`
+	ClosingCost                    Money     `json:"closing_cost"`
+	OpeningAccumulated             Money     `json:"opening_accumulated"`
+	Depreciation                   Money     `json:"depreciation"`
+	ImpairmentLosses               Money     `json:"impairment_losses"`
+	ImpairmentReversals            Money     `json:"impairment_reversals"`
+	RetirementsAccumulated         Money     `json:"retirements_accumulated"`
+	TransfersAccumulated           Money     `json:"transfers_accumulated"`
+	ExchangeDifferencesAccumulated Money     `json:"exchange_differences_accumulated"`
+	ClosingAccumulated             Money     `json:"closing_accumulated"`
+	OpeningNetBookValue            Money     `json:"opening_net_book_value"`
+	ClosingNetBookValue            Money     `json:"closing_net_book_value"`
+}
+
+// GetClassCode returns the value of ClassCode.
+func (s *ConsolidatedAssetHistorySheetRow) GetClassCode() string {
+	return s.ClassCode
+}
+
+// GetClassName returns the value of ClassName.
+func (s *ConsolidatedAssetHistorySheetRow) GetClassName() OptString {
+	return s.ClassName
+}
+
+// GetOpeningCost returns the value of OpeningCost.
+func (s *ConsolidatedAssetHistorySheetRow) GetOpeningCost() Money {
+	return s.OpeningCost
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *ConsolidatedAssetHistorySheetRow) GetAcquisitions() Money {
+	return s.Acquisitions
+}
+
+// GetRetirements returns the value of Retirements.
+func (s *ConsolidatedAssetHistorySheetRow) GetRetirements() Money {
+	return s.Retirements
+}
+
+// GetTransfers returns the value of Transfers.
+func (s *ConsolidatedAssetHistorySheetRow) GetTransfers() Money {
+	return s.Transfers
+}
+
+// GetExchangeDifferences returns the value of ExchangeDifferences.
+func (s *ConsolidatedAssetHistorySheetRow) GetExchangeDifferences() Money {
+	return s.ExchangeDifferences
+}
+
+// GetClosingCost returns the value of ClosingCost.
+func (s *ConsolidatedAssetHistorySheetRow) GetClosingCost() Money {
+	return s.ClosingCost
+}
+
+// GetOpeningAccumulated returns the value of OpeningAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) GetOpeningAccumulated() Money {
+	return s.OpeningAccumulated
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *ConsolidatedAssetHistorySheetRow) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// GetImpairmentLosses returns the value of ImpairmentLosses.
+func (s *ConsolidatedAssetHistorySheetRow) GetImpairmentLosses() Money {
+	return s.ImpairmentLosses
+}
+
+// GetImpairmentReversals returns the value of ImpairmentReversals.
+func (s *ConsolidatedAssetHistorySheetRow) GetImpairmentReversals() Money {
+	return s.ImpairmentReversals
+}
+
+// GetRetirementsAccumulated returns the value of RetirementsAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) GetRetirementsAccumulated() Money {
+	return s.RetirementsAccumulated
+}
+
+// GetTransfersAccumulated returns the value of TransfersAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) GetTransfersAccumulated() Money {
+	return s.TransfersAccumulated
+}
+
+// GetExchangeDifferencesAccumulated returns the value of ExchangeDifferencesAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) GetExchangeDifferencesAccumulated() Money {
+	return s.ExchangeDifferencesAccumulated
+}
+
+// GetClosingAccumulated returns the value of ClosingAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) GetClosingAccumulated() Money {
+	return s.ClosingAccumulated
+}
+
+// GetOpeningNetBookValue returns the value of OpeningNetBookValue.
+func (s *ConsolidatedAssetHistorySheetRow) GetOpeningNetBookValue() Money {
+	return s.OpeningNetBookValue
+}
+
+// GetClosingNetBookValue returns the value of ClosingNetBookValue.
+func (s *ConsolidatedAssetHistorySheetRow) GetClosingNetBookValue() Money {
+	return s.ClosingNetBookValue
+}
+
+// SetClassCode sets the value of ClassCode.
+func (s *ConsolidatedAssetHistorySheetRow) SetClassCode(val string) {
+	s.ClassCode = val
+}
+
+// SetClassName sets the value of ClassName.
+func (s *ConsolidatedAssetHistorySheetRow) SetClassName(val OptString) {
+	s.ClassName = val
+}
+
+// SetOpeningCost sets the value of OpeningCost.
+func (s *ConsolidatedAssetHistorySheetRow) SetOpeningCost(val Money) {
+	s.OpeningCost = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *ConsolidatedAssetHistorySheetRow) SetAcquisitions(val Money) {
+	s.Acquisitions = val
+}
+
+// SetRetirements sets the value of Retirements.
+func (s *ConsolidatedAssetHistorySheetRow) SetRetirements(val Money) {
+	s.Retirements = val
+}
+
+// SetTransfers sets the value of Transfers.
+func (s *ConsolidatedAssetHistorySheetRow) SetTransfers(val Money) {
+	s.Transfers = val
+}
+
+// SetExchangeDifferences sets the value of ExchangeDifferences.
+func (s *ConsolidatedAssetHistorySheetRow) SetExchangeDifferences(val Money) {
+	s.ExchangeDifferences = val
+}
+
+// SetClosingCost sets the value of ClosingCost.
+func (s *ConsolidatedAssetHistorySheetRow) SetClosingCost(val Money) {
+	s.ClosingCost = val
+}
+
+// SetOpeningAccumulated sets the value of OpeningAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) SetOpeningAccumulated(val Money) {
+	s.OpeningAccumulated = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *ConsolidatedAssetHistorySheetRow) SetDepreciation(val Money) {
+	s.Depreciation = val
+}
+
+// SetImpairmentLosses sets the value of ImpairmentLosses.
+func (s *ConsolidatedAssetHistorySheetRow) SetImpairmentLosses(val Money) {
+	s.ImpairmentLosses = val
+}
+
+// SetImpairmentReversals sets the value of ImpairmentReversals.
+func (s *ConsolidatedAssetHistorySheetRow) SetImpairmentReversals(val Money) {
+	s.ImpairmentReversals = val
+}
+
+// SetRetirementsAccumulated sets the value of RetirementsAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) SetRetirementsAccumulated(val Money) {
+	s.RetirementsAccumulated = val
+}
+
+// SetTransfersAccumulated sets the value of TransfersAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) SetTransfersAccumulated(val Money) {
+	s.TransfersAccumulated = val
+}
+
+// SetExchangeDifferencesAccumulated sets the value of ExchangeDifferencesAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) SetExchangeDifferencesAccumulated(val Money) {
+	s.ExchangeDifferencesAccumulated = val
+}
+
+// SetClosingAccumulated sets the value of ClosingAccumulated.
+func (s *ConsolidatedAssetHistorySheetRow) SetClosingAccumulated(val Money) {
+	s.ClosingAccumulated = val
+}
+
+// SetOpeningNetBookValue sets the value of OpeningNetBookValue.
+func (s *ConsolidatedAssetHistorySheetRow) SetOpeningNetBookValue(val Money) {
+	s.OpeningNetBookValue = val
+}
+
+// SetClosingNetBookValue sets the value of ClosingNetBookValue.
+func (s *ConsolidatedAssetHistorySheetRow) SetClosingNetBookValue(val Money) {
+	s.ClosingNetBookValue = val
+}
+
+// A consolidated asset history sheet's columns in the group currency, the company's sheet's
+// (`AssetHistorySheetValues`) translated, with the net exchange differences on translation of cost
+// (`exchange_differences`) and of accumulated depreciation (`exchange_differences_accumulated`; IAS
+// 16.73(e)(viii)). They reconcile to the cent: `closing_cost` = `opening_cost` + `acquisitions` +
+// `retirements` + `transfers` + `exchange_differences`; `closing_accumulated` = `opening_accumulated`
+// + `depreciation` + `impairment_losses` + `impairment_reversals` + `retirements_accumulated` +
+// `transfers_accumulated` + `exchange_differences_accumulated`; a net book value is its cost plus its
+// accumulated depreciation.
+// Ref: #/components/schemas/ConsolidatedAssetHistorySheetValues
+type ConsolidatedAssetHistorySheetValues struct {
+	OpeningCost                    Money `json:"opening_cost"`
+	Acquisitions                   Money `json:"acquisitions"`
+	Retirements                    Money `json:"retirements"`
+	Transfers                      Money `json:"transfers"`
+	ExchangeDifferences            Money `json:"exchange_differences"`
+	ClosingCost                    Money `json:"closing_cost"`
+	OpeningAccumulated             Money `json:"opening_accumulated"`
+	Depreciation                   Money `json:"depreciation"`
+	ImpairmentLosses               Money `json:"impairment_losses"`
+	ImpairmentReversals            Money `json:"impairment_reversals"`
+	RetirementsAccumulated         Money `json:"retirements_accumulated"`
+	TransfersAccumulated           Money `json:"transfers_accumulated"`
+	ExchangeDifferencesAccumulated Money `json:"exchange_differences_accumulated"`
+	ClosingAccumulated             Money `json:"closing_accumulated"`
+	OpeningNetBookValue            Money `json:"opening_net_book_value"`
+	ClosingNetBookValue            Money `json:"closing_net_book_value"`
+}
+
+// GetOpeningCost returns the value of OpeningCost.
+func (s *ConsolidatedAssetHistorySheetValues) GetOpeningCost() Money {
+	return s.OpeningCost
+}
+
+// GetAcquisitions returns the value of Acquisitions.
+func (s *ConsolidatedAssetHistorySheetValues) GetAcquisitions() Money {
+	return s.Acquisitions
+}
+
+// GetRetirements returns the value of Retirements.
+func (s *ConsolidatedAssetHistorySheetValues) GetRetirements() Money {
+	return s.Retirements
+}
+
+// GetTransfers returns the value of Transfers.
+func (s *ConsolidatedAssetHistorySheetValues) GetTransfers() Money {
+	return s.Transfers
+}
+
+// GetExchangeDifferences returns the value of ExchangeDifferences.
+func (s *ConsolidatedAssetHistorySheetValues) GetExchangeDifferences() Money {
+	return s.ExchangeDifferences
+}
+
+// GetClosingCost returns the value of ClosingCost.
+func (s *ConsolidatedAssetHistorySheetValues) GetClosingCost() Money {
+	return s.ClosingCost
+}
+
+// GetOpeningAccumulated returns the value of OpeningAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) GetOpeningAccumulated() Money {
+	return s.OpeningAccumulated
+}
+
+// GetDepreciation returns the value of Depreciation.
+func (s *ConsolidatedAssetHistorySheetValues) GetDepreciation() Money {
+	return s.Depreciation
+}
+
+// GetImpairmentLosses returns the value of ImpairmentLosses.
+func (s *ConsolidatedAssetHistorySheetValues) GetImpairmentLosses() Money {
+	return s.ImpairmentLosses
+}
+
+// GetImpairmentReversals returns the value of ImpairmentReversals.
+func (s *ConsolidatedAssetHistorySheetValues) GetImpairmentReversals() Money {
+	return s.ImpairmentReversals
+}
+
+// GetRetirementsAccumulated returns the value of RetirementsAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) GetRetirementsAccumulated() Money {
+	return s.RetirementsAccumulated
+}
+
+// GetTransfersAccumulated returns the value of TransfersAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) GetTransfersAccumulated() Money {
+	return s.TransfersAccumulated
+}
+
+// GetExchangeDifferencesAccumulated returns the value of ExchangeDifferencesAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) GetExchangeDifferencesAccumulated() Money {
+	return s.ExchangeDifferencesAccumulated
+}
+
+// GetClosingAccumulated returns the value of ClosingAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) GetClosingAccumulated() Money {
+	return s.ClosingAccumulated
+}
+
+// GetOpeningNetBookValue returns the value of OpeningNetBookValue.
+func (s *ConsolidatedAssetHistorySheetValues) GetOpeningNetBookValue() Money {
+	return s.OpeningNetBookValue
+}
+
+// GetClosingNetBookValue returns the value of ClosingNetBookValue.
+func (s *ConsolidatedAssetHistorySheetValues) GetClosingNetBookValue() Money {
+	return s.ClosingNetBookValue
+}
+
+// SetOpeningCost sets the value of OpeningCost.
+func (s *ConsolidatedAssetHistorySheetValues) SetOpeningCost(val Money) {
+	s.OpeningCost = val
+}
+
+// SetAcquisitions sets the value of Acquisitions.
+func (s *ConsolidatedAssetHistorySheetValues) SetAcquisitions(val Money) {
+	s.Acquisitions = val
+}
+
+// SetRetirements sets the value of Retirements.
+func (s *ConsolidatedAssetHistorySheetValues) SetRetirements(val Money) {
+	s.Retirements = val
+}
+
+// SetTransfers sets the value of Transfers.
+func (s *ConsolidatedAssetHistorySheetValues) SetTransfers(val Money) {
+	s.Transfers = val
+}
+
+// SetExchangeDifferences sets the value of ExchangeDifferences.
+func (s *ConsolidatedAssetHistorySheetValues) SetExchangeDifferences(val Money) {
+	s.ExchangeDifferences = val
+}
+
+// SetClosingCost sets the value of ClosingCost.
+func (s *ConsolidatedAssetHistorySheetValues) SetClosingCost(val Money) {
+	s.ClosingCost = val
+}
+
+// SetOpeningAccumulated sets the value of OpeningAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) SetOpeningAccumulated(val Money) {
+	s.OpeningAccumulated = val
+}
+
+// SetDepreciation sets the value of Depreciation.
+func (s *ConsolidatedAssetHistorySheetValues) SetDepreciation(val Money) {
+	s.Depreciation = val
+}
+
+// SetImpairmentLosses sets the value of ImpairmentLosses.
+func (s *ConsolidatedAssetHistorySheetValues) SetImpairmentLosses(val Money) {
+	s.ImpairmentLosses = val
+}
+
+// SetImpairmentReversals sets the value of ImpairmentReversals.
+func (s *ConsolidatedAssetHistorySheetValues) SetImpairmentReversals(val Money) {
+	s.ImpairmentReversals = val
+}
+
+// SetRetirementsAccumulated sets the value of RetirementsAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) SetRetirementsAccumulated(val Money) {
+	s.RetirementsAccumulated = val
+}
+
+// SetTransfersAccumulated sets the value of TransfersAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) SetTransfersAccumulated(val Money) {
+	s.TransfersAccumulated = val
+}
+
+// SetExchangeDifferencesAccumulated sets the value of ExchangeDifferencesAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) SetExchangeDifferencesAccumulated(val Money) {
+	s.ExchangeDifferencesAccumulated = val
+}
+
+// SetClosingAccumulated sets the value of ClosingAccumulated.
+func (s *ConsolidatedAssetHistorySheetValues) SetClosingAccumulated(val Money) {
+	s.ClosingAccumulated = val
+}
+
+// SetOpeningNetBookValue sets the value of OpeningNetBookValue.
+func (s *ConsolidatedAssetHistorySheetValues) SetOpeningNetBookValue(val Money) {
+	s.OpeningNetBookValue = val
+}
+
+// SetClosingNetBookValue sets the value of ClosingNetBookValue.
+func (s *ConsolidatedAssetHistorySheetValues) SetClosingNetBookValue(val Money) {
+	s.ClosingNetBookValue = val
 }
 
 // A total of a consolidated statement, in the group currency, debit positive: the companies'
@@ -54227,6 +54941,22 @@ func (s *GetConnectorOKHeaders) SetResponse(val Connector) {
 }
 
 func (*GetConnectorOKHeaders) getConnectorRes() {}
+
+type GetConsolidatedAssetHistorySheetBadRequest Problem
+
+func (*GetConsolidatedAssetHistorySheetBadRequest) getConsolidatedAssetHistorySheetRes() {}
+
+type GetConsolidatedAssetHistorySheetForbidden Problem
+
+func (*GetConsolidatedAssetHistorySheetForbidden) getConsolidatedAssetHistorySheetRes() {}
+
+type GetConsolidatedAssetHistorySheetNotFound Problem
+
+func (*GetConsolidatedAssetHistorySheetNotFound) getConsolidatedAssetHistorySheetRes() {}
+
+type GetConsolidatedAssetHistorySheetUnprocessableEntity Problem
+
+func (*GetConsolidatedAssetHistorySheetUnprocessableEntity) getConsolidatedAssetHistorySheetRes() {}
 
 type GetConsolidatedStatementBadRequest Problem
 
@@ -128595,6 +129325,7 @@ func (*TooManyRequestsHeaders) getCollectionWorklistRes()                       
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                            {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                            {}
 func (*TooManyRequestsHeaders) getConnectorRes()                                {}
+func (*TooManyRequestsHeaders) getConsolidatedAssetHistorySheetRes()            {}
 func (*TooManyRequestsHeaders) getConsolidatedStatementRes()                    {}
 func (*TooManyRequestsHeaders) getConsolidationGroupRes()                       {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                         {}
@@ -129608,6 +130339,7 @@ func (*UnauthorizedHeaders) getCollectionWorklistRes()                       {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                            {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                            {}
 func (*UnauthorizedHeaders) getConnectorRes()                                {}
+func (*UnauthorizedHeaders) getConsolidatedAssetHistorySheetRes()            {}
 func (*UnauthorizedHeaders) getConsolidatedStatementRes()                    {}
 func (*UnauthorizedHeaders) getConsolidationGroupRes()                       {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                         {}

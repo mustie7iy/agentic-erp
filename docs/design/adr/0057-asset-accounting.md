@@ -1048,7 +1048,8 @@ and useful lives or rates per class, usually notes text. The sheet above
 already has the opening and closing cost and accumulated depreciation, the
 year's depreciation and what retirements and transfers took; the question
 put to the specialist named fewer columns than are built. Missing are the
-impairment and translation lines (a tracker leaf each) and the business
+impairment and translation lines (a tracker leaf each, both built since:
+As built, impairment and the consolidated sheet) and the business
 combination line (left out while the pilot's subsidiaries are incorporated,
 not acquired); the product owner's decision is under As built (B14).
 
@@ -2770,7 +2771,8 @@ carrying amount; impairment and the consolidated sheet later.
 - **Not built, a tracker leaf each (po:2026-11-09), both before the
   pilot's first year end:** impairment postings (losses recognised and
   reversed) with their sheet lines (built since: As built, impairment); a consolidated sheet in the group's
-  presentation currency with net exchange differences on translation.
+  presentation currency with net exchange differences on translation
+  (built since: As built, the consolidated sheet).
 - **The business combination line is left out** while the pilot
   customer's planning default D11 holds (the subsidiaries incorporated by
   the parent, not acquired; ADR-0059): no asset then enters through a
@@ -2856,7 +2858,7 @@ Decided by default (ADR-0053 d), for the product owner to overrule:
   principle (ADR-0045), so a loss under IFRS need not be one under local
   GAAP; a person posts it in each ledger it applies to.
 Not built (out of the leaf): the consolidated sheet in presentation
-currency, IAS 16.73(a)-(c) notes text, goodwill impairment, testing for
+currency (built since: As built, the consolidated sheet), IAS 16.73(a)-(c) notes text, goodwill impairment, testing for
 impairment, IFRS 5.15's measurement of an asset held for sale.
 Checked in batch 95F's integration against the specialist's B14 list: the
 sheet already had opening accumulated depreciation (`opening_accumulated`)
@@ -2866,6 +2868,89 @@ depreciation removed (`retirements`, `retirements_accumulated`); this leaf
 adds impairment losses and reversals. Left for later leaves: net exchange
 differences on translation (the consolidated sheet) and acquisitions
 through business combinations.
+
+**The consolidated sheet (net exchange differences on translation,
+po:2026-11-09, B14; IAS 16.73(e)(viii), from memory; ADR-0059 §7;
+migration 000489).** The B14 leaf after impairment.
+`GET /v1/consolidation-groups/{code}/asset-history-sheet?fiscal_year`
+(`consolidation.read`, also `ledger.entry.read` and `assets.asset.read`;
+an agent tool, read) is the group's sheet in the group currency: per
+class over the companies, each company's rates and totals, and the
+totals, every column of the company sheet translated, with
+`exchange_differences` (cost) and `exchange_differences_accumulated`.
+It lives in the consolidation context, a leaf, which reads the assets
+context through a new port (`consolidation.Assets`, adapted in
+internal/app over `assets.ConsolidationReads.ClassTotals`) and its rates
+through its own `rateOf` and `periodRate` (no second copy of the rate
+rule). The assets context keeps a new total for it,
+`assets.class_period_total` (per company, ledger, fiscal year, period and
+class, the year totals' columns and the booked group amounts of its
+profit and loss columns), written by `keepTotals` in every
+posting's transaction after the class year rows and before the asset
+rows, each in key order (no new lock order: a period row two postings
+share belongs to a class year row they share), and backfilled from the
+movements; impairment's postings and their entries are unchanged.
+Decided by default (ADR-0053 d), for the product owner to overrule:
+- **The companies and refusals are a run's of the year's period 12**
+  (`targetOf`): the parent and each member consolidated by then; a group
+  the caller may not see whole is unknown (404
+  `consolidation.group_unknown`, ADR-0059 §12), never shown in part, and
+  the run's 422s apply (parent currency, calendar, structure, period,
+  rates). Alternative: sum the companies the caller may read (as the
+  group liquidity forecast does), rejected for ADR-0059 §12's reason.
+- **Rates (ADR-0059 §7's method).** Closing values, balances, at the
+  company's closing rate of period 12 (the rate a run of that period
+  shows); opening values at the closing rate of the period before the
+  opening (period 12 of the year before). The profit and loss columns,
+  depreciation, impairment losses and their reversals, at their booked
+  group amounts (each posting's own rate, the movements' `accumulated_gc`,
+  kept per period in `class_period_total`): as §7 translates income and
+  expenses (no period average rate), so the sheet's depreciation is the
+  consolidated profit and loss's. The other movements, of cost
+  (acquisitions, retirements, transfers) and what retirements and
+  transfers took of accumulated depreciation, which move balances alone,
+  at their period's own closing rate, the rate a run of that period
+  translates its balances at; a special period's (13-16) at period 12's.
+  Not their booked group amounts: a retirement's and a transfer's are
+  shares of historical group amounts, which would put the rate change
+  since the acquisition into the disposal line rather than the exchange
+  difference. A rate is read only where an amount needs it, so a company
+  without opening values needs no opening rate and a period without such
+  movements no rate of its own; a needed one missing or stale is refused
+  (422 `consolidation.rate_missing`, `consolidation.rate_stale`,
+  `consolidation.period_unknown`, on `fiscal_year`). Alternative: each
+  balance movement at its posting date's rate (needs a total per posting
+  date, or the movements read); for the specialist (from memory): whether
+  a disposal at its period's closing rate, of the `average` type, is the
+  practice.
+- **The exchange differences are the rest**, per company, class and
+  column: the closing value at the closing rate less the opening value
+  and the year's translated movements, so every row, company and total
+  reconciles to the cent (`TestConsolidatedAssetHistorySheet` by hand).
+  Each column of each company, class and period is translated once,
+  rounded half away from zero to the group currency's minor unit
+  (ADR-0005), then summed; so a class's closing values can differ by
+  rounding from the consolidated balance sheet's, which translates per
+  account and trading partner (§7).
+- **A company in the group currency** (the parent always, ADR-0059 §3) is
+  at rate 1 for every column, its profit and loss columns its local
+  amounts (its booked group amounts are those), so it has no exchange
+  differences and its
+  rows are its own sheet's in the leading ledger; its `opening_rate` is 1
+  when it has opening values, and it lists no period rates.
+- **A member first consolidated in the fiscal year** opens at its first
+  period: what it held and moved before that is its opening, at the
+  closing rate of the period before its first, where a run measures its
+  acquisition (ADR-0059 §9); its movements count from its first period.
+  The rate is read by the rule (`measurePeriod`), not from a frozen
+  acquisition, which records the same rate unless a rate valid on that
+  day was recorded after the freeze. No business combination line: the
+  pilot's members are incorporated (D11), and a run refuses others.
+- **Leading ledger alone** (ADR-0059 §1), by class only (no asset rows:
+  the consolidated schedule is per class, IAS 16.73(e), from memory), not
+  paged (classes are few), from one repeatable-read snapshot.
+Not built: a business combination line; the IAS 16.73(a)-(c) notes text
+(its own leaf).
 
 **B10, step 1 (the order item and the tax borne recorded on price
 difference lines, po:2026-11-10; migration 000263).** The specialist's

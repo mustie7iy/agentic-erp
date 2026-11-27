@@ -127,6 +127,16 @@ func (e *Endpoints) acquirable(ctx context.Context, tx pgx.Tx, t target) error {
 // currency needs no period of its own (rate 1).
 func (e *Endpoints) measurePeriod(ctx context.Context, rateType, group string, co Company, firstYear, firstP int16) (Period, Rate, error) {
 	year, per := previousPeriod(firstYear, firstP)
+	return e.periodRate(ctx, rateType, group, co, year, per, "the period before its first, where its acquisition is measured (ADR-0059 §9)",
+		"the period before company "+co.Code+"'s first")
+}
+
+// periodRate is the company's period and its closing rate (rateOf); a
+// company in the group currency needs no period of its own (rate 1). A
+// period the company does not have is refused (422
+// consolidation.period_unknown), its detail saying what the period is for
+// and its field error what is needed.
+func (e *Endpoints) periodRate(ctx context.Context, rateType, group string, co Company, year, per int16, what, needed string) (Period, Rate, error) {
 	if co.LocalCurrency == group {
 		return Period{}, Rate{Rate: one(), Shown: "1"}, nil
 	}
@@ -136,8 +146,7 @@ func (e *Endpoints) measurePeriod(ctx context.Context, rateType, group string, c
 		return Period{}, Rate{}, fmt.Errorf("consolidation: period %d/%d of %s: %w", year, per, co.Code, err)
 	case !ok:
 		return Period{}, Rate{}, problem.Unprocessable("consolidation.period_unknown", fmt.Sprintf("Company %s has no period %d/%d in its leading "+
-			"ledger, the period before its first, where its acquisition is measured (ADR-0059 §9).", co.Code, year, per),
-			problem.FieldError{Field: "period", Code: "period_unknown", Message: "the period before company " + co.Code + "'s first"})
+			"ledger, %s.", co.Code, year, per, what), problem.FieldError{Field: "period", Code: "period_unknown", Message: needed})
 	}
 	r, err := e.rateOf(ctx, rateType, group, co, p, year, per)
 	return p, r, err

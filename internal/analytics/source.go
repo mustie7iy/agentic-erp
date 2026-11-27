@@ -167,6 +167,11 @@ type journalEntry struct {
 		// TaxJurisdiction is the subdivision the line's tax is levied in
 		// (a UAE sale's emirate, ADR-0049 §7); "" for a line without one.
 		TaxJurisdiction string `json:"tax_jurisdiction"`
+		// The line's cost center, profit center and segment by code
+		// (ADR-0050 §5); "" for a line without one.
+		CostCenterCode   string `json:"cost_center_code"`
+		ProfitCenterCode string `json:"profit_center_code"`
+		SegmentCode      string `json:"segment_code"`
 	}
 }
 
@@ -343,7 +348,8 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 		v := b.vendors[l.PartnerID]
 		dims := map[string]string{"company": le.Code, "account": a.Number, "account_name": a.Name, "account_type": a.AccountType,
 			"determination": a.determination(le.ID), "document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
-			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)]), "tax_jurisdiction": l.TaxJurisdiction}
+			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)]), "tax_jurisdiction": l.TaxJurisdiction,
+			"cost_center": l.CostCenterCode, "profit_center": l.ProfitCenterCode, "segment": l.SegmentCode}
 		amt, err := b.minor(l.AmountLC)
 		if err == nil {
 			err = b.calendar(dims, "posting_date", je.PostingDate)

@@ -70265,6 +70265,1354 @@ func (s *ConnectorUpdateSettings) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *ConsolidatedAssetHistorySheet) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidatedAssetHistorySheet) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("group_code")
+		e.Str(s.GroupCode)
+	}
+	{
+		e.FieldStart("group_name")
+		e.Str(s.GroupName)
+	}
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("start_date")
+		json.EncodeDate(e, s.StartDate)
+	}
+	{
+		e.FieldStart("end_date")
+		json.EncodeDate(e, s.EndDate)
+	}
+	{
+		e.FieldStart("currency")
+		e.Str(s.Currency)
+	}
+	{
+		e.FieldStart("rate_type")
+		e.Str(s.RateType)
+	}
+	{
+		e.FieldStart("companies")
+		e.ArrStart()
+		for _, elem := range s.Companies {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		e.FieldStart("items")
+		e.ArrStart()
+		for _, elem := range s.Items {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		e.FieldStart("totals")
+		s.Totals.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfConsolidatedAssetHistorySheet = [10]string{
+	0: "group_code",
+	1: "group_name",
+	2: "fiscal_year",
+	3: "start_date",
+	4: "end_date",
+	5: "currency",
+	6: "rate_type",
+	7: "companies",
+	8: "items",
+	9: "totals",
+}
+
+// Decode decodes ConsolidatedAssetHistorySheet from json.
+func (s *ConsolidatedAssetHistorySheet) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidatedAssetHistorySheet to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "group_code":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.GroupCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"group_code\"")
+			}
+		case "group_name":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.GroupName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"group_name\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "start_date":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.StartDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"start_date\"")
+			}
+		case "end_date":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.EndDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"end_date\"")
+			}
+		case "currency":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.Currency = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"currency\"")
+			}
+		case "rate_type":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.RateType = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rate_type\"")
+			}
+		case "companies":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				s.Companies = make([]ConsolidatedAssetHistorySheetCompany, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ConsolidatedAssetHistorySheetCompany
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Companies = append(s.Companies, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"companies\"")
+			}
+		case "items":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				s.Items = make([]ConsolidatedAssetHistorySheetRow, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ConsolidatedAssetHistorySheetRow
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		case "totals":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.Totals.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"totals\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidatedAssetHistorySheet")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11111111,
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidatedAssetHistorySheet) {
+					name = jsonFieldsNameOfConsolidatedAssetHistorySheet[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidatedAssetHistorySheet) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidatedAssetHistorySheet) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidatedAssetHistorySheetCompany) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidatedAssetHistorySheetCompany) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		e.FieldStart("company_name")
+		e.Str(s.CompanyName)
+	}
+	{
+		e.FieldStart("role")
+		e.Str(s.Role)
+	}
+	{
+		e.FieldStart("local_currency")
+		e.Str(s.LocalCurrency)
+	}
+	{
+		if s.OpeningRate.Set {
+			e.FieldStart("opening_rate")
+			s.OpeningRate.Encode(e)
+		}
+	}
+	{
+		if s.OpeningRateValidFrom.Set {
+			e.FieldStart("opening_rate_valid_from")
+			s.OpeningRateValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		e.FieldStart("closing_rate")
+		e.Str(s.ClosingRate)
+	}
+	{
+		if s.ClosingRateValidFrom.Set {
+			e.FieldStart("closing_rate_valid_from")
+			s.ClosingRateValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		e.FieldStart("period_rates")
+		e.ArrStart()
+		for _, elem := range s.PeriodRates {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		e.FieldStart("totals")
+		s.Totals.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfConsolidatedAssetHistorySheetCompany = [11]string{
+	0:  "legal_entity_id",
+	1:  "company_code",
+	2:  "company_name",
+	3:  "role",
+	4:  "local_currency",
+	5:  "opening_rate",
+	6:  "opening_rate_valid_from",
+	7:  "closing_rate",
+	8:  "closing_rate_valid_from",
+	9:  "period_rates",
+	10: "totals",
+}
+
+// Decode decodes ConsolidatedAssetHistorySheetCompany from json.
+func (s *ConsolidatedAssetHistorySheetCompany) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidatedAssetHistorySheetCompany to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "company_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_name\"")
+			}
+		case "role":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.Role = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"role\"")
+			}
+		case "local_currency":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.LocalCurrency = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"local_currency\"")
+			}
+		case "opening_rate":
+			if err := func() error {
+				s.OpeningRate.Reset()
+				if err := s.OpeningRate.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_rate\"")
+			}
+		case "opening_rate_valid_from":
+			if err := func() error {
+				s.OpeningRateValidFrom.Reset()
+				if err := s.OpeningRateValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_rate_valid_from\"")
+			}
+		case "closing_rate":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.ClosingRate = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_rate\"")
+			}
+		case "closing_rate_valid_from":
+			if err := func() error {
+				s.ClosingRateValidFrom.Reset()
+				if err := s.ClosingRateValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_rate_valid_from\"")
+			}
+		case "period_rates":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				s.PeriodRates = make([]ConsolidatedAssetHistorySheetRate, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ConsolidatedAssetHistorySheetRate
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.PeriodRates = append(s.PeriodRates, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"period_rates\"")
+			}
+		case "totals":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.Totals.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"totals\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidatedAssetHistorySheetCompany")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b10011111,
+		0b00000110,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidatedAssetHistorySheetCompany) {
+					name = jsonFieldsNameOfConsolidatedAssetHistorySheetCompany[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidatedAssetHistorySheetCompany) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidatedAssetHistorySheetCompany) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidatedAssetHistorySheetRate) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidatedAssetHistorySheetRate) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("period")
+		e.Int32(s.Period)
+	}
+	{
+		e.FieldStart("rate")
+		e.Str(s.Rate)
+	}
+	{
+		e.FieldStart("valid_from")
+		json.EncodeDate(e, s.ValidFrom)
+	}
+}
+
+var jsonFieldsNameOfConsolidatedAssetHistorySheetRate = [3]string{
+	0: "period",
+	1: "rate",
+	2: "valid_from",
+}
+
+// Decode decodes ConsolidatedAssetHistorySheetRate from json.
+func (s *ConsolidatedAssetHistorySheetRate) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidatedAssetHistorySheetRate to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "period":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.Period = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"period\"")
+			}
+		case "rate":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Rate = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rate\"")
+			}
+		case "valid_from":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.ValidFrom = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_from\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidatedAssetHistorySheetRate")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidatedAssetHistorySheetRate) {
+					name = jsonFieldsNameOfConsolidatedAssetHistorySheetRate[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidatedAssetHistorySheetRate) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidatedAssetHistorySheetRate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidatedAssetHistorySheetRow) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidatedAssetHistorySheetRow) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("class_code")
+		e.Str(s.ClassCode)
+	}
+	{
+		if s.ClassName.Set {
+			e.FieldStart("class_name")
+			s.ClassName.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("opening_cost")
+		s.OpeningCost.Encode(e)
+	}
+	{
+		e.FieldStart("acquisitions")
+		s.Acquisitions.Encode(e)
+	}
+	{
+		e.FieldStart("retirements")
+		s.Retirements.Encode(e)
+	}
+	{
+		e.FieldStart("transfers")
+		s.Transfers.Encode(e)
+	}
+	{
+		e.FieldStart("exchange_differences")
+		s.ExchangeDifferences.Encode(e)
+	}
+	{
+		e.FieldStart("closing_cost")
+		s.ClosingCost.Encode(e)
+	}
+	{
+		e.FieldStart("opening_accumulated")
+		s.OpeningAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("depreciation")
+		s.Depreciation.Encode(e)
+	}
+	{
+		e.FieldStart("impairment_losses")
+		s.ImpairmentLosses.Encode(e)
+	}
+	{
+		e.FieldStart("impairment_reversals")
+		s.ImpairmentReversals.Encode(e)
+	}
+	{
+		e.FieldStart("retirements_accumulated")
+		s.RetirementsAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("transfers_accumulated")
+		s.TransfersAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("exchange_differences_accumulated")
+		s.ExchangeDifferencesAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("closing_accumulated")
+		s.ClosingAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("opening_net_book_value")
+		s.OpeningNetBookValue.Encode(e)
+	}
+	{
+		e.FieldStart("closing_net_book_value")
+		s.ClosingNetBookValue.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfConsolidatedAssetHistorySheetRow = [18]string{
+	0:  "class_code",
+	1:  "class_name",
+	2:  "opening_cost",
+	3:  "acquisitions",
+	4:  "retirements",
+	5:  "transfers",
+	6:  "exchange_differences",
+	7:  "closing_cost",
+	8:  "opening_accumulated",
+	9:  "depreciation",
+	10: "impairment_losses",
+	11: "impairment_reversals",
+	12: "retirements_accumulated",
+	13: "transfers_accumulated",
+	14: "exchange_differences_accumulated",
+	15: "closing_accumulated",
+	16: "opening_net_book_value",
+	17: "closing_net_book_value",
+}
+
+// Decode decodes ConsolidatedAssetHistorySheetRow from json.
+func (s *ConsolidatedAssetHistorySheetRow) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidatedAssetHistorySheetRow to nil")
+	}
+	var requiredBitSet [3]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "class_code":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.ClassCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"class_code\"")
+			}
+		case "class_name":
+			if err := func() error {
+				s.ClassName.Reset()
+				if err := s.ClassName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"class_name\"")
+			}
+		case "opening_cost":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.OpeningCost.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_cost\"")
+			}
+		case "acquisitions":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				if err := s.Acquisitions.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"acquisitions\"")
+			}
+		case "retirements":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.Retirements.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"retirements\"")
+			}
+		case "transfers":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				if err := s.Transfers.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"transfers\"")
+			}
+		case "exchange_differences":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				if err := s.ExchangeDifferences.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"exchange_differences\"")
+			}
+		case "closing_cost":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				if err := s.ClosingCost.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_cost\"")
+			}
+		case "opening_accumulated":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.OpeningAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_accumulated\"")
+			}
+		case "depreciation":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.Depreciation.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"depreciation\"")
+			}
+		case "impairment_losses":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.ImpairmentLosses.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"impairment_losses\"")
+			}
+		case "impairment_reversals":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				if err := s.ImpairmentReversals.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"impairment_reversals\"")
+			}
+		case "retirements_accumulated":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				if err := s.RetirementsAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"retirements_accumulated\"")
+			}
+		case "transfers_accumulated":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				if err := s.TransfersAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"transfers_accumulated\"")
+			}
+		case "exchange_differences_accumulated":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				if err := s.ExchangeDifferencesAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"exchange_differences_accumulated\"")
+			}
+		case "closing_accumulated":
+			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				if err := s.ClosingAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_accumulated\"")
+			}
+		case "opening_net_book_value":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				if err := s.OpeningNetBookValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_net_book_value\"")
+			}
+		case "closing_net_book_value":
+			requiredBitSet[2] |= 1 << 1
+			if err := func() error {
+				if err := s.ClosingNetBookValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_net_book_value\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidatedAssetHistorySheetRow")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [3]uint8{
+		0b11111101,
+		0b11111111,
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidatedAssetHistorySheetRow) {
+					name = jsonFieldsNameOfConsolidatedAssetHistorySheetRow[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidatedAssetHistorySheetRow) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidatedAssetHistorySheetRow) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidatedAssetHistorySheetValues) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidatedAssetHistorySheetValues) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("opening_cost")
+		s.OpeningCost.Encode(e)
+	}
+	{
+		e.FieldStart("acquisitions")
+		s.Acquisitions.Encode(e)
+	}
+	{
+		e.FieldStart("retirements")
+		s.Retirements.Encode(e)
+	}
+	{
+		e.FieldStart("transfers")
+		s.Transfers.Encode(e)
+	}
+	{
+		e.FieldStart("exchange_differences")
+		s.ExchangeDifferences.Encode(e)
+	}
+	{
+		e.FieldStart("closing_cost")
+		s.ClosingCost.Encode(e)
+	}
+	{
+		e.FieldStart("opening_accumulated")
+		s.OpeningAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("depreciation")
+		s.Depreciation.Encode(e)
+	}
+	{
+		e.FieldStart("impairment_losses")
+		s.ImpairmentLosses.Encode(e)
+	}
+	{
+		e.FieldStart("impairment_reversals")
+		s.ImpairmentReversals.Encode(e)
+	}
+	{
+		e.FieldStart("retirements_accumulated")
+		s.RetirementsAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("transfers_accumulated")
+		s.TransfersAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("exchange_differences_accumulated")
+		s.ExchangeDifferencesAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("closing_accumulated")
+		s.ClosingAccumulated.Encode(e)
+	}
+	{
+		e.FieldStart("opening_net_book_value")
+		s.OpeningNetBookValue.Encode(e)
+	}
+	{
+		e.FieldStart("closing_net_book_value")
+		s.ClosingNetBookValue.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfConsolidatedAssetHistorySheetValues = [16]string{
+	0:  "opening_cost",
+	1:  "acquisitions",
+	2:  "retirements",
+	3:  "transfers",
+	4:  "exchange_differences",
+	5:  "closing_cost",
+	6:  "opening_accumulated",
+	7:  "depreciation",
+	8:  "impairment_losses",
+	9:  "impairment_reversals",
+	10: "retirements_accumulated",
+	11: "transfers_accumulated",
+	12: "exchange_differences_accumulated",
+	13: "closing_accumulated",
+	14: "opening_net_book_value",
+	15: "closing_net_book_value",
+}
+
+// Decode decodes ConsolidatedAssetHistorySheetValues from json.
+func (s *ConsolidatedAssetHistorySheetValues) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidatedAssetHistorySheetValues to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "opening_cost":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				if err := s.OpeningCost.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_cost\"")
+			}
+		case "acquisitions":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				if err := s.Acquisitions.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"acquisitions\"")
+			}
+		case "retirements":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.Retirements.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"retirements\"")
+			}
+		case "transfers":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				if err := s.Transfers.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"transfers\"")
+			}
+		case "exchange_differences":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.ExchangeDifferences.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"exchange_differences\"")
+			}
+		case "closing_cost":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				if err := s.ClosingCost.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_cost\"")
+			}
+		case "opening_accumulated":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				if err := s.OpeningAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_accumulated\"")
+			}
+		case "depreciation":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				if err := s.Depreciation.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"depreciation\"")
+			}
+		case "impairment_losses":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.ImpairmentLosses.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"impairment_losses\"")
+			}
+		case "impairment_reversals":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.ImpairmentReversals.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"impairment_reversals\"")
+			}
+		case "retirements_accumulated":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.RetirementsAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"retirements_accumulated\"")
+			}
+		case "transfers_accumulated":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				if err := s.TransfersAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"transfers_accumulated\"")
+			}
+		case "exchange_differences_accumulated":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				if err := s.ExchangeDifferencesAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"exchange_differences_accumulated\"")
+			}
+		case "closing_accumulated":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				if err := s.ClosingAccumulated.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_accumulated\"")
+			}
+		case "opening_net_book_value":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				if err := s.OpeningNetBookValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_net_book_value\"")
+			}
+		case "closing_net_book_value":
+			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				if err := s.ClosingNetBookValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_net_book_value\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidatedAssetHistorySheetValues")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11111111,
+		0b11111111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidatedAssetHistorySheetValues) {
+					name = jsonFieldsNameOfConsolidatedAssetHistorySheetValues[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidatedAssetHistorySheetValues) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidatedAssetHistorySheetValues) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *ConsolidatedFigures) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -135609,6 +136957,158 @@ func (s *GetConnectorNotFound) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *GetConnectorNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetConsolidatedAssetHistorySheetBadRequest as json.
+func (s *GetConsolidatedAssetHistorySheetBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetConsolidatedAssetHistorySheetBadRequest from json.
+func (s *GetConsolidatedAssetHistorySheetBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetConsolidatedAssetHistorySheetBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetConsolidatedAssetHistorySheetBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetConsolidatedAssetHistorySheetBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetConsolidatedAssetHistorySheetBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetConsolidatedAssetHistorySheetForbidden as json.
+func (s *GetConsolidatedAssetHistorySheetForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetConsolidatedAssetHistorySheetForbidden from json.
+func (s *GetConsolidatedAssetHistorySheetForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetConsolidatedAssetHistorySheetForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetConsolidatedAssetHistorySheetForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetConsolidatedAssetHistorySheetForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetConsolidatedAssetHistorySheetForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetConsolidatedAssetHistorySheetNotFound as json.
+func (s *GetConsolidatedAssetHistorySheetNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetConsolidatedAssetHistorySheetNotFound from json.
+func (s *GetConsolidatedAssetHistorySheetNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetConsolidatedAssetHistorySheetNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetConsolidatedAssetHistorySheetNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetConsolidatedAssetHistorySheetNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetConsolidatedAssetHistorySheetNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetConsolidatedAssetHistorySheetUnprocessableEntity as json.
+func (s *GetConsolidatedAssetHistorySheetUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetConsolidatedAssetHistorySheetUnprocessableEntity from json.
+func (s *GetConsolidatedAssetHistorySheetUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetConsolidatedAssetHistorySheetUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetConsolidatedAssetHistorySheetUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetConsolidatedAssetHistorySheetUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetConsolidatedAssetHistorySheetUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
