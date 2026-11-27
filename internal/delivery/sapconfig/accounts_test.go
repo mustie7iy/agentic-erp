@@ -81,8 +81,13 @@ func TestHouseBankAccountNotNamed(t *testing.T) {
 		change  func(*sap.Extract)
 		ranking string
 		note    string
+		unnoted string // a note the draft must not give
 		errors  []string
 	}{
+		"T042I naming no account ID for a bank of one": {
+			change:  func(e *sap.Extract) { t042i(e, "MAIN", "") },
+			ranking: "CAD: MAIN; USD: MUSD", unnoted: "T042I names",
+		},
 		"T042I names no account": {
 			change: func(e *sap.Extract) {
 				secondUSD(e)
@@ -166,6 +171,9 @@ func TestHouseBankAccountNotNamed(t *testing.T) {
 			}
 			if all := notesText(notes); c.note != "" && !strings.Contains(all, c.note) {
 				t.Errorf("notes: got\n%s\nwant one beginning %q", all, c.note)
+			}
+			if all := notesText(notes); c.unnoted != "" && strings.Contains(all, c.unnoted) {
+				t.Errorf("notes: got\n%s\nwant none with %q", all, c.unnoted)
 			}
 			if got, want := methodErrors(reviewed(cfg)), fmt.Sprint(c.errors); fmt.Sprint(got) != want {
 				t.Errorf("payment method errors of the reviewed draft: got %v, want %s", got, want)

@@ -88,13 +88,12 @@ func (a bankAccounts) named(bank, id string) (string, bool) {
 	return a.code(a[bank][at]), true
 }
 
-// pick is a house bank account a ranking names, with the currency of the
-// T042A row it is ranked for: "" ranks it for its account's currency (a
-// house bank pays only in its own, ADR-0051 §3). refused is set when the
-// draft noted why validation refuses it.
+// pick is the code of a house bank account a ranking names; refused is
+// set when it is no house bank of the company and the draft noted why
+// validation refuses it.
 type pick struct {
-	code, currency string
-	refused        bool
+	code    string
+	refused bool
 }
 
 // chosen are the accounts of house bank bank that pay by payment method
@@ -104,12 +103,13 @@ type pick struct {
 // per bank, method and currency). Where T042I names none, the
 // bank's first account is ranked, as before the draft read T042I, noted
 // for a bank of several accounts; an account T042I names that T012K does
-// not give the company is ranked by the code it would have, noted, and
-// validation refuses it. A bank the company does not have, or whose
-// accounts the extract does not tell apart, is ranked as it is.
-func (g *gen) chosen(o objRef, mp string, accounts bankAccounts, method, bank, currency string) []pick {
+// not give the company is ranked by the code it would have, and, unless
+// that is another house bank's code (banks), noted as refused, which
+// validation does. A bank the company does not have, or whose accounts
+// the extract does not tell apart, is ranked as it is.
+func (g *gen) chosen(o objRef, mp string, accounts bankAccounts, banks map[string]string, method, bank, currency string) []pick {
 	if !accounts.identified(bank) {
-		return []pick{{code: bank, currency: currency}}
+		return []pick{{code: bank}}
 	}
 	var out []pick
 	for _, i := range g.e.T042I {
@@ -121,11 +121,13 @@ func (g *gen) chosen(o objRef, mp string, accounts bankAccounts, method, bank, c
 		if slices.ContainsFunc(out, func(k pick) bool { return k.code == code }) {
 			continue // named for another currency too: ranked once, for its own
 		}
-		if !ok {
+		_, other := banks[code] // an empty HKTID names the bank of one account itself; or two codes join alike
+		refused := !ok && !other
+		if refused {
 			g.note(o, mp+".ranking", fmt.Sprintf("T042I names account %q of house bank %s for the method in %q, which T012K does not give the company: "+
 				"ranked as %s, which validation refuses; add the account or correct T042I", accountID(i.HKTID), bank, waers, code))
 		}
-		out = append(out, pick{code: code, currency: currency, refused: !ok})
+		out = append(out, pick{code: code, refused: refused})
 	}
 	if len(out) > 0 {
 		return out
@@ -136,5 +138,5 @@ func (g *gen) chosen(o objRef, mp string, accounts bankAccounts, method, bank, c
 			"(SAP specialist, po:2026-11-09, A4): its first account %s is ranked, as the draft did before it read T042I; check which account pays",
 			bank, rowsFor(currency), first))
 	}
-	return []pick{{code: first, currency: currency}}
+	return []pick{{code: first}}
 }

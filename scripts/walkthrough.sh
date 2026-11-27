@@ -832,6 +832,9 @@ step_tenant() {
     -cutover "$YEAR-01-01" -out "$WORK/config-accounts.yaml" >"$WORK/generate-accounts.out" 2>&1; then
     fail "a draft with USD house banks whose accounts are not revalued validated"
   fi
+  if grep '\[error\]' "$WORK/generate-accounts.out" | grep -v 'must be revalue_foreign_currency'; then
+    fail "the draft of MUSD's two accounts has errors other than its unrevalued USD accounts"
+  fi
   grep -E '^ +- name: MUSD|^          - currency: USD$|^              - MUSD' "$WORK/config-accounts.yaml" | sed 's/^ */     /'
   expect "the house banks of MUSD's two accounts" "$(grep -cE '^      - name: MUSD0000[12]$' "$WORK/config-accounts.yaml" || true)" 2
   expect "the account the USD ranking names" "$(grep -A 2 '^          - currency: USD$' "$WORK/config-accounts.yaml" | tail -1 | tr -d ' -')" MUSD00002

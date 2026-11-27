@@ -143,19 +143,19 @@ func (g *gen) ranking(o objRef, mp string, co *config.Company, code string) []co
 	accounts := g.accountsOf(co.Code)
 	seen := map[string][]string{}       // T042A's banks per currency, "": the rows without one
 	byCurrency := map[string][]string{} // the house banks ranked per currency
-	var anyCurrency []pick
+	var anyCurrency []string
 	for _, r := range rows {
 		bank, currency := r.a.HBKID, strings.TrimSpace(r.a.WAERS) // HBKID as T012K's, which names the house banks
 		if slices.Contains(seen[currency], bank) {
 			g.note(o, mp+".ranking", fmt.Sprintf("T042A ranks house bank %s twice %s; rank it once (validation refuses it)", bank, rowsFor(currency)))
 		}
 		seen[currency] = append(seen[currency], bank)
-		for _, k := range g.chosen(o, mp, accounts, code, bank, currency) {
+		for _, k := range g.chosen(o, mp, accounts, banks, code, bank, currency) {
 			if !k.refused {
-				g.rankedBank(o, mp, k.code, k.currency, banks)
+				g.rankedBank(o, mp, k.code, currency, banks)
 			}
 			if currency == "" {
-				anyCurrency = append(anyCurrency, k)
+				anyCurrency = append(anyCurrency, k.code)
 				continue
 			}
 			byCurrency[currency] = append(byCurrency[currency], k.code)
@@ -192,9 +192,9 @@ func (g *gen) rankedBank(o objRef, mp, bank, currency string, banks map[string]s
 
 // withoutCurrency ranks the banks of T042A rows without a currency, each
 // for its account's currency (the company's for a bank or account the
-// company does not have, which validation refuses), unless the method ranks that currency with rows of its own,
-// which SAP would take instead.
-func (g *gen) withoutCurrency(o objRef, mp, companyCurrency string, unranked []pick, banks map[string]string, byCurrency map[string][]string) {
+// company does not have, which validation refuses), unless the method
+// ranks that currency with rows of its own, which SAP would take instead.
+func (g *gen) withoutCurrency(o objRef, mp, companyCurrency string, unranked []string, banks map[string]string, byCurrency map[string][]string) {
 	if len(unranked) == 0 {
 		return
 	}
@@ -202,14 +202,14 @@ func (g *gen) withoutCurrency(o objRef, mp, companyCurrency string, unranked []p
 	for currency := range byCurrency {
 		explicit[currency] = true
 	}
-	for _, k := range unranked {
-		currency := cmp.Or(k.currency, banks[k.code], companyCurrency)
+	for _, bank := range unranked {
+		currency := cmp.Or(banks[bank], companyCurrency)
 		if explicit[currency] {
 			g.note(o, mp+".ranking["+currency+"]", fmt.Sprintf("T042A ranks house bank %s without a currency, which SAP uses only where the method ranks "+
-				"no bank for the currency; it ranks banks for %s, so %s is not ranked", k.code, currency, k.code))
+				"no bank for the currency; it ranks banks for %s, so %s is not ranked", bank, currency, bank))
 			continue
 		}
-		byCurrency[currency] = append(byCurrency[currency], k.code)
+		byCurrency[currency] = append(byCurrency[currency], bank)
 	}
 	g.note(o, mp+".ranking", "T042A ranks house banks without a currency, which SAP pays any currency through; a house bank pays only in its own "+
 		"currency (ADR-0051 §3), so each is ranked for its account's")
