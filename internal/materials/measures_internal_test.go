@@ -26,3 +26,18 @@ func TestCanonical(t *testing.T) {
 		})
 	}
 }
+
+// TestDecimalAbove: decimals compare exactly; a string that is no
+// decimal is above nothing and nothing is above it.
+func TestDecimalAbove(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{{"1.001", "1", true}, {"1", "1.000", false}, {"0.9", "10", false}, {"x", "1", false}, {"1", "x", false}} {
+		t.Run(c.a+" "+c.b, func(t *testing.T) {
+			if got := DecimalAbove(c.a, c.b); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
