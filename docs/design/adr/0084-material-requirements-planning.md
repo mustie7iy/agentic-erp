@@ -50,7 +50,8 @@ APIs, which `app` adapts into mrp's own types.
 
 ### 2. What it reads and writes
 
-- **Demand** (sales, `sales.Orders.PlantRequirements`): per material and
+- **Demand** (sales, `sales.Orders.PlantRequirements`, by day since
+  period lot sizes: `PlantRequirementsDue`, As built): per material and
   unit, each standing item's ordered quantity less what is delivered of
   the plant's **confirmed** orders. Ordered, not confirmed: an item the
   availability check could confirm only in part (S2j) still demands the
@@ -443,6 +444,97 @@ specialist):
   weekly, monthly), optimising procedures (part period, least unit cost,
   Groff), scrap and firming in a planning time fence, beside the leaf's
   safety stock, MRP areas, planned orders and calendars.
+
+### Period lot sizes (batch 99, 2026-11-27; an item of "later: MRP variants")
+
+A run sized a material's whole shortage at once, needed by the run's
+day (S2k2), so a plant whose demand falls over weeks ordered it all for
+today. Decided by default (SAP's period lot sizes TB, WB and MB on
+MARC-DISLS, their bounds BSTMI, BSTMA and BSTRF, and the availability
+date of a period's receipt, **from memory**, for the SAP specialist):
+
+- **Planning data** (migration 000497): `lot_size` `daily`, `weekly` or
+  `monthly`, with the minimum and maximum lot sizes and the rounding
+  value lot for lot takes and, as for it, no fixed lot size or maximum
+  stock level (422 `mrp.invalid_lot_size`; `material_plan_lot_size_fields`
+  unchanged). Contract additive: the three values appended to the open
+  enumerations of `MaterialPlan*.lot_size` and `MrpRunLine.lot_size`.
+- **Sizing** (`internal/mrp/period.go`): the run projects what the plant
+  has (stock and receipts) down by each demand on the day it is due; the
+  period's needs are what the projection falls below the reorder point
+  by, one lot per period, raised to the minimum, rounded up to the
+  rounding value and split by the maximum as lot for lot (`bounded`,
+  shared), what it brings counted towards the later periods. The reorder
+  point stays the threshold: it is the only planning type there is
+  (reorder point planning), so it plays the part SAP's safety stock plays
+  in deterministic planning (from memory: whether SAP's VB combines with
+  a period lot size this way is for the specialist). The line's shortage
+  is the reorder point's as before, so `proposed` is the shortage or more
+  (`run_line_lots` holds) and a material that does not fall below its
+  reorder point proposes nothing.
+- **Periods** are calendar periods of the company's days: a day, an ISO
+  8601 week from Monday to Sunday, or a calendar month, of dates as every
+  date is held (the run's day is the company's, `config.DocumentDay`, in
+  its time zone; demand days are dates). No factory calendar: a period
+  is not moved to working days (Later).
+- **A lot is needed by its period's first requirement date**, the first
+  day in it the projection falls below the reorder point, not the
+  period's start: a week's or month's start may lie before the run's day
+  or well before the demand, and SAP's default for period lot sizes
+  schedules the receipt at the first requirement date of the period
+  (from memory; its customising also offers the period's start or end,
+  Later). Demand overdue is due on the run's day, as is the first lot of
+  a plant already below its reorder point before any demand.
+- **Demand by day**: the run now reads sales' `PlantRequirementsDue`
+  (the requested delivery date, else the order's date), the query S2n's
+  review reads, instead of `PlantRequirements`, which was the same query
+  without the day and is removed (a run reading both could count two
+  different moments in one transaction); intercompany orders by their
+  items' delivery dates, else the order's date (`IntercompanyDue`, whose
+  days the run now uses); stock transport orders it supplies on the
+  run's day, since `TransportsDue` carries no date (their delivery date
+  in the read is Later). Lot for lot, fixed and replenish to maximum add
+  the days up as before. Receipts carry no date in their reads, so they
+  count from the run's day, as the reorder point counts them (receipts by
+  their delivery dates, Later).
+- **The requisition**: still one per material and run, an item per lot
+  (§3, As built S2k2); it is needed by the first lot's day, and the run
+  keeps each lot with its day (`mrp.run_line_lot`, insert-only, only of
+  a period-sized line, numbered within its lots: `run_line_lot_of_period_line`),
+  since a requisition's items carry no date of their own. `MrpRunLine`
+  gains `lot_schedule` (each lot's quantity and `needed_by`, in item
+  order), absent for the other procedures, whose lots are all needed by
+  the run's day.
+- **At most 100 lots** over the periods (`MaxLots`), 409
+  `mrp.too_many_lots` naming the material and its procedure, as for a
+  small fixed or maximum lot size.
+- **Locks and writes**: nothing new is locked; the lots are inserted
+  after their lines in the run's one transaction (their foreign key to
+  the line it just wrote), and read with the lines (`withSchedules`).
+- **The replenishment agent** (not changed here; batch 98S's repllots
+  teaches it proposals of several lots) sees a period-lot proposal as a
+  requisition of several items needed by the first lot's day, and the
+  run line's `lot_size` (`daily`, `weekly`, `monthly`), `lots` and
+  `lot_schedule` with each lot's own day; a check that holds a
+  recommendation to dates per lot reads them from `lot_schedule`, not
+  from the requisition's one need date.
+- **Rolling upgrade** (expand only): the checks are widened and a table
+  added; a server before neither writes nor reads them. The down refuses
+  while a plan or line is sized by period or a lot is kept
+  (`TestMRPPeriodLotsDownRefused`), and otherwise drops what the up added
+  (`TestDownsRevert`).
+- Tests: `TestPeriodLots` by hand per procedure (ISO weeks across a year
+  end, the surplus of rounding counted next period, overdue demand),
+  `TestPeriodTooManyLots`, `TestPeriodStart`, `TestLotSizingChecks`,
+  `TestPlanningRunPeriodLots` through the API, schema `TestMRPPeriodLots`
+  and `TestMRPPeriodLotsAsOwner`. Walkthrough `step_mrp` (step 152): an
+  N10 nut planned at Montreal in weekly lots with orders due in two weeks
+  gets two lots, each needed by its order's day.
+- Left in the tracker's "later: MRP variants": optimising procedures
+  (part period, least unit cost, Groff), the period's start or end as a
+  lot's date, a factory calendar for periods and dates, receipts and
+  stock transport orders by their delivery dates, scrap, firming in a
+  planning time fence, beside safety stock, MRP areas and planned orders.
 
 ### Replenishment lead time (S2j2, 2026-11-25)
 

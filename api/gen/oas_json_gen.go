@@ -216820,6 +216820,16 @@ func (s *MrpRunLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.LotSchedule != nil {
+			e.FieldStart("lot_schedule")
+			e.ArrStart()
+			for _, elem := range s.LotSchedule {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.RequisitionID.Set {
 			e.FieldStart("requisition_id")
 			s.RequisitionID.Encode(e)
@@ -216833,7 +216843,7 @@ func (s *MrpRunLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMrpRunLine = [13]string{
+var jsonFieldsNameOfMrpRunLine = [14]string{
 	0:  "material_id",
 	1:  "material_number",
 	2:  "material_description",
@@ -216845,8 +216855,9 @@ var jsonFieldsNameOfMrpRunLine = [13]string{
 	8:  "lot_size",
 	9:  "proposed",
 	10: "lots",
-	11: "requisition_id",
-	12: "requisition_number",
+	11: "lot_schedule",
+	12: "requisition_id",
+	13: "requisition_number",
 }
 
 // Decode decodes MrpRunLine from json.
@@ -216976,6 +216987,23 @@ func (s *MrpRunLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"lots\"")
 			}
+		case "lot_schedule":
+			if err := func() error {
+				s.LotSchedule = make([]MrpRunLot, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MrpRunLot
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.LotSchedule = append(s.LotSchedule, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_schedule\"")
+			}
 		case "requisition_id":
 			if err := func() error {
 				s.RequisitionID.Reset()
@@ -217049,6 +217077,117 @@ func (s *MrpRunLine) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *MrpRunLine) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MrpRunLot) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MrpRunLot) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("quantity")
+		s.Quantity.Encode(e)
+	}
+	{
+		e.FieldStart("needed_by")
+		json.EncodeDate(e, s.NeededBy)
+	}
+}
+
+var jsonFieldsNameOfMrpRunLot = [2]string{
+	0: "quantity",
+	1: "needed_by",
+}
+
+// Decode decodes MrpRunLot from json.
+func (s *MrpRunLot) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MrpRunLot to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "quantity":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				if err := s.Quantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"quantity\"")
+			}
+		case "needed_by":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.NeededBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"needed_by\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MrpRunLot")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfMrpRunLot) {
+					name = jsonFieldsNameOfMrpRunLot[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MrpRunLot) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MrpRunLot) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

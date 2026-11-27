@@ -7395,7 +7395,7 @@ erDiagram
 
 ## 3.37 Material requirements planning (`mrp`)
 
-ADR-0084, S2k (migration 000436; lot sizing, migration 000486). Materials' planning data at plants and
+ADR-0084, S2k (migration 000436; lot sizing, migration 000486; period lot sizes, migration 000497). Materials' planning data at plants and
 planning runs per plant: the context reads tenancy's plants, materials,
 the ledger's accounts, sales' demand, inventory's stock and prices and
 procurement's receipts and requisitions through ports, writes
@@ -7407,6 +7407,7 @@ procurement's, audited there). Nothing is deleted.
 ```mermaid
 erDiagram
   run ||--o{ run_line : "lines"
+  run_line ||--o{ run_line_lot : "period lots"
   run ||--o{ proposal : "proposed"
   run |o--o{ proposal : "replaced"
   material_plan { uuid id PK
@@ -7415,7 +7416,7 @@ erDiagram
     uuid material_id "materials; once per plant"
     text mrp_type "reorder_point, no_planning"
     numeric reorder_point "0 or more, base unit"
-    text lot_size "lot_for_lot, fixed, replenish_to_maximum"
+    text lot_size "lot_for_lot, fixed, replenish_to_maximum, daily, weekly, monthly"
     numeric fixed_lot_size "exactly with fixed"
     numeric maximum_stock_level "exactly with replenish_to_maximum"
     numeric minimum_lot_size "not with fixed"
@@ -7448,6 +7449,11 @@ erDiagram
     integer lots "with a requisition: its items"
     uuid requisition_id "procurement"
     text requisition_number }
+  run_line_lot { uuid run_id PK
+    uuid material_id PK
+    integer lot_no PK "1 to 100, within the line's lots"
+    numeric quantity "above 0, base unit"
+    date needed_by "its period's first requirement date" }
   proposal { uuid requisition_id PK "procurement"
     text requisition_number
     integer requisition_version "as proposed"
@@ -7494,6 +7500,13 @@ erDiagram
   one lot or more exactly then (`run_line_lots`); a line written before
   000486 names neither, read as the shortage in one lot.
   Insert-only (`run_line_immutable`).
+- `mrp.run_line_lot` (migration 000497, period lot sizes): a lot a
+  period-sized line proposed (`run_line_lot_line_fkey`), numbered 1 to
+  100 (`run_line_lot_no_check`) within the line's lots, of a line sized
+  `daily`, `weekly` or `monthly` (`run_line_lot_of_period_line`, a
+  trigger), above zero (`run_line_lot_quantity_check`), with the day it is
+  needed by; read with its run's lines by its key. Insert-only
+  (`run_line_lot_immutable`).
 - `mrp.proposal`: a requisition a run proposed (`proposal_run_fkey`), with
   its number (`proposal_requisition_number_check`) and the version it was
   created in (`proposal_requisition_version_check`), `open`, `replaced`

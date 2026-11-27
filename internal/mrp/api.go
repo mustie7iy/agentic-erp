@@ -213,6 +213,9 @@ func runAPI(r Run, x refs) gen.MrpRun {
 			ReorderPoint: q(l.ReorderPoint), Demand: q(l.Demand), Stock: q(l.Stock), Receipts: q(l.Receipts), Shortage: q(l.Shortage),
 			LotSize: l.LotSize, Proposed: q(l.Proposed), Lots: apitypes.OptInt32(l.Lots),
 			RequisitionID: apitypes.OptUUID(l.RequisitionID), RequisitionNumber: apitypes.OptString(l.RequisitionNumber)}
+		for _, x := range l.Schedule {
+			out.Lines[i].LotSchedule = append(out.Lines[i].LotSchedule, gen.MrpRunLot{Quantity: q(x.Quantity), NeededBy: x.NeededBy})
+		}
 	}
 	slices.SortStableFunc(out.Lines, func(a, b gen.MrpRunLine) int { return cmp.Compare(a.MaterialNumber, b.MaterialNumber) })
 	for i, p := range r.Replacements {

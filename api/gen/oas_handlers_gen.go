@@ -139281,11 +139281,15 @@ func (s *Server) handleStartMigrationRunRequest(args [1]string, argsEscaped bool
 // that a person took over and that are not ordered, cancelled or rejected). Where the stock and
 // receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is
 // sized by the planning data's lot sizing procedure (lot for lot: the shortage itself; a fixed lot
-// size; or up to the maximum stock level, with the minimum and maximum lot sizes and the rounding
-// value) and proposed as a draft purchase requisition of the material in its base unit, an item per
-// lot, raised by the person who started the run in the company's currency at the material's valuation
-// price at the plant (zero when it has none), naming the planning data's account and needed by the
-// run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no
+// size; up to the maximum stock level; or a lot per day, ISO week or calendar month of the company's
+// days for what the demand due in it, by the day each sales order's customer asked for, else its date,
+// and each intercompany order item's delivery date, else its date, the stock transport orders' and
+// demand overdue on the run's day, takes below the reorder point; with the minimum and maximum lot
+// sizes and the rounding value) and proposed as a draft purchase requisition of the material in its
+// base unit, an item per lot, raised by the person who started the run in the company's currency at
+// the material's valuation price at the plant (zero when it has none), naming the planning data's
+// account and needed by the run's day, or for period lots by the first lot's day (`lot_schedule` gives
+// each lot's). Before it plans, the run cancels the plant's earlier proposals still its own: drafts no
 // person changed since a run proposed them. A proposal a person changed or submitted is theirs from
 // then on and is never touched; a requisition a person raised is never touched either. The run's lines
 // say what it counted and proposed per material. The plant is an active plant of a company the caller
@@ -139293,10 +139297,10 @@ func (s *Server) handleStartMigrationRunRequest(args [1]string, argsEscaped bool
 // `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's
 // requisition number range exhausted, the account no longer postable, the requester no longer active,
 // an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; a shortage
-// needing more than 100 lots of a material's fixed or maximum lot size: `mrp.too_many_lots`;
-// `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or
-// cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`.
-// Audited. Human-only (`x-agent: false`).
+// needing more than 100 lots of a material's fixed or maximum lot size or over its periods:
+// `mrp.too_many_lots`; `MrpRunError` lists them) fails the run and its Operation with the problem,
+// nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails it with
+// `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/mrp-runs
 func (s *Server) handleStartMrpRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

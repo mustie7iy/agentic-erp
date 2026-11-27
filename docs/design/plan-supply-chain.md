@@ -1318,10 +1318,42 @@ pack size.
   **Acceptance:** a fixed lot covers the shortage in whole lots; a
   replenish-to-maximum plan proposes up to its level, bounded and
   rounded; the run's lines say what was proposed and in how many lots.
-- **Later:** period lot sizes (daily, weekly, monthly), optimising
-  procedures (part period, least unit cost, Groff), scrap, firming in a
-  planning time fence; the replenishment agent recommending on a
-  proposal of several lots.
+- **Later:** period lot sizes (daily, weekly, monthly; S2k3, below),
+  optimising procedures (part period, least unit cost, Groff), scrap,
+  firming in a planning time fence; the replenishment agent recommending
+  on a proposal of several lots.
+
+### S2k3 Period lot sizes (MRP variants, the next item)
+
+**Capability.** A planner sizes a material's proposals by period, so a
+run proposes a lot per day, week or month in which the demand due takes
+the plant below its reorder point, each needed by the day it is first
+needed, instead of the whole shortage for today.
+
+- **Adds** (lane mrpperiod, batch 99, 2026-11-27; the tracker's "later:
+  MRP variants" split again; decided by default, ADR-0084 As built,
+  period lot sizes): `lot_size` `daily`, `weekly` or `monthly` (SAP TB,
+  WB, MB, from memory) with the minimum, maximum and rounding value lot
+  for lot takes; a run projects stock and receipts down by each demand
+  on its day (sales orders by their requested delivery dates, else their
+  dates; intercompany order items by their delivery dates; stock
+  transport orders and overdue demand on the run's day), one lot per
+  period below the reorder point needed by its first requirement date,
+  ISO weeks from Monday, calendar periods of the company's days. One
+  requisition per material, an item per lot, needed by the first lot's
+  day; `mrp.run_line_lot` and `MrpRunLine.lot_schedule` keep each lot's
+  day. Migration 000497; `createMaterialPlan`, `updateMaterialPlan`,
+  `MrpRunLine` additive.
+- **Walkthrough:** extends `step_mrp` (step 152): an N10 nut planned at
+  Montreal in weekly lots, with orders due a week and two weeks later,
+  gets two lots, each needed by its order's day.
+  **Acceptance:** requirements in two weeks are two lots, those of one
+  week one lot; each lot is needed by its period's first requirement
+  date; rounding's surplus counts towards the next period; lot for lot
+  and the other procedures propose as before.
+- **Later:** the period's start or end as a lot's date, a factory
+  calendar, receipts and stock transport orders by their delivery dates,
+  optimising procedures.
 
 ### S2l Replenishment agent
 
