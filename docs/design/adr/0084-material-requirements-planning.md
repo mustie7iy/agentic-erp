@@ -544,9 +544,25 @@ as requisitions, material changes and inventory differences use it):
   forecasting, replenishment and planning agents' never lists; deciding
   is the engine's, human only.
 - Migration 000494 (its down refuses a submitted version or one naming a
-  request; `TestSopPlanApprovalDownRefused`); schema tests in
+  request; `TestSopPlanApprovalDownRefused`); a version is never created
+  submitted or naming a request (trigger `sop_plan_created`, added at the
+  batch 97S integration, review nit: only `submitSopPlan` names one);
+  schema tests in
   `db/sop_test.go`; `TestSopApproval`, `TestSopSubmitWithoutApproval`,
   `TestSopApprovalRefusals`. Walkthrough step 159: Maple's versions are
   approved by the process owner, then the controller.
+- **What it does not change** (batch 97S integration, on the merged tree
+  with lot sizing S2k2 and the lead time S2j2): no planning run reads an
+  S&OP plan (`run.go`, `runwork.go`, `net.go` and `plan.go` read no
+  `mrp.sop_plan`), so approving a version fixes the consensus and changes
+  nothing a run plans; whether a run takes the approved plan as demand is
+  a question for the product owner, nothing built. The approval engine's
+  rules apply to `sop_plan` as to every object type: the worklist
+  (`decidable_by=me`) ranges over every object type's approval
+  permission, and the tests that range over `approvals.ObjectPermissions`
+  (internal/app's handler test, internal/web's `x-object-permissions`
+  check) include it. The engine has no delegation, and the rule for a
+  deactivated requester (product owner 2026-11-03) is the long-running
+  jobs', not the approvals'.
 - Left in the tracker's "later: S&OP variants": capacity and supply
   optimisation, scenario comparison.

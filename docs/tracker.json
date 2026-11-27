@@ -5706,7 +5706,7 @@
      },
      {
       "s": "T",
-      "t": "later: material master variants: sales and purchasing views, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created; of dimensions, weights and GTINs: a delivery's gross weight and volume from its items' units, GTINs on documents and e-invoice lines and items found by GTIN, GTIN types beyond GS1's four lengths and several GTINs per unit, a later SAP run's new or changed measures of a material an earlier run created (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2, dimensions, weights and GTINs as S1a3)",
+      "t": "later: material master variants: sales and purchasing views, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created; of dimensions, weights and GTINs: a delivery's gross weight and volume from its items' units, GTINs on documents and e-invoice lines and items found by GTIN, GTIN types beyond GS1's four lengths and several GTINs per unit, a later SAP run's new or changed measures of a material an earlier run created, units of measure for dimensions in centimetres and millimetres (the SAP load leaves those out with a warning) (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2, dimensions, weights and GTINs as S1a3)",
       "r": "docs/design/plan-supply-chain.md §S1a, Later",
       "src": "baseline",
       "c": []
@@ -5860,7 +5860,14 @@
      },
      {
       "s": "T",
-      "t": "later: count variants: sampling inventory, counts by bin or handling unit, book quantity frozen at a past date, float time and counts per period, a calendar of planned counts, the count planning agent's classes from the company's ABC shares (ADR-0082 As built S2e, Later) (after the plan's slices; product owner 2026-11-17)",
+      "t": "The ABC analysis reads a plant's goods movements of the window by plant and posting date with no index that leads with them (inventory.movement by plant, joined to its material document's movement type and posting date): a budget check at scale shows whether a plant with years of movements needs one, as the other stock reads' budgets do",
+      "r": "internal/inventory/abc.go abcSelect · GET /v1/cycle-count-abc-analysis · POST /v1/cycle-count-abc-applications · ADR-0082 As built S2c3",
+      "src": "review:batch97",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: count variants: sampling inventory, counts by bin or handling unit, book quantity frozen at a past date, float time and counts per period, counts due by a storage location's own indicator, a calendar of planned counts, the count planning agent's classes from the company's ABC shares (ADR-0082 As built S2e, Later; S2c3, Later) (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2c, Later; §S2c2, Later; §S2c3, Later",
       "src": "baseline",
       "c": []
@@ -6245,7 +6252,7 @@
      },
      {
       "s": "T",
-      "t": "later: S&OP variants: capacity and supply optimisation, scenario comparison (the consensus plan's approval is S2n2; after the plan's slices; product owner 2026-11-17)",
+      "t": "later: S&OP variants: capacity and supply optimisation, scenario comparison (the consensus plan's approval is S2n2, which no planning run reads yet; after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2n, Later",
       "src": "baseline",
       "c": []

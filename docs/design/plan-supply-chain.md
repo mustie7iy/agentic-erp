@@ -251,7 +251,11 @@ unit's GTIN.
   change of the measures waits for its approval and is audited before and
   after; an alternative unit removed takes its measures with it.
 - **As built** (2026-11-26): ADR-0082 As built S1a3, migration 000495,
-  walkthrough step 122.
+  walkthrough step 122. Batch 97S integration: a change naming the
+  descriptions (S1a2) leaves the measures and the reverse
+  (`TestDescriptionsAndMeasures`); a batch-managed material with a GTIN
+  is ordered, delivered and issued by batch, nothing reading its measures
+  yet (`TestMeasuredBatchIssued`).
 
 **Later for Material master:** changing a material's default language,
 documents and outputs taking the material's description in their
@@ -929,14 +933,21 @@ first, then an apply of what the preview showed.
   /v1/cycle-count-abc-applications` (the plant and window with the
   preview's `preview_token`: computed again under the plant's lock and
   applied only when unchanged, 409 `inventory.abc_preview_stale`
-  otherwise; each change audited as the indicator's create or change;
-  the application kept with its changes, read and listed by plant);
+  otherwise, 422 `inventory.abc_nothing_to_apply` when it changes
+  nothing; each change audited as the indicator's create or change;
+  the application kept with its changes, read with them and listed by
+  plant counting them);
   both human-only, on the count planning and demand forecasting agents'
   never lists; the count planning agent reads active indicators only.
 - **Walkthrough:** extends `step_count`. **Acceptance:** an indicator
   taken off is kept as removed, not due by it, taken off once; the
   analysis's lines and totals add up; applying it makes the preview's
   changes and a second apply of it is refused as stale.
+- **Batch 97S integration:** an analysis that changes nothing is not
+  applied (422 `inventory.abc_nothing_to_apply`); the list counts an
+  application's changes; an apply while a count document of the material
+  is counted, and a recount once its indicator is off, each work
+  (`TestABCWithAnOpenCount`).
 - **Later:** float time and a share of counts per period, counts due per
   storage location's own indicator, a calendar of planned counts, the
   count planning agent's classes from the company's shares.
@@ -1441,8 +1452,11 @@ plan's value or deviation (the consensus plan's approval is S2n2).
   approved by distinct people step by step it is fixed by the last
   approver; rejected or withdrawn it is a draft again; a company without
   steps fixes as before. A planning run does not read the consensus plan
-  today, so nothing links runs to approved plans. **Walkthrough:** step
-  159, `step_sop_review`.
+  today, so nothing links runs to approved plans (confirmed on the merged
+  tree with S2k2 and S2j2 at the batch 97S integration; the product
+  owner is asked whether a run should). A version is never created
+  submitted (`sop_plan_created`). **Walkthrough:** step 159,
+  `step_sop_review`.
 
 ### S2o SAP migration of the material master (pilot)
 

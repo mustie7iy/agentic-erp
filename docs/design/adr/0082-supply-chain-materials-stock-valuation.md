@@ -2166,7 +2166,10 @@ already applies:
   `updateCycleCountMaterial`, audited as they are with `abc_analysis`
   (the application, window, token, class, consumption) in the detail;
   otherwise 409 `inventory.abc_preview_stale` and nothing is applied. An
-  apply never takes an indicator off. A concurrent
+  analysis whose lines change nothing is 422
+  `inventory.abc_nothing_to_apply`, nothing kept (batch 97S integration,
+  review nit: a record of no change would say nothing the audit of the
+  indicators does not). An apply never takes an indicator off. A concurrent
   `createCycleCountMaterial` of a listed material is refused by the
   unique index (409 `inventory.cycle_count_material_exists`). The
   application is kept, insert-only (`inventory.cycle_count_abc_application`
@@ -2174,9 +2177,11 @@ already applies:
   `inventory.cycle_count_abc_application.create`): plant, window, shares,
   total, token, who applied it and when, and each change in the
   analysis's order with the indicator before and the material's
-  indicator row it made or changed; read by id and listed by plant, the
-  latest first, the person's name as it is now (identity's People port,
-  stored nowhere).
+  indicator row it made or changed; read by id with its changes and
+  listed by plant, the latest first, each counting its changes
+  (`change_count`) rather than listing them, so a page of 500 holds no
+  500,000 changes (batch 97S integration), the person's name as it is
+  now (identity's People port, stored nowhere).
 - **Locks.** A row lock is taken by itself before the read that joins the
   indicator (`loadCycleMaterial`, and the apply's): a `FOR NO KEY UPDATE
   OF m` in the join, after waiting for a writer that moved the row to
@@ -2186,6 +2191,15 @@ already applies:
 - **People only.** Both operations are `inventory.count_plan.write`'s
   and `x-agent: false`, on the never lists of the count planning and
   demand forecasting agents (ADR-0072 As built S2e, S2m).
+- **With recounts (S2d2) and the counts due (S2c2)** (batch 97S
+  integration). An indicator is the material's at the plant and a count
+  document a count of its stock; neither waits for the other. An apply
+  while the material's count document is counted moves its indicator and
+  leaves the document as it is; the indicator then taken off, the
+  document is still sent back for a recount, counted again and posted at
+  the latest count (`TestABCWithAnOpenCount`). A removed indicator is not
+  due by it (`TestCycleCountRemove`). Nothing of S1a3 meets S2c3: no
+  table, code path or problem code is shared between them.
 
 **Later:** float time and a share of counts per period, counts due per
 storage location's own indicator, a calendar of planned counts; the
@@ -2922,6 +2936,17 @@ its dimensions, weights and GTIN, as SAP keeps them per unit in MARM
   box's GTINs, weights, volume and size approved, the bracket found by
   its GTIN in 13 digits; a GTIN taken, a net weight above the gross and a
   wrong check digit refused.
+
+- **With descriptions by language (S1a2) and the delivery's batches
+  (S2f2)** (batch 97S integration). Descriptions and measures are fields
+  of the same change: one naming the descriptions leaves every unit's
+  measures, and one naming the measures leaves the descriptions, each
+  recording only its own field (`TestDescriptionsAndMeasures`). A
+  batch-managed material with a GTIN and weights is found by its GTIN,
+  ordered, confirmed, delivered and issued from its batch as any
+  batch-managed material is: nothing in the order, the delivery or the
+  goods issue reads the measures yet (the material master variants'
+  remainder; `TestMeasuredBatchIssued`).
 
 **Later for dimensions, weights and GTINs:** units the tenant adds (cm,
 mm, lb; the units of measure leaf) and conversion between units of one

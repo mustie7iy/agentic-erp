@@ -7205,7 +7205,8 @@ erDiagram
   64-hex token, who and when) with its `inventory.cycle_count_abc_change`
   rows (numbered 1 to 1,000 in the analysis's order, once per material,
   class A to C, the indicator given and the one replaced, never the
-  same, the material's indicator row), both insert-only. The
+  same, the material's indicator row; at least one, as an analysis that
+  changes nothing is not applied), both insert-only. The
   company's ABC shares are configuration
   (`companies[].cycle_count_abc_shares`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
@@ -7550,7 +7551,8 @@ erDiagram
   company, number and horizon never, a submitted one only as its request
   is decided (fixed, or a draft again), it names a new request only as it
   is submitted, and none is deleted (`sop_plan_fixed`, a trigger;
-  migration 000494). Its version moves with every change
+  migration 000494); none is created submitted or naming a request
+  (`sop_plan_created`, a trigger; batch 97S integration). Its version moves with every change
   (`sop_plan_touch`); lists read by `sop_plan_by_created_at`.
 - `mrp.sop_plan_line`: a version's line per material group
   (`sop_plan_line_material_group_check`), base unit
