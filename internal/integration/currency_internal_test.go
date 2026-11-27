@@ -192,6 +192,22 @@ func TestForeignDocumentQuality(t *testing.T) {
 	})
 }
 
+// TestJournalLineTwice: a journal line in the extract twice is refused by
+// the quality gate, naming its key, even when its whole document is
+// repeated and still balances: it would post twice, or name one opening
+// item twice (review:batch98, integration.opening_item's key).
+func TestJournalLineTwice(t *testing.T) {
+	runDocumentCurrencyCases(t, []documentCurrencyCase{
+		{"a document repeated", func(e *sap.Extract, _ *target) {
+			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", LIFNR: "0000000001"})
+			e.ACDOCA = append(e.ACDOCA, e.ACDOCA[len(e.ACDOCA)-2:]...)
+		}, []string{"2000/2026/0100000011/000001: the journal line is in the extract twice", "2000/2026/0100000011/000002: the journal line is in the extract twice"}},
+		{"each line once", func(e *sap.Extract, _ *target) {
+			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", LIFNR: "0000000001"})
+		}, nil},
+	})
+}
+
 // TestForeignDocumentEarlierRuns: documents SAP cleared together with
 // documents an earlier run loaded post in the currency those were posted
 // in: a USD payment of a USD item loaded earlier posts in USD, and one

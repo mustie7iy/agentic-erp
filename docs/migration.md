@@ -284,7 +284,9 @@ quality gate refuses such a clearing (tracker: to decide and build), as it
 refuses a clearing of earlier years' documents alone without AUGDT, which
 dates it; an AUGGJ that is no year is refused. Reconciling an earlier
 year's run again after the later year's run cleared its items shows them
-as differences (tracker).
+as differences (tracker). A journal line the extract holds twice (the same
+company code, fiscal year, document and line) is refused by the quality gate,
+naming it: export each line once (review:batch98).
 An extract without AUGGJ reads AUGBL as before (ADR-0034 As built, vendor
 items SAP cleared in a later fiscal year). The SAP
 specialist confirmed the fields (po:2026-11-09, A3, [H]): ACDOCA-AUGDT and

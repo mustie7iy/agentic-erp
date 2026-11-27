@@ -666,6 +666,18 @@ owner):
   `TestCashReceiptsDownRefused`, `TestDownsRevert`; the walkthrough's
   `step_cash_receipts`: an open customer invoice and a sales order appear
   as receipts on their dates.
+- **Integration (batch 98F).** Migrations 000500 and 000501; the
+  walkthrough's step 165, close staying last. With batch 97F's
+  controlling agent and batch 96F's analytics on the tree: no agent type
+  was added (telemetry's `agent_kind` ceiling unchanged), the analytics'
+  `blocked` dimension takes `receivable_blocked` beside `payable_blocked`,
+  no figure sums currencies, and the isolation tests are unchanged and
+  pass; cashagent.Never and controllingagent.Never need nothing new (the
+  receipts are reads). A credit-blocked order is left out, and a dunning
+  block set and released moves the item, on the merged tree
+  (`TestLiquidityForecastReceipts`). A snapshot line keeps the customer's
+  id (`customer_id`), never a name, so the personal data inventory is
+  unchanged. The budget data holds no customer items yet: a tracker leaf.
 
 ### 6. Where it is computed, and freshness (decision P3)
 **Position and forecast are computed at read time from PostgreSQL**

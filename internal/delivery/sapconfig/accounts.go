@@ -103,9 +103,8 @@ type pick struct {
 // per bank, method and currency). Where T042I names none, the
 // bank's first account is ranked, as before the draft read T042I, noted
 // for a bank of several accounts; an account T042I names that T012K does
-// not give the company is ranked by the code it would have, and, unless
-// that is another house bank's code (banks), noted as refused, which
-// validation does. A bank the company does not have, or whose accounts
+// not give the company is ranked by the code it would have, noted
+// (missingAccount). A bank the company does not have, or whose accounts
 // the extract does not tell apart, is ranked as it is.
 func (g *gen) chosen(o objRef, mp string, accounts bankAccounts, banks map[string]string, method, bank, currency string) []pick {
 	if !accounts.identified(bank) {
@@ -121,12 +120,7 @@ func (g *gen) chosen(o objRef, mp string, accounts bankAccounts, banks map[strin
 		if slices.ContainsFunc(out, func(k pick) bool { return k.code == code }) {
 			continue // named for another currency too: ranked once, for its own
 		}
-		_, other := banks[code] // an empty HKTID names the bank of one account itself; or two codes join alike
-		refused := !ok && !other
-		if refused {
-			g.note(o, mp+".ranking", fmt.Sprintf("T042I names account %q of house bank %s for the method in %q, which T012K does not give the company: "+
-				"ranked as %s, which validation refuses; add the account or correct T042I", accountID(i.HKTID), bank, waers, code))
-		}
+		refused := !ok && g.missingAccount(o, mp, i, bank, code, banks)
 		out = append(out, pick{code: code, refused: refused})
 	}
 	if len(out) > 0 {
@@ -139,4 +133,24 @@ func (g *gen) chosen(o objRef, mp string, accounts bankAccounts, banks map[strin
 			bank, rowsFor(currency), first))
 	}
 	return []pick{{code: first}}
+}
+
+// missingAccount notes an account T042I names that T012K does not give
+// the company, ranked by the code it would have (code), and reports
+// whether validation refuses that code: it does unless the code is a house
+// bank's (banks). An empty HKTID names the bank of one account itself, its
+// own code, which is no fault; a code that is another house bank's (two
+// codes joining alike) would pay from that bank, so it is noted for a
+// person to correct.
+func (g *gen) missingAccount(o objRef, mp string, i sap.T042I, bank, code string, banks map[string]string) bool {
+	_, other := banks[code]
+	switch {
+	case !other:
+		g.note(o, mp+".ranking", fmt.Sprintf("T042I names account %q of house bank %s for the method in %q, which T012K does not give the company: "+
+			"ranked as %s, which validation refuses; add the account or correct T042I", accountID(i.HKTID), bank, strings.TrimSpace(i.WAERS), code))
+	case code != bank:
+		g.note(o, mp+".ranking", fmt.Sprintf("T042I names account %q of house bank %s for the method in %q, which T012K does not give the company: "+
+			"its code would be %s, another house bank's, which is ranked in its place; correct T042I or the ranking", accountID(i.HKTID), bank, strings.TrimSpace(i.WAERS), code))
+	}
+	return !other
 }

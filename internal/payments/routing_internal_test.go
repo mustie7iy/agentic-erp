@@ -63,9 +63,12 @@ func TestPayingBankOfNeither(t *testing.T) {
 // TestMessageIDsOfLongCodes: with the longest codes a run's files still
 // have message ids of their own within pain.001's 35 characters, ending in
 // their bank and method, and two runs whose ids share a long prefix differ.
+// The longest house bank code is ten characters, a house bank of several
+// accounts coded HBKID + HKTID (000497; ADR-0038 As built, a house bank's
+// account by payment method).
 func TestMessageIDsOfLongCodes(t *testing.T) {
 	transfer, cheque := "T", "S"
-	bank := houseBank{Code: "HSBC1"}
+	bank := houseBank{Code: "HSBC100002"}
 	ids := map[string]bool{}
 	for _, number := range []string{"PAYRUN-26-1234567", "PAYRUN-26-1234568"} {
 		for _, m := range []*string{&transfer, &cheque} {
@@ -73,8 +76,8 @@ func TestMessageIDsOfLongCodes(t *testing.T) {
 			if len(id) > maxMessageID {
 				t.Errorf("%s: got %d characters, want at most %d", id, len(id), maxMessageID)
 			}
-			if !strings.HasSuffix(id, "-HSBC1-"+*m) {
-				t.Errorf("%s: got no bank and method at its end, want -HSBC1-%s", id, *m)
+			if !strings.HasSuffix(id, "-HSBC100002-"+*m) {
+				t.Errorf("%s: got no bank and method at its end, want -HSBC100002-%s", id, *m)
 			}
 			ids[id] = true
 		}
@@ -82,7 +85,7 @@ func TestMessageIDsOfLongCodes(t *testing.T) {
 	if len(ids) != 4 {
 		t.Errorf("message ids: got %d distinct, want 4: %v", len(ids), ids)
 	}
-	if got := (fileGroup{bank: bank, v: via{method: &transfer}}).messageID("2000", Run{DocumentNumber: "PR1"}); got != "2000-PR1-HSBC1-T" {
+	if got := (fileGroup{bank: houseBank{Code: "HSBC1"}, v: via{method: &transfer}}).messageID("2000", Run{DocumentNumber: "PR1"}); got != "2000-PR1-HSBC1-T" {
 		t.Errorf("short id: got %s, want 2000-PR1-HSBC1-T", got)
 	}
 }

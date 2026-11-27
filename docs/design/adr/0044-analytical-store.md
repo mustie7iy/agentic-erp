@@ -746,7 +746,10 @@ Decisions:
   §9 As built T53e2), and `receivable_blocked` since T53l1; the rows keep them, as listCashSnapshotFlows does,
   and the metrics filter `blocked` false, as `open_payables` filters
   `cleared`, so a source added later (ADR-0051 §4: receivables, tax) is
-  counted without the metric changing.
+  counted without the metric changing. Batch 98F's integration checked it
+  so on the merged tree: T53l1's receivables came in through the
+  `blocked` dimension and `flow_source` alone, the dataset's version
+  unchanged, no metric summing currencies, the isolation tests passing.
 - *Read through the cash context, as the actuals are.* The house banks'
   codes are the payments context's and the items' names the active
   configuration's, which `cash` resolves for its own reads; so both paths

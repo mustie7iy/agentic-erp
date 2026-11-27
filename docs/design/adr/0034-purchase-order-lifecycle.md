@@ -641,6 +641,19 @@ year run again after the later year cleared its items, which compares
 SAP's year-end reading with the platform's items open today and so shows
 them as differences.
 
+- **Integration (batch 98F).** The quality gate refuses a journal line
+  the extract holds twice (its key, `sapItemKey`: company code, fiscal
+  year, document and line), so a duplicated open line no longer ends a
+  balances run in a 500 at `opening_item`'s key and a repeated document
+  that still balances does not post twice; the run fails at the gate with
+  the line named in its report, as every gate refusal does
+  (`TestJournalLineTwice`; review:batch98). Merged with batch 98F's
+  hbank, which changes `sap.T012K` in the same file: the mock extract
+  serves both, and the SAP load and the configuration draft pass on it.
+  The migration agent's evaluation fixtures and "Open payable items"
+  pass on the merged tree. The walkthrough shows the year's end, not the
+  later year's clearing (one fiscal year's periods): a tracker leaf.
+
 ## As built: a contract's expiry events name the company and the supplier (review:batch27)
 
 - **Decision.** `ContractExpired` and `ContractExpiring` gave the company

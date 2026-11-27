@@ -1644,3 +1644,14 @@ guessed", above):
   banks with one account each, is unchanged.
 - **Check on the pilot system:** that T012K and T042I carry HKTID, its
   length, and whether a T042I row without a currency is used.
+- **Integration (batch 98F).** A missing account whose would-be code is
+  another house bank's (MAIN + X = MAINX) is ranked as that bank, which
+  validation cannot refuse, so the draft now notes it for a person to
+  correct (`missingAccount`; TestHouseBankAccountNotNamed). The code's
+  ten characters through payments: the contract and the events declare
+  no length for it; a bank file's object key takes it whole; a pain.001
+  message id of a run with a file per bank and method keeps the bank and
+  method within the 35 characters (`maxMessageID`, the run's part
+  shortened and hashed), now tested with a ten-character code
+  (TestMessageIDsOfLongCodes); statements name the house bank by id. No
+  format clips or truncates it.

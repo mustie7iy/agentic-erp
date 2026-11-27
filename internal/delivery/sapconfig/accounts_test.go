@@ -131,6 +131,17 @@ func TestHouseBankAccountNotNamed(t *testing.T) {
 			note:    mp + `.ranking: T042I names account "00009" of house bank MAIN for the method in "CAD"`,
 			errors:  []string{mp + ".ranking[CAD].house_banks"},
 		},
+		"an account T012K does not give, coded as another house bank": {
+			change: func(e *sap.Extract) {
+				e.SKB1 = append(e.SKB1, sap.SKB1{BUKRS: "3000", SAKNR: "0000101500", TXT50: "Bank - second CAD", XBILK: "X", WAERS: "CAD"})
+				e.T012K = append(e.T012K, sap.T012K{BUKRS: "3000", HBKID: "MAINX", HKONT: "0000101500", SWIFT: "ROYCCAT2", BANKS: "CA", BANKL: "000300001",
+					BANKN: "5012349", WAERS: "CAD", HKTID: "00001"})
+				t042i(e, "MAIN", "X")
+			},
+			ranking: "CAD: MAINX; USD: MUSD",
+			note: mp + `.ranking: T042I names account "X" of house bank MAIN for the method in "CAD", which T012K does not give the company: ` +
+				"its code would be MAINX, another house bank's, which is ranked in its place",
+		},
 		"an account T012K does not give, for a row without a currency": {
 			change:  func(e *sap.Extract) { t042a(e, "MAIN", "", "00001"); t042i(e, "MAIN", "00009") },
 			ranking: "CAD: MAIN00009; USD: MUSD",

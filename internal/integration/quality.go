@@ -372,12 +372,15 @@ type journalScan struct {
 	sizes        map[string][]money.Minor
 	openByVendor map[string]bool
 	noRange      map[string]bool
+	// lines are the journal lines' keys seen (sapItemKey): a line is in
+	// the extract once.
+	lines map[string]bool
 }
 
 // journal checks the Universal Journal: every document must balance, hit
 // known accounts and have a number range for its document type.
 func (q *qualityCheck) journal() {
-	s := journalScan{docLines: map[string][]money.Minor{}, sizes: map[string][]money.Minor{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}}
+	s := journalScan{docLines: map[string][]money.Minor{}, sizes: map[string][]money.Minor{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}, lines: map[string]bool{}}
 	for _, l := range q.e.ACDOCA {
 		q.journalLine(l, &s)
 	}
@@ -407,6 +410,12 @@ func (q *qualityCheck) journal() {
 
 func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 	key := l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR
+	// A line twice would post twice, or name one opening item twice
+	// (integration.opening_item's key): refused, as SAP keys a line once.
+	if s.lines[sapItemKey(l)] {
+		q.add(SevError, "ACDOCA", sapItemKey(l), "the journal line is in the extract twice (company code, fiscal year, document and line); export each line once")
+	}
+	s.lines[sapItemKey(l)] = true
 	amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
 	if err != nil {
 		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)
