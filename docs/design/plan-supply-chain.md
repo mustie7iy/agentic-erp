@@ -435,8 +435,36 @@ against the receipt clears GR/IR and puts a price difference on the stock
 **Later for the goods receipt into stock:** goods receipt into quality
 inspection, delivery tolerances against the order (over- and
 underdelivery), GR-based invoice verification by receipt versus by order,
-evaluated receipt settlement (ERS), returns to the supplier (122, 161),
-delivery costs (planned freight) on the stock value.
+evaluated receipt settlement (ERS), returns to the supplier (122, 161;
+first slice S1e2: returns out of stock), delivery costs (planned freight)
+on the stock value.
+
+### S1e2 Returns to the supplier out of stock (inventory posting variants, first slice)
+
+**Capability.** A buyer returns received goods of a purchase order's
+stock item to the supplier: the return takes them out of stock at the
+value the stock holds them at, reverses GR/IR for them at the order price
+and lowers the order item's received quantity, so that the supplier's
+replacement is received again.
+
+- **Adds** (lane supret, 2026-11-27; the tracker's "later: inventory
+  posting variants" split, its first item; decided by default, ADR-0082
+  As built S1e2): a return (`POST /v1/goods-receipts`, movement type 122)
+  of a stock item posts a material document 122 through inventory's
+  `ReturnForOrder`, valued as the receipt's reversal (102) is, and its
+  reversal (`:reverse`, 123) puts back what it took; migrations 000502 and
+  000503; a batch named by number, serial numbers in stock; 409
+  `procurement.return_below_invoiced` once invoiced (the credit memo
+  first), 422 `procurement.return_batch_dates`; an intercompany order's
+  stock items still refused (422 `procurement.stock_item_return`).
+- **Walkthrough:** extends `step_stock_receipt` (step 130).
+  **Acceptance:** receive 40, return 4: stock and GR/IR show the order
+  item 96 received; receive 4 again: 100; a return beyond the stock or
+  what was received, or below what was invoiced, is refused and moves
+  nothing; the reversal of a return restores stock, value and GR/IR.
+- **Later:** a return naming the receipt it returns, at that receipt's
+  value; returns from quality inspection or blocked stock (161); a return
+  delivery with shipping papers; an intercompany order's returns.
 
 ### S1f Item keys of sales and procurement mapped onto materials (pilot)
 

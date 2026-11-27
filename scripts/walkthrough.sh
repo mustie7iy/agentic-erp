@@ -14303,18 +14303,22 @@ step_goods_movements() {
 # posted on the WE entry against GR/IR: at the bracket's moving price the
 # order price, at the bolt's standard price the stock at 0.55 and the rest
 # a price difference. A miscounted receipt is reversed (102), stock and
-# GR/IR with it, once; a stock item is not returned to the supplier yet.
+# GR/IR with it, once. Four of the brackets go back to Tyrell (122, S1e2;
+# ADR-0082 As built S1e2): out of the main store at their value, GR/IR
+# debited at the order price, the order item's received quantity down to
+# 96; Tyrell's four replacements are received again.
 # Tyrell invoices the brackets at 2.54: the 4.00 over the order price goes
 # to the stock, which still holds all of them, and the moving price
 # follows; GR/IR is cleared, and the invoice, which revalued stock, is not
-# reversed. Then (S2f1, S2g1; ADR-0082 As built S2f1) Ben orders cutting
+# reversed, and a return of a bracket is refused until a credit memo
+# credits it. Then (S2f1, S2g1; ADR-0082 As built S2f1) Ben orders cutting
 # oil, managed in batches, and torque wrenches, with a serial number
 # profile: a receipt of the oil without its batch is refused; Tyrell's lot
 # is received naming a new batch, which the receipt creates with its
 # dates, and the wrenches naming each one's serial number; the rest of the
 # lot names the batch by number alone, and other dates for it are refused.
 step_stock_receipt() {
-  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it; a batch-managed material received naming its batch, created by the receipt, and a serial-managed one naming each unit's serial number"
+  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; four brackets returned to the supplier out of stock and GR/IR and received again; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it; a batch-managed material received naming its batch, created by the receipt, and a serial-managed one naming each unit's serial number"
   local po first second rev entry inv
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   accounts
@@ -14358,9 +14362,7 @@ step_stock_receipt() {
   refused 409 procurement.already_reversed reverseGoodsReceipt -p "id=$second" -if-match "$ETAG" -body '{}'
   api 201 '"goods receipt \(.document_number): material document \(.material_document_number)"' postGoodsReceipt \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}}]}"
-  say "Stock items are not returned to the supplier yet (122 is Later):"
-  refused 422 procurement.stock_item_return postGoodsReceipt -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\",
-      \"movement_type\": \"122\", \"reason\": \"Damaged\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  stock_receipt_return "$po"
   say "The main store's stock and the valuations: 100 brackets more at 2.50, 100 bolts more at 0.55:"
   expect "the main store's brackets" "$(stock_at "$MAIN_STORE")" "288 EA"
   expect "the bracket's valuation" "$(valuation "$MATERIAL")" "288 EA: 720.00 CAD at 2.50 per 1 EA"
@@ -14386,8 +14388,43 @@ step_stock_receipt() {
   say "An invoice that revalued stock is not reversed, as the stock may have been issued since; a credit memo corrects it:"
   QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
   refused 409 payables.invoice_revalued_stock reverseSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body '{"reason": "Wrong price"}'
+  as ben
+  say "Nor is a bracket returned now that it is invoiced: the supplier's credit memo comes first (S1e2):"
+  refused 409 procurement.return_below_invoiced postGoodsReceipt -body "$(supplier_return "$po" 1)"
   stock_receipt_tracked
   passed
+}
+
+# supplier_return is a request returning n brackets of the order's item 1
+# to Tyrell (122).
+supplier_return() {
+  printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", "movement_type": "122", "reason": "Scratched", "items": [{"purchase_order_id": "%s", "po_item_no": 1, "quantity": {"value": "%s", "unit": "EA"}}]}' \
+    "$LE" "$TODAY" "$TODAY" "$1" "$2"
+}
+
+# stock_receipt_return is step_stock_receipt's return to the supplier
+# (S1e2): four of the order's brackets go back to Tyrell out of the main
+# store and GR/IR, and Tyrell's replacements are received.
+stock_receipt_return() {
+  local po=$1
+  say "Four of the 40 brackets are scratched. Ben returns them to Tyrell (122, S1e2): the return takes them out of the"
+  say "main store at the value the stock holds them at, as a material document of its own, debits GR/IR at the order"
+  say "price and lowers the order item's received quantity:"
+  api 201 '"return \(.document_number) (\(.movement_type)): material document \(.material_document_number), journal entry \(.journal_entry_id)"' \
+    postGoodsReceipt -body "$(supplier_return "$po" 4)"
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)), reference \(.reference)", (.lines[] | "  \(.material_number): \(.quantity.value) \(.quantity.unit) worth \(.amount.amount), price difference \(.price_difference.amount)")' \
+    getMaterialDocument -p "id=$(field .material_document_id)"
+  expect "the return's value" "$(field '[.lines[] | "\(.quantity.value)/\(.amount.amount)/\(.price_difference.amount)"] | join(" ")')" "-4/-10.00/0.00"
+  expect "the main store's brackets after the return" "$(stock_at "$MAIN_STORE")" "284 EA"
+  QUIET=1 api 200 '' listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$po" -p open_only=false
+  expect "the brackets' GR/IR after the return" "$(field '.items[] | select(.po_item_no == 1) | "\(.received_quantity.value) received, \(.balance.amount)"')" \
+    "96 received, -240.00"
+  say "Tyrell sends four replacements, received again on the order item:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"4\", \"unit\": \"EA\"}}]}"
+  QUIET=1 api 200 '' listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$po" -p open_only=false
+  expect "the brackets' GR/IR received again" "$(field '.items[] | select(.po_item_no == 1) | "\(.received_quantity.value) received, \(.balance.amount)"')" \
+    "100 received, -250.00"
 }
 
 # stock_receipt_tracked is step_stock_receipt's batches and serial numbers

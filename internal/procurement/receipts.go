@@ -143,8 +143,9 @@ type orderItem struct {
 	// another item.
 	material, plant, storageLocation *uuid.UUID
 	// awaitingIssue: the item is of an intercompany stock transport order
-	// whose goods issue is not posted (S2i1), so nothing is received yet.
-	awaitingIssue bool
+	// whose goods issue is not posted (S2i1), so nothing is received yet;
+	// intercompany: of one, issued or not.
+	awaitingIssue, intercompany bool
 }
 
 // lockItems locks the purchase order items a movement touches, in a fixed
@@ -164,7 +165,7 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text, coalesce(o.document_number, ''),
 			coalesce(o.currency, ''), coalesce(o.valuation, ''), coalesce(i.valuation_price, 0), coalesce(i.valuation_price_unit, 1), coalesce(i.account_id, $3),
 			i.cost_center_id, CASE WHEN i.storage_location_id IS NOT NULL THEN i.material_id END, i.plant_id, i.storage_location_id,
-			coalesce(o.supplying_plant_id IS NOT NULL AND o.issue_document_id IS NULL, false)
+			coalesce(o.supplying_plant_id IS NOT NULL AND o.issue_document_id IS NULL, false), coalesce(o.supplying_plant_id IS NOT NULL, false)
 		FROM unnest($1::uuid[], $2::int[]) WITH ORDINALITY AS x(o, n, ord)
 		LEFT JOIN procurement.purchase_order o ON o.id = x.o
 		LEFT JOIN procurement.purchase_order_item i ON i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND i.item_no = x.n AND NOT i.is_removed
@@ -173,7 +174,7 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 	var oi orderItem
 	_, err := pgx.ForEachRow(rows, []any{&oi.found, &oi.legalEntity, &oi.status, &oi.unit, &oi.ordered, &oi.tolerance, &oi.received, &oi.documentNumber,
 		&oi.currency, &oi.valuation, &oi.valuationPrice, &oi.valuationPriceUnit, &oi.account, &oi.costCenter, &oi.material, &oi.plant, &oi.storageLocation,
-		&oi.awaitingIssue},
+		&oi.awaitingIssue, &oi.intercompany},
 		func() error { out = append(out, oi); return nil })
 	if err != nil {
 		return nil, fmt.Errorf("procurement: read %d purchase order items: %w", len(items), err)
@@ -278,9 +279,14 @@ func (e *Endpoints) postReceipt(ctx context.Context, in ReceiptInput, post bool)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}
-	items, err := movedItems(in.Items, mt, le.ID, current)
+	items, left, err := movedItems(in.Items, mt, le.ID, current)
 	if err != nil {
 		return GoodsReceipt{}, err
+	}
+	if mt == Return {
+		if err := e.returnKeepsInvoiced(ctx, items, current, left); err != nil {
+			return GoodsReceipt{}, err
+		}
 	}
 	g, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: le.ID, PlantID: in.PlantID, MovementType: mt, DocumentDate: in.DocumentDate,
 		PostingDate: in.PostingDate, Reference: in.Reference, Reason: in.Reason, Items: items}, current, post)
@@ -306,9 +312,11 @@ func movementType(in ReceiptInput) (string, error) {
 }
 
 // movedItems checks a receipt's or return's items against the order
-// items they move and returns them as stored: a return's quantities
-// negated, as it sends goods out.
-func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) ([]ReceiptItem, error) {
+// items they move and returns them as stored, a return's quantities
+// negated, as it sends goods out, with what each order item is then
+// received. A return's batch is named by its number alone: the batch
+// exists, and its dates are its own.
+func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) ([]ReceiptItem, map[[2]any]*big.Rat, error) {
 	moved := map[[2]any]*big.Rat{}
 	out := make([]ReceiptItem, len(in))
 	for i, it := range in {
@@ -316,18 +324,21 @@ func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) 
 		oi := current[i]
 		switch {
 		case !oi.found || oi.legalEntity != le:
-			return nil, problem.Invalid("procurement.unknown_order_item", field, "an item of a purchase order of the legal entity")
+			return nil, nil, problem.Invalid("procurement.unknown_order_item", field, "an item of a purchase order of the legal entity")
 		case mt == Receipt && oi.status != Released:
-			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are received only on released orders.")
+			return nil, nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are received only on released orders.")
 		case mt == Receipt && oi.awaitingIssue:
-			return nil, problem.Conflict("procurement.intercompany_not_issued", "Purchase order "+oi.documentNumber+
+			return nil, nil, problem.Conflict("procurement.intercompany_not_issued", "Purchase order "+oi.documentNumber+
 				" is an intercompany stock transport order whose goods issue is not posted; its goods are received once the supplying company issues them.")
 		case mt == Return && oi.status != Released && oi.status != Closed:
-			return nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are returned only on released or closed orders.")
+			return nil, nil, problem.Conflict("procurement.order_not_released", "Purchase order "+oi.documentNumber+" is "+oi.status+"; goods are returned only on released or closed orders.")
 		case it.Unit != oi.unit:
-			return nil, problem.Invalid("procurement.unit_mismatch", field+".quantity.unit", "the purchase order item's unit "+oi.unit)
+			return nil, nil, problem.Invalid("procurement.unit_mismatch", field+".quantity.unit", "the purchase order item's unit "+oi.unit)
 		case oi.storageLocation == nil && (it.Batch != nil || len(it.SerialNumbers) > 0):
-			return nil, notStockItem(field, it, oi)
+			return nil, nil, notStockItem(field, it, oi)
+		case mt == Return && it.Batch != nil && (it.Batch.ManufactureDate != nil || it.Batch.ExpiryDate != nil):
+			return nil, nil, problem.Invalid("procurement.return_batch_dates", field+".batch", "A return names the batch it gives back by its number alone; "+
+				"the batch's dates are its own.")
 		}
 		if mt == Return {
 			it.Quantity = negated(it.Quantity)
@@ -338,11 +349,11 @@ func movedItems(in []ReceiptItem, mt string, le uuid.UUID, current []orderItem) 
 		}
 		moved[key].Add(moved[key], money.ParseRat(it.Quantity))
 		if err := receivedWithin(oi, it.POItemNo, moved[key], mt); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out[i] = it
 	}
-	return out, nil
+	return out, moved, nil
 }
 
 // receivedWithin refuses a movement of type mt that would leave an order
@@ -390,29 +401,61 @@ func reversedItems(orig []ReceiptItem, reversal string, current []orderItem) ([]
 // order item received less than posted documents invoiced of it (left is
 // what each keeps received, reversedItems): the match holds an invoice to
 // what was received, so the reversal is held to what was invoiced (03
-// §3.9). The order items are locked (lockItems), and a document's posting
-// and reversal lock them too, so what Invoices reads holds until this
-// commits. A return (122) is not held to it: goods sent back after their
-// invoice are what the supplier's credit memo credits (ADR-0034).
+// §3.9). A return (122) of an item that is no stock item is not held to
+// it: goods sent back after their invoice are what the supplier's credit
+// memo credits (ADR-0034); a stock item's is (returnKeepsInvoiced).
 func (e *Endpoints) keepsInvoiced(ctx context.Context, orig GoodsReceipt, current []orderItem, left map[[2]any]*big.Rat) error {
+	i, received, billed, err := e.belowInvoiced(ctx, orig.Items, left, func(int) bool { return true })
+	if err != nil || i < 0 {
+		return err
+	}
+	return problem.Conflict("procurement.reversal_below_invoiced", fmt.Sprintf(
+		"Reversing goods receipt %s would leave item %d of order %s with %s received of %s invoiced; post the supplier's credit memo first, or return the goods (122).",
+		orig.DocumentNumber, orig.Items[i].POItemNo, current[i].documentNumber, money.PlainQuantity(received), billed))
+}
+
+// returnKeepsInvoiced refuses a return to the supplier (122) of a stock
+// item that would leave its order item received less than posted
+// documents invoiced of it (left, movedItems; S1e2, decided by default,
+// ADR-0082 As built S1e2): the supplier's credit memo for the goods comes
+// first, so GR/IR never holds a return's debit waiting for it and the
+// stock is not taken out at a value its invoice set while the invoice
+// still stands. A return of another item is not held to it, as before.
+func (e *Endpoints) returnKeepsInvoiced(ctx context.Context, items []ReceiptItem, current []orderItem, left map[[2]any]*big.Rat) error {
+	i, received, billed, err := e.belowInvoiced(ctx, items, left, func(i int) bool { return current[i].storageLocation != nil })
+	if err != nil || i < 0 {
+		return err
+	}
+	return problem.Conflict("procurement.return_below_invoiced", fmt.Sprintf(
+		"Returning item %d of order %s would leave it with %s received of %s invoiced; it is a stock item: post the supplier's credit memo first, then return the goods.",
+		items[i].POItemNo, current[i].documentNumber, money.PlainQuantity(received), billed))
+}
+
+// belowInvoiced is the first of the items checked (checked(i)) whose
+// order item left keeps received below what posted documents invoiced of
+// it, with that received and invoiced quantity, or -1. The order items
+// are locked (lockItems), and a document's posting and reversal lock them
+// too, so what Invoices reads holds until this commits.
+func (e *Endpoints) belowInvoiced(ctx context.Context, items []ReceiptItem, left map[[2]any]*big.Rat, checked func(int) bool) (int, *big.Rat, string, error) {
 	invoiced := map[uuid.UUID]map[int32]string{}
-	for i, it := range orig.Items {
+	for i, it := range items {
+		if !checked(i) {
+			continue
+		}
 		quantities, read := invoiced[it.PurchaseOrderID]
 		if !read {
 			var err error
 			if quantities, err = e.Invoices.Invoiced(ctx, it.PurchaseOrderID); err != nil {
-				return err
+				return -1, nil, "", err
 			}
 			invoiced[it.PurchaseOrderID] = quantities
 		}
 		received, billed := left[[2]any{it.PurchaseOrderID, it.POItemNo}], cmp.Or(quantities[it.POItemNo], "0")
 		if money.ParseRat(billed).Cmp(received) > 0 {
-			return problem.Conflict("procurement.reversal_below_invoiced", fmt.Sprintf(
-				"Reversing goods receipt %s would leave item %d of order %s with %s received of %s invoiced; post the supplier's credit memo first, or return the goods (122).",
-				orig.DocumentNumber, it.POItemNo, current[i].documentNumber, money.PlainQuantity(received), billed))
+			return i, received, billed, nil
 		}
 	}
-	return nil
+	return -1, nil, "", nil
 }
 
 // recordMovement audits a receipt or return and publishes GoodsReceived or

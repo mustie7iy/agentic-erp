@@ -20,13 +20,14 @@ import (
 // A purchase order's goods receipt into stock (S1e; ADR-0082 §2 and As
 // built S1e): procurement's goods movement of stock items posts a 101,
 // and its reversal a 102, through ReceiveForOrder and ReverseForOrder in
-// its own transaction. The material document is valued as any is, but
-// its value posts on the entry procurement posts for the goods movement,
-// against GR/IR (source context procurement, which moves the order
-// items' GR/IR positions), not on an entry of its own: each item's GR/IR
-// counter line goes to its valuation class's stock account, the part the
-// stock does not take to the class's price difference account
-// (ledger.GRIRStock).
+// its own transaction; a return to the supplier a 122 through
+// ReturnForOrder, and its reversal a 123 through ReverseForOrder (S1e2).
+// The material document is valued as any is, but its value posts on the
+// entry procurement posts for the goods movement, against GR/IR (source
+// context procurement, which moves the order items' GR/IR positions), not
+// on an entry of its own: each item's GR/IR counter line goes to its
+// valuation class's stock account, the part the stock does not take to
+// the class's price difference account (ledger.GRIRStock).
 
 // OrderItem is a stock item of a purchase order a goods receipt moves: a
 // positive quantity of its material in the order item's unit, into a
@@ -83,29 +84,96 @@ func (e *Endpoints) ReceiveForOrder(ctx context.Context, in OrderReceipt, post P
 	if err := e.receiptBatches(ctx, tx, p, in.Items, items, &r); err != nil {
 		return Document{}, err
 	}
-	company, lines, err := e.items(items, movementTypes["101"], r)
+	return e.postOrder(ctx, tx, p, orderPosting{movementType: "101", company: in.Company, day: in.Day, reference: in.Reference}, items, r, post)
+}
+
+// OrderReturn is a return to the supplier of a purchase order's stock
+// items (S1e2): each a positive quantity of its material in the order
+// item's unit out of the storage location it was received into, naming
+// the batch it gives back by number and the serial number of each unit,
+// as a delivery's goods issue names them, in the goods movement's order,
+// posted on its posting date with its number as the reference.
+type OrderReturn struct {
+	Company   uuid.UUID
+	Day       time.Time
+	Reference string
+	Items     []DeliveryItem
+}
+
+// ReturnForOrder posts a return of a purchase order's stock items to the
+// supplier (122; S1e2, ADR-0082 As built S1e2) as a material document:
+// each item checked as an issue's is (an active material kept at the
+// storage location of a plant of the company), its quantity converted to
+// the base unit exactly, its batch one of the material's by number
+// (deliveryBatches) and its serial numbers in stock there (takeSerials),
+// the valuations and stock locked and refused below zero (409
+// inventory.insufficient_stock: what is returned is still in stock), each
+// line valued out of the stock as a receipt's reversal (102) is (at a
+// standard price the stock left at the price, at a moving price the value
+// in proportion), and the entry posted by post with that value on the
+// stock, the rest of what its GR/IR line moves on the class's price
+// difference account.
+func (e *Endpoints) ReturnForOrder(ctx context.Context, in OrderReturn, post PostEntry) (Document, error) {
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Document{}, err
 	}
-	if company != in.Company {
-		return Document{}, problem.Invalid("inventory.mixed_companies", "items", "A goods receipt moves the stock of its own company's plants.")
+	items := make([]ItemInput, len(in.Items))
+	for i, it := range in.Items {
+		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity, Unit: it.Unit,
+			SerialNumbers: it.SerialNumbers}
+	}
+	r, err := e.inputRefs(ctx, items)
+	if err != nil {
+		return Document{}, err
+	}
+	if err := deliveryBatches(ctx, tx, movementTypes["122"], in.Items, items, &r); err != nil {
+		return Document{}, err
+	}
+	return e.postOrder(ctx, tx, p, orderPosting{movementType: "122", company: in.Company, day: in.Day, reference: in.Reference}, items, r, post)
+}
+
+// orderPosting is a material document procurement's goods movement posts
+// for its stock items: its movement type, company, day and reference.
+type orderPosting struct {
+	movementType string
+	company      uuid.UUID
+	day          time.Time
+	reference    string
+}
+
+// postOrder checks a goods movement's stock items (items, with their
+// refs r), the stock of in's company alone, and writes their document
+// (writeOrder), posting its entry through post.
+func (e *Endpoints) postOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in orderPosting, items []ItemInput, r refs, post PostEntry) (Document,
+	error) {
+	company, lines, err := e.items(items, movementTypes[in.movementType], r)
+	if err != nil {
+		return Document{}, err
+	}
+	if company != in.company {
+		return Document{}, problem.Invalid("inventory.mixed_companies", "items", "A goods movement of a purchase order moves the stock of its own company's plants.")
 	}
 	c, err := e.companyOf(ctx, company)
 	if err != nil {
 		return Document{}, err
 	}
-	d, err := e.writeOrder(ctx, tx, p, posting{company: c.le, movementType: "101", day: in.Day, reference: &in.Reference, lines: lines}, r, post)
+	d, err := e.writeOrder(ctx, tx, p, posting{company: c.le, movementType: in.movementType, day: in.day, reference: &in.reference, lines: lines}, r, post)
 	if err != nil {
 		return Document{}, err
 	}
 	return d, e.record(ctx, "inventory.material_document.post", d, r, map[string]any{"has_header_text": false})
 }
 
-// ReverseForOrder posts the reversal (102) of a purchase order's goods
-// receipt's material document, once, on the reversal's posting date with
-// its number as the reference: its lines negated, last first, each valued
-// out of its stock as any issue is, against what its original was valued
-// at, the rest a price difference (Reverse), and posted by post.
+// ReverseForOrder posts the reversal of a purchase order's goods
+// movement's material document, once, on the reversal's posting date with
+// its number as the reference: a goods receipt's (101) by a 102, a
+// return's to the supplier (122) by a 123 (S1e2). Its lines are negated,
+// last first, each valued as its original was (Reverse): a 102's out of
+// its stock as any issue is, a 123's back into it at what its 122 took
+// from it, at a moving price, or at a standard price at the price
+// (bookings), against what its original was valued at, the rest a price
+// difference, and posted by post.
 func (e *Endpoints) ReverseForOrder(ctx context.Context, id uuid.UUID, day time.Time, reference string, post PostEntry) (Document, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -117,9 +185,11 @@ func (e *Endpoints) ReverseForOrder(ctx context.Context, id uuid.UUID, day time.
 	if err != nil {
 		return Document{}, err
 	}
-	if orig.MovementType != "101" || orig.ReversedByID != nil {
-		// procurement reverses a goods movement once, and only its 101.
-		return Document{}, fmt.Errorf("inventory: material document %s is a %s, reversed by %v: no goods receipt to reverse", orig.Number,
+	mt := movementTypes[orig.MovementType]
+	if !mt.order || mt.reversal == "" || orig.ReversedByID != nil {
+		// procurement reverses a goods movement once, and only its 101 or
+		// 122.
+		return Document{}, fmt.Errorf("inventory: material document %s is a %s, reversed by %v: no goods receipt or return to reverse", orig.Number,
 			orig.MovementType, orig.ReversedByID)
 	}
 	r, err := e.documentRefs(ctx, []Document{orig})
@@ -130,12 +200,28 @@ func (e *Endpoints) ReverseForOrder(ctx context.Context, id uuid.UUID, day time.
 	if err != nil {
 		return Document{}, err
 	}
-	d, err := e.writeOrder(ctx, tx, p, posting{company: c.le, movementType: "102", day: day, reversalOf: &orig.ID, reference: &reference,
-		lines: negated(orig.Lines)}, r, post)
+	d, err := e.writeOrder(ctx, tx, p, posting{company: c.le, movementType: mt.reversal, day: day, reversalOf: &orig.ID, reference: &reference,
+		lines: reversedLines(mt, orig.Lines)}, r, post)
 	if err != nil {
 		return Document{}, err
 	}
 	return d, e.record(ctx, "inventory.material_document.reverse", d, r, map[string]any{"reversal_of_id": orig.ID, "reversal_of_number": orig.Number})
+}
+
+// reversedLines are an order's goods movement's lines negated (negated):
+// a 102's against what its 101 was valued at, the GR/IR line's value; a
+// 123's each given back what its 122 took from the stock alone, its price
+// difference being the GR/IR line's to take back (S1e2).
+func reversedLines(mt movementType, orig []Line) []Line {
+	out := negated(orig)
+	if mt.reversal != "123" {
+		return out
+	}
+	for i := range out {
+		worth := -orig[len(orig)-1-i].Amount
+		out[i].target = &worth
+	}
+	return out
 }
 
 // writeOrder writes a goods receipt's or its reversal's document: it
@@ -176,9 +262,11 @@ func (e *Endpoints) writeOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 }
 
 // bookings are each item's GR/IR booking, in item order (a goods
-// receipt's document has one line per item): its valuation class's stock
-// and price difference accounts, and what the stock takes when that does
-// not wait for the entry, which values the line now.
+// movement's document has one line per item): its valuation class's
+// stock and price difference accounts, and what the stock takes when that
+// does not wait for the entry, which values the line now: at a standard
+// price, out of stock (102, 122), and back into it at what its original
+// took (a 123's target).
 func (e *Endpoints) bookings(ctx context.Context, in posting, vals map[valuationKey]*Valuation, r refs) ([]ledger.GRIRStock, error) {
 	a := e.accounts(in.company.ID, in.company.Code)
 	out := make([]ledger.GRIRStock, len(in.lines))
@@ -189,7 +277,7 @@ func (e *Endpoints) bookings(ctx context.Context, in posting, vals map[valuation
 		if err != nil {
 			return nil, err
 		}
-		if q := money.ParseRat(l.Quantity); v.PriceControl == Standard || q.Sign() < 0 {
+		if q := money.ParseRat(l.Quantity); v.PriceControl == Standard || q.Sign() < 0 || l.target != nil {
 			if l.Amount, err = v.move(q, l.target); err != nil {
 				return nil, lineErr(err, l, r)
 			}
