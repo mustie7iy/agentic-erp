@@ -147,6 +147,14 @@ var movementTypes = map[string]movementType{
 	"702": {name: "Physical inventory shortage", sign: -1, count: true},
 }
 
+// byPerson says whether a person posts the movement type through Post: a
+// forward type that no other document of inventory or another context
+// posts (an order's goods movement, a count, a delivery's or transport's
+// goods issue, a customer's return).
+func (mt movementType) byPerson() bool {
+	return mt.reverses == "" && !mt.order && !mt.count && !mt.delivery && !mt.transport && !mt.intercompany && !mt.customerReturn
+}
+
 func init() {
 	// takeStock refuses a shortage first, naming it; this is the
 	// database's answer should one pass it.

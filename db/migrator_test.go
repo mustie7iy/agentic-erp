@@ -107,13 +107,17 @@ func TestDownsRevert(t *testing.T) {
 					t.Fatalf("the down of %s: got %v, want it to pass", name, err)
 				}
 			}
+			query, args := `SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2
+				AND column_name = $3)`, []any{c.schema, c.table, c.column}
+			if c.check != "" {
+				query, args = c.check, nil
+			}
 			var left bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2
-				AND column_name = $3)`, c.schema, c.table, c.column).Scan(&left); err != nil {
+			if err := tx.QueryRow(ctx, query, args...).Scan(&left); err != nil {
 				t.Fatal(err)
 			}
 			if left {
-				t.Errorf("%s.%s: got still there, want the down to drop it", c.table, c.column)
+				t.Errorf("%s.%s: got the up's change still there, want the down to revert it", c.table, c.column)
 			}
 			for i := len(c.names) - 1; i >= 0; i-- {
 				if err := exec(tx, migrationNamed(t, c.names[i]).Up); err != nil {

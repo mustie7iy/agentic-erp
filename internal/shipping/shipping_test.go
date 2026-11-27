@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,14 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	e := env{Env: fixture.NewWith(t, nil, valued, perms...)}
+	return setupWith(t, valued)
+}
+
+// setupWith is setup under the configuration cfg sets, with the
+// permissions more besides.
+func setupWith(t *testing.T, cfg func(*config.Config), more ...string) env {
+	t.Helper()
+	e := env{Env: fixture.NewWith(t, nil, cfg, append(slices.Clone(perms), more...)...)}
 	e.p1 = e.orgUnit(t, e.DE, "plant", "P1", nil)
 	e.s1 = e.orgUnit(t, e.DE, "storage_location", "S1", &e.p1)
 	e.s2 = e.orgUnit(t, e.DE, "storage_location", "S2", &e.p1)
