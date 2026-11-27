@@ -77,7 +77,9 @@ func (a wmsDeliveries) IssueReported(ctx context.Context, delivery uuid.UUID, pi
 	if _, err := a.e.Pick(ctx, delivery, anyVersion, in); err != nil {
 		return integration.WMSPosted{}, err
 	}
-	d, err := a.e.PostGoodsIssue(ctx, delivery, anyVersion)
+	// A warehouse system reports no batch or serial number yet (Later,
+	// ADR-0083 As built S2f2): such a material's item is refused.
+	d, err := a.e.PostGoodsIssue(ctx, delivery, anyVersion, nil)
 	if err != nil {
 		return integration.WMSPosted{}, err
 	}

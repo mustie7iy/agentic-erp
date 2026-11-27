@@ -365,3 +365,90 @@ owner):
   by cycle counting's indicators, with its last posted count unchanged
   (`TestReversalCountsDue`); an open count of the material there blocks
   the reversal (409 `inventory.posting_blocked`).
+  S2f2 and S2g2 (below) carry batches and serial numbers to the goods
+  issue and its reversal, so the 602 does carry them now.
+
+**S2f2, S2g2** (lane gibatch, 2026-11-25; migration 000491; walkthrough
+step 143, `step_goods_issue`'s `goods_issue_tracked`): batches and serial
+numbers in the delivery's goods issue and its reversal, the next items of
+the batch and serial number variants (plan-supply-chain.md §S2f2, §S2g2).
+Decided by default while building (listed for the product owner):
+
+- **Sold and delivered as any.** A quotation's and a sales order's new
+  item of a batch-managed or serial-managed material is no longer refused
+  (`sales.material_not_usable` keeps its other reasons), nor is a
+  delivery's item (`shipping.material_not_usable` likewise). An
+  intercompany stock transport order still refuses one (procurement's
+  `usableAt`; its 643 is not a tracked movement type), and so does a
+  stock transport order, a count and the SAP take-over (ADR-0082 As built
+  S2f, S2g).
+- **Named at the goods issue, not at picking.** `POST
+  /v1/outbound-deliveries/{id}:postGoodsIssue` takes an optional body
+  (`OutboundDeliveryGoodsIssue`): for each picked item of such a
+  material, one entry per batch its picked quantity leaves from (SAP's
+  batch split items, from memory), each with its quantity in the item's
+  unit, the batch by number (as the clerk reads it off the goods; the
+  batch master and stock lists give it), and the serial numbers of its
+  units. The entries of an item add up to its picked quantity exactly
+  (422 `shipping.issue_quantity_mismatch`); a picked item of such a
+  material not named is refused (422 `shipping.tracking_required`), an
+  item of another material named too (422 `shipping.item_not_tracked`),
+  so a delivery of untracked materials posts as before, with no body.
+  SAP assigns batches and serial numbers to the delivery before its goods
+  issue (from memory); here picking records quantities alone, and naming
+  at the goods issue needs no delivery state that a pick could leave
+  stale. Batches named at picking are Later.
+- **Checked by inventory, under its locks.** Each entry is an item of the
+  601 (`inventory.DeliveryItem.Batch`, `SerialNumbers`; 601 and 602 are
+  tracked movement types now): inventory finds the batch by number among
+  the material's (`deliveryBatches`; 422 `inventory.batch_invalid`,
+  `batch_required`, `batch_not_allowed`, naming `items[j].batch_number`),
+  then checks and moves it as a person's goods movement's batch
+  (`batchOf`, `takeBatches`: 409 `inventory.insufficient_stock` naming the
+  batch when it holds less at the storage location), and the serial
+  numbers as any issue's (`serialsOf`, `takeSerials`: one per unit, each
+  once, in stock at the delivery's storage location, 409
+  `inventory.serial_not_in_stock`). Inventory's refusals of an entry name
+  the request's own field (`problem.Renamed`; its quantity's `value`, its
+  `item_no` for the material's); one of an item the request does not name
+  carries no field, as the request has none.
+- **No expiry check, no determination.** Inventory has no rule on an
+  expired batch at issue, so none is added: an expired batch is issued
+  as any (SAP's shelf life check at goods issue and FEFO determination,
+  from memory, are Later; the person names the batch).
+- **The delivery shows what was issued.** Each item of such a material
+  gains `issue_lines` (`shipping.outbound_delivery_issue_line`): the 601's
+  line, its quantity in the item's unit, the batch by id and number and
+  the serial numbers, sorted, as the material document's line has them;
+  an item's cost is the sum of its lines'. `OutboundDeliveryChanged`
+  carries them (not required). The lines stay after a reversal: the 602
+  names its 601 and gives the same back.
+- **The reversal gives them back.** `ReverseForDelivery` negates the
+  601's lines, batch and serial numbers included: each batch gets back
+  what it issued at the storage location (whatever was taken from it
+  since: a receipt is never short), each serial number comes back into
+  stock there, unless it is in stock again since, received by another
+  document (409 `inventory.serial_in_stock`, naming it; nothing is
+  posted; `TestGoodsIssueReversalTracked`), which is the refusal S2b3
+  said was not needed until deliveries carried serial numbers.
+- **A warehouse system's goods issue** (S2q) names no batch or serial
+  number yet: such an item is refused there (`shipping.tracking_required`)
+  until the WMS message carries them (Later).
+- **Unchanged.** The permission, the locks (delivery, valuations, stock,
+  batch stock, serial numbers, then order) and the agents' never lists:
+  no operation is added, and the goods issue was on them already.
+- **With S2j2 and the counts** (batch 96S integration). A batch-managed
+  item confirmed in part on the replenishment lead time is delivered and
+  issued by batch as any, and the reversal of its goods issue holds the
+  availability check's lock of the material at the plant until it
+  commits and gives each batch back (`TestTrackedOnTheLeadTime`): the
+  reversal's path is unchanged by S2f2, and S2f2's change to sales'
+  material checks removed only the tracked materials' refusal, which the
+  lead time check never read. A reversal's "due for a count again"
+  (S2c2) and a count's book quantity after a tracked issue do not arise:
+  a batch- or serial-managed material takes neither a cycle counting
+  indicator nor a count document (`inventory.batch_not_supported`,
+  `inventory.serial_not_supported`; `TestCycleCountMaterials`,
+  `TestBatchRefusals`, `TestSerialRefusals`), counts by batch and serial
+  number being in the variants' remainder.
+

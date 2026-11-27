@@ -561,7 +561,7 @@ func salesAndCredit(cfg Config) (*sales.Endpoints, *credit.Endpoints) {
 		Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{},
 		Uploads: uploads(cfg), OrderExtractor: cfg.OrderExtractor, Finder: partner.Payees{Keys: cfg.FieldKeys}, Materials: materials.Materials{}, Stock: Inventory(cfg),
-		Intercompany: salesIntercompany{}, Now: cfg.Now}
+		LeadTimes: mrp.Plans{}, Intercompany: salesIntercompany{}, Now: cfg.Now}
 	c := &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
 		Partners: partner.Payees{}, Orders: s, Settings: configuration.Settings{}, Requests: opener(), Now: cfg.Now}
 	s.Credit = salesCredit{credit: c}

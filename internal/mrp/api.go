@@ -70,7 +70,8 @@ func planAPI(p Plan, r refs) gen.MaterialPlan {
 		MrpType: p.MRPType, ReorderPoint: gen.Quantity{Value: p.ReorderPoint, Unit: m.BaseUnit}, AccountID: p.AccountID, AccountNumber: r.accounts[p.AccountID],
 		LotSize: p.Lots.Procedure, FixedLotSize: optQuantity(p.Lots.Fixed, m.BaseUnit), MaximumStockLevel: optQuantity(p.Lots.MaximumLevel, m.BaseUnit),
 		MinimumLotSize: optQuantity(p.Lots.Minimum, m.BaseUnit), MaximumLotSize: optQuantity(p.Lots.Maximum, m.BaseUnit),
-		RoundingValue: optQuantity(p.Lots.Rounding, m.BaseUnit)}
+		RoundingValue:             optQuantity(p.Lots.Rounding, m.BaseUnit),
+		ReplenishmentLeadTimeDays: apitypes.OptInt32(p.LeadDays)}
 }
 
 // optQuantity is a quantity in the unit once given.
@@ -98,7 +99,8 @@ func (e *Endpoints) CreateMaterialPlan(ctx context.Context, req *gen.MaterialPla
 	p, err := e.CreatePlan(ctx, PlanInput{PlantID: req.PlantID, MaterialID: req.MaterialID, AccountID: req.AccountID, MRPType: req.MrpType,
 		ReorderPoint: req.ReorderPoint, Lots: LotSizing{Procedure: req.LotSize.Value, Fixed: apitypes.Ptr[string](req.FixedLotSize),
 			MaximumLevel: apitypes.Ptr[string](req.MaximumStockLevel), Minimum: apitypes.Ptr[string](req.MinimumLotSize),
-			Maximum: apitypes.Ptr[string](req.MaximumLotSize), Rounding: apitypes.Ptr[string](req.RoundingValue)}})
+			Maximum: apitypes.Ptr[string](req.MaximumLotSize), Rounding: apitypes.Ptr[string](req.RoundingValue)},
+		LeadDays: apitypes.Ptr[int32](req.ReplenishmentLeadTimeDays)})
 	out, tag, err := e.onePlan(ctx, p, err)
 	if err != nil {
 		return nil, err
@@ -126,7 +128,7 @@ func (e *Endpoints) UpdateMaterialPlan(ctx context.Context, req *gen.MaterialPla
 		ReorderPoint: apitypes.Ptr[string](req.ReorderPoint), AccountID: apitypes.Ptr[uuid.UUID](req.AccountID), LotSize: apitypes.Ptr[string](req.LotSize),
 		FixedLotSize: apitypes.OptNilString(req.FixedLotSize), MaximumStockLevel: apitypes.OptNilString(req.MaximumStockLevel),
 		MinimumLotSize: apitypes.OptNilString(req.MinimumLotSize), MaximumLotSize: apitypes.OptNilString(req.MaximumLotSize),
-		Rounding: apitypes.OptNilString(req.RoundingValue)})
+		Rounding: apitypes.OptNilString(req.RoundingValue), LeadDays: apitypes.OptNil[int32](req.ReplenishmentLeadTimeDays)})
 	out, tag, err := e.onePlan(ctx, p, err)
 	if err != nil {
 		return nil, err

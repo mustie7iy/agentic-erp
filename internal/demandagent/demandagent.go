@@ -75,7 +75,7 @@ var Never = []string{
 	"createMaterialDocument", "reverseMaterialDocument", "postGoodsReceipt", "reverseGoodsReceipt", "postOutboundDeliveryGoodsIssue",
 	"reverseOutboundDeliveryGoodsIssue",
 	"createStockTransportOrder", "cancelStockTransportOrder", "postStockTransportGoodsIssue", "postStockTransportGoodsReceipt", "postIntercompanyGoodsIssue",
-	"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "postPhysicalInventoryDifferences",
+	"createPhysicalInventoryDocument", "enterPhysicalInventoryCount", "recountPhysicalInventoryItems", "postPhysicalInventoryDifferences",
 	"createCycleCountIndicator", "updateCycleCountIndicator", "createCycleCountMaterial", "updateCycleCountMaterial",
 	"createSalesOrder", "captureSalesOrder", "createSalesOrderUpload", "confirmSalesOrder", "releaseSalesOrderCreditBlock", "changeSalesOrder",
 	"cancelSalesOrder", "confirmSalesDelivery", "createOutboundDelivery", "pickOutboundDelivery", "releaseOutboundDeliveryTradeComplianceBlock",

@@ -30,9 +30,11 @@ import (
 // batch stock rows its lines move after the location's stock rows, in
 // one order, and refuses a line that takes a batch below zero. A purchase
 // order's goods receipt names its batch by number, created by the receipt
-// when it is new (S2f1, receiptBatches). The movement types that carry no
-// batch yet (a delivery's goods issue, a stock transport order's, a
-// count's) refuse a batch-managed material.
+// when it is new (S2f1, receiptBatches), and a delivery's goods issue by
+// number too (S2f2, deliveryBatches), whose reversal gives the batches
+// back. The movement types
+// that carry no batch yet (a stock transport order's goods issue, an
+// intercompany one's 643, a count's) refuse a batch-managed material.
 
 func init() {
 	problem.RegisterConstraint("batch_number_once", func() *problem.Problem {

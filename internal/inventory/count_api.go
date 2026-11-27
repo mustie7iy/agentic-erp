@@ -28,7 +28,8 @@ func countAPI(d CountDocument, r refs) gen.PhysicalInventoryDocument {
 	for i, it := range d.Items {
 		m := r.materials[it.MaterialID]
 		item := gen.PhysicalInventoryItem{ItemNo: int32(it.ItemNo), MaterialID: it.MaterialID, MaterialNumber: m.Number, MaterialDescription: m.Description,
-			BookQuantity: gen.Quantity{Value: it.Book, Unit: m.BaseUnit}, CountedAt: apitypes.OptDateTime(it.CountedAt), CountedBy: apitypes.OptUUID(it.CountedBy)}
+			BookQuantity: gen.Quantity{Value: it.Book, Unit: m.BaseUnit}, CountedAt: apitypes.OptDateTime(it.CountedAt), CountedBy: apitypes.OptUUID(it.CountedBy),
+			CountedByName: apitypes.OptString(it.CountedByName)}
 		if it.Counted != nil {
 			item.CountedQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Counted, Unit: m.BaseUnit})
 			item.EntryQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Entry, Unit: *it.EntryUnit})
@@ -38,6 +39,7 @@ func countAPI(d CountDocument, r refs) gen.PhysicalInventoryDocument {
 			item.DifferenceValue = gen.NewOptMoney(apitypes.Money(*it.Amount, d.Currency, d.Exponent))
 		}
 		item.MaterialDocumentID, item.MaterialDocumentNumber = apitypes.OptUUID(it.MaterialDocumentID), apitypes.OptString(it.MaterialDocumentNumber)
+		item.CountNo, item.EarlierCounts = int32(it.CountNo()), earlierAPI(it.Earlier, m.BaseUnit)
 		out.Items[i] = item
 	}
 	out.WorkflowRequestID = apitypes.OptUUID(d.WorkflowRequestID)
@@ -45,6 +47,34 @@ func countAPI(d CountDocument, r refs) gen.PhysicalInventoryDocument {
 		out.DifferenceValue = gen.NewOptMoney(apitypes.Money(*d.DifferenceValue, d.Currency, d.Exponent))
 	}
 	return out
+}
+
+// earlierAPI is an item's earlier counts as the API gives them, in count
+// order; none is an empty list.
+func earlierAPI(earlier []EarlierCount, base string) []gen.PhysicalInventoryEarlierCount {
+	out := make([]gen.PhysicalInventoryEarlierCount, len(earlier))
+	for i, c := range earlier {
+		out[i] = gen.PhysicalInventoryEarlierCount{CountNo: int32(c.CountNo), CountedQuantity: gen.Quantity{Value: c.Counted, Unit: base},
+			EntryQuantity: gen.Quantity{Value: c.Entry, Unit: c.EntryUnit}, CountedAt: c.CountedAt, CountedBy: c.CountedBy,
+			CountedByName: apitypes.OptString(c.CountedByName), RecountedAt: c.RecountedAt, RecountedBy: c.RecountedBy, RecountedByName: c.RecountedByName}
+	}
+	return out
+}
+
+// RecountPhysicalInventoryItems implements POST
+// /v1/physical-inventory-documents/{id}:recount.
+func (e *Endpoints) RecountPhysicalInventoryItems(ctx context.Context, req *gen.PhysicalInventoryRecount,
+	params gen.RecountPhysicalInventoryItemsParams) (gen.RecountPhysicalInventoryItemsRes, error) {
+	nos := make([]int, len(req.Items))
+	for i, it := range req.Items {
+		nos[i] = int(it.ItemNo)
+	}
+	d, err := e.Recount(ctx, params.ID, versionOf(params.IfMatch), nos)
+	out, tag, err := e.oneCount(ctx, d, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.EnterPhysicalInventoryCountOKHeaders{ETag: tag, Response: out}, nil
 }
 
 // PostPhysicalInventoryDifferences implements POST

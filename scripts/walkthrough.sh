@@ -14431,6 +14431,7 @@ stock_receipt_tracked() {
   expect "the oil's stock by batch" "$(field '[.items[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 20"
   api 200 '.items[] | "  \(.number): in stock at \(.plant_code) \(.storage_location_code)"' listSerialNumbers -p "material_id=$wrench"
   expect "the wrenches' serial numbers" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:true TW-5002:true"
+  OIL=$oil WRENCH=$wrench
 }
 
 # step_debit_memo is T75j (ADR-0063 §7 As built): Maple charges Northwind
@@ -15493,8 +15494,11 @@ step_dispute_resolution() {
 # counts the brackets and the bolts of Toronto's main store. The count
 # document freezes their book quantities and blocks their postings there
 # until it is closed; a second count of the brackets there is refused. He
-# enters the bracket's count, which is not entered twice, and the bolts'
-# in a second entry; the document is then counted. First, S2c2 (ADR-0082
+# enters the bracket's count, which is not entered twice; Ines doubts it
+# and sends the brackets for a recount (S2d2, ADR-0082 As built S2d2),
+# which keeps Wade's first count, and Wade counts them again; then the
+# bolts' in a further entry; the document is then counted, and only the
+# latest count is posted; a posted document is not recounted. First, S2c2 (ADR-0082
 # As built S2c2): Ines plans cycle counting at the plant, indicator A
 # every 90 days for the brackets and C every 365 for the bolts; never
 # counted, both are due at the main store, and Wade's count document is
@@ -15502,7 +15506,7 @@ step_dispute_resolution() {
 # due again until their intervals have passed.
 step_count() {
   local loss brackets ind_a ind_c due
-  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
+  heading "Step 141 — Physical inventory: cycle counting indicators A and C given to the brackets and bolts, both due at the main store and counted from the list; a count document freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once until the brackets are sent for a recount, their first count kept and the latest posted; the differences posted (701, 702) within the tolerance at once and above it once the controller approves; counted, not due again until their intervals have passed"
   local doc book
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   as ines
@@ -15547,13 +15551,28 @@ step_count() {
   say "A material is counted at a storage location by one open document at a time:"
   refused 409 inventory.count_open createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
       \"items\": [{\"material_id\": \"$MATERIAL\"}]}"
-  say "Wade finds $((book - 8)) brackets on the shelves, 8 fewer than the book, and enters them (SAP MI04):"
+  say "Wade finds $((book - 9)) brackets on the shelves, 9 fewer than the book, and enters them (SAP MI04):"
   QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
   api 200 '"\(.status): " + ([.items[] | "item \(.item_no) \(.counted_quantity.value // "-")"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
-    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 8))\", \"unit\": \"EA\"}}]}"
-  say "An item is counted once; a recount is a new document:"
+    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 9))\", \"unit\": \"EA\"}}]}"
+  say "An item is counted once, until it is sent for a recount:"
   refused 409 inventory.item_counted enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
     -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
+  as ines
+  say "Ines doubts a loss of 9 and sends the brackets for a recount (S2d2; SAP MI11, from memory): Wade's count is kept as"
+  say "the item's first count, and the item is open to be counted again; the bolts, not counted yet, are not recounted:"
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  api 200 '"\(.status): " + ([.items[] | "item \(.item_no) count \(.count_no): \(.counted_quantity.value // "-"), earlier [\([.earlier_counts[] | "#\(.count_no) \(.counted_quantity.value)"] | join(", "))]"] | join("; "))' \
+    recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 1}]}'
+  expect "the brackets sent for a recount" "$(field '.items[0] | "\(.count_no) \(.counted_quantity.value // "-") \([.earlier_counts[].counted_quantity.value] | join(","))"')" "2 - $((book - 9))"
+  expect "who counted and who sent it back" "$(field '.items[0].earlier_counts[0] | "\(.counted_by_name), \(.recounted_by_name)"')" "Wade Warehouse, Ines Inventory"
+  refused 409 inventory.item_not_counted recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 2}]}'
+  as wade
+  say "Wade recounts and finds $((book - 8)), 8 fewer; the document shows the brackets' counts in order:"
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  api 200 '"\(.status): " + ([.items[] | "item \(.item_no) count \(.count_no): \(.counted_quantity.value // "-")"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
+    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 8))\", \"unit\": \"EA\"}}]}"
+  expect "the brackets' counts in order" "$(field '.items[0] | [(.earlier_counts[].counted_quantity.value), .counted_quantity.value] | join(" ")')" "$((book - 9)) $((book - 8))"
   QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
   book=$(field '.items[1].book_quantity.value')
   say "He counts the bolts as the book has them, $book:"
@@ -15568,6 +15587,9 @@ step_count() {
     postPhysicalInventoryDifferences -p "id=$doc" -if-match "$ETAG"
   expect "the count document" "$(field .status)" posted
   loss=$(field '.items[0].material_document_id')
+  say "Only the latest count is posted, and a posted document's items are not recounted:"
+  refused 409 inventory.count_invalid_status recountPhysicalInventoryItems -p "id=$doc" -if-match "$ETAG" -body '{"items": [{"item_no": 1}]}'
+
   api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(QUIET=1 api 200 '' getMaterialDocument -p "id=$loss"; field .journal_entry_id)"
   expect "the main store's brackets, the count" "$(stock_at "$MAIN_STORE")" "$((brackets - 8)) EA"
   say "The count's material document is not reversed; a new count corrects the stock:"
@@ -15675,11 +15697,12 @@ step_outbound_delivery() {
 # has its 6 boxes delivered, by the goods issue, with their cost. It posts
 # once. Sally confirms the installation by hand, which a stock item is
 # not, and bills the order: both items, the brackets as issued. Then
-# S2b3: a goods issue reversed (goods_issue_reversal). Last, S2b2: cost of
+# S2b3: a goods issue reversed (goods_issue_reversal). Then S2b2: cost of
 # sales and margin by profitability segment (goods_issue_margin), where
-# the reversed goods issue's cost nets out.
+# the reversed goods issue's cost nets out. Last, S2f2 and S2g2: batches
+# and serial numbers issued and reversed (goods_issue_tracked).
 step_goods_issue() {
-  heading "Step 143 — Goods issue: the picked delivery's 601 takes the stock at the moving price and posts its value to the cost of goods sold; the order delivered by it and billed; once only; a stock item not confirmed by hand; cost of sales and margin by profitability segment"
+  heading "Step 143 — Goods issue: the picked delivery's 601 takes the stock at the moving price and posts its value to the cost of goods sold; the order delivered by it and billed; once only; a stock item not confirmed by hand; cost of sales and margin by profitability segment; a batch-managed and a serial-managed material issued naming the batch and the serial number, the latter reversed"
   local before after doc cost day
   [ -n "$DELIVERY" ] || fail "step 142's delivery is not there"
   accounts
@@ -15724,7 +15747,81 @@ step_goods_issue() {
   ISSUED_COST=$(jq -rn --arg a "${ISSUED_COST:-0}" --arg c "$cost" '(($a | tonumber) * 100 + ($c | tonumber) * 100) | round / 100')
   goods_issue_reversal
   goods_issue_margin
+  goods_issue_tracked
   passed
+}
+
+# goods_issue_tracked is S2f2's and S2g2's part of step_goods_issue
+# (ADR-0083 As built S2f2): Sally sells Northwind 3 cans of step 130's
+# cutting oil, managed in batches, and a torque wrench, with a serial
+# number profile; Wade delivers each in a delivery of its own and picks
+# them. The oil's goods issue that names no batch is refused, as is one
+# naming a batch the oil has not; naming lot CO-2611 it posts, the 601's
+# line and the delivery's item naming the batch, which holds 17 cans
+# after. The wrench's names TW-5001, out of stock after. Northwind sends
+# the wrench back: its goods issue is reversed, and the 602 takes TW-5001
+# into the main store again.
+goods_issue_tracked() {
+  local sales order oil wrench tag
+  [ -n "${OIL:-}" ] && [ -n "${WRENCH:-}" ] || fail "step 130's oil and wrenches are not there"
+  as sally
+  sales=$(account 4000)
+  say "Sally sells Northwind 3 cans of the cutting oil, managed in batches, and a torque wrench, with a serial number"
+  say "profile (S2f2, S2g2); both are sold as any material:"
+  api 201 '"sales order \(.document_number)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
+      {\"material_id\": \"$OIL\", \"quantity\": {\"value\": \"3\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"18.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$sales\", \"tax_code\": \"GO5\"},
+      {\"material_id\": \"$WRENCH\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"80.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as ruth
+    QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  as wade
+  say "Wade delivers the oil and the wrench from the main store, each in a delivery of its own, and picks them:"
+  QUIET=1 api 201 '' createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+    \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"3\", \"unit\": \"EA\"}}]}"
+  oil=$(field .id)
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$oil" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "3", "unit": "EA"}}]}'
+  tag=$ETAG
+  say "The oil's goods issue names the batch its 3 cans leave from; without one, or naming a lot the oil has not, it is"
+  say "refused:"
+  refused 422 shipping.tracking_required postOutboundDeliveryGoodsIssue -p "id=$oil" -if-match "$tag"
+  refused 422 inventory.batch_invalid postOutboundDeliveryGoodsIssue -p "id=$oil" -if-match "$tag" \
+    -body '{"items": [{"item_no": 1, "quantity": {"value": "3", "unit": "EA"}, "batch_number": "CO-2612"}]}'
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].batch_number"
+  say "Naming lot CO-2611 it posts: the 601's line and the delivery's item name the batch:"
+  api 200 '"outbound delivery \(.number): \(.status), material document \(.material_document_number)", (.items[] | "  item \(.item_no) \(.material_number): \([.issue_lines[] | "line \(.line_no) \(.quantity.value) \(.quantity.unit) from batch \(.batch_number)"] | join(", ")), cost \(.cost.amount)")' \
+    postOutboundDeliveryGoodsIssue -p "id=$oil" -if-match "$tag" -body '{"items": [{"item_no": 1, "quantity": {"value": "3", "unit": "EA"}, "batch_number": "CO-2611"}]}'
+  expect "the oil's issue lines" "$(field '[.items[0].issue_lines[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 3"
+  api 200 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) of batch \(.lines[0].batch_number)"' \
+    getMaterialDocument -p "id=$(field .material_document_id)"
+  expect "the 601's batch" "$(field '.lines[0].batch_number')" CO-2611
+  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number): \(.quantity.value) \(.quantity.unit)"' listBatchStock -p "material_id=$OIL"
+  expect "the oil's stock by batch" "$(field '[.items[] | "\(.batch_number) \(.quantity.value)"] | join(", ")')" "CO-2611 17"
+  QUIET=1 api 201 '' createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+    \"items\": [{\"order_item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  wrench=$(field .id)
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$wrench" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}'
+  say "The wrench's goods issue names the serial number of the wrench Wade packs, TW-5001, out of stock after it:"
+  api 200 '"outbound delivery \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): serial numbers \([.issue_lines[].serial_numbers[]] | join(", "))")' \
+    postOutboundDeliveryGoodsIssue -p "id=$wrench" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}, "serial_numbers": ["TW-5001"]}]}'
+  expect "the wrench's serial numbers" "$(field '[.items[0].issue_lines[].serial_numbers[]] | join(",")')" TW-5001
+  tag=$ETAG
+  api 200 '.items[] | "  \(.number): \(if .in_stock then "in stock at \(.storage_location_code)" else "not in stock" end)"' listSerialNumbers -p "material_id=$WRENCH"
+  expect "the wrenches in stock" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:false TW-5002:true"
+  say "Northwind sends the wrench back; Wade reverses its goods issue, and the 602 takes TW-5001 into the main store"
+  say "again:"
+  api 200 '"outbound delivery \(.number): \(.status), reversal \(.reversal_material_document_number)"' reverseOutboundDeliveryGoodsIssue -p "id=$wrench" -if-match "$tag"
+  api 200 '"material document \(.number) (\(.movement_type)): serial numbers \(.lines[0].serial_numbers | join(", "))"' \
+    getMaterialDocument -p "id=$(field .reversal_material_document_id)"
+  expect "the 602's serial numbers" "$(field '.lines[0].serial_numbers | join(",")')" TW-5001
+  QUIET=1 api 200 '' listSerialNumbers -p "material_id=$WRENCH"
+  expect "the wrenches in stock" "$(field '[.items[] | "\(.number):\(.in_stock)"] | sort | join(" ")')" "TW-5001:true TW-5002:true"
 }
 
 # goods_issue_reversal is S2b3's part of step_goods_issue (ADR-0083 As
@@ -16599,12 +16696,14 @@ step_batches() {
 # a shortage refuses nothing. Wade's delivery of the second takes its 40
 # confirmed hinges; more is refused naming what is confirmed, and so is a
 # delivery from the Montreal plant. Wade enters 50 more; Sally raises the
-# third order to 6, and its change confirms all 6. An order of the hinges
+# third order to 6, and its change confirms all 6. A door latch with a
+# replenishment lead time is confirmed beyond its stock for an order asked
+# for after the lead time (lead_time_check, S2j2). An order of the hinges
 # that names no plant, of Maple, which has two, is not confirmed (product
 # owner 2026-11-21); a UAE order of step 148's chair naming none delivers
 # from that company's only plant.
 step_available_to_promise() {
-  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives; an order of stock items without a plant refused on confirm, the company's only plant defaulted"
+  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives; an order asked for beyond a material's replenishment lead time confirmed in full, the rest on the lead time; an order of stock items without a plant refused on confirm, the company's only plant defaulted"
   local hinge sales montreal store first second third plantless ae desert
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
@@ -16680,6 +16779,7 @@ step_available_to_promise() {
   api 200 '"sales order \(.document_number): \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) confirmed"' \
     changeSalesOrder -p "id=$third" -if-match "$ETAG" -body '{"reason": "Northwind takes 6", "items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
   expect "the third order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 6
+  lead_time_check
   say "An order of hinges that names no plant delivers from none: Maple has two plants. Confirming it is refused, as"
   say "its availability cannot be checked:"
   api 201 '"sales order \(.document_number): plant \(.plant_code // "none")"' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\",
@@ -16702,6 +16802,54 @@ step_available_to_promise() {
       \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"AED\"}, \"account_id\": \"$sales\", \"tax_code\": \"S5\"}]}"
   expect "the order's plant" "$(field '"\(.plant_code) \(.items[0].tax_jurisdiction)"')" "P300 AE-SH"
   passed
+}
+
+# lead_time_check is S2j2 (ADR-0082 As built S2j2), part of step
+# 150: Mira creates a door latch kept in Toronto's main store, of which
+# Wade enters 20, and plans it at Toronto with a replenishment lead time
+# of 10 days. Sally's order of 50 asked for in two weeks is confirmed in
+# full: the 20 in stock and the other 30 on the lead time, until the day
+# it ends; her order of 5 asked for in three days is confirmed only what
+# the stock has left, none, since the first order's promise counts.
+lead_time_check() {
+  local latch order
+  as mira
+  say "Mira creates a door latch kept in Toronto's main store; Priya approves it, Ines values it and Wade enters 20:"
+  api 201 '"material \(.number) \(.description)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Door latch L10\",
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"LATCHES\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  latch=$(field .id)
+  approve priya "$(material_request "$latch")" "Latches for the cabinet line."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$latch\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"2.40\", \"currency\": \"CAD\"}}"
+  as wade
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$latch\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  as mira
+  say "Mira gives the latch a replenishment lead time of 10 days at Toronto (SAP's check with the replenishment lead time,"
+  say "MARC-WZEIT); planning runs leave it out (no_planning):"
+  api 201 '"\(.material_number) at \(.plant_code): \(.mrp_type), replenishment lead time \(.replenishment_lead_time_days) days"' \
+    createMaterialPlan -body "{\"plant_id\": \"$PLANT\", \"material_id\": \"$latch\", \"mrp_type\": \"no_planning\", \"reorder_point\": \"0\",
+      \"account_id\": \"$(account 6000)\", \"replenishment_lead_time_days\": 10}"
+  as sally
+  latch_order() { # quantity, requested delivery date: a draft order of Northwind's for latches from Toronto, confirmed
+    QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\",
+        \"requested_delivery_date\": \"$2\", \"items\": [{\"material_id\": \"$latch\", \"quantity\": {\"value\": \"$1\", \"unit\": \"EA\"},
+        \"unit_price\": {\"amount\": \"6.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+    order=$(field .id)
+    hinge_confirm "$order"
+    QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+    say "  asked for $2: $(field '"\(.items[0].confirmed_quantity.value) confirmed, \(.items[0].lead_time_quantity.value // 0) of it on the lead time until \(.items[0].lead_time_date // "-")"')"
+  }
+  say "Sally's order of 50 latches asked for in two weeks is in time for Toronto to replenish: all 50 are confirmed, the"
+  say "20 in stock and 30 on the lead time, until the day it ends:"
+  latch_order 50 "$(date_add "$TODAY" 14)"
+  expect "the order on the lead time" "$(field '"\(.items[0].confirmed_quantity.value) \(.items[0].lead_time_quantity.value) \(.items[0].lead_time_date)"')" \
+    "50 30 $(date_add "$TODAY" 10)"
+  say "An order of 5 asked for in three days is too soon to replenish: it has only what the stock has left, none:"
+  latch_order 5 "$(date_add "$TODAY" 3)"
+  expect "the order too soon" "$(field '"\(.items[0].confirmed_quantity.value) \(.items[0].lead_time_quantity.value // "none")"')" "0 none"
 }
 
 # step_serial_numbers is S2g (ADR-0082 As built S2g, plan-supply-chain.md):

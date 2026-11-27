@@ -185,6 +185,9 @@ type Endpoints struct {
 	// Stock is the plants' stock an order's availability check reads
 	// (S2j).
 	Stock Stock
+	// LeadTimes are the materials' replenishment lead times at plants it
+	// reads too (S2j2).
+	LeadTimes LeadTimes
 	// Intercompany reads the intercompany stock transport orders the
 	// supplying company bills (S2i2).
 	Intercompany IntercompanyOrders

@@ -13,7 +13,10 @@ import (
 
 // An outbound delivery's stock (ADR-0083 §5): shipping checks a pick
 // against what a storage location holds (Held) and posts the delivery's
-// goods issue through IssueForDelivery (S2b1; ADR-0083 §5).
+// goods issue through IssueForDelivery (S2b1; ADR-0083 §5), naming the
+// batches and serial numbers it issues (S2f2, S2g2; ADR-0083 As built
+// S2f2), and its reversal through ReverseForDelivery (S2b3), which gives
+// them back.
 
 // Held is what a storage location of a plant holds of a material now, in
 // its base unit as a plain decimal, "0" when it has never held any. It
@@ -38,10 +41,14 @@ func (e *Endpoints) Held(ctx context.Context, material, plant, storageLocation u
 
 // DeliveryItem is an item of an outbound delivery's goods issue: a
 // positive quantity of a material in the order item's unit, out of a
-// storage location of a plant.
+// storage location of a plant; of a batch-managed material, the number of
+// the batch it issues from, and of a serial-managed one, the serial
+// number of each unit (S2f2, S2g2).
 type DeliveryItem struct {
 	MaterialID, PlantID, StorageLocationID uuid.UUID
 	Quantity, Unit                         string
+	Batch                                  string
+	SerialNumbers                          []string
 }
 
 // IssueForDelivery posts an outbound delivery's goods issue (601) as a
@@ -57,7 +64,10 @@ type DeliveryItem struct {
 // sold account (422 inventory.no_inventory_account when it has none). The
 // audit record and MaterialDocumentPosted are written in the request's
 // transaction. What each line took from the stock is its cost (the line's
-// amount, negative).
+// amount, negative). An item of a batch-managed material names its batch
+// by number and one of a serial-managed material its units' serial
+// numbers, each in stock at the location (deliveryBatches, takeBatches,
+// takeSerials; S2f2, S2g2).
 func (e *Endpoints) IssueForDelivery(ctx context.Context, reference string, in []DeliveryItem) (Document, error) {
 	return e.issueAgainstCost(ctx, "601", reference, in)
 }
@@ -71,7 +81,9 @@ func (e *Endpoints) IssueForDelivery(ctx context.Context, reference string, in [
 // sold account, in the supplying company. The stock leaves the supplying
 // company; it enters the receiving company's only with its goods receipt
 // (a purchase order's 101), so in between it is in no company's stock or
-// valuation (transit valuation is Later, ADR-0082 As built S2i).
+// valuation (transit valuation is Later, ADR-0082 As built S2i). The 643
+// carries no batch or serial number yet: it refuses a batch-managed or
+// serial-managed material, which procurement's order refuses first.
 func (e *Endpoints) IssueForIntercompany(ctx context.Context, reference string, in []DeliveryItem) (Document, error) {
 	return e.issueAgainstCost(ctx, "643", reference, in)
 }
@@ -85,10 +97,14 @@ func (e *Endpoints) issueAgainstCost(ctx context.Context, mt, reference string, 
 	}
 	items := make([]ItemInput, len(in))
 	for i, it := range in {
-		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity, Unit: it.Unit}
+		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity, Unit: it.Unit,
+			SerialNumbers: it.SerialNumbers}
 	}
 	r, err := e.inputRefs(ctx, items)
 	if err != nil {
+		return Document{}, err
+	}
+	if err := deliveryBatches(ctx, tx, movementTypes[mt], in, items, &r); err != nil {
 		return Document{}, err
 	}
 	company, lines, err := e.items(items, movementTypes[mt], r)

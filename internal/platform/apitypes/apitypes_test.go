@@ -269,3 +269,17 @@ func TestETagOf(t *testing.T) {
 		t.Errorf("got %v, want the representation's tag", got)
 	}
 }
+
+// TestOptNil: a merge-patch field of any nullable type, here a number:
+// absent leaves it, null clears it, a value sets it.
+func TestOptNil(t *testing.T) {
+	if got := apitypes.OptNil[int32](gen.OptNilInt32{}); got != nil {
+		t.Errorf("absent: got %v, want nil", got)
+	}
+	if got := apitypes.OptNil[int32](gen.OptNilInt32{Set: true, Null: true}); got == nil || *got != nil {
+		t.Errorf("null: got %v, want a pointer to nil", got)
+	}
+	if got := apitypes.OptNil[int32](gen.NewOptNilInt32(7)); got == nil || *got == nil || **got != 7 {
+		t.Errorf("a value: got %v, want 7", got)
+	}
+}

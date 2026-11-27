@@ -4,7 +4,8 @@
 // stock from one plant's storage location, numbered from its company's
 // outbound_delivery range (create.go, S2a); their picking, up to what the
 // location holds (pick.go, S2a); their goods issue (S2b1) and its
-// reversal (reverse.go, S2b3). A
+// reversal (reverse.go, S2b3), naming the batches and serial numbers of
+// the materials managed by them (issue_tracked.go, S2f2, S2g2). A
 // delivery's shipment is recorded as a transport system reports it
 // (shipment.go, S2r), and its trade compliance as a trade compliance
 // service screens it, which its goods issue waits for (trade.go, S2s;
@@ -159,6 +160,10 @@ type Item struct {
 	// Cost is what its goods issue took from the stock, minor units of
 	// the delivery's Currency; nil before.
 	Cost *money.Minor `json:"cost_amount"`
+	// IssueLines are what its goods issue's lines issued of a
+	// batch-managed or serial-managed material, by line (S2f2, S2g2); nil
+	// before, and for another material.
+	IssueLines []IssueLine `json:"issue_lines"`
 }
 
 // Delivery is a row of shipping.outbound_delivery with its items by item
