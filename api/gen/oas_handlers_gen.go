@@ -133516,7 +133516,10 @@ func (s *Server) handleReverseCustomerInvoiceRequest(args [1]string, argsEscaped
 // quantities) if it would leave an order item received less than posted supplier documents invoiced of
 // it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A
 // movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
-// found. Returns the reversal.
+// found. Returns the reversal. A return of a stock item (S1e2) is reversed by a 123 that puts back
+// into its storage location what the 122 took out, at that value (a standard-priced material at its
+// price), its batch and serial numbers with it; refused (409 `inventory.serial_in_stock`) when a
+// returned unit has been received again since.
 //
 // POST /v1/goods-receipts/{id}:reverse
 func (s *Server) handleReverseGoodsReceiptRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

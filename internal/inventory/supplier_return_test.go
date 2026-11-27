@@ -77,6 +77,9 @@ func TestSupplierReturn(t *testing.T) {
 	if ev := e.events(t, d["id"].(string)); len(ev) != 1 || ev[0]["movement_type"] != "122" || ev[0]["reference"] != ret["document_number"] {
 		t.Errorf("MaterialDocumentPosted: got %v, want one of the 122 naming the return", ev)
 	}
+	// Its document is reversed through the return alone.
+	_, dtag := e.Must(200, "GET", docs+"/"+d["id"].(string), "", "")
+	e.Problem(409, "inventory.reverse_goods_receipt", "POST", docs+"/"+d["id"].(string)+":reverse", "", dtag)
 	rev, _ := e.Must(200, "POST", "/v1/goods-receipts/"+ret["id"].(string)+":reverse", "", e.receiptTag(t, ret))
 	if got, want := fmt.Sprint(values(t, e.document(t, rev))), fmt.Sprintf("[%s 4 4.00 0.80 %s 4 11.00 -1.00]", bolt, bracket); rev["movement_type"] != "123" ||
 		got != want {

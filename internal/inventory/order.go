@@ -22,8 +22,8 @@ import (
 // and its reversal a 102, through ReceiveForOrder and ReverseForOrder in
 // its own transaction; a return to the supplier a 122 through
 // ReturnForOrder, and its reversal a 123 through ReverseForOrder (S1e2).
-// The material document is valued as any is, but its value posts on the entry procurement posts for the goods movement,
-// against GR/IR (source context procurement, which moves the order
+// The material document is valued as any is, but its value posts on the
+// entry procurement posts for the goods movement, against GR/IR (source context procurement, which moves the order
 // items' GR/IR positions), not on an entry of its own: each item's GR/IR
 // counter line goes to its valuation class's stock account, the part the
 // stock does not take to the class's price difference account

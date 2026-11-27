@@ -13991,7 +13991,7 @@ paths:
         - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
         # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
-        # carries no batches; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
+        # carries no batches; a goods receipt (101), a return (122) and their reversals (102, 123) carry them (S2f1, S2g1, S1e2), so it is not expected here.
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_not_allowed
@@ -14015,7 +14015,7 @@ paths:
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
         # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
-        # carries no serial numbers; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
+        # carries no serial numbers; a goods receipt (101), a return (122) and their reversals (102, 123) carry them (S2f1, S2g1, S1e2), so it is not expected here.
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated
@@ -14171,7 +14171,7 @@ paths:
       tags:
         - procurement
       summary: Reverse a goods receipt
-      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both quantities) if it would leave an order item received less than posted supplier documents invoiced of it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal."
+      description: "Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make the received quantity negative, or, for a 123, take it beyond the over-delivery tolerance; a 102 is refused (409 `procurement.reversal_below_invoiced`, naming the receipt, the order item and both quantities) if it would leave an order item received less than posted supplier documents invoiced of it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is found. Returns the reversal. A return of a stock item (S1e2) is reversed by a 123 that puts back into its storage location what the 122 took out, at that value (a standard-priced material at its price), its batch and serial numbers with it; refused (409 `inventory.serial_in_stock`) when a returned unit has been received again since."
       x-permission: procurement.receipt.post
       x-problem-codes:
         # inventory.batch_dates, .batch_dates_differ, .batch_exists and .batch_manufacture_date_required are a receipt's refusals of
@@ -14188,7 +14188,7 @@ paths:
         - inventory.batch_manufacture_date_required
         - inventory.batch_not_allowed
         # Listed because TestProblemCodes reads the shared item check (batchOf), which answers it for a movement type that
-        # carries no batches; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
+        # carries no batches; a goods receipt (101), a return (122) and their reversals (102, 123) carry them (S2f1, S2g1, S1e2), so it is not expected here.
         - inventory.batch_not_supported
         - inventory.batch_required
         - inventory.cost_center_not_allowed
@@ -14212,7 +14212,7 @@ paths:
         - inventory.serial_not_allowed
         - inventory.serial_not_in_stock
         # Listed because TestProblemCodes reads the shared item check (serialsOf), which answers it for a movement type that
-        # carries no serial numbers; a goods receipt (101) and its reversal (102) carry them (S2f1, S2g1), so it is not expected here.
+        # carries no serial numbers; a goods receipt (101), a return (122) and their reversals (102, 123) carry them (S2f1, S2g1, S1e2), so it is not expected here.
         - inventory.serial_not_supported
         - inventory.serial_quantity
         - inventory.serial_repeated

@@ -37,6 +37,9 @@ func TestSupplierReturnDocuments(t *testing.T) {
 			return []stmt{step(supplierReturnDocument, s.tenant, s.doc, s.company, "MD1", "101", nil, "GR1"),
 				step(supplierReturnDocument, s.tenant, id(), s.company, "MD2", "122", s.doc, "GR2")}
 		}, "a reversal is of its original"},
+		{"a 123 without its reference", func(s inventoryScene) []stmt {
+			return []stmt{step(supplierReturnDocument, s.tenant, s.doc, s.company, "MD1", "122", nil, "GR1"), s.document(id(), "MD2", "123", &s.doc)}
+		}, "material_document_reference"},
 		{"a 123 reversing nothing", func(s inventoryScene) []stmt {
 			return []stmt{step(supplierReturnDocument, s.tenant, s.doc, s.company, "MD1", "123", nil, "GR1")}
 		}, "material_document_reversal_check"},
