@@ -93,6 +93,11 @@
 // at the end of its value date's period, after which the schedule
 // depreciates the carrying amount then over the life left; the history
 // sheet shows both as lines of accumulated depreciation.
+//
+// The consolidated sheet (ADR-0057 As built, the consolidated sheet)
+// keeps the class totals per fiscal period too (keepTotals,
+// class_period_total) and publishes them to group reporting
+// (ConsolidationReads), which translates them at each period's rate.
 package assets
 
 import (
