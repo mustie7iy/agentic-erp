@@ -1427,7 +1427,10 @@ that returned quantities arrived, as T78c's is for a delivery.
   `sales.return_receipt_item_cost`, migration 000504); its other items
   move nothing, as above. The credit for the return is unchanged: the
   credit memo request's. Reversing a receipt, the returns delivery
-  document, inspection and replacement deliveries stay Later.
+  document, inspection and replacement deliveries stay Later. Batch 98S's
+  integration numbered its migrations 000504 and 000505, after S1e2's
+  returns to the supplier, and its walkthrough step 165; a serial number
+  received back is issued again (`TestReturnedSerialIssuedAgain`).
 
 ### T85c Credit memo request created and decided (migration 000313)
 

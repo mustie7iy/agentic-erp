@@ -298,8 +298,12 @@ type Document struct {
 	ReversedByNumber *string
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
-	// Reference is the goods movement's number of a purchase order's
-	// goods receipt or its reversal (101, 102), nil on another document.
+	// Reference is the number of the document that posted it: the goods
+	// movement's of a purchase order's goods receipt, its return to the
+	// supplier or their reversals (101, 102, 122, 123), the stock
+	// transport order's (351, and its receipt's 101), the outbound
+	// delivery's (601, 602), the intercompany order's (643) or the
+	// returns order's (653); nil on a document a person posts or a count's.
 	Reference *string
 	// Currency and Exponent are what its lines are valued in, the
 	// company's; empty on a document posted before valuation (S1c). The

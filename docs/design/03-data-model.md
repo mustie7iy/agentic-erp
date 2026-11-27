@@ -7425,7 +7425,8 @@ erDiagram
   posts with the returns order's number as its `reference` and no
   original (`material_document_movement_type_check`,
   `material_document_reference`, widened NOT VALID and validated by
-  000505). `sales.return_receipt_posting`: the 653 that received a
+  000505, which keep S1e2's 122 and 123; its down restores 000503's
+  lists). `sales.return_receipt_posting`: the 653 that received a
   return receipt's items of materials kept in stock
   (`return_receipt_posting_receipt_fkey`, with the receipt's returns
   order), once per receipt (the primary key) and once per document

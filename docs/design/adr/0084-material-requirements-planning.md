@@ -428,7 +428,10 @@ specialist):
 - **The replenishment agent** read a proposal of one item (ADR-0072 As
   built S2l), so it refused to recommend on a proposal of several lots
   and left it to the buyer; since S2k2a (ADR-0072 As built S2k2a) it
-  recommends one order of the lots, each named by its item.
+  recommends one order of the lots, each named by its item. On batch
+  98S's merged tree the run's stock reads the 122 and 653 as every
+  movement (stock on hand): neither changes step 152's washer, which no
+  return moves (ADR-0072 As built S2k2a).
 - API (additive): `MaterialPlan`, `MaterialPlanCreate` and
   `MaterialPlanUpdate` (merge patch; `null` removes a quantity) gain the
   six fields, `MrpRunLine` `lot_size`, `proposed` and `lots`; problems

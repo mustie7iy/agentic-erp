@@ -689,6 +689,29 @@ the product owner).
 - Walkthrough step 130, `step_stock_receipt`, extended: four brackets
   returned, stock and GR/IR down to 96 received, received again; a return
   after the invoice refused.
+- **With S2b4's customer returns (653) and the slices before** (batch 98S
+  integration). The two lanes rewrote the same three checks: 000504 (S2b4)
+  runs after 000503 and lists 122 and 123 beside 653, its down restoring
+  000503's lists; `TestMovementTypesOfCountAndShipping` reverts 000505,
+  000504, then 000503, 000502, then the older stages, which types each
+  takes and refuses, and the checks validated after each, and
+  `TestDownsRevert` takes both pairs. One table, `TestMovementTypes`
+  (internal), holds every type's direction, poster, reversal and
+  tracking; Post's rule is `movementType.byPerson`, so 122, 123 and 653
+  are posted by their documents alone. A 122 at the moving price and a 653
+  at its goods issue's cost leave the valuation's quantity the stock and
+  its value the stock account's balance (`TestReturnsBothWays`, in
+  internal/shipping); the availability check confirms the stock on hand
+  after both; the counts due are decided by the stock a location holds and
+  its last count, not by the movement that put it there, so neither return
+  makes a location due by itself; and the ABC analysis (S2c3) counts
+  neither as consumption, its movement types being 201, 551 and 601 and
+  their reversals. A return of a material blocked since its receipt is
+  refused, while the receipt's reversal reverses it: a tracker leaf
+  (review:batch98), nothing built. Procurement renames inventory's
+  refusal of a return's items onto its own request through
+  `problem.Renamed` (`asReceiptItems`), copying the problem rather than
+  changing it (S2b4's review backlog).
 - **Not built** (plan §S1e2, Later): a return naming the receipt (material
   document) it returns rather than the order item, at that receipt's value;
   returns from quality inspection or blocked stock (161, 122 from stock

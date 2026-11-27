@@ -1740,7 +1740,13 @@ recommendation. Decided by default:
   40, step 152) into the catalog; Ben's rerun of Montreal proposes the
   three lots of 40 for the 100 short; the agent's order of the 120
   without its lots is refused by the run, and its order of the 120 naming
-  each lot is made; the proposal stays the run's draft.
+  each lot is made; the proposal stays the run's draft. The refused
+  attempt is read back from the session's tool calls: its recorded
+  result is `ErrLots`'s wording (batch 98S integration, the lane's review
+  nit). On the merged story (batch 98S) the washers of step 152 are not
+  step 147's: step 147 names its own `M10_WASHER` for the customer return
+  (step 165, after this one), and S1e2's return in step 130 moves only
+  the brackets, so the run's 100 short and three lots of 40 hold.
 - No migration, no contract change, permission, event or problem code.
 
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)

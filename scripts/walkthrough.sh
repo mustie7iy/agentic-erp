@@ -17387,7 +17387,7 @@ step_replenishment_agent() {
 # it recommends one order of the 120 from Tyrell's catalog item naming each
 # lot by the proposal's day, which the buyer orders as items of one order.
 replenish_lots() {
-  local item number run proposal day got rec version want
+  local item number run proposal day got rec version want session
   [ -n "${WASHER:-}" ] && [ -n "${MONTREAL:-}" ] || fail "step 152's washer is not there"
   as priya
   say "Priya loads Tyrell's W8 washers into Maple's catalog at 0.12 CAD each:"
@@ -17438,6 +17438,13 @@ replenish_lots() {
   expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
   rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): order on requisition $proposal .*/\\1/p")
   [ -n "$rec" ] || fail "erp agent replenish printed no order on the washer's proposal"
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  as replenishment-agent
+  QUIET=1 api 200 '' listAgentToolCalls -p "id=$session"
+  expect "the refused attempt, by the run's lot check (ErrLots)" \
+    "$(field '[.items[] | select(.is_error) | "\(.tool): \(.result_summary | split(", in the order")[0])"] | join("; ")')" \
+    "createRecommendation: replenishmentagent: an order of a proposal of several lots names each lot in a line of its own"
+  as ben
   api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
   want="Order 120 EA from supplier $SUPPLIER by $day: catalog item $item"$'\n'"$lots"
   expect "the order and its lots" "$(field '.content | split("\n")[0:4] | join("\n")')" "$want"

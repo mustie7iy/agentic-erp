@@ -1833,6 +1833,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "The group liquidity forecast made faster within its budget, which is not loosened: on main c5b245bf6 at load 3 the slowest of TestGroupLiquidityForecastBudget's 20 reads took 3.70 s against p95 3 s (median 2.6 s), though it passed twice on the next tree; profile the group forecast's reads across the companies and cut their time (batch 98S integration)",
+        "r": "cash.TestGroupLiquidityForecastBudget · 01 §1.3 Performance · ADR-0051 (as built, T53e5)",
+        "src": "review:batch98",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Snapshots of the liquidity forecast: TakeCashSnapshot workflow per company and day after its snapshot_time (run-twice test, document level within 31 days, per bucket beyond), on-demand snapshots, retention of 25 months, a snapshot read with its lines (split: the actuals, the variance and its comments are T53f2-T53f4)",
         "r": "POST/GET /v1/cash-snapshots, GET /v1/cash-snapshots/{id}, GET /v1/cash-snapshots/{id}/flows (CashSnapshot, CashSnapshotFlowPage) · CashSnapshotTaken event · migration 000198 (cash.snapshot, cash.snapshot_flow, cash.snapshot.take) · cash.Endpoints.TakeSnapshot, TakeDailySnapshot, PruneSnapshots, DueSnapshots, SnapshotTenants, Snapshot, Snapshots, SnapshotLines · uow.Consistent · workflows.TakeCashSnapshot, Snapshots, Snapshotter, Dispatcher.Snapshots · TestCashSnapshotRules, TestCashSnapshotPrivileges, TestCashSnapshot*, TestConsistentRead, TestTakeCashSnapshot, TestTakeSnapshotTwice, TestDispatchSnapshots, TestSnapshotter · walkthrough step 26 · ADR-0051 (as built, T53f) · 03-data-model §3.18 · T53f",
@@ -5863,6 +5870,13 @@
       "t": "A buyer returns received goods of a purchase order's stock item to the supplier (122): out of stock at the value the stock holds them at, as the receipt's reversal values them, GR/IR debited at the order price and the rest a price difference, the order item's received quantity lowered so the replacement is received again; refused beyond the stock, beyond what was received and, for a stock item, below what was invoiced until the credit memo; batches by number and serial numbers in stock; its reversal (123) puts back what it took",
       "r": "S1e2 · docs/design/plan-supply-chain.md §S1e2 · ADR-0082 As built S1e2 · db/migrations/000502, 000503 · inventory.material_document movement types 122, 123 · inventory.ReturnForOrder, ReverseForOrder of a 122 · procurement.return_below_invoiced, procurement.return_batch_dates · TestSupplierReturn, TestSupplierReturnRefused, TestSupplierReturnTracked, TestSupplierReturnsAtOnce, TestSupplierReturnDocuments, TestSupplierReturnsDownRefused · walkthrough step_stock_receipt (step 130)",
       "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A return to the supplier (122) of a material blocked since its receipt: S1e2 checks a return's items as an issue's, an active material, so it refuses one, while the receipt's reversal (102) still reverses a blocked material; decide whether a blocked material's goods go back to their supplier, and build it (batch 98S integration, supret's review)",
+      "r": "docs/design/plan-supply-chain.md §S1e2 · ADR-0082 As built S1e2 · inventory.ReturnForOrder · internal/inventory/reverse.go",
+      "src": "review:batch98",
       "c": []
      },
      {

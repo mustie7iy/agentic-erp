@@ -571,3 +571,17 @@ product owner):
   serial-managed one the serial number of each unit, none in stock (409
   `inventory.serial_in_stock`); that a serial number was delivered to
   this customer is not checked (Later).
+- **With S1e2's returns to the supplier** (batch 98S integration). The
+  two lanes widened the same checks on `inventory.material_document`:
+  000504 runs after S1e2's 000502 and 000503 and lists 122 and 123 beside
+  653 in every check it rewrites, and its down restores 000503's lists,
+  validated, so reverting S2b4 leaves a 122 taken
+  (`TestMovementTypesOfCountAndShipping`). The contract's enumerations
+  list 122 and 123 where S1e2 put them and 653 last. A serial number a
+  customer returned is in stock again and issued again by the next
+  delivery (`TestReturnedSerialIssuedAgain`); one S1e2 returned to the
+  supplier is out of stock until its 123 (`TestSupplierReturnTracked`).
+  The valuation, availability, counts due and ABC analysis after both
+  returns: ADR-0082 As built S1e2 (`TestReturnsBothWays`). The
+  walkthrough step takes step 147's washer as `M10_WASHER`, since step
+  152 (S2k2a's) sets `WASHER` to its own washer.

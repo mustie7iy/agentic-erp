@@ -465,6 +465,9 @@ replacement is received again.
 - **Later:** a return naming the receipt it returns, at that receipt's
   value; returns from quality inspection or blocked stock (161); a return
   delivery with shipping papers; an intercompany order's returns.
+- **Integrated** (batch 98S, with S2b4): ADR-0082 As built S1e2's last
+  bullet; a return of a material blocked since its receipt is a tracker
+  leaf (review:batch98).
 
 ### S1f Item keys of sales and procurement mapped onto materials (pilot)
 
@@ -793,7 +796,12 @@ memo for the return stays the credit memo request's.
   check that a returned serial number was delivered to the customer; a
   warehouse system reporting a return receipt.
 - **As built** (2026-11-27): ADR-0083 As built S2b4, migrations 000504
-  and 000505, walkthrough step 165 (`return_into_stock`).
+  and 000505, walkthrough step 165 (`return_into_stock`). Batch 98S's
+  integration with S1e2: both lanes' movement types in one schema and one
+  table test; a 122 and a 653 reconcile the valuation to the stock
+  account, neither is consumption to the ABC analysis, and a serial
+  number received back is issued again (ADR-0082 As built S1e2,
+  ADR-0083 As built S2b4).
 
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
@@ -1418,7 +1426,8 @@ pack size.
     replayed.
   - **Walkthrough:** `step_replenishment_agent` (step 153): the W8
     washer at Montreal, in fixed lots of 40: the agent's order of the 120
-    without its lots refused, its order naming the three lots made.
+    without its lots refused (its recorded result `ErrLots`'s wording),
+    its order naming the three lots made.
   - **Later:** an order per lot (lots from several suppliers, with quota
     arrangements; lots on several days, with period lot sizes).
 

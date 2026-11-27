@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -159,22 +158,17 @@ func notStockItem(field string, it ReceiptItem, oi orderItem) error {
 // alone. A return's batch, which inventory's issue names batch_number, is
 // the item's batch here (S1e2).
 func asReceiptItems(err error, stock []int) error {
-	var p *problem.Problem
-	if !errors.As(err, &p) {
-		return err
-	}
-	for j := range p.Errors {
+	return problem.Renamed(err, func(field string) (string, bool) {
 		for k, i := range stock {
-			if rest, ok := strings.CutPrefix(p.Errors[j].Field, fmt.Sprintf("items[%d].", k)); ok {
+			if rest, ok := strings.CutPrefix(field, fmt.Sprintf("items[%d].", k)); ok {
 				if rest == "batch_number" {
 					rest = "batch"
 				}
-				p.Errors[j].Field = fmt.Sprintf("items[%d].%s", i, rest)
-				break
+				return fmt.Sprintf("items[%d].%s", i, rest), true
 			}
 		}
-	}
-	return p
+		return field, true // a field of no item, such as items itself, is the request's too
+	})
 }
 
 func entryOf(entry ledger.Entry, ok bool) postedMovement {
