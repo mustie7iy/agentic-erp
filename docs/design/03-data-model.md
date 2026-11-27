@@ -5600,6 +5600,8 @@ erDiagram
     numeric billed_quantity "at most delivered_quantity"
     numeric returned_quantity "at most billed_quantity (T85a)"
     numeric confirmed_quantity "optional, the availability check's (S2j)"
+    numeric lead_time_quantity "optional, of it on the lead time (S2j2)"
+    date lead_time_date "with lead_time_quantity (S2j2)"
   }
   sales_order ||--o{ delivery : "is delivered by"
   delivery ||--|{ delivery_item : "has"
@@ -5842,7 +5844,13 @@ erDiagram
   too), not below zero nor below what is delivered and in delivery of it
   (`sales_order_item_confirmed`); the application may update it.
   `sales_order_item_promised` indexes the items that promised more than
-  is delivered, by material. The same migration adds
+  is delivered, by material. S2j2 (migration 000493; ADR-0082 As built
+  S2j2) adds `lead_time_quantity` and `lead_time_date`: the part of the
+  confirmed quantity the plant's stock did not cover when the check
+  confirmed it, which the material's replenishment lead time covers by
+  that day; set and cleared together, only beside a confirmed quantity,
+  more than zero and at most what is confirmed
+  (`sales_order_item_lead_time`); the application may update them. The same migration adds
   `sales.delivery_assignment.plant_id`, the plant the delivery ships
   from (the existing ones take their delivery's; NOT NULL since the
   contract step 000458/000459, which gave any assignment still without it
@@ -7344,6 +7352,7 @@ erDiagram
     numeric maximum_lot_size "not with fixed"
     numeric rounding_value "not with fixed"
     uuid account_id "ledger: its proposals'"
+    integer replenishment_lead_time_days "optional, 1 to 999 (S2j2)"
     integer version }
   run { uuid id PK
     uuid legal_entity_id "tenancy"
@@ -7393,7 +7402,10 @@ erDiagram
   quantity above zero (`material_plan_*_check`), the minimum not above
   the maximum (`material_plan_lot_bounds`) and both multiples of the
   rounding value (`material_plan_rounding`). The list reads by `material_plan_by_created_at`; a run reads the
-  plant's plans under a share lock.
+  plant's plans under a share lock. Its replenishment lead time
+  (migration 000492, S2j2) is absent or 1 to 999 calendar days
+  (`material_plan_replenishment_lead_time_days_check`); sales orders'
+  availability checks read it by `material_plan_once`, without a lock.
 - `mrp.run`: a planning run of a plant with its Operation, `queued`,
   `completed` or `failed` (`run_status_check`), one queued per plant
   (`run_one_at_a_time`); a completed run names its day and counts, not

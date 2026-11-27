@@ -1863,7 +1863,7 @@ specialist) and S2i's and S2i2's decisions above.
   confirming stays `sales.order.confirm`, human-only.
 - Walkthrough step 150, `step_available_to_promise`.
 - **Not built** (Later, plan §S2j): checking rules with replenishment
-  lead time and planned receipts, back-order processing, product
+  lead time (first slice S2j2, below) and planned receipts, back-order processing, product
   allocation, global ATP across plants, per-item plants.
 - **Contract step** (lane salesfix, batch 92; leaf src review:batch86):
   migrations 000458 and 000459 make `sales.delivery_assignment.plant_id`
@@ -1922,6 +1922,65 @@ The product owner's answer of 2026-11-21 to S2j's question above
   there; step 150 (`step_available_to_promise`) has an order of the hinge
   without a plant refused on confirm in the Canadian company, which has
   two, and a UAE order without one delivering from its only plant.
+
+### S2j2: checking with the replenishment lead time (2026-11-25)
+
+The first item of the tracker's "later: ATP variants" (plan-supply-chain
+§S2j2; migrations 000492, 000493). Decided by default, for the product
+owner's review (SAP's check with the replenishment lead time, from
+memory, for the SAP specialist):
+
+- **The lead time** is the material's at the plant, on its planning data
+  (`replenishment_lead_time_days` of `createMaterialPlan` and
+  `updateMaterialPlan`, 1 to 999 calendar days, optional; why there:
+  ADR-0084 As built, replenishment lead time). None, the default: the
+  check counts the stock alone, as S2j. Calendar days, as the company's
+  dates are; working-day calendars are Later.
+- **When it counts**: for an order asked for on or after the company's
+  date today (`config.DocumentDay`, the confirmation's or the change's
+  day) plus the lead time. An order asked for sooner, or for no date
+  (read as today, as SAP defaults the requested date, from memory), is
+  checked against the stock alone: the plant could not replenish in time.
+- **What it confirms**: such an item in full, the stock first, as far as
+  S2j's check reaches, and the rest on the lead time (the alternative,
+  an order beyond the lead time taking no stock so that nearer orders
+  keep it, was not taken: the stock is then left idle while more is
+  ordered, and SAP's cumulative ATP gives the stock to the first check,
+  from memory). The item names that rest (`lead_time_quantity`, in its
+  unit) and the day the lead time ends (`lead_time_date`). All it
+  confirms counts as promised for later checks, so the stock is never
+  promised twice: a later order asked for sooner gets what is left.
+- **Checked again** (a change that adds an item or changes its quantity,
+  S2j): an order asked for in time, as changed, has the item confirmed in
+  full again, the rest on the lead time from the change's day; one asked
+  for sooner keeps what it had confirmed (a promise is never taken back)
+  with as much of it on the lead time as rested on it before, less the
+  stock that arrived since, until the day it did; a check of stock alone
+  never moves a promise onto the lead time. A change of the requested
+  date alone checks nothing again (S2j); a recheck on it is Later, with
+  confirmation on a later date than asked for (schedule lines at the lead
+  time's end) and planned receipts in the check.
+- **Locks**: unchanged. The lead times are read after the materials'
+  locks (`database.LockTenant` `sales.availability`), under which the
+  demand and stock are read; the goods issue reversal takes the same
+  lock (S2b3). The planning data is read without a lock (ADR-0084 As
+  built).
+- **What a delivery takes**: at most what is confirmed (S2j); its goods
+  issue still needs the stock (inventory refuses a shortage), so a part on
+  the lead time is shipped once the stock has arrived.
+- Audited in the confirmation's and the change's `availability` detail:
+  each item of a material with a lead time names `lead_time_days`,
+  `lead_time` (what rests on it now and until when) and
+  `lead_time_before`. No event, permission or never-list change: no new
+  operation.
+- `TestConfirmOnTheLeadTime`, `TestJudged` (sales),
+  `TestConfirmationOnTheLeadTime`, `TestLeadTimeOnAChange`,
+  `TestLeadTimeDatabaseFailures` (shipping, on an injected clock),
+  `TestLeadTimeRules` (db). Walkthrough step 150
+  (`step_available_to_promise`, `lead_time_check`): a door latch with 20
+  in stock and 10 days' lead time; an order of 50 asked for in two weeks
+  is confirmed 50, 30 on the lead time; one of 5 asked for in three days
+  is confirmed none.
 
 ### Planning (2026-11-21)
 

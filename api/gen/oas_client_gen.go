@@ -753,10 +753,12 @@ type Invoker interface {
 	// checked. A confirmed order with a plant has the items the change adds, and those whose quantity it
 	// changes, checked for availability again as a confirmation checks them (`confirmSalesOrder`, S2j): an
 	// item keeps what it had confirmed, up to its new quantity, and has more confirmed as far as the plant
-	// has it available. The change is kept, numbered within the order, with its reason and its values
-	// before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted.
-	// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
-	// changed order. Human-only (`x-agent: false`).
+	// has it available, or in full on the material's replenishment lead time when the order, as changed,
+	// asks for delivery on or after the company's date today plus that lead time (S2j2). The change is
+	// kept, numbered within the order, with its reason and its values before and after
+	// (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and
+	// published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:change
 	ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
@@ -1070,16 +1072,21 @@ type Invoker interface {
 	// have not yet delivered, item after item in the order's item order. An item may be confirmed in full,
 	// in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a
 	// shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the
-	// requested delivery date as it is today. Its outbound deliveries take at most what is confirmed
-	// (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked
-	// one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
-	// limit and the exposure when the customer has a limit and each item's confirmed quantity, and
-	// published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
-	// with the same `Idempotency-Key` answers the confirmed order. An order without a plant that has an
-	// item of a material kept in stock is not confirmed (422 `sales.plant_required` naming `plant_id`;
-	// product owner 2026-11-21): its availability could not be checked; such a draft is cancelled and
-	// created again with its `plant_id`. An order of services and non-stock items needs none. Human-only
-	// (`x-agent: false`).
+	// requested delivery date as it is today, unless the material has a replenishment lead time at the
+	// plant (S2j2, `replenishment_lead_time_days` of `createMaterialPlan`; SAP's check with the
+	// replenishment lead time): an item of such a material whose order asks for delivery on or after the
+	// company's date today plus the lead time is confirmed in full, what the stock does not cover resting
+	// on the lead time, which the item names (`lead_time_quantity`, `lead_time_date`). An order without a
+	// requested delivery date, or one asked for sooner, is checked against the stock alone. Its outbound
+	// deliveries take at most what is confirmed (`createOutboundDelivery`). Two orders confirmed at once
+	// for the same material and plant are checked one after the other, so the last quantity is confirmed
+	// once. Audited, with the amount checked, the limit and the exposure when the customer has a limit and
+	// each item's confirmed quantity, and published as SalesOrderChanged, and as SalesOrderCreditBlocked
+	// when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. An
+	// order without a plant that has an item of a material kept in stock is not confirmed (422
+	// `sales.plant_required` naming `plant_id`; product owner 2026-11-21): its availability could not be
+	// checked; such a draft is cancelled and created again with its `plant_id`. An order of services and
+	// non-stock items needs none. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
@@ -2398,9 +2405,11 @@ type Invoker interface {
 	// with up to six decimals (422 `mrp.invalid_quantity`): a fixed lot size exactly with `fixed`, a
 	// maximum stock level not below the reorder point exactly with `replenish_to_maximum`, no minimum or
 	// maximum lot size or rounding value with a fixed lot, a minimum lot size not above the maximum and
-	// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field). A material is
-	// planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same
-	// `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`).
+	// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field); a replenishment
+	// lead time, if given, of 1 to 999 days (422 `mrp.invalid_lead_time`), which sales orders'
+	// availability checks at the plant confirm on (S2j2), whatever the MRP type. A material is planned
+	// once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key`
+	// answers the planning data created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-plans
 	CreateMaterialPlan(ctx context.Context, request *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error)
@@ -4957,8 +4966,9 @@ type Invoker interface {
 	// GetMaterialPlan invokes getMaterialPlan operation.
 	//
 	// A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code,
-	// number and description, its MRP type, its reorder point in the material's base unit and the account
-	// its proposals name, by number. One of a company the caller cannot act in is not found.
+	// number and description, its MRP type, its reorder point in the material's base unit, the account its
+	// proposals name, by number, and its replenishment lead time, if it has one (S2j2). One of a company
+	// the caller cannot act in is not found.
 	//
 	// GET /v1/material-plans/{id}
 	GetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (GetMaterialPlanRes, error)
@@ -10360,9 +10370,11 @@ type Invoker interface {
 	// UpdateMaterialPlan invokes updateMaterialPlan operation.
 	//
 	// Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
-	// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity) or account, checked as on
-	// creation, the planning data as it is after the change (422 `mrp.invalid_mrp_type`,
-	// `mrp.invalid_quantity`, `mrp.invalid_lot_size`, `mrp.account_not_postable`: changing `lot_size`
+	// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity), account or replenishment
+	// lead time (`null` removes it); a field the patch does not name stays as it is, so a change of lot
+	// sizing leaves the lead time and a change of lead time the lot sizing, checked as on creation, the
+	// planning data as it is after the change (422 `mrp.invalid_mrp_type`, `mrp.invalid_quantity`,
+	// `mrp.invalid_lot_size`, `mrp.account_not_postable`, `mrp.invalid_lead_time`: changing `lot_size`
 	// removes or adds the quantities the procedures use in the same patch); a change to what it already is
 	// is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the
 	// plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only
@@ -18399,10 +18411,12 @@ func (c *Client) sendChangeMaterialPrice(ctx context.Context, request *MaterialP
 // checked. A confirmed order with a plant has the items the change adds, and those whose quantity it
 // changes, checked for availability again as a confirmation checks them (`confirmSalesOrder`, S2j): an
 // item keeps what it had confirmed, up to its new quantity, and has more confirmed as far as the plant
-// has it available. The change is kept, numbered within the order, with its reason and its values
-// before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted.
-// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
-// changed order. Human-only (`x-agent: false`).
+// has it available, or in full on the material's replenishment lead time when the order, as changed,
+// asks for delivery on or after the company's date today plus that lead time (S2j2). The change is
+// kept, numbered within the order, with its reason and its values before and after
+// (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and
+// published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:change
 func (c *Client) ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error) {
@@ -21213,16 +21227,21 @@ func (c *Client) sendConfirmSalesDelivery(ctx context.Context, request *SalesDel
 // have not yet delivered, item after item in the order's item order. An item may be confirmed in full,
 // in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a
 // shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the
-// requested delivery date as it is today. Its outbound deliveries take at most what is confirmed
-// (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked
-// one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
-// limit and the exposure when the customer has a limit and each item's confirmed quantity, and
-// published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
-// with the same `Idempotency-Key` answers the confirmed order. An order without a plant that has an
-// item of a material kept in stock is not confirmed (422 `sales.plant_required` naming `plant_id`;
-// product owner 2026-11-21): its availability could not be checked; such a draft is cancelled and
-// created again with its `plant_id`. An order of services and non-stock items needs none. Human-only
-// (`x-agent: false`).
+// requested delivery date as it is today, unless the material has a replenishment lead time at the
+// plant (S2j2, `replenishment_lead_time_days` of `createMaterialPlan`; SAP's check with the
+// replenishment lead time): an item of such a material whose order asks for delivery on or after the
+// company's date today plus the lead time is confirmed in full, what the stock does not cover resting
+// on the lead time, which the item names (`lead_time_quantity`, `lead_time_date`). An order without a
+// requested delivery date, or one asked for sooner, is checked against the stock alone. Its outbound
+// deliveries take at most what is confirmed (`createOutboundDelivery`). Two orders confirmed at once
+// for the same material and plant are checked one after the other, so the last quantity is confirmed
+// once. Audited, with the amount checked, the limit and the exposure when the customer has a limit and
+// each item's confirmed quantity, and published as SalesOrderChanged, and as SalesOrderCreditBlocked
+// when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. An
+// order without a plant that has an item of a material kept in stock is not confirmed (422
+// `sales.plant_required` naming `plant_id`; product owner 2026-11-21): its availability could not be
+// checked; such a draft is cancelled and created again with its `plant_id`. An order of services and
+// non-stock items needs none. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:confirm
 func (c *Client) ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error) {
@@ -29028,9 +29047,11 @@ func (c *Client) sendCreateMaterialDocument(ctx context.Context, request *Materi
 // with up to six decimals (422 `mrp.invalid_quantity`): a fixed lot size exactly with `fixed`, a
 // maximum stock level not below the reorder point exactly with `replenish_to_maximum`, no minimum or
 // maximum lot size or rounding value with a fixed lot, a minimum lot size not above the maximum and
-// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field). A material is
-// planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same
-// `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`).
+// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field); a replenishment
+// lead time, if given, of 1 to 999 days (422 `mrp.invalid_lead_time`), which sales orders'
+// availability checks at the plant confirm on (S2j2), whatever the MRP type. A material is planned
+// once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key`
+// answers the planning data created. Human-only (`x-agent: false`).
 //
 // POST /v1/material-plans
 func (c *Client) CreateMaterialPlan(ctx context.Context, request *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error) {
@@ -54453,8 +54474,9 @@ func (c *Client) sendGetMaterialDocument(ctx context.Context, params GetMaterial
 // GetMaterialPlan invokes getMaterialPlan operation.
 //
 // A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code,
-// number and description, its MRP type, its reorder point in the material's base unit and the account
-// its proposals name, by number. One of a company the caller cannot act in is not found.
+// number and description, its MRP type, its reorder point in the material's base unit, the account its
+// proposals name, by number, and its replenishment lead time, if it has one (S2j2). One of a company
+// the caller cannot act in is not found.
 //
 // GET /v1/material-plans/{id}
 func (c *Client) GetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (GetMaterialPlanRes, error) {
@@ -132957,9 +132979,11 @@ func (c *Client) sendUpdateMaterial(ctx context.Context, request *MaterialUpdate
 // UpdateMaterialPlan invokes updateMaterialPlan operation.
 //
 // Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
-// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity) or account, checked as on
-// creation, the planning data as it is after the change (422 `mrp.invalid_mrp_type`,
-// `mrp.invalid_quantity`, `mrp.invalid_lot_size`, `mrp.account_not_postable`: changing `lot_size`
+// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity), account or replenishment
+// lead time (`null` removes it); a field the patch does not name stays as it is, so a change of lot
+// sizing leaves the lead time and a change of lead time the lot sizing, checked as on creation, the
+// planning data as it is after the change (422 `mrp.invalid_mrp_type`, `mrp.invalid_quantity`,
+// `mrp.invalid_lot_size`, `mrp.account_not_postable`, `mrp.invalid_lead_time`: changing `lot_size`
 // removes or adds the quantities the procedures use in the same patch); a change to what it already is
 // is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the
 // plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only

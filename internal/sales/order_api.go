@@ -83,6 +83,9 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 		if it.Confirmed != nil {
 			out.Items[i].ConfirmedQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Confirmed, Unit: it.Unit})
 		}
+		if l := it.LeadTime; l != nil {
+			out.Items[i].LeadTimeQuantity, out.Items[i].LeadTimeDate = gen.NewOptQuantity(gen.Quantity{Value: l.Quantity, Unit: it.Unit}), gen.NewOptDate(l.Date)
+		}
 	}
 	return out
 }

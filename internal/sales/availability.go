@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -26,12 +27,13 @@ import (
 // promised and have not delivered, and confirms what is available, all
 // of the item or part of it, possibly nothing. The check is of stock on
 // hand: with no planned receipts it confirms the same quantity for the
-// order's requested delivery date as for today (checking rules with
-// replenishment lead time are Later). The item keeps its confirmed
-// quantity, in its own unit, and its outbound deliveries take at most
-// that (OrderItem.open). Checks of one material at one plant are
-// serialized by a lock of their own, so two orders racing for the last
-// quantity confirm it once.
+// order's requested delivery date as for today, unless the material has
+// a replenishment lead time at the plant that the date reaches, when it
+// confirms the rest on the lead time (leadtime.go, S2j2). The item keeps
+// its confirmed quantity, in its own unit, and its outbound deliveries
+// take at most that (OrderItem.open). Checks of one material at one
+// plant are serialized by a lock of their own, so two orders racing for
+// the last quantity confirm it once.
 
 // Stock is what the availability check reads of a plant's stock (the
 // inventory context's published API).
@@ -102,20 +104,30 @@ func (e *Endpoints) plantRequiredFor(ctx context.Context, o Order, items []Order
 
 // promise is one item's availability check: the item, its quantity, what
 // it had confirmed before (nil: nothing) and what it confirms now, in
-// its unit; unvalued when its unit is no longer one of the material's, so
-// it kept what it had.
+// its unit, with the part of it that rests on the lead time (nil: none);
+// unvalued when its unit is no longer one of the material's, so it kept
+// what it had. leadDays is the material's lead time at the plant, nil
+// for none or for an order asked for no date.
 type promise struct {
 	item      OrderItem
 	material  uuid.UUID
 	before    *string
 	confirmed string
+	lead      *LeadPart
+	leadDays  *int32
 	unvalued  bool
 }
 
-// detail is the audit record's account of the check of one item.
+// detail is the audit record's account of the check of one item, with
+// the lead time it was judged on and what rests on it when the material
+// has one or the item rests on one.
 func (p promise) detail() map[string]any {
-	return map[string]any{"item_no": p.item.ItemNo, "material_id": p.material, "quantity": p.item.Quantity, "unit": p.item.Unit,
+	d := map[string]any{"item_no": p.item.ItemNo, "material_id": p.material, "quantity": p.item.Quantity, "unit": p.item.Unit,
 		"confirmed_before": p.before, "confirmed_quantity": p.confirmed, "unvalued": p.unvalued}
+	if p.leadDays != nil || p.lead != nil {
+		d["lead_time_days"], d["lead_time_before"], d["lead_time"] = p.leadDays, p.item.LeadTime, p.lead
+	}
+	return d
 }
 
 // promised is the audit detail of an order's availability check, nil
@@ -133,12 +145,14 @@ func promised(ps []promise, plant *uuid.UUID) map[string]any {
 
 // availability checks the items of an order with a plant whose row lock
 // the caller holds, those check selects (checkPlan), and writes and
-// returns what each confirms, in item order. The order of its steps is
+// returns what each confirms, in item order; o's requested delivery date
+// is the one the check is for, and le its company, whose date today the
+// materials' lead times are counted from. The order of its steps is
 // what makes it safe: the materials' locks first (lockMaterials), then
 // what is promised (demand) before the stock (Stock.PlantStock), so a
 // goods issue committed between the two reads counts out of the stock
 // but still in the demand and the check promises less, never more.
-func (e *Endpoints) availability(ctx context.Context, tx pgx.Tx, o Order, items []OrderItem, check func(OrderItem) bool) ([]promise, error) {
+func (e *Endpoints) availability(ctx context.Context, tx pgx.Tx, o Order, le tenancy.Entity, items []OrderItem, check func(OrderItem) bool) ([]promise, error) {
 	if o.PlantID == nil {
 		return nil, nil
 	}
@@ -156,7 +170,11 @@ func (e *Endpoints) availability(ctx context.Context, tx pgx.Tx, o Order, items 
 	if err := e.addStock(ctx, *o.PlantID, plan.ids, available); err != nil {
 		return nil, err
 	}
-	out := available.allocate(plan)
+	leads, err := e.leadTimesOf(ctx, o, le, plan.ids)
+	if err != nil {
+		return nil, err
+	}
+	out := available.allocate(plan, leads)
 	return out, writePromises(ctx, tx, o, out)
 }
 
@@ -328,8 +346,9 @@ func promisedOpen(m materials.Material, confirmed *big.Rat, it OrderItem) *big.R
 }
 
 // allocate counts what the kept items promised out of what is available,
-// then confirms the checked ones in item order (confirm).
-func (s stockLeft) allocate(p plan) []promise {
+// then confirms the checked ones in item order (confirm), each with its
+// material's lead time, if it has one.
+func (s stockLeft) allocate(p plan, leads map[uuid.UUID]leadTime) []promise {
 	for _, it := range p.kept {
 		if it.Confirmed != nil {
 			s.take(*it.MaterialID, promisedOpen(p.materials[*it.MaterialID], money.ParseRat(*it.Confirmed), it))
@@ -337,46 +356,67 @@ func (s stockLeft) allocate(p plan) []promise {
 	}
 	out := make([]promise, len(p.checked))
 	for i, it := range p.checked {
-		out[i] = s.confirm(it, p.materials[*it.MaterialID])
+		lt, ok := leads[*it.MaterialID]
+		out[i] = s.confirm(it, p.materials[*it.MaterialID], lt, ok)
 	}
 	return out
 }
 
 // confirm confirms the item as far as the material is available, in the
-// item's unit and rounded down to its decimals, and at most its quantity.
-// An item checked again keeps at least what it had confirmed, up to its
-// quantity: a change confirms an increase as far as there is stock and
-// never takes back a promise; in a unit that is no longer the material's
-// nothing more is promised. What it promises is counted out of what is
-// available.
-func (s stockLeft) confirm(it OrderItem, m materials.Material) promise {
+// item's unit and rounded down to its decimals, and at most its quantity;
+// all of it when the material has a lead time (hasLead) that the order's
+// date reaches, what the stock does not reach resting on the lead time
+// (onLead). An item checked again keeps at least what it had confirmed,
+// up to its quantity: a change confirms an increase as far as there is
+// stock and never takes back a promise; in a unit that is no longer the
+// material's nothing more is promised. What it promises, on the lead time
+// too, is counted out of what is available, so later items take no stock
+// it was promised.
+func (s stockLeft) confirm(it OrderItem, m materials.Material, lt leadTime, hasLead bool) promise {
 	quantity := money.ParseRat(it.Quantity)
 	kept := new(big.Rat)
 	if it.Confirmed != nil {
 		kept = money.MinRat(money.ParseRat(*it.Confirmed), quantity)
 	}
 	p := promise{item: it, material: *it.MaterialID, before: it.Confirmed}
-	reach := kept
-	if f, err := m.Factor(it.Unit); err == nil {
+	if hasLead {
+		p.leadDays = &lt.days
+	}
+	f, err := m.Factor(it.Unit)
+	p.unvalued = err != nil
+	reach := kept // what the stock reaches is not known in a unit the material lacks
+	if !p.unvalued {
 		reach = new(big.Rat).Add(money.ParseRat(it.Delivered), money.FloorQuantity(new(big.Rat).Quo(s.free(*it.MaterialID), f)))
-	} else {
-		p.unvalued = true
 	}
 	confirmed := money.MaxRat(kept, money.MinRat(quantity, reach))
-	p.confirmed = money.PlainQuantity(confirmed)
+	full := hasLead && lt.reached && !p.unvalued
+	if full {
+		confirmed = quantity
+	}
+	beyond := confirmed // in a unit the material lacks, all of it may rest on the lead time
+	if !p.unvalued {
+		beyond = money.MaxRat(new(big.Rat), new(big.Rat).Sub(confirmed, reach))
+	}
+	p.confirmed, p.lead = money.PlainQuantity(confirmed), onLead(it, beyond, full, lt)
 	s.take(*it.MaterialID, promisedOpen(m, confirmed, it))
 	return p
 }
 
-// writePromises writes the checked items' confirmed quantities, of which
-// availability has at least one.
+// writePromises writes the checked items' confirmed quantities with the
+// part of each that rests on the lead time, of which availability has at
+// least one.
 func writePromises(ctx context.Context, tx pgx.Tx, o Order, ps []promise) error {
-	nos, quantities := make([]int32, len(ps)), make([]string, len(ps))
+	nos, quantities, leads, ends := make([]int32, len(ps)), make([]string, len(ps)), make([]*string, len(ps)), make([]*time.Time, len(ps))
 	for i, p := range ps {
 		nos[i], quantities[i] = p.item.ItemNo, p.confirmed
+		if p.lead != nil {
+			leads[i], ends[i] = &p.lead.Quantity, &p.lead.Date
+		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE sales.sales_order_item t SET confirmed_quantity = x.q::numeric
-		FROM unnest($2::int[], $3::text[]) AS x(n, q) WHERE t.sales_order_id = $1 AND t.item_no = x.n`, o.ID, nos, quantities); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE sales.sales_order_item t SET confirmed_quantity = x.q::numeric, lead_time_quantity = x.l::numeric,
+			lead_time_date = x.d
+		FROM unnest($2::int[], $3::text[], $4::text[], $5::date[]) AS x(n, q, l, d) WHERE t.sales_order_id = $1 AND t.item_no = x.n`,
+		o.ID, nos, quantities, leads, ends); err != nil {
 		return fmt.Errorf("sales: confirmed quantities of sales order %s: %w", o.DocumentNumber, err)
 	}
 	return nil

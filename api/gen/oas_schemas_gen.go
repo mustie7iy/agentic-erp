@@ -75220,6 +75220,9 @@ type MaterialPlan struct {
 	AccountID uuid.UUID `json:"account_id"`
 	// That account's number.
 	AccountNumber string `json:"account_number"`
+	// The material's replenishment lead time at the plant in calendar days, which sales orders'
+	// availability checks confirm on (S2j2). Absent: none.
+	ReplenishmentLeadTimeDays OptInt32 `json:"replenishment_lead_time_days"`
 }
 
 // GetID returns the value of ID.
@@ -75342,6 +75345,11 @@ func (s *MaterialPlan) GetAccountNumber() string {
 	return s.AccountNumber
 }
 
+// GetReplenishmentLeadTimeDays returns the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlan) GetReplenishmentLeadTimeDays() OptInt32 {
+	return s.ReplenishmentLeadTimeDays
+}
+
 // SetID sets the value of ID.
 func (s *MaterialPlan) SetID(val uuid.UUID) {
 	s.ID = val
@@ -75462,6 +75470,11 @@ func (s *MaterialPlan) SetAccountNumber(val string) {
 	s.AccountNumber = val
 }
 
+// SetReplenishmentLeadTimeDays sets the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlan) SetReplenishmentLeadTimeDays(val OptInt32) {
+	s.ReplenishmentLeadTimeDays = val
+}
+
 // A material's planning data at a plant to create.
 // Ref: #/components/schemas/MaterialPlanCreate
 type MaterialPlanCreate struct {
@@ -75501,6 +75514,12 @@ type MaterialPlanCreate struct {
 	// A lot is rounded up to a multiple of it, in the base unit, more than zero (a pack size); the minimum
 	// and maximum lot sizes are multiples of it. Not given with a fixed lot.
 	RoundingValue OptString `json:"rounding_value"`
+	// The material's replenishment lead time at the plant in calendar days (S2j2; SAP MARC-WZEIT, from
+	// memory): how long the plant takes to have more of it. The availability check of a sales order
+	// delivering from the plant (`confirmSalesOrder`) confirms in full an item of the material asked for
+	// on or after the company's date today plus it, what the stock does not cover resting on it. Absent:
+	// none, and the check counts the stock alone.
+	ReplenishmentLeadTimeDays OptInt32 `json:"replenishment_lead_time_days"`
 }
 
 // GetPlantID returns the value of PlantID.
@@ -75558,6 +75577,11 @@ func (s *MaterialPlanCreate) GetRoundingValue() OptString {
 	return s.RoundingValue
 }
 
+// GetReplenishmentLeadTimeDays returns the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanCreate) GetReplenishmentLeadTimeDays() OptInt32 {
+	return s.ReplenishmentLeadTimeDays
+}
+
 // SetPlantID sets the value of PlantID.
 func (s *MaterialPlanCreate) SetPlantID(val uuid.UUID) {
 	s.PlantID = val
@@ -75611,6 +75635,11 @@ func (s *MaterialPlanCreate) SetMaximumLotSize(val OptString) {
 // SetRoundingValue sets the value of RoundingValue.
 func (s *MaterialPlanCreate) SetRoundingValue(val OptString) {
 	s.RoundingValue = val
+}
+
+// SetReplenishmentLeadTimeDays sets the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanCreate) SetReplenishmentLeadTimeDays(val OptInt32) {
+	s.ReplenishmentLeadTimeDays = val
 }
 
 // MaterialPlanHeaders wraps MaterialPlan with response headers.
@@ -75715,6 +75744,9 @@ type MaterialPlanUpdate struct {
 	MaximumLotSize OptNilString `json:"maximum_lot_size"`
 	// The rounding value; null removes it.
 	RoundingValue OptNilString `json:"rounding_value"`
+	// The replenishment lead time in calendar days; `null` removes it, so the availability check counts
+	// the stock alone.
+	ReplenishmentLeadTimeDays OptNilInt32 `json:"replenishment_lead_time_days"`
 }
 
 // GetMrpType returns the value of MrpType.
@@ -75762,6 +75794,11 @@ func (s *MaterialPlanUpdate) GetRoundingValue() OptNilString {
 	return s.RoundingValue
 }
 
+// GetReplenishmentLeadTimeDays returns the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanUpdate) GetReplenishmentLeadTimeDays() OptNilInt32 {
+	return s.ReplenishmentLeadTimeDays
+}
+
 // SetMrpType sets the value of MrpType.
 func (s *MaterialPlanUpdate) SetMrpType(val OptString) {
 	s.MrpType = val
@@ -75805,6 +75842,11 @@ func (s *MaterialPlanUpdate) SetMaximumLotSize(val OptNilString) {
 // SetRoundingValue sets the value of RoundingValue.
 func (s *MaterialPlanUpdate) SetRoundingValue(val OptNilString) {
 	s.RoundingValue = val
+}
+
+// SetReplenishmentLeadTimeDays sets the value of ReplenishmentLeadTimeDays.
+func (s *MaterialPlanUpdate) SetReplenishmentLeadTimeDays(val OptNilInt32) {
+	s.ReplenishmentLeadTimeDays = val
 }
 
 // A plant a material is extended to (SAP MARC), with its storage locations (MARD).
@@ -118022,6 +118064,17 @@ type SalesOrderItem struct {
 	// `in_delivery_quantity` never above it. Absent for an item not checked: one of an order without a
 	// plant or not yet confirmed, or one not of a material kept in stock.
 	ConfirmedQuantity OptQuantity `json:"confirmed_quantity"`
+	// The part of `confirmed_quantity` that rests on the material's replenishment lead time at the order's
+	// plant (S2j2), in the item's unit: what the plant's stock did not cover when the availability check
+	// last confirmed the item, which the plant replenishes by `lead_time_date`. Absent when the stock
+	// covered all that is confirmed.
+	LeadTimeQuantity OptQuantity `json:"lead_time_quantity"`
+	// The day the replenishment lead time ends: the company's date of the check that put the part on the
+	// lead time plus the material's lead time, on or before the requested delivery date that check was
+	// for. A later change that asks for an earlier date, or checks the item again for a date the lead time
+	// does not reach, keeps the part (less stock that arrived since) and this day, so it may fall after
+	// the order's requested delivery date as it is now. Absent with `lead_time_quantity`.
+	LeadTimeDate OptDate `json:"lead_time_date"`
 	// The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's
 	// unit; at most `delivered_quantity`.
 	BilledQuantity Quantity `json:"billed_quantity"`
@@ -118122,6 +118175,16 @@ func (s *SalesOrderItem) GetInDeliveryQuantity() Quantity {
 // GetConfirmedQuantity returns the value of ConfirmedQuantity.
 func (s *SalesOrderItem) GetConfirmedQuantity() OptQuantity {
 	return s.ConfirmedQuantity
+}
+
+// GetLeadTimeQuantity returns the value of LeadTimeQuantity.
+func (s *SalesOrderItem) GetLeadTimeQuantity() OptQuantity {
+	return s.LeadTimeQuantity
+}
+
+// GetLeadTimeDate returns the value of LeadTimeDate.
+func (s *SalesOrderItem) GetLeadTimeDate() OptDate {
+	return s.LeadTimeDate
 }
 
 // GetBilledQuantity returns the value of BilledQuantity.
@@ -118227,6 +118290,16 @@ func (s *SalesOrderItem) SetInDeliveryQuantity(val Quantity) {
 // SetConfirmedQuantity sets the value of ConfirmedQuantity.
 func (s *SalesOrderItem) SetConfirmedQuantity(val OptQuantity) {
 	s.ConfirmedQuantity = val
+}
+
+// SetLeadTimeQuantity sets the value of LeadTimeQuantity.
+func (s *SalesOrderItem) SetLeadTimeQuantity(val OptQuantity) {
+	s.LeadTimeQuantity = val
+}
+
+// SetLeadTimeDate sets the value of LeadTimeDate.
+func (s *SalesOrderItem) SetLeadTimeDate(val OptDate) {
+	s.LeadTimeDate = val
 }
 
 // SetBilledQuantity sets the value of BilledQuantity.

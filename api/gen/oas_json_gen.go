@@ -199494,9 +199494,15 @@ func (s *MaterialPlan) encodeFields(e *jx.Encoder) {
 		e.FieldStart("account_number")
 		e.Str(s.AccountNumber)
 	}
+	{
+		if s.ReplenishmentLeadTimeDays.Set {
+			e.FieldStart("replenishment_lead_time_days")
+			s.ReplenishmentLeadTimeDays.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlan = [24]string{
+var jsonFieldsNameOfMaterialPlan = [25]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -199521,6 +199527,7 @@ var jsonFieldsNameOfMaterialPlan = [24]string{
 	21: "rounding_value",
 	22: "account_id",
 	23: "account_number",
+	24: "replenishment_lead_time_days",
 }
 
 // Decode decodes MaterialPlan from json.
@@ -199528,7 +199535,7 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MaterialPlan to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -199806,6 +199813,16 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_number\"")
 			}
+		case "replenishment_lead_time_days":
+			if err := func() error {
+				s.ReplenishmentLeadTimeDays.Reset()
+				if err := s.ReplenishmentLeadTimeDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"replenishment_lead_time_days\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -199815,10 +199832,11 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11011111,
 		0b11111111,
 		0b11000001,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -199929,9 +199947,15 @@ func (s *MaterialPlanCreate) encodeFields(e *jx.Encoder) {
 			s.RoundingValue.Encode(e)
 		}
 	}
+	{
+		if s.ReplenishmentLeadTimeDays.Set {
+			e.FieldStart("replenishment_lead_time_days")
+			s.ReplenishmentLeadTimeDays.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanCreate = [11]string{
+var jsonFieldsNameOfMaterialPlanCreate = [12]string{
 	0:  "plant_id",
 	1:  "material_id",
 	2:  "mrp_type",
@@ -199943,6 +199967,7 @@ var jsonFieldsNameOfMaterialPlanCreate = [11]string{
 	8:  "minimum_lot_size",
 	9:  "maximum_lot_size",
 	10: "rounding_value",
+	11: "replenishment_lead_time_days",
 }
 
 // Decode decodes MaterialPlanCreate from json.
@@ -200073,6 +200098,16 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"rounding_value\"")
+			}
+		case "replenishment_lead_time_days":
+			if err := func() error {
+				s.ReplenishmentLeadTimeDays.Reset()
+				if err := s.ReplenishmentLeadTimeDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"replenishment_lead_time_days\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -200317,9 +200352,15 @@ func (s *MaterialPlanUpdate) encodeFields(e *jx.Encoder) {
 			s.RoundingValue.Encode(e)
 		}
 	}
+	{
+		if s.ReplenishmentLeadTimeDays.Set {
+			e.FieldStart("replenishment_lead_time_days")
+			s.ReplenishmentLeadTimeDays.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanUpdate = [9]string{
+var jsonFieldsNameOfMaterialPlanUpdate = [10]string{
 	0: "mrp_type",
 	1: "reorder_point",
 	2: "account_id",
@@ -200329,6 +200370,7 @@ var jsonFieldsNameOfMaterialPlanUpdate = [9]string{
 	6: "minimum_lot_size",
 	7: "maximum_lot_size",
 	8: "rounding_value",
+	9: "replenishment_lead_time_days",
 }
 
 // Decode decodes MaterialPlanUpdate from json.
@@ -200430,6 +200472,16 @@ func (s *MaterialPlanUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"rounding_value\"")
+			}
+		case "replenishment_lead_time_days":
+			if err := func() error {
+				s.ReplenishmentLeadTimeDays.Reset()
+				if err := s.ReplenishmentLeadTimeDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"replenishment_lead_time_days\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -290637,6 +290689,18 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.LeadTimeQuantity.Set {
+			e.FieldStart("lead_time_quantity")
+			s.LeadTimeQuantity.Encode(e)
+		}
+	}
+	{
+		if s.LeadTimeDate.Set {
+			e.FieldStart("lead_time_date")
+			s.LeadTimeDate.Encode(e, json.EncodeDate)
+		}
+	}
+	{
 		e.FieldStart("billed_quantity")
 		s.BilledQuantity.Encode(e)
 	}
@@ -290652,7 +290716,7 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrderItem = [21]string{
+var jsonFieldsNameOfSalesOrderItem = [23]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "material_id",
@@ -290671,9 +290735,11 @@ var jsonFieldsNameOfSalesOrderItem = [21]string{
 	15: "delivered_quantity",
 	16: "in_delivery_quantity",
 	17: "confirmed_quantity",
-	18: "billed_quantity",
-	19: "returned_quantity",
-	20: "removed_in_change",
+	18: "lead_time_quantity",
+	19: "lead_time_date",
+	20: "billed_quantity",
+	21: "returned_quantity",
+	22: "removed_in_change",
 }
 
 // Decode decodes SalesOrderItem from json.
@@ -290887,8 +290953,28 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"confirmed_quantity\"")
 			}
+		case "lead_time_quantity":
+			if err := func() error {
+				s.LeadTimeQuantity.Reset()
+				if err := s.LeadTimeQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lead_time_quantity\"")
+			}
+		case "lead_time_date":
+			if err := func() error {
+				s.LeadTimeDate.Reset()
+				if err := s.LeadTimeDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lead_time_date\"")
+			}
 		case "billed_quantity":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				if err := s.BilledQuantity.Decode(d); err != nil {
 					return err
@@ -290898,7 +290984,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"billed_quantity\"")
 			}
 		case "returned_quantity":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				if err := s.ReturnedQuantity.Decode(d); err != nil {
 					return err
@@ -290929,7 +291015,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111001,
 		0b10011111,
-		0b00001101,
+		0b00110001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

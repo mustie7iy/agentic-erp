@@ -1091,8 +1091,8 @@ available quantity at the plant (stock less confirmed open orders and
 deliveries) and confirms what is available on the requested date.
 **Acceptance:** two orders racing for the last quantity confirm it once.
 **Later for Available-to-promise:** checking rules with replenishment lead
-time, back-order processing, product allocation, global ATP across
-plants.
+time (first slice S2j2), back-order processing, product allocation,
+global ATP across plants.
 
 - **Detailed** (lane atp, 2026-11-20; ADR-0082 As built S2j, decided by
   default): the order names its plant (`plant_id`, optional, kept);
@@ -1105,6 +1105,47 @@ plants.
   join the Later list.
 - **As built** (2026-11-20): ADR-0082 As built S2j, migration 000430,
   walkthrough step 150.
+
+#### S2j2 Checking with the replenishment lead time (ATP variants, first slice)
+
+**Capability.** A planner gives a material at a plant its replenishment
+lead time in days; a sales clerk's confirmation of an order asked for on
+or after the company's date today plus that lead time confirms the item
+in full, the stock first and the rest on the lead time, and the order
+says which part rests on it.
+
+- **Adds** (lane atplead, 2026-11-25; the tracker's "later: ATP
+  variants" split, its first item; decided by default, ADR-0082 As built
+  S2j2): `replenishment_lead_time_days` (1 to 999 calendar days,
+  optional) on a material's planning data at the plant
+  (`mrp.material_plan`, SAP MARC-WZEIT, from memory), set and removed by
+  `createMaterialPlan` and `updateMaterialPlan`, whatever the MRP type;
+  sales reads it through a port the composition root wires (`mrp.Plans`).
+  An order item's `lead_time_quantity` and `lead_time_date`
+  (`sales.sales_order_item`): the part of `confirmed_quantity` the stock
+  did not cover at the check, and the day the lead time ends.
+- **The check** (`confirmSalesOrder`, and `changeSalesOrder` for the
+  items it rechecks): an item of a material with a lead time at the
+  order's plant, of an order asked for on or after today plus the lead
+  time (the company's day), is confirmed in full: what the stock covers,
+  as before, and the rest on the lead time. Sooner, or with no requested
+  date, or without a lead time: the stock alone, as S2j. What rests on
+  the lead time counts as promised for later checks, under the same lock
+  per material and plant (`database.LockTenant` `sales.availability`,
+  which the goods issue reversal takes too). Audited per item with the
+  lead time it was judged on.
+- **Walkthrough:** extends `step_available_to_promise`. **Acceptance:**
+  an order asked for beyond the lead time is confirmed in full with the
+  part beyond the stock named; one asked for sooner gets only the stock;
+  a material without a lead time behaves as before.
+- **Later:** planned receipts (open purchase orders) in the check, a
+  confirmation on a later date than asked for (schedule lines at the
+  lead time's end), a recheck when only the requested date changes, the
+  lead time from the planned delivery and goods receipt processing times
+  (SAP PLIFZ and WEBAZ, from memory), working-day calendars.
+- **As built** (2026-11-25): ADR-0082 As built S2j2, ADR-0084 As built
+  (replenishment lead time), migrations 000492 and 000493, walkthrough
+  step 150.
 
 ### S2k MRP net requirements
 
