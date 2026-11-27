@@ -995,6 +995,7 @@ step_migrate() {
   small_item_refused "$connector"
   yen_item_rehearsed "$connector"
   balances_by_partner_rehearsed "$connector"
+  paid_next_year_rehearsed "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -1604,6 +1605,52 @@ yen_item_rehearsed() {
   grep -E '^Migration run|\[error\] TCURX' "$WORK/yen.out" | sed 's/^/     /'
   grep -q '\[error\] TCURX : the extract.s amounts are in SAP.s internal form .*it holds no TCURX to convert the amounts in JPY (0 decimals)' "$WORK/yen.out" ||
     { sed 's/^/     /' "$WORK/yen.out"; fail "the quality gate did not name the yen without TCURX"; }
+  mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
+}
+
+# paid_next_year_rehearsed shows a fiscal year's run holding open at the
+# year's end an invoice SAP paid in the next fiscal year (ADR-0034 As
+# built, vendor items SAP cleared in a later fiscal year; AUGGJ, A3,
+# po:2026-11-09): the extract with the first open CAD invoice of the
+# pilot's (no fixed payment method, no special G/L) paid on 15 January of
+# the next year by document 0199999970 of that year, a copy of one of
+# the mock's payments, both its lines and the invoice's vendor line
+# cleared by it (AUGBL, AUGDT, AUGGJ). Before, the run failed on it (its
+# clearing alone did not net to zero); now the rehearsal loads the invoice
+# open, leaves the next year's payment to that year's run, and its open
+# payable items agree with SAP's at the year's end. The extract is put
+# back.
+paid_next_year_rehearsed() {
+  local next=$((YEAR + 1))
+  cp "$WORK/data/extract.json" "$WORK/data/extract.good.json"
+  jq --arg cc "$CC" --arg y "$YEAR" --arg n "$next" '
+    def neg: if startswith("-") then .[1:] else "-" + . end;
+    ([.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $y and .BLART == "KZ")] | first) as $p
+    | ([.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $y and .BLART == "RE" and .LIFNR != "" and .AUGBL == ""
+        and (.ZLSCH // "") == "" and (.UMSKZ // "") == "" and (.RWCUR // "CAD") == "CAD")] | first) as $i
+    | [.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $y and .BELNR == $p.BELNR)] as $pay
+    | .ACDOCA = [.ACDOCA[] | if .RBUKRS == $cc and .GJAHR == $y and .BELNR == $i.BELNR and .DOCLN == $i.DOCLN
+        then .AUGBL = "0199999970" | .AUGDT = ($n + "0115") | .AUGGJ = $n else . end]
+      + [$pay[] | .GJAHR = $n | .BELNR = "0199999970" | .BUDAT = ($n + "0115") | .XBLNR = $i.XBLNR
+        | if .LIFNR != "" then .LIFNR = $i.LIFNR | .HSL = ($i.HSL | neg) | .WSL = ($i.HSL | neg)
+            | .AUGBL = "0199999970" | .AUGDT = ($n + "0115") | .AUGGJ = $n
+          else .HSL = $i.HSL | .WSL = $i.HSL end]' \
+    "$WORK/data/extract.good.json" >"$WORK/data/extract.json" || fail "the extract with an invoice paid next year could not be made"
+  say "SAP paid one of the pilot's open invoices on 15 January $next, in the next fiscal year: the extract holds"
+  say "the payment of $next, and the invoice's line names it as its clearing, of fiscal year $next (AUGGJ):"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and (.AUGBL == "0199999970" or .BELNR == "0199999970"))
+    | "     ACDOCA \(.GJAHR)/\(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT)\(if .LIFNR != "" then ", vendor \(.LIFNR)" else "" end) \(.HSL) CAD\(if (.AUGBL // "") != "" then ", cleared by \(.AUGBL) of \(.AUGGJ) on \(.AUGDT)" else "" end)"' \
+    "$WORK/data/extract.json"
+  say "A run of $YEAR reads its journal at the year's end: the invoice was open then, so it loads open, and the"
+  say "payment is $next's run's, which clears it with the payment it loads. The rehearsal reconciles:"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal
+  "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/nextyear.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/nextyear.out"; fail "the rehearsal with an invoice paid next year did not reconcile"; }
+  grep -E '^Migration run|Open payable items' "$WORK/nextyear.out" | sed 's/^/     /'
+  local check
+  for check in 'Open payable items' 'Open payable items: vendors with differences' 'Open payables total'; do
+    grep "$check" "$WORK/nextyear.out" | grep -q 'PASS$' || fail "the rehearsal's check '$check' did not pass with the invoice paid next year"
+  done
   mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
 }
 

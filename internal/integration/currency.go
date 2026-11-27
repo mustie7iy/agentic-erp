@@ -189,12 +189,14 @@ func (g documentGroups) union(a, b string) { g[g.find(a)] = g.find(b) }
 // clearingComponents groups the extract's documents into those SAP
 // cleared together, directly or through other documents: a clearing is
 // the supplier lines of a company with one clearing document (AUGBL), as
-// the load clears them (clearings). A document no clearing names is a
-// component of its own. Each component's keys are sorted.
+// the load clears them (clearings), an earlier fiscal year's document
+// whose item SAP cleared in the run's year among them (carriedClearings).
+// A document no clearing names is a component of its own. Each
+// component's keys are sorted.
 func clearingComponents(e *sap.Extract, t target) [][]string {
 	groups := documentGroups{}
 	first := map[string]string{} // clearing -> a document of it
-	for _, l := range e.ACDOCA {
+	for _, l := range slices.Concat(e.ACDOCA, carriedClearings(e, t)) {
 		key := documentKey(l)
 		groups.add(key)
 		if l.AUGBL == "" || !t.supplierLine(l) {
@@ -290,11 +292,14 @@ func clearingCurrency(docs []string, currencies map[string]string, t target) (st
 }
 
 // postedCurrencies are the currencies earlier runs posted the extract's
-// documents in, by document key: the transaction currency of the entry
-// each one's external reference names.
+// documents in, the earlier fiscal years' documents its clearings clear
+// among them (sap.Extract.ClearedEarlier), by document key: the
+// transaction currency of the entry each one's external reference names.
+// An earlier year's item an opening entry holds is in company currency,
+// which clearingCurrency takes for a document of no currency it knows.
 func (e *Endpoints) postedCurrencies(ctx context.Context, ext *sap.Extract, r refs) (map[string]string, error) {
 	keys := map[uuid.UUID]string{}
-	for _, l := range ext.ACDOCA {
+	for _, l := range slices.Concat(ext.ACDOCA, ext.ClearedEarlier) {
 		if id, ok := r["ACDOCA/"+documentKey(l)]; ok {
 			keys[id] = documentKey(l)
 		}

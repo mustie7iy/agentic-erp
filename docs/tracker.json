@@ -12088,11 +12088,25 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year, so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decided (product owner 2026-10-31, as recommended in batch 25, sapclear case 2): a fiscal year's migration holds open at the year's end every vendor item SAP cleared in a later fiscal year (SAP's key-date reading by the clearing date), and the later year's run clears it with the payment it loads; the extract carries SAP's clearing date and the clearing document's fiscal year (AUGDT, AUGGJ, stated from memory). The SAP specialist confirmed the field names on 2026-11-09 (po:2026-11-09, A3 [H]): ACDOCA-AUGDT and AUGGJ, on ACDOCA from S/4HANA 1610 (BSEG before), empty on an open item and emptied again by a clearing reset (FBRA), so an item open at a year's end is told by AUGDT after its last day, never by AUGBL being filled today; nothing is waited on",
-      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (AUGDT and AUGGJ confirmed, po:2026-11-09)",
+      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (AUGDT and AUGGJ confirmed, po:2026-11-09) · built: sap.FilterScope reads the year's end by AUGGJ and sets ClearedEarlier apart; crossyear.go; integration.opening_item (000499); TestClearedInALaterYear",
       "src": "review:batch22 · review:batch25 · po:2026-10-31 · po:2026-11-09",
       "pilot": "po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A balances run of a fiscal year in which SAP cleared vendor items of an earlier fiscal year fails (split from the item before, built for documents runs): its opening entry leaves the year's cleared items out, so it cannot clear the items an earlier year's run loaded open, and the quality gate refuses the clearing (load the year in documents mode); with the earlier year not in the extract (the first migrated year in balances mode, its prior-year invoices paid during it) the year's cleared items do not net to zero and the opening entry is refused as before. To decide and build: how a balances run takes over such a clearing (with no earlier year on the platform, leave the clearing's items of both years out; with one, clear its open items against the year's)",
+      "r": "internal/integration crossyear.go clearingYears, load.go openingEntry · ADR-0034 As built (vendor items SAP cleared in a later fiscal year, not built)",
+      "src": "review:batch98 · po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Reconciling an earlier fiscal year's run again after a later year's run cleared its items shows them as differences (split from the item before): SAP's side reads them open at the year's end (sap.FilterScope), the platform's open payables and their counts read items open today, which the later year's clearing closed. To build: the platform's open items of a fiscal year as at its end (cleared by a clearing dated after it counts open)",
+      "r": "internal/integration reconcile.go openPayables, openPayableItems · ledger Reports.OpenPayables, OpenPayableItems · ADR-0034 As built (vendor items SAP cleared in a later fiscal year, not built)",
+      "src": "review:batch98 · po:2026-10-31",
       "c": []
      },
      {

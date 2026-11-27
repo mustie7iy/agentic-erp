@@ -193,6 +193,13 @@ var DefaultEntities = []EntityMapping{
 	// extract's open items load without one and are paid by the company's
 	// run order, until the pilot's $metadata names it (docs/migration.md,
 	// "What to check on a real SAP system").
+	// Nor are ACDOCA-AUGDT and AUGGJ, the clearing's date and fiscal year
+	// (po:2026-11-09, A3 [H]), whose properties the API's $metadata is to
+	// name, and the entity is read by the scope's fiscal year alone: an
+	// OData extract reads a line SAP cleared as AUGBL says and holds no
+	// earlier year's document its clearings clear (FilterScope), so a
+	// clearing across fiscal years fails its run as before
+	// (docs/migration.md, "What to check on a real SAP system").
 	// OKB9's default account assignments (TKA3A, TKA3C, TKA3P; T56h3) have
 	// no released OData API (the SAP specialist, PO 2026-11-09): only a
 	// file extract carries them.
