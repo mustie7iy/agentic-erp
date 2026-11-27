@@ -29,11 +29,13 @@ import (
 // that takes the two the other way round (Create).
 //
 // Locks (ADR-0008): a request takes a material, or a company's material
-// range, and then the tenant's material change numbers. The run takes the
-// materials it extends (LockMaterials), then every material number it
-// needs (Number, before it writes any change), and the change numbers
-// last, holding them until it commits: it never waits for a material or a
-// range while it holds the change numbers, which a request waits for.
+// range, then the GTINs it writes (S1a3), and then the tenant's material
+// change numbers. The run takes the materials it extends (LockMaterials),
+// then every material number it needs (Number, before it writes any
+// change), then every GTIN it writes (LockGTINs), and the change numbers
+// last, holding them until it commits: it never waits for a material, a
+// range or a GTIN while it holds the change numbers, which a request
+// waits for.
 type Migration struct{ Endpoints *Endpoints }
 
 // MigratedMaterial is a material as an SAP migration run creates it,
@@ -115,6 +117,19 @@ func (Migration) LockMaterials(ctx context.Context, ids []uuid.UUID) error {
 	}
 	_, err = tx.Exec(ctx, `SELECT FROM materials.material WHERE id = ANY($1) ORDER BY id FOR NO KEY UPDATE`, ids)
 	return errs.Wrapf(err, "materials: lock the materials a migration run extends")
+}
+
+// LockGTINs takes the advisory locks of the GTINs an SAP migration run
+// gives the materials it creates, in key order, after it has drawn their
+// numbers and before it writes any (lockGTINs; Migration's locks): the
+// run writes many materials' GTINs, which a request's would otherwise
+// meet in another order.
+func (Migration) LockGTINs(ctx context.Context, gtins []string) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	return lockGTINs(ctx, tx, gtins)
 }
 
 // ExtendMaterial extends a material to the plants and storage locations

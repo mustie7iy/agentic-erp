@@ -6737,6 +6737,7 @@ erDiagram
   plant_data ||--o{ storage_location_data : "kept in"
   material ||--o{ unit_conversion : "alternative units"
   material ||--o{ material_description : "described in"
+  material ||--o{ unit_measure : "units measured"
   material { uuid id PK
     text number "material range of its company, once in the tenant"
     uuid legal_entity_id "tenancy: the numbering company"
@@ -6771,6 +6772,19 @@ erDiagram
     text uom_code PK "ref, not the base unit"
     int numerator "1 to 1000000"
     int denominator "1 to 1000000"
+    timestamptz removed_at }
+  unit_measure { uuid material_id PK
+    text uom_code PK "the base unit or an alternative unit it has"
+    numeric gross_weight "above zero, 13,3"
+    numeric net_weight "no more than the gross"
+    text weight_uom "ref, of mass"
+    numeric volume
+    text volume_uom "ref, of volume"
+    numeric length
+    numeric width
+    numeric height
+    text dimension_uom "ref, of length"
+    text gtin "GS1 check digit, once in the tenant"
     timestamptz removed_at }
 ```
 
@@ -6824,6 +6838,30 @@ erDiagram
   The application updates the text and the removal mark
   (`material_description_removed_check`) alone; a description given back
   clears its mark.
+- `materials.unit_measure` (S1a3, migration 000489): the dimensions,
+  weights and GTIN of one unit of measure of a material that exists
+  (`unit_measure_material_fkey`), once per unit (`unit_measure_pkey`),
+  the unit its base unit or an alternative unit it has, not removed
+  (`unit_measure_of_unit`, a trigger). Each value is a `numeric(13,3)`
+  above zero (`unit_measure_gross_weight_check`, `_net_weight_check`,
+  `_volume_check`, `_length_check`, `_width_check`, `_height_check`); a
+  unit is given with its values and only then
+  (`unit_measure_weight_uom_check`, `_volume_uom_check`,
+  `_dimension_uom_check`), each a unit of measure
+  (`unit_measure_weight_uom_fkey`, …) of its kind, mass, volume or length
+  (`unit_measure_dimension`, the same trigger); the net weight is no more
+  than the gross (`unit_measure_net_weight_gross`); a row says something
+  (`unit_measure_something`). A GTIN has 8, 12, 13 or 14 digits and its
+  GS1 check digit (`unit_measure_gtin_check`, `materials.gtin_valid`) and
+  names one unit not removed in the tenant, compared right-justified in 14
+  digits (`unit_measure_gtin_once`, a partial unique index that also
+  serves `listMaterials?gtin=`; 409 `materials.gtin_taken`). An
+  alternative unit marked removed, by either version, marks its measures
+  removed with it (`unit_conversion_measures_removed`, a trigger); a
+  rejected or withdrawn create change marks the material's removed. The
+  application updates the values and the removal mark
+  (`unit_measure_removed_check`) alone; measures given back clear it. The
+  down migration refuses while any row, removed ones too, exists.
 - `materials.material_change` (S1b, migrations 000374 and 000375): a
   governed change of a material (`material_change_material_fkey`),
   numbered `MC` and eight digits (`material_change_number_check`) once in

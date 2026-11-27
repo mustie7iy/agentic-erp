@@ -2560,6 +2560,106 @@ taking the description in their partner's language; the duplicate check
 across languages; a later SAP run's new or changed descriptions of a
 material an earlier run created.
 
+### S1a3 Dimensions, weights and GTINs (2026-11-26)
+
+The next item of "later: material master variants" (plan-supply-chain.md
+§S1a3, lane matdims): each unit of measure a material is kept in carries
+its dimensions, weights and GTIN, as SAP keeps them per unit in MARM
+(from memory).
+
+- **Per unit, base and alternative (decided by default).** SAP holds the
+  measures per unit of measure (MARM: BRGEW, GEWEI, VOLUM, VOLEH, LAENG,
+  BREIT, HOEHE, MEABM, EAN11; MARA's copy of the base unit's, with NTGEW,
+  from memory), because a box of 20 weighs and measures otherwise than
+  20 brackets and has a GTIN of its own (GS1's packaging levels). The
+  platform does the same: `base_unit_measures` on the material and
+  `measures` on each alternative unit. The net weight is kept on any
+  unit, not only the base unit as SAP does: one shape for every unit,
+  and a box's net weight is meaningful. Alternative: the base unit only
+  (MARA); refused, as shipping and warehouse consumers need the
+  packaging level's.
+- **Values (decided by default).** Decimal strings above zero of up to
+  ten digits and three decimals (`numeric(13,3)`; SAP's QUAN 13,3, from
+  memory), never floats, so a value is stored as given and never rounded
+  (a fourth decimal is a 400 of the contract, refused by the application
+  for the migration's path); answered without trailing zeros
+  (`trim_scale`), and a request's `2.50` compares equal to `2.5`. One
+  unit per kind, as SAP's GEWEI, VOLEH and MEABM: the weights in a unit of
+  mass, the volume in one of volume, the length, width and height in one
+  of length (`ref.unit_of_measure.dimension`); a unit is given with a
+  value and only then; the net weight is no more than the gross (SAP's
+  check, from memory). No unit is added to `ref.unit_of_measure`: kg, l
+  and m with three decimals hold grams, millilitres and millimetres; the
+  tenant's own units are the leaf "later: units of measure variants".
+- **GTIN (decided by default).** 8, 12, 13 or 14 digits ending in the GS1
+  mod 10 check digit (`internal/platform/gtin`, new: no helper checked one;
+  GS1 General Specifications, from memory), stored as given and compared
+  as GS1 compares them, right-justified in 14 digits, so a GTIN-12 and its
+  GTIN-13 with a leading zero are one number. A GTIN names one unit of one
+  material in the tenant (`unit_measure_gtin_once`, 409
+  `materials.gtin_taken`), whatever that material's status: a blocked
+  material still is the item its GTIN names, and GS1 does not reuse a
+  GTIN for another item; a material whose create change is rejected or
+  withdrawn never came to be, so its GTINs are freed (its measures marked
+  removed). The brief's "among active materials" is read as "among
+  materials that exist": a pending create holds its GTIN while it waits,
+  so two requests cannot both take one. SAP makes a second EAN of a
+  material a warning by default (from memory); the platform refuses,
+  since a scanner or an e-invoice line resolving a GTIN must find one
+  unit. Alternative: unique among active materials only; refused, a
+  blocked material's GTIN would then name two items.
+- **Governed (S1b).** A change of `base_unit_measures`, or of an
+  alternative unit's `measures` with `alternative_units`, is an `update`
+  change waiting for its approval, audited with the measures before and
+  after (`base_unit_measures`, `alternative_unit_measures`). A GTIN is
+  checked against other materials when the change is requested and,
+  by the unique index, when it is applied: of two changes asking for one
+  GTIN, the second's approval is refused 409 `materials.gtin_taken` and
+  the material stays as it was. A change replaces the measures in scope
+  as a whole: those are marked removed before any is written again, so a
+  GTIN moved between two units of the material in one change is never on
+  two at once.
+- **Data (migration 000489).** `materials.unit_measure`, one row per
+  unit with measures, of the base unit or an alternative unit the
+  material has (`unit_measure_of_unit`), each unit of its kind
+  (`unit_measure_dimension`); the checks above in the database too. The
+  previous version neither reads nor writes it; an alternative unit it
+  removes takes its measures with it (`unit_conversion_measures_removed`),
+  so no GTIN stays held by a unit no material has. The down migration
+  refuses while any row exists, removed ones too (06 §6.4).
+- **Reads.** `getMaterial` and `listMaterials` give every unit's measures
+  with the units' names (`weight_unit_name`, …); `listMaterials?gtin=`
+  finds the material whose unit carries a GTIN. MaterialChanged carries
+  `base_unit_measures` and each alternative unit's `measures`, not
+  required (ADR-0041).
+- **SAP (S2o's load).** MARA's BRGEW, NTGEW, GEWEI, VOLUM, VOLEH and
+  EAN11 become the base unit's, with its own MARM row's LAENG, BREIT,
+  HOEHE and MEABM; each alternative unit takes its MARM row's (no net
+  weight). Measures are optional master data, so what the platform
+  cannot hold is left out with a warning and never holds the material
+  back: a quantity of more than three decimals or ten digits, a unit that
+  is none of the platform's of its kind (SAP's CM or MM, say), weights
+  whose net is above the gross, an EAN that is no GTIN, a GTIN two units
+  of the extract share (left out of both: which is right is SAP's to
+  settle). Zero is SAP's none. A GTIN another material of the tenant
+  carries refuses the material, as a request is refused. The
+  reconciliation compares each unit's measures. A later run does not
+  change the measures of a material an earlier run created (the leaf's
+  remainder).
+- **Walkthrough:** step 122 (`step_material`): the bracket's and the
+  box's GTINs, weights, volume and size approved, the bracket found by
+  its GTIN in 13 digits; a GTIN taken, a net weight above the gross and a
+  wrong check digit refused.
+
+**Later for dimensions, weights and GTINs:** units the tenant adds (cm,
+mm, lb; the units of measure leaf) and conversion between units of one
+kind; a delivery's or shipment's gross weight and volume computed from
+its items' units (shipping); GTINs on documents and e-invoice lines and
+the purchase order's or the sales order's item found by GTIN; GTIN types
+beyond GS1's four lengths (SAP's NUMTP, internal EAN ranges); several
+GTINs per unit (SAP's MEAN); a later SAP run's new or changed measures of
+a material an earlier run created.
+
 ### S2l1: suppliers' delivery performance (2026-11-24)
 
 The replenishment agent's supplier choice by lead time and reliability

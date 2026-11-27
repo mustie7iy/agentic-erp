@@ -2,7 +2,8 @@
 // §2.2, 03-data-model §3.34): materials, tenant-wide master data, each with
 // its number, description, base unit of measure, type, group and status,
 // the plants it is extended to and its storage locations there, and its
-// alternative units of measure with exact conversions (S1a).
+// alternative units of measure with exact conversions (S1a); each unit's
+// dimensions, weights and GTIN (S1a3, ADR-0082 As built S1a3).
 //
 // Plants and storage locations are tenancy's org units; a material's number
 // is drawn from the configuration's material range of the company that

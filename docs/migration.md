@@ -561,6 +561,8 @@ the run.
 | MARA-MEINS | `base_unit` (a code of `ref.unit_of_measure`) |
 | MAKT-MAKTX (SPRAS E, else the first other) | `description` |
 | MARM-MEINH, UMREZ, UMREN | `alternative_units[]`: unit, numerator, denominator (one unit is UMREZ / UMREN base units) |
+| MARA-BRGEW, NTGEW, GEWEI, VOLUM, VOLEH, EAN11; the base unit's MARM-LAENG, BREIT, HOEHE, MEABM | `base_unit_measures` (S1a3): weights, volume, GTIN, length, width, height with their units |
+| MARM-BRGEW, GEWEI, VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM, EAN11 | `alternative_units[].measures` (S1a3; MARM has no net weight) |
 | MARC-WERKS, MARD-LGORT | `plants[]` with their `storage_locations` |
 | MARA/MARC/MARD-LVORM `X` | not migrated (a warning) |
 | T001W-WERKS, NAME1 | org unit `plant`, code and name |
@@ -573,7 +575,15 @@ platform's, a conversion that is not whole numbers from 1 to 1,000,000 (a
 value written with decimals of zero, `4.000`, reads), the base unit's own
 MARM row other than 1/1, a unit listed twice, a type other than the six
 above, a group that is none, no description. The reconciliation leaves
-held-back materials out on SAP's side. **Errors** refuse the run: a row
+held-back materials out on SAP's side. **Measures left out, not held
+back** (S1a3): a unit's weights, volume or dimensions whose value is no
+quantity of up to ten digits and three decimals, or whose unit is no unit
+of the platform of its kind (SAP's `CM`, `MM`, `G`… pass only where the
+platform has the unit), weights whose net is above the gross, an EAN that
+is no GTIN, and a GTIN two units of the extract share (left out of both)
+are each a warning, and the material loads without them; a value of zero
+is SAP's none. A GTIN another material of the tenant already carries
+refuses the material (409 `materials.gtin_taken`). **Errors** refuse the run: a row
 listed twice, plant data of a material not in MARA, storage location data
 without plant data or of a storage location not in T001L, a plant or
 storage location code that is no org unit code (1 to 10 capitals, digits
@@ -883,6 +893,12 @@ others record a confirmation.
   NLAG, DIEN), MATKL, MEINS and LVORM; MAKT-MATNR, SPRAS, MAKTX; MARM-MATNR,
   MEINH, UMREZ (numerator), UMREN (denominator), with one alternative unit
   being UMREZ / UMREN base units and a 1/1 row for the base unit itself;
+  the measures (S1a3): MARA-BRGEW, NTGEW, GEWEI, VOLUM, VOLEH and EAN11 as
+  the base unit's, MARM-BRGEW, GEWEI, VOLUM, VOLEH, LAENG, BREIT, HOEHE,
+  MEABM and EAN11 per unit (whether MARA mirrors the base unit's MARM row
+  and whether MARM keeps a net weight on the pilot's release), each
+  quantity a QUAN 13,3, and GEWEI, VOLEH and MEABM in the unit keys the
+  extract writes;
   MARC-MATNR, WERKS, LVORM; MARD-MATNR, WERKS, LGORT, LVORM; T001W-WERKS,
   NAME1, BWKEY, with the plant's company code taken from T001K-BUKRS by
   BWKEY; T001L-WERKS, LGORT, LGOBE. To confirm as well: whether a table

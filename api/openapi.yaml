@@ -37695,6 +37695,7 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - materials.change_pending
+        - materials.gtin_taken
         - materials.invalid_status
         - materials.number_taken
         - partner.address_overlap
@@ -37918,6 +37919,9 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - materials.change_pending
+        # materials.gtin_taken: TestProblemCodes lists it as deciding a material change shares its write path; a rejected or
+        # withdrawn change only frees the GTINs of a material never created (ADR-0082 As built S1a3), so it is not expected here.
+        - materials.gtin_taken
         - materials.invalid_status
         - partner.change_pending
         - partner.invalid_status
@@ -38085,6 +38089,9 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - materials.change_pending
+        # materials.gtin_taken: TestProblemCodes lists it as deciding a material change shares its write path; a rejected or
+        # withdrawn change only frees the GTINs of a material never created (ADR-0082 As built S1a3), so it is not expected here.
+        - materials.gtin_taken
         - materials.invalid_status
         - partner.change_pending
         - partner.invalid_status
@@ -41134,10 +41141,17 @@ paths:
         - materials.base_unit_conversion
         - materials.batch_managed_not_stocked
         - materials.change_pending
+        # materials.duplicate_gtin, .invalid_gtin and .invalid_measures are the material checks of Migration.CreateMaterial, which
+        # TestProblemCodes lists; the load leaves out, with a warning, the measures and GTINs the platform cannot hold or two units share
+        # (ADR-0082 As built S1a3), so it is not expected to reach them. materials.gtin_taken is reached: a GTIN another material carries.
+        - materials.duplicate_gtin
         - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
+        - materials.gtin_taken
+        - materials.invalid_gtin
+        - materials.invalid_measures
         - materials.number_taken
         - materials.plant_invalid
         - materials.serial_managed_not_stocked

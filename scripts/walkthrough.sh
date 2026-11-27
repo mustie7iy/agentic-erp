@@ -13763,9 +13763,14 @@ material_request() {
 # bracket is described in Arabic too, the UAE pilot's second language, and
 # read in Arabic, in ar-AE and in French (its English default answered);
 # the zinc-plated change carries the new Arabic text and a French one; a
-# further description in the default's language is refused.
+# further description in the default's language is refused. Dimensions,
+# weights and GTINs (S1a3): Mira's change gives each bracket its GTIN and
+# weights and the box its GTIN, weight, volume and size, approved by
+# Priya; a list finds the bracket by its GTIN written in 13 digits; the
+# box's GTIN on another material, a net weight above the gross and a GTIN
+# whose check digit is wrong are refused.
 step_material() {
-  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; blocked at once"
+  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; the bracket's and the box's GTINs, weights and size approved, the bracket found by its GTIN, a GTIN taken, a net weight above the gross and a wrong check digit refused; blocked at once"
   local plant main spares other far material number
   local arabic="دعامة مشغولة M10" zinc="دعامة مشغولة M10، مطلية بالزنك"
   as ada
@@ -13843,13 +13848,38 @@ step_material() {
     "en Machined bracket M10, zinc plated; ar $zinc; fr Équerre usinée M10, zinguée"
   QUIET=1 api 200 '' getMaterial -p "id=$material" -p language=fr-CA
   expect "the bracket in fr-CA" "$(field '"\(.description_language) \(.description)"')" "fr Équerre usinée M10, zinguée"
+  say "Mira records how the bracket is packed (S1a3): each bracket's GTIN, weighing 120 g gross and 110 g net, and the"
+  say "box's GTIN, 2.5 kg, 0.012 m³ and 30 by 20 by 20 cm, given as decimals in kilograms, cubic metres and metres; the"
+  say "change waits for Priya as the material's other fields do:"
+  QUIET=1 api 200 '' getMaterial -p "id=$material"
+  api 200 '"material \(.number): version \(.version), change \(.pending_change_number) pending"' updateMaterial -p "id=$material" -if-match "$ETAG" \
+    -body '{"base_unit_measures": {"gtin": "036000291452", "gross_weight": "0.120", "net_weight": "0.11", "weight_unit": "KG"},
+      "alternative_units": [{"unit": "BOX", "numerator": 20, "denominator": 1, "measures": {"gtin": "10036000291459", "gross_weight": "2.5", "weight_unit": "KG",
+        "volume": "0.012", "volume_unit": "M3", "length": "0.3", "width": "0.2", "height": "0.2", "dimension_unit": "M"}}], "reason": "Packaging data from the supplier"}'
+  approve priya "$(material_request "$material")" "Matches the supplier's data sheet."
+  as mira
+  say "A scanner reads the bracket's GTIN in its 13-digit form, which finds the same GTIN (GS1 compares them in 14 digits):"
+  api 200 '.items[] | "material \(.number) \(.description): each GTIN \(.base_unit_measures.gtin), \(.base_unit_measures.gross_weight) \(.base_unit_measures.weight_unit_name) gross, \(.base_unit_measures.net_weight) net", (.alternative_units[] | "  \(.unit) GTIN \(.measures.gtin): \(.measures.gross_weight) \(.measures.weight_unit), \(.measures.volume) \(.measures.volume_unit), \(.measures.length) x \(.measures.width) x \(.measures.height) \(.measures.dimension_unit_name)")' \
+    listMaterials -p gtin=0036000291452
+  expect "the bracket by its GTIN" "$(field '[.items[] | .id] | join(" ")')" "$material"
+  expect "the bracket's measures" "$(field '.items[0] | "\(.base_unit_measures.gross_weight) \(.base_unit_measures.net_weight) \(.alternative_units[0].measures.gtin) \(.alternative_units[0].measures.height)"')" \
+    "0.12 0.11 10036000291459 0.2"
+  say "The box's GTIN names the bracket's box, so no other material may carry it; a net weight above the gross and a"
+  say "GTIN whose check digit is wrong are refused:"
+  refused 409 materials.gtin_taken createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"base_unit_measures\": {\"gtin\": \"10036000291459\"}}"
+  refused 422 materials.invalid_measures createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"base_unit_measures\": {\"gross_weight\": \"0.1\", \"net_weight\": \"0.2\", \"weight_unit\": \"KG\"}}"
+  expect "the refused weight's field" "$(field '.errors[0].field')" "base_unit_measures.net_weight"
+  refused 422 materials.invalid_gtin createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"base_unit_measures\": {\"gtin\": \"036000291453\"}}"
   say "Her first version is stale now:"
   refused 412 request.version_mismatch updateMaterial -p "id=$material" -if-match '"1"' -body '{"material_group": "FASTENERS"}'
   say "A batch of brackets is found faulty; Mira blocks the bracket, which needs no approval and applies at once, at"
   say "the version she reads again:"
   QUIET=1 api 200 '' getMaterial -p "id=$material"
   api 200 '"material \(.number): \(.status), version \(.version)"' updateMaterial -p "id=$material" -if-match "$ETAG" -body '{"status": "blocked", "reason": "Faulty batch"}'
-  expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 4"
+  expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 5"
   QUIET=1 api 200 '' listMaterials -p "plant_id=$plant" -p status=blocked
   expect "Toronto's blocked materials" "$(field '[.items[] | .number] | join(" ")')" "$number"
   MATERIAL=$material PLANT=$plant MAIN_STORE=$main SPARES_STORE=$spares

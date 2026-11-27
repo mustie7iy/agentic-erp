@@ -1,10 +1,20 @@
 package materials_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // GTINs with their GS1 check digits (internal/platform/gtin's tests show
@@ -245,5 +255,91 @@ func TestMeasureRefusals(t *testing.T) {
 				t.Errorf("field: got %v, want %s", field(got), c.field)
 			}
 		})
+	}
+}
+
+// withCheck is the 12-digit payload with its GS1 check digit, a GTIN-13:
+// from the right, the digits weighted 3, 1, 3, …
+func withCheck(payload string) string {
+	sum := 0
+	for i := len(payload) - 1; i >= 0; i-- {
+		d := int(payload[i] - '0')
+		if (len(payload)-1-i)%2 == 0 {
+			d *= 3
+		}
+		sum += d
+	}
+	return fmt.Sprintf("%s%d", payload, (10-sum%10)%10)
+}
+
+// TestGTINsInOppositeOrder (ADR-0008): of two transactions writing GTINs
+// X and Y in opposite orders, neither waits for a GTIN while it holds the
+// other. The first applies material C's change taking X and stays open;
+// the second applies B's taking Y and X and waits; the first then applies
+// D's taking Y, which the second, waiting for X's lock, holds nothing of:
+// the first commits, and the second is refused 409 materials.gtin_taken.
+// Writing Y before waiting for X, the second would hold Y while the first
+// waits for it: a deadlock.
+func TestGTINsInOppositeOrder(t *testing.T) {
+	e := setup(t)
+	decide := materials.Approvals{Endpoints: endpoints(t)}
+	x, y := withCheck("400000000001"), withCheck("400000000002") // X before Y in key order
+	ask := func(description, base, box string) uuid.UUID {
+		over := map[string]any{"base_unit_measures": map[string]any{"gtin": base}}
+		if box != "" {
+			over["alternative_units"] = []any{map[string]any{"unit": "BOX", "numerator": 20, "denominator": 1, "measures": map[string]any{"gtin": box}}}
+		}
+		id := e.active(t, map[string]any{"description": description})["id"].(string)
+		return uuid.MustParse(e.change(t, id, mustJSON(t, over))["id"].(string))
+	}
+	c, b, d := ask("Washer", x, ""), ask("Spacer", y, x), ask("Shim", y, "")
+	ctx := context.Background()
+	begin := func() pgx.Tx {
+		tx, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = tx.Rollback(ctx) }) // after a commit, a no-op
+		return tx
+	}
+	p := reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID}
+	first, second := begin(), begin()
+	var pid int32
+	if err := second.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	applied, waiting := make(chan struct{}), make(chan struct{})
+	run := func(tx pgx.Tx, fn func(ctx context.Context) error) chan error {
+		done := make(chan error, 1)
+		go func() {
+			err := uow.Act(ctx, tx, p, nil, fn)
+			if err == nil {
+				err = tx.Commit(ctx)
+			}
+			done <- err
+		}()
+		return done
+	}
+	firstDone := run(first, func(ctx context.Context) error {
+		if err := decide.Approved(ctx, c, uuid.Nil); err != nil {
+			return err
+		}
+		close(applied)
+		<-waiting
+		return decide.Approved(ctx, d, uuid.Nil)
+	})
+	<-applied
+	secondDone := run(second, func(ctx context.Context) error { return decide.Approved(ctx, b, uuid.Nil) })
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		var w bool
+		pgtest.Scan(t, `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock')`, []any{pid}, &w)
+		return w
+	}, "the second transaction did not wait for the first's GTIN")
+	close(waiting)
+	if err := <-firstDone; err != nil {
+		t.Errorf("the first transaction: got %v, want C's and D's changes applied", err)
+	}
+	if err := <-secondDone; problem.From(err).Code != "materials.gtin_taken" {
+		t.Errorf("the second transaction: got %v, want 409 materials.gtin_taken", err)
 	}
 }

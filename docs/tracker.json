@@ -5622,7 +5622,7 @@
      },
      {
       "s": "T",
-      "t": "later: material master variants: sales and purchasing views, dimensions, weights and GTINs, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2)",
+      "t": "later: material master variants: sales and purchasing views, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created; of dimensions, weights and GTINs: a delivery's gross weight and volume from its items' units, GTINs on documents and e-invoice lines and items found by GTIN, GTIN types beyond GS1's four lengths and several GTINs per unit, a later SAP run's new or changed measures of a material an earlier run created (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2, dimensions, weights and GTINs as S1a3)",
       "r": "docs/design/plan-supply-chain.md §S1a, Later",
       "src": "baseline",
       "c": []
@@ -5631,6 +5631,13 @@
       "s": "D",
       "t": "A master data specialist describes a material in further languages beside its default description (Arabic for the UAE pilot), governed as its other fields are; a read asks for a language (language) and gets the description in it, else the default, naming the language answered; the SAP load takes MAKT's other languages",
       "r": "S1a2 · docs/design/plan-supply-chain.md §S1a2 · ADR-0082 As built S1a2 · db/migrations/000484, 000485 · materials.material.description_language, materials.material_description · internal/materials/descriptions.go · internal/platform/langtag · GET /v1/materials, GET /v1/materials/{id} language · MaterialCreate.description_language, .descriptions · MaterialUpdate.descriptions · Material.description_language, .default_language, .descriptions · materials.unknown_language, materials.duplicate_language · MaterialChanged.description_language, .descriptions · internal/integration materialDescriptions (MAKT-SPRAS) · walkthrough step_material (step 122), migrated_materials",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A master data specialist records each unit of measure's gross and net weight, volume, length, width and height and GTIN, the base unit's and each alternative unit's, governed as the material's other fields are; a GTIN has its GS1 check digit and names one unit of one material in the tenant; a list finds a material by a unit's GTIN; the SAP load takes MARA's and MARM's measures",
+      "r": "S1a3 · docs/design/plan-supply-chain.md §S1a3 · ADR-0082 As built S1a3 · db/migrations/000489 · materials.unit_measure, materials.gtin_valid · internal/materials/measures.go · internal/platform/gtin · GET /v1/materials gtin · MaterialCreate.base_unit_measures · MaterialUpdate.base_unit_measures · MaterialUnitInput.measures · Material.base_unit_measures · MaterialUnit.measures · materials.invalid_measures, materials.invalid_gtin, materials.duplicate_gtin, materials.gtin_taken · MaterialChanged.base_unit_measures, .alternative_units[].measures · internal/integration/materialmeasures.go (MARA/MARM BRGEW, NTGEW, GEWEI, VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM, EAN11) · walkthrough step_material (step 122)",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },

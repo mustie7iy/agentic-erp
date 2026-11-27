@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -238,14 +239,40 @@ const measureColumns = `json_strip_nulls(json_build_object('gtin', x.gtin, 'gros
 	'net_weight', trim_scale(x.net_weight)::text, 'weight_unit', x.weight_uom, 'volume', trim_scale(x.volume)::text, 'volume_unit', x.volume_uom,
 	'length', trim_scale(x.length)::text, 'width', trim_scale(x.width)::text, 'height', trim_scale(x.height)::text, 'dimension_unit', x.dimension_uom))`
 
+// lockGTINs takes the GTINs' advisory locks, by key in key order, held
+// to the end of the transaction (ADR-0008). Every writer of a GTIN takes
+// them before it writes one, so two writers waiting on unique index
+// entries each holds (one material's change taking X then Y, another's Y
+// then X) wait in one order instead, the second then refused 409
+// materials.gtin_taken; the SAP migration run takes all its GTINs first
+// (Migration.LockGTINs), after its material numbers, as a creation draws
+// its number before it writes its measures.
+func lockGTINs(ctx context.Context, tx pgx.Tx, gtins []string) error {
+	keys := make([]string, 0, len(gtins))
+	for _, g := range gtins {
+		keys = append(keys, gtin.Key(g))
+	}
+	slices.Sort(keys)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('materials.gtin:' || platform.require_tenant() || ':' || x.k, 0))
+		FROM unnest($1::text[]) WITH ORDINALITY AS x (k, n) ORDER BY x.n`, slices.Compact(keys)); err != nil {
+		return fmt.Errorf("materials: lock %d GTINs: %w", len(keys), err)
+	}
+	return nil
+}
+
 // writeMeasures writes the measures of the units given that have any,
 // setting those of a unit that has, or had and lost, some rather than
-// writing them twice; a unit without measures writes nothing.
+// writing them twice; a unit without measures writes nothing. Their GTINs
+// are locked first (lockGTINs).
 func writeMeasures(ctx context.Context, tx pgx.Tx, p reqctx.Principal, material uuid.UUID, um unitMeasures) error {
 	cols := make([][]string, 11)
+	var gtins []string
 	for i, m := range um.ms {
 		if m.IsZero() {
 			continue
+		}
+		if m.GTIN != "" {
+			gtins = append(gtins, m.GTIN)
 		}
 		for j, v := range []string{um.units[i], m.GTIN, m.GrossWeight, m.NetWeight, m.WeightUnit, m.Volume, m.VolumeUnit, m.Length, m.Width, m.Height,
 			m.DimensionUnit} {
@@ -254,6 +281,9 @@ func writeMeasures(ctx context.Context, tx pgx.Tx, p reqctx.Principal, material 
 	}
 	if len(cols[0]) == 0 {
 		return nil
+	}
+	if err := lockGTINs(ctx, tx, gtins); err != nil {
+		return err
 	}
 	args := []any{p.TenantID, material, p.ID}
 	for _, c := range cols {
