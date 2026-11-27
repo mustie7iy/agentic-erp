@@ -25,11 +25,12 @@
 // stock items and their reversals through it (ReceiveForOrder,
 // ReverseForOrder), their value on the GR/IR entry procurement posts, and
 // payables the price differences of their invoices on a moving-priced
-// stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e). Stock
-// transport orders move stock between a company's plants through it, the
-// goods issue into stock in transit at the receiving plant and the goods
-// receipt out of it (IssueForTransport, ReceiveForTransport; As built
-// S2h).
+// stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e). Sales'
+// return receipts post a customer's return into stock through it
+// (ReceiveForReturn; ADR-0083 As built S2b4). Stock transport orders
+// move stock between a company's plants through it, the goods issue into
+// stock in transit at the receiving plant and the goods receipt out of it
+// (IssueForTransport, ReceiveForTransport; As built S2h).
 package inventory
 
 import (
@@ -88,12 +89,16 @@ type movementType struct {
 	// (IssueForIntercompany, S2i1), never a person here, and which is not
 	// reversed yet.
 	intercompany bool
+	// customerReturn: a customer's return received into stock, which a
+	// return receipt of sales posts (ReceiveForReturn, S2b4), never a
+	// person here, and which is not reversed yet.
+	customerReturn bool
 	// tracked: an item of a batch-managed material names its batch
 	// (S2f), and one of a serial-managed material the serial number of
 	// each unit (S2g); a purchase order's goods receipt and its reversal
 	// carry both since S2f1 and S2g1, a delivery's goods issue and its
-	// reversal since S2f2 and S2g2; the other movement types carry
-	// neither yet, and refuse such a material.
+	// reversal since S2f2 and S2g2, a customer's return since S2b4; the
+	// other movement types carry neither yet, and refuse such a material.
 	tracked bool
 }
 
@@ -108,7 +113,9 @@ type movementType struct {
 // (IssueForTransport, S2h; its receipt is a 101 of its own kind,
 // transportReceipt), and an intercompany stock transport order's goods
 // issue, which procurement posts (IssueForIntercompany, S2i1; the
-// receiving company receives it as a purchase order's 101).
+// receiving company receives it as a purchase order's 101), and a
+// customer's return received into stock, which sales' return receipt
+// posts (ReceiveForReturn, S2b4).
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true, tracked: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true, tracked: true},
@@ -128,6 +135,7 @@ var movementTypes = map[string]movementType{
 	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true, tracked: true},
 	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true, tracked: true},
 	"643": {name: "Goods issue for an intercompany stock transport order", sign: -1, intercompany: true},
+	"653": {name: "Customer return into stock", sign: 1, customerReturn: true, tracked: true},
 	"701": {name: "Physical inventory surplus", sign: 1, count: true},
 	"702": {name: "Physical inventory shortage", sign: -1, count: true},
 }

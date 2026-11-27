@@ -191,6 +191,9 @@ type Endpoints struct {
 	// Intercompany reads the intercompany stock transport orders the
 	// supplying company bills (S2i2).
 	Intercompany IntercompanyOrders
+	// Returns posts a return receipt's items of materials kept in stock
+	// into stock (S2b4).
+	Returns ReturnStock
 	// Uploads, OrderExtractor and Finder serve order capture (T90a): the
 	// upload's document, the model that reads it (nil: capture answers
 	// 503) and the customer it names.

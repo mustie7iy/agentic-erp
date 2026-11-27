@@ -31,12 +31,15 @@ var ReturnReasons = []string{"defective", "wrong_item", "not_wanted", "other"}
 // order's item OrderItemNo, with what the receipts confirmed of it so far
 // (Received, T85b) and what is still expected (Open, Quantity less
 // Received). Quantities are decimal strings in Unit, the order item's,
-// whose key and description say what is returned.
+// whose key and description say what is returned; MaterialID is the
+// order item's material, nil for an item without one (S2b4: a receipt
+// receives a material kept in stock into stock).
 type ReturnsItem struct {
-	ItemNo        int32   `json:"item_no"`
-	BillingItemNo int32   `json:"billing_item_no"`
-	OrderItemNo   int32   `json:"order_item_no"`
-	ItemKey       *string `json:"item_key"`
+	ItemNo        int32      `json:"item_no"`
+	BillingItemNo int32      `json:"billing_item_no"`
+	OrderItemNo   int32      `json:"order_item_no"`
+	MaterialID    *uuid.UUID `json:"material_id"`
+	ItemKey       *string    `json:"item_key"`
 	Description   string  `json:"description"`
 	Unit          string  `json:"unit"`
 	Billed        string  `json:"billed_quantity"`
@@ -91,7 +94,7 @@ const returnsSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.cust
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = r.tenant_id AND o.id = r.sales_order_id),
 		r.returns_date, r.reason, r.reason_text, r.status,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'billing_item_no', i.billing_item_no, 'order_item_no', b.order_item_no,
-			'item_key', t.item_key, 'description', t.description, 'unit', t.uom_code, 'billed_quantity', trim_scale(b.quantity)::text,
+			'material_id', t.material_id, 'item_key', t.item_key, 'description', t.description, 'unit', t.uom_code, 'billed_quantity', trim_scale(b.quantity)::text,
 			'quantity', trim_scale(i.quantity)::text, 'received_quantity', trim_scale(i.received_quantity)::text,
 			'open_quantity', trim_scale(i.quantity - i.received_quantity)::text) ORDER BY i.item_no)
 		 FROM sales.returns_order_item i

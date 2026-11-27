@@ -5559,8 +5559,13 @@ components:
         its date and the items received, each with the quantity of this
         receipt and the returns order item's received quantity after it,
         and names the customer by id and number, never by name, and the
-        billing document and the sales order by id and number. No stock
-        moved and nothing was posted. It is not offered as a webhook
+        billing document and the sales order by id and number. Items of
+        materials kept in stock were received into stock by the material
+        document it names (653, ADR-0083 As built S2b4), each with the cost
+        it took back from the cost of goods sold; MaterialDocumentPosted
+        is published with it. A receipt of other items moved no stock and
+        posted nothing: the material document and the costs are null. It
+        is not offered as a webhook
         event (product owner 2026-11-12: none until a consumer asks).
         `version` is the returns order's after the receipt:
         `GET /v1/returns-orders/{id}` returns the returns order at it or
@@ -5576,7 +5581,7 @@ components:
       examples:
         - name: received
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001107, source: /erp/eu-1/sales, type: com.example.erp.sales.return_received.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-30T09:12:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {receipt_id: 0192a000-0000-7000-8000-000000001511, receipt_no: 1, returns_order_id: 0192a000-0000-7000-8000-000000001411, document_number: RO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, receipt_date: '2026-11-30', items: [{item_no: 1, billing_item_no: 1, quantity: {value: '20', unit: EA}, received_quantity: {value: '20', unit: EA}}], version: 3}
+          payload: {receipt_id: 0192a000-0000-7000-8000-000000001511, receipt_no: 1, returns_order_id: 0192a000-0000-7000-8000-000000001411, document_number: RO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, billing_document_id: 0192a000-0000-7000-8000-000000001311, billing_document_number: BD100001, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, receipt_date: '2026-11-30', items: [{item_no: 1, billing_item_no: 1, quantity: {value: '20', unit: EA}, received_quantity: {value: '20', unit: EA}, cost: null}], material_document_id: null, material_document_number: null, version: 3}
     CreditMemoRequestChanged:
       name: CreditMemoRequestChanged
       title: Credit memo request changed
@@ -7023,7 +7028,7 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company of its plants.}
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         fiscal_year: {type: integer, description: The fiscal year of its posting date.}
-        movement_type: {type: string, description: 'Open enum: 101, 102, 351, 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302, 601, 602, 643, 701, 702.'}
+        movement_type: {type: string, description: 'Open enum: 101, 102, 351, 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302, 601, 602, 643, 701, 702, 653.'}
         posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
         reversal_of_id:
           description: "The document it reverses, `inventory.material_document.id`; null when it reverses none."
@@ -7038,7 +7043,7 @@ components:
             - type: 'null'
         journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
         journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
-        reference: {type: [string, 'null'], description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's document number, `procurement.goods_movement.document_number`, whose WE entry is `journal_entry_id` (S1e); an outbound delivery's goods issue (601): the delivery's number, `shipping.outbound_delivery.number` (ADR-0083); a stock transport order's goods issue (351) or receipt (101): the order's number, `procurement.stock_transport_order.number` (S2h); an intercompany stock transport order's goods issue (643): the receiving company's purchase order's number, `procurement.purchase_order.document_number` (S2i1); null on any other document. Not among the required fields (ADR-0041)."}
+        reference: {type: [string, 'null'], description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's document number, `procurement.goods_movement.document_number`, whose WE entry is `journal_entry_id` (S1e); an outbound delivery's goods issue (601): the delivery's number, `shipping.outbound_delivery.number` (ADR-0083); a stock transport order's goods issue (351) or receipt (101): the order's number, `procurement.stock_transport_order.number` (S2h); an intercompany stock transport order's goods issue (643): the receiving company's purchase order's number, `procurement.purchase_order.document_number` (S2i1); a customer's return received into stock (653): the returns order's number, `sales.returns_order.document_number` (S2b4); null on any other document. Not among the required fields (ADR-0041)."}
         lines:
           type: array
           description: Its lines, in line order.
@@ -7351,7 +7356,7 @@ components:
         version: {type: integer, description: "The returns order's version after the change."}
     ReturnReceivedV1:
       type: object
-      required: [receipt_id, receipt_no, returns_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, receipt_date, items, version]
+      required: [receipt_id, receipt_no, returns_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, billing_document_id, billing_document_number, sales_order_id, sales_order_number, receipt_date, items, material_document_id, material_document_number, version]
       properties:
         receipt_id: {$ref: '#/components/schemas/Uuid', description: '`sales.return_receipt.id`.'}
         receipt_no: {type: integer, description: "The receipt's number within its returns order, from 1."}
@@ -7371,12 +7376,15 @@ components:
           description: "The returns order's items received, by item number."
           items:
             type: object
-            required: [item_no, billing_item_no, quantity, received_quantity]
+            required: [item_no, billing_item_no, quantity, received_quantity, cost]
             properties:
               item_no: {type: integer, description: "The returns order item's number."}
               billing_item_no: {type: integer, description: "The number of the billing document's item it returns from."}
               quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity of this receipt, in the item's unit."}
               received_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is received of the returns order item after this receipt.'}
+              cost: {oneOf: [{$ref: '#/components/schemas/Money'}, {type: 'null'}], description: "Of an item received into stock (S2b4): what it took back from the cost of goods sold, in the company's currency; null for another item."}
+        material_document_id: {type: [string, 'null'], format: uuid, description: "The material document (653) that received the receipt's items of materials kept in stock into stock: `inventory.material_document.id`; null when it has none (S2b4)."}
+        material_document_number: {type: [string, 'null'], description: "That material document's number; null with it."}
         version: {type: integer, description: "The returns order's version after the receipt."}
     CreditMemoRequestChangedV1:
       type: object

@@ -89,12 +89,25 @@ func (e *Endpoints) IssueForIntercompany(ctx context.Context, reference string, 
 }
 
 // issueAgainstCost posts a goods issue of movement type mt against cost
-// of goods sold, its reference the document it issues for.
+// of goods sold, its reference the document it issues for, on the
+// company's date today.
 func (e *Endpoints) issueAgainstCost(ctx context.Context, mt, reference string, in []DeliveryItem) (Document, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return Document{}, err
 	}
+	post, r, err := e.prepare(ctx, tx, mt, reference, in)
+	if err != nil {
+		return Document{}, err
+	}
+	return e.posted(ctx, tx, p, post, r)
+}
+
+// prepare checks the items another context posts as a material document
+// of movement type mt with the reference, as IssueForDelivery's are, the
+// batch each names by number (deliveryBatches) and its serial numbers,
+// and gives the posting, dated the company's date today, and its refs.
+func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, mt, reference string, in []DeliveryItem) (posting, refs, error) {
 	items := make([]ItemInput, len(in))
 	for i, it := range in {
 		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity, Unit: it.Unit,
@@ -102,20 +115,26 @@ func (e *Endpoints) issueAgainstCost(ctx context.Context, mt, reference string, 
 	}
 	r, err := e.inputRefs(ctx, items)
 	if err != nil {
-		return Document{}, err
+		return posting{}, refs{}, err
 	}
 	if err := deliveryBatches(ctx, tx, movementTypes[mt], in, items, &r); err != nil {
-		return Document{}, err
+		return posting{}, refs{}, err
 	}
 	company, lines, err := e.items(items, movementTypes[mt], r)
 	if err != nil {
-		return Document{}, err
+		return posting{}, refs{}, err
 	}
 	c, err := e.companyOf(ctx, company)
 	if err != nil {
-		return Document{}, err
+		return posting{}, refs{}, err
 	}
-	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: mt, day: c.day.Date, reference: &reference, lines: lines, items: items}, r)
+	return posting{company: c.le, movementType: mt, day: c.day.Date, reference: &reference, lines: lines, items: items}, r, nil
+}
+
+// posted writes the prepared posting and its audit record and
+// MaterialDocumentPosted.
+func (e *Endpoints) posted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in posting, r refs) (Document, error) {
+	d, err := e.write(ctx, tx, p, in, r)
 	if err != nil {
 		return Document{}, err
 	}
