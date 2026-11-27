@@ -268,14 +268,21 @@ A clearing already done is left as it is, so a run of the same extract
 again clears nothing; an item the platform has cleared or reversed since,
 or that a payment proposal holds, is refused and fails the run rather than
 being cleared twice. A clearing whose counter-item is
-another fiscal year's (a prior-year invoice paid this year) is not in the
-extract, which holds the scope's fiscal year only and not SAP's clearing
-date (AUGDT): its clearing does not net to zero and fails the run, as the
-cleared items of such a year do in `balances` mode. Decided (product owner,
-2026-10-31) and not built yet: such an item is loaded open at its fiscal
-year's end, as SAP's key-date reading by the clearing date does, and the
-later year's run clears it; this needs SAP's clearing date and the clearing
-document's fiscal year in the extract (ADR-0034 As built, tracker). The SAP
+another fiscal year's (a prior-year invoice paid this year) failed its run
+before, the scope holding its fiscal year only. Decided (product owner,
+2026-10-31) and built: a run reads its year's journal as it stood at the
+year's end, so a vendor item SAP cleared by a clearing document of a later
+fiscal year (ACDOCA-AUGGJ after the run's year) loads open, in either mode,
+and the reconciliation counts it open on both sides; the later year's run,
+in `documents` mode, takes the earlier years' documents its clearings clear
+from the extract (they must be in the file: export every fiscal year to
+migrate) and clears them against what the earlier year's run loaded, an
+entry of their own or a line of its opening entry. An earlier year's item
+no run of that year loaded fails the run, naming the item and the year to
+migrate first; a `balances` run of the later year cannot clear them and its
+quality gate refuses such a clearing; an AUGGJ that is no year is refused.
+An extract without AUGGJ reads AUGBL as before (ADR-0034 As built, vendor
+items SAP cleared in a later fiscal year). The SAP
 specialist confirmed the fields (po:2026-11-09, A3, [H]): ACDOCA-AUGDT and
 ACDOCA-AUGGJ beside AUGBL, all three empty on an open item (AUGDT
 `00000000`, AUGGJ `0000`); they are on ACDOCA from S/4HANA 1610, on BSEG
@@ -1300,6 +1307,15 @@ others record a confirmation.
   period 000 carry-forward and a valuation posted to the account are named
   but not told apart (the extract carries no POPER, AWTYP or T030H); verify
   the check against the pilot's data.
+- **Clearings across fiscal years** (ADR-0034 As built, vendor items SAP
+  cleared in a later fiscal year): a file extract is to hold every fiscal
+  year to migrate, with ACDOCA-AUGGJ (and AUGDT) on each cleared line, so
+  a year's run holds open what SAP cleared later and the later year's run
+  finds the earlier documents it clears. An OData extract maps neither
+  field and reads one fiscal year: the pilot's `$metadata` is to name the
+  API's properties for both (from memory: ClearingDate and
+  ClearingDocFiscalYear on A_JournalEntryItemBasic, unconfirmed), and the
+  earlier years' items cleared in the year must be read as well.
 - **Noted items and the document status (BSTAT)** (review:batch63): the
   load leaves out the lines with ACDOCA-BSTAT `S` and reports them, on the
   specialist's answers A14 and A15. Still to ask the SAP specialist, none

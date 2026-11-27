@@ -523,7 +523,9 @@ question for positions:
   from the extract's own lines: an extract holds its fiscal year's
   journal only (`sap.FilterScope`) and the references carry GJAHR, so
   every document of a clearing the run sees is one of its year's, posted
-  by a run of the same year.
+  by a run of the same year; or, since the next sections, an earlier
+  year's document SAP cleared in the run's year, which that year's run
+  posted (vendor items SAP cleared in a later fiscal year).
 - **Locks.** The run reads under the shared entry bucket locks it takes
   first (`LockAllEntries`) and clears as before; it takes no new lock,
   so the lock order of batch 22 is unchanged.
@@ -546,7 +548,7 @@ BSIK/BSAK by the clearing date AUGDT) is an accounting rule nothing here
 settled; the options are in the tracker item that follows this one.
 
 Decided by the product owner on 2026-10-31 (as recommended in batch 25,
-sapclear case 2), not built yet: a fiscal year's migration holds open, at
+sapclear case 2): a fiscal year's migration holds open, at
 the year's end, every vendor item SAP cleared in a later fiscal year, as
 SAP's key-date reading of BSIK/BSAK by the clearing date does, so a
 prior-year invoice paid this year is loaded open in its year's run and the
@@ -558,7 +560,82 @@ po:2026-11-09, A3, [H]: both on ACDOCA from S/4HANA 1610, empty on an open
 item, and emptied again by a clearing reset, FBRA, so an item open at a
 year's end is told by AUGDT after that day); the load
 then reads a line as cleared only when its clearing falls in the run's
-fiscal year. Tracked as the item that follows this one.
+fiscal year. Built: see the next section.
+
+## As built: vendor items SAP cleared in a later fiscal year (product owner 2026-10-31; po:2026-11-09, A3)
+
+Built as the product owner decided above. The SAP specialist's answer
+(A3, [H]) is the source of the fields; nothing here goes wider than it.
+
+- **The extract.** ACDOCA carries AUGGJ, the clearing document's fiscal
+  year, beside AUGBL and AUGDT (`sap.ACDOCA`), optional as AUGDT is. A
+  file extract or the mock holds every fiscal year SAP exported; an
+  OData extract maps neither AUGDT nor AUGGJ and reads by the scope's
+  fiscal year alone, so it behaves as before until the pilot's $metadata
+  names them (docs/migration.md, "What to check on a real SAP system").
+- **The year's end (`sap.FilterScope`).** A scope reads its journal as it
+  stood at the fiscal year's end: a line SAP cleared by a clearing
+  document of a later fiscal year (AUGGJ after the scope's year) is open,
+  its AUGBL, AUGDT and AUGGJ left out of the scoped extract, noted items
+  as journal lines. So every check and every load of the run (the open
+  items of the opening entry in balances mode, the clearings in documents
+  mode, the reconciliation's open payables and their count per vendor,
+  the reconciliation accounts' check) reads it open, and the year's run
+  holds it open in either mode. Decided by default: the clearing's fiscal
+  year (AUGGJ) decides, not AUGDT against the year's last day, since the
+  platform does not hold SAP's fiscal year variant (T009/T009B) to tell
+  that day for a non-calendar year, and AUGGJ is SAP's own assignment of
+  the clearing to a year; a clearing reset (FBRA) empties all three, so
+  a reset line is open either way. A line without AUGGJ reads as AUGBL
+  says, as before; the quality gate refuses an AUGGJ that is no year.
+- **The later year's run.** Its scope sets apart, whole, the documents of
+  earlier fiscal years with a line SAP cleared in its year
+  (`Extract.ClearedEarlier`: the leading ledger's lines, noted items
+  aside). They are no journal lines of the scope, posted, summed or
+  counted by nothing; the clearings take their supplier lines cleared in
+  the year (`carriedClearings`) beside the year's own, and clear them on
+  the platform against what the earlier year's run loaded: the entry of
+  their own (its `ACDOCA/<BUKRS>/<GJAHR>/<BELNR>` reference, numbered
+  from the same lines as before: a documents run, or a balances run's
+  document that posts on its own), or the line of the earlier balances
+  run's opening entry, which `integration.opening_item` (000490) names by
+  the SAP line's key, since the later year's extract cannot tell the
+  opening entry's line numbers. The clearing document of the year clears
+  them (an earlier year's document of the same number is not it); one of
+  no line, as SAP posts when the items net to zero, leaves the latest
+  document to clear them, dated by SAP's clearing date (AUGDT), so the
+  clearing falls in the year SAP made it.
+- **Refused.** An earlier year's item no run of that year loaded fails
+  the later year's run, keyed `clearing <BUKRS>/<AUGBL>`, naming the item
+  and the year to migrate first, rather than clearing the year's items
+  alone (422 `ledger.clearing_not_balanced` before). A balances run of
+  the later year cannot clear them (its opening entry leaves the year's
+  cleared items out, so nothing it posts clears the earlier year's), so
+  the quality gate refuses such a clearing there: load the year in
+  documents mode.
+- **Currencies.** The documents a clearing reaches in earlier years are
+  of its clearing component (`clearingComponents`), with the currency
+  their earlier run posted them in (`postedCurrencies`), or company
+  currency for an opening entry's item, so the year's documents post in
+  a currency that clears with them, or the gate refuses them as before.
+- **Idempotent.** A clearing done already is left as it is
+  (`Postings.ClearedTogether`), so the later year's extract again records
+  nothing; a rehearsal rolls its opening items back with its load.
+- **Reconciliation.** The year's run reconciles its open items at the
+  year's end (the item open on both sides); the later year's its own
+  (the payment cleared on both). Which check proves it: "Open payable
+  items" and "Open payable items: vendors with differences" per year
+  (`TestClearedInALaterYear`, after a documents and a balances run).
+- **Locks.** The later run clears under the shared entry bucket locks it
+  takes first (`LockAllEntries`), as before; the opening items are
+  written in the opening entry's savepoint, and the foreign key to the
+  run takes FOR KEY SHARE on the run row the start holds already.
+
+Not built, for the backlog: a balances run of a later fiscal year after
+an earlier one holds them open; and the reconciliation of an earlier
+year run again after the later year cleared its items, which compares
+SAP's year-end reading with the platform's items open today and so shows
+them as differences.
 
 ## As built: a contract's expiry events name the company and the supplier (review:batch27)
 

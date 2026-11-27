@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // LeadingLedger is SAP's standard leading ledger (ACDOCA RLDNR "0L"), as the
@@ -70,7 +71,9 @@ func WriteExtract(path string, e *Extract) error {
 // that the migration's quality gate refuses them as a safety net rather
 // than the run proceeding as if the extract were whole (review:T56h4),
 // moves the leading ledger's noted items (BSTAT S) from ACDOCA to Noted
-// (review:batch63), keeps every company code's company ID
+// (review:batch63), reads the journal at the fiscal year's end and sets
+// apart the earlier years' documents its clearings clear (filterLedger),
+// keeps every company code's company ID
 // (CompanyCodes), the scope's or not, and the material master of the
 // scope's plants (filterMaterials).
 func FilterScope(all *Extract, scope Scope) *Extract {
@@ -154,13 +157,17 @@ func filterCustomizing(all, out *Extract, inCC func(string) bool) {
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
 }
 
-// filterLedger keeps the scope's journal lines of its leading ledger,
-// counts those of the others and sets its noted items aside (Extract.Noted):
-// a noted item is no journal line, so nothing that reads ACDOCA posts,
-// sums or counts one.
+// filterLedger keeps the scope's journal lines of its leading ledger, as
+// they stood at the fiscal year's end (atYearEnd), counts those of the
+// others and sets its noted items aside (Extract.Noted): a noted item is
+// no journal line, so nothing that reads ACDOCA posts, sums or counts one.
+// It also sets apart the earlier years' documents the scope's clearings
+// clear (Extract.ClearedEarlier).
 func filterLedger(all, out *Extract, scope Scope, inCC func(string) bool) {
 	out.Ledger = cmp.Or(scope.Ledger, LeadingLedger)
+	out.ClearedEarlier = clearedEarlier(all.ACDOCA, out.Ledger, scope.FiscalYear, inCC)
 	for _, r := range all.ACDOCA {
+		r = atYearEnd(r, scope.FiscalYear)
 		switch {
 		case !inCC(r.RBUKRS) || r.GJAHR != scope.FiscalYear:
 		case r.RLDNR != out.Ledger:
@@ -174,6 +181,45 @@ func filterLedger(all, out *Extract, scope Scope, inCC func(string) bool) {
 			out.ACDOCA = append(out.ACDOCA, r)
 		}
 	}
+}
+
+// IsYear reports whether s is a fiscal year as SAP writes one (GJAHR,
+// AUGGJ): four digits, other than the initial 0000 of an open item's
+// AUGGJ.
+func IsYear(s string) bool {
+	return len(s) == 4 && s != "0000" && strings.Trim(s, "0123456789") == ""
+}
+
+// atYearEnd is a journal line as it stood at the end of fiscal year
+// year: one SAP cleared by a clearing document of a later fiscal year
+// (AUGGJ) was open then, so its clearing (AUGBL, AUGDT, AUGGJ) is left
+// out, as SAP's key-date reading of open items by the clearing date has
+// it (the product owner 2026-10-31; po:2026-11-09, A3 [H]): the year's
+// run holds it open, and the later year's run clears it
+// (ClearedEarlier). A line without AUGGJ, or with one that is no year,
+// reads as AUGBL says, as before; the migration's quality gate refuses
+// the latter.
+func atYearEnd(r ACDOCA, year string) ACDOCA {
+	if r.AUGBL != "" && IsYear(r.AUGGJ) && r.AUGGJ > year {
+		r.AUGBL, r.AUGDT, r.AUGGJ = "", "", ""
+	}
+	return r
+}
+
+// clearedEarlier are the documents of fiscal years before year of the
+// scope's company codes with a line SAP cleared in year (AUGGJ): every
+// line of each in the ledger, noted items aside, in extract order.
+func clearedEarlier(lines []ACDOCA, ledger, year string, inCC func(string) bool) []ACDOCA {
+	earlier := func(r ACDOCA) bool {
+		return inCC(r.RBUKRS) && IsYear(r.GJAHR) && r.GJAHR < year && r.RLDNR == ledger && r.BSTAT != StatusNoted
+	}
+	docs := map[string]bool{}
+	for _, r := range lines {
+		if earlier(r) && r.AUGBL != "" && r.AUGGJ == year {
+			docs[r.RBUKRS+"/"+r.GJAHR+"/"+r.BELNR] = true
+		}
+	}
+	return keep(lines, func(r ACDOCA) bool { return earlier(r) && docs[r.RBUKRS+"/"+r.GJAHR+"/"+r.BELNR] })
 }
 
 // filterCenters keeps the controlling master data of the scope's company

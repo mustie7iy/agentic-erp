@@ -151,6 +151,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.ledgers()
 	q.noted()
 	q.journal()
+	q.clearingYears()
 	q.reconciliationAccounts()
 	q.lineCenters()
 	q.downPayments()

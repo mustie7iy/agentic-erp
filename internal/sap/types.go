@@ -299,6 +299,12 @@ type ACDOCA struct {
 	// reconciliation account reads an item cleared after its key date as
 	// open by AUGDT, and an extract without it as AUGBL says today.
 	AUGDT string `json:"AUGDT,omitempty"`
+	// AUGGJ is the clearing document's fiscal year, initial (blank or
+	// 0000) on an open item (po:2026-11-09, A3 [H]). Optional: a scope
+	// reads a line SAP cleared in a later fiscal year as open at its
+	// year's end (FilterScope), and an extract without it as AUGBL says
+	// today (ADR-0034 As built, items cleared in a later fiscal year).
+	AUGGJ string `json:"AUGGJ,omitempty"`
 	BSTAT string `json:"BSTAT,omitempty"`
 	// UMSKZ is a vendor line's special G/L indicator, "" on an ordinary
 	// line; in the standard system "A" marks a general down payment (SAP
@@ -894,6 +900,15 @@ type Extract struct {
 	// nor counts them and its quality gate reports them (review:batch63).
 	// An extract file holds them in ACDOCA, as SAP does.
 	Noted []ACDOCA `json:"-"`
+
+	// ClearedEarlier are the documents of earlier fiscal years (every
+	// leading ledger line of each, noted items aside) a vendor line of
+	// which SAP cleared in the scope's fiscal year (AUGGJ), which
+	// FilterScope sets apart: no journal lines of the scope, which an
+	// earlier year's run posted, but the counter-items the scope's
+	// clearings clear (ADR-0034 As built, items cleared in a later fiscal
+	// year). An extract file holds them in ACDOCA, as SAP does.
+	ClearedEarlier []ACDOCA `json:"-"`
 
 	// CompanyCodes are the company codes assigned to each company ID
 	// (T001-RCOMP, by CompanyID), in company code order, over
