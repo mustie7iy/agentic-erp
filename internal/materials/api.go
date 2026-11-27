@@ -51,13 +51,16 @@ func (e *Endpoints) references(ctx context.Context, ms []Material) (references, 
 	return refs, nil
 }
 
-// materialAPI is a material as the API gives it: its plants in the
-// companies the caller may act in, by plant code, each with its storage
-// locations by code.
-func materialAPI(m Material, refs references) gen.Material {
+// materialAPI is a material as the API gives it: its description in the
+// language asked for, else its default one (S1a2), with all of them; its
+// plants in the companies the caller may act in, by plant code, each with
+// its storage locations by code.
+func materialAPI(m Material, refs references, language string) gen.Material {
+	described := m.DescriptionIn(language)
 	out := gen.Material{ID: m.ID, Version: m.Version, CreatedAt: m.CreatedAt, CreatedBy: m.CreatedBy, UpdatedAt: m.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(m.UpdatedBy), Number: m.Number, LegalEntityID: m.LegalEntityID, CompanyCode: refs.companies[m.LegalEntityID].Code,
-		Description: m.Description, BaseUnit: m.BaseUnit, BaseUnitName: m.BaseUnitName, MaterialType: m.Type, MaterialGroup: m.Group, Status: m.Status,
+		Description: described.Text, DescriptionLanguage: described.Language, DefaultLanguage: m.DescriptionLanguage,
+		Descriptions: descriptionsAPI(m.AllDescriptions()), BaseUnit: m.BaseUnit, BaseUnitName: m.BaseUnitName, MaterialType: m.Type, MaterialGroup: m.Group, Status: m.Status,
 		BatchManaged: m.BatchManaged, SerialManaged: m.SerialManaged,
 		Plants: []gen.MaterialPlant{}, AlternativeUnits: make([]gen.MaterialUnit, len(m.Units)), PendingChangeID: apitypes.OptUUID(m.PendingChangeID),
 		PendingChangeNumber: apitypes.OptString(m.PendingChangeNumber)}
@@ -84,8 +87,18 @@ func materialAPI(m Material, refs references) gen.Material {
 	return out
 }
 
-// one is a single material as the API gives it, with its ETag.
-func (e *Endpoints) one(ctx context.Context, m Material, err error) (gen.Material, gen.OptString, error) {
+// descriptionsAPI are descriptions as the API gives and takes them.
+func descriptionsAPI(ds []Description) []gen.MaterialDescription {
+	out := make([]gen.MaterialDescription, len(ds))
+	for i, d := range ds {
+		out[i] = gen.MaterialDescription{Language: d.Language, Description: d.Text}
+	}
+	return out
+}
+
+// one is a single material as the API gives it, in the language asked
+// for, with its ETag.
+func (e *Endpoints) one(ctx context.Context, m Material, err error, language string) (gen.Material, gen.OptString, error) {
 	if err != nil {
 		return gen.Material{}, gen.OptString{}, err
 	}
@@ -93,7 +106,17 @@ func (e *Endpoints) one(ctx context.Context, m Material, err error) (gen.Materia
 	if err != nil {
 		return gen.Material{}, gen.OptString{}, err
 	}
-	return materialAPI(m, refs), gen.NewOptString(etag.Format(m.Version)), nil
+	return materialAPI(m, refs, language), gen.NewOptString(etag.Format(m.Version)), nil
+}
+
+// descriptionsIn are a request's further descriptions as the context
+// takes them.
+func descriptionsIn(ds []gen.MaterialDescription) []Description {
+	out := make([]Description, len(ds))
+	for i, d := range ds {
+		out[i] = Description{Language: d.Language, Text: d.Description}
+	}
+	return out
 }
 
 // inputs are a request's plants and units as the context takes them.
@@ -111,24 +134,27 @@ func inputs(plants []gen.MaterialPlantInput, units []gen.MaterialUnitInput) ([]P
 // CreateMaterial implements POST /v1/materials.
 func (e *Endpoints) CreateMaterial(ctx context.Context, req *gen.MaterialCreate, _ gen.CreateMaterialParams) (gen.CreateMaterialRes, error) {
 	plants, units := inputs(req.Plants, req.AlternativeUnits)
-	m, err := e.Create(ctx, Input{LegalEntityID: req.LegalEntityID, Description: req.Description, BaseUnit: req.BaseUnit, Type: req.MaterialType,
+	m, err := e.Create(ctx, Input{LegalEntityID: req.LegalEntityID, Description: req.Description,
+		DescriptionLanguage: req.DescriptionLanguage.Or(DefaultLanguage), Descriptions: descriptionsIn(req.Descriptions), BaseUnit: req.BaseUnit,
+		Type:  req.MaterialType,
 		Group: req.MaterialGroup, Plants: plants, Units: units, Reason: req.Reason.Value, ConfirmDuplicate: req.ConfirmDuplicate.Value,
 		BatchManaged: req.BatchManaged.Value, SerialManaged: req.SerialManaged.Value})
-	out, tag, err := e.one(ctx, m, err)
+	out, tag, err := e.one(ctx, m, err, "")
 	if err != nil {
 		return nil, err
 	}
 	return &gen.MaterialHeaders{ETag: tag, Location: gen.NewOptString("/v1/materials/" + m.ID.String()), Response: out}, nil
 }
 
-// GetMaterial implements GET /v1/materials/{id}.
+// GetMaterial implements GET /v1/materials/{id}, its description in the
+// language asked for.
 func (e *Endpoints) GetMaterial(ctx context.Context, params gen.GetMaterialParams) (gen.GetMaterialRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	m, err := load(ctx, tx, params.ID, false)
-	out, tag, err := e.one(ctx, m, err)
+	out, tag, err := e.one(ctx, m, err, params.Language.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +172,12 @@ func (e *Endpoints) UpdateMaterial(ctx context.Context, req *gen.MaterialUpdate,
 	if req.AlternativeUnits != nil {
 		ch.Units = &units
 	}
+	if req.Descriptions != nil {
+		ds := descriptionsIn(req.Descriptions)
+		ch.Descriptions = &ds
+	}
 	done, err := e.Change(ctx, params.ID, etag.IfMatch(params.IfMatch), ch, req.Reason.Value)
-	out, tag, err := e.one(ctx, done.Material, err)
+	out, tag, err := e.one(ctx, done.Material, err, "")
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +188,7 @@ var materialSort = pagination.Sort{Default: "number", Fields: []pagination.Field
 
 // ListMaterials implements GET /v1/materials: the tenant's materials by
 // number, filtered by number, plant (one it has, not removed), status,
-// type and group.
+// type and group, each described in the language asked for.
 func (e *Endpoints) ListMaterials(ctx context.Context, params gen.ListMaterialsParams) (gen.ListMaterialsRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -187,7 +217,8 @@ func (e *Endpoints) ListMaterials(ctx context.Context, params gen.ListMaterialsP
 		return nil, fmt.Errorf("materials: list materials: %w", err)
 	}
 	items, next, err := apitypes.PageWith(ks, ms, func(m Material) (string, uuid.UUID) { return m.Number, m.ID },
-		func(page []Material) (references, error) { return e.references(ctx, page) }, materialAPI)
+		func(page []Material) (references, error) { return e.references(ctx, page) },
+		func(m Material, refs references) gen.Material { return materialAPI(m, refs, params.Language.Value) })
 	if err != nil {
 		return nil, err
 	}

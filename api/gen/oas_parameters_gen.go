@@ -35784,6 +35784,10 @@ func decodeGetMatchResultParams(args [1]string, argsEscaped bool, r *http.Reques
 type GetMaterialParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
+	// The language to answer each material's `description` in, a BCP 47 tag (ADR-0082 As built S1a2): the
+	// material's description in that language, found by RFC 4647 lookup (`ar-AE`, then `ar`), else its
+	// default description; `description_language` says which. Absent: the default description.
+	Language OptString `json:",omitempty,omitzero"`
 }
 
 func unpackGetMaterialParams(packed middleware.Parameters) (params GetMaterialParams) {
@@ -35794,10 +35798,20 @@ func unpackGetMaterialParams(packed middleware.Parameters) (params GetMaterialPa
 		}
 		params.ID = packed[key].(uuid.UUID)
 	}
+	{
+		key := middleware.ParameterKey{
+			Name: "language",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Language = v.(OptString)
+		}
+	}
 	return params
 }
 
 func decodeGetMaterialParams(args [1]string, argsEscaped bool, r *http.Request) (params GetMaterialParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
 	// Decode path: id.
 	if err := func() error {
 		param := args[0]
@@ -35840,6 +35854,74 @@ func decodeGetMaterialParams(args [1]string, argsEscaped bool, r *http.Request) 
 		return params, &ogenerrors.DecodeParamError{
 			Name: "id",
 			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode query: language.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "language",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotLanguageVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotLanguageVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Language.SetTo(paramsDotLanguageVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Language.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     12,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "language",
+			In:   "query",
 			Err:  err,
 		}
 	}
@@ -42400,6 +42482,266 @@ func decodeGetStockTransportOrderParams(args [1]string, argsEscaped bool, r *htt
 		return params, &ogenerrors.DecodeParamError{
 			Name: "id",
 			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// GetSupplierDeliveryPerformanceParams is parameters of getSupplierDeliveryPerformance operation.
+type GetSupplierDeliveryPerformanceParams struct {
+	// The plant (an org unit of kind `plant`, `GET /v1/org-units/{id}`) the material was delivered to
+	// (required).
+	PlantID uuid.UUID
+	// The material (`GET /v1/materials/{id}`) delivered (required).
+	MaterialID uuid.UUID
+	// Only resources of this supplier (business partner id).
+	SupplierID OptUUID `json:",omitempty,omitzero"`
+	// Receipts posted on or after this date; default 364 days before `to`.
+	From OptDate `json:",omitempty,omitzero"`
+	// Receipts posted on or before this date; default the plant's company's date (its time zone).
+	To OptDate `json:",omitempty,omitzero"`
+}
+
+func unpackGetSupplierDeliveryPerformanceParams(packed middleware.Parameters) (params GetSupplierDeliveryPerformanceParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "plant_id",
+			In:   "query",
+		}
+		params.PlantID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "material_id",
+			In:   "query",
+		}
+		params.MaterialID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "supplier_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.SupplierID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "from",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.From = v.(OptDate)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "to",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.To = v.(OptDate)
+		}
+	}
+	return params
+}
+
+func decodeGetSupplierDeliveryPerformanceParams(args [0]string, argsEscaped bool, r *http.Request) (params GetSupplierDeliveryPerformanceParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: plant_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.PlantID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "plant_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: material_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToUUID(val)
+				if err != nil {
+					return err
+				}
+
+				params.MaterialID = c
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "material_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: supplier_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "supplier_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotSupplierIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotSupplierIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.SupplierID.SetTo(paramsDotSupplierIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "supplier_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: from.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotFromVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotFromVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.From.SetTo(paramsDotFromVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "from",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: to.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotToVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotToVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.To.SetTo(paramsDotToVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "to",
+			In:   "query",
 			Err:  err,
 		}
 	}
@@ -93333,6 +93675,10 @@ type ListMaterialsParams struct {
 	MaterialType OptString `json:",omitempty,omitzero"`
 	// Only materials of this material group.
 	MaterialGroup OptString `json:",omitempty,omitzero"`
+	// The language to answer each material's `description` in, a BCP 47 tag (ADR-0082 As built S1a2): the
+	// material's description in that language, found by RFC 4647 lookup (`ar-AE`, then `ar`), else its
+	// default description; `description_language` says which. Absent: the default description.
+	Language OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -93387,6 +93733,15 @@ func unpackListMaterialsParams(packed middleware.Parameters) (params ListMateria
 		}
 		if v, ok := packed[key]; ok {
 			params.MaterialGroup = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "language",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Language = v.(OptString)
 		}
 	}
 	{
@@ -93730,6 +94085,74 @@ func decodeListMaterialsParams(args [0]string, argsEscaped bool, r *http.Request
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "material_group",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: language.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "language",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotLanguageVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotLanguageVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Language.SetTo(paramsDotLanguageVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Language.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     12,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "language",
 			In:   "query",
 			Err:  err,
 		}

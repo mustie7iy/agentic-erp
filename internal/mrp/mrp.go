@@ -121,11 +121,13 @@ type Requisition struct {
 	Items   []Open
 }
 
-// Proposal is a requisition a run proposes: one item of the material in
-// its base unit, at its price, naming the account, needed by the day.
+// Proposal is a requisition a run proposes: an item of the material per
+// lot, of the lot's quantity in its base unit, at its price, naming the
+// account, needed by the day.
 type Proposal struct {
 	LegalEntityID, MaterialID, AccountID uuid.UUID
-	Currency, Quantity, Unit, Price      string
+	Currency, Unit, Price                string
+	Lots                                 []string
 	PriceUnit                            int32
 	NeededBy                             time.Time
 }

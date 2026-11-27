@@ -22,7 +22,8 @@ import (
 // less its demand: its confirmed sales orders' and the intercompany
 // orders' and stock transport orders' it supplies and has not issued;
 // below the reorder point, the shortage is what brings it back there,
-// rounded up to six decimals, and is proposed as a requisition.
+// rounded up to six decimals, and is proposed as a requisition, sized
+// by the plan's lot sizing procedure (lotsize.go).
 
 // counts are a run's quantities by material in the base unit.
 type counts struct{ demand, stock, receipts map[uuid.UUID]*big.Rat }
@@ -84,11 +85,10 @@ func (e *Endpoints) demand(ctx context.Context, w *work) ([]Open, error) {
 	return append(demand, transports...), nil
 }
 
-// shortage is what brings stock plus receipts less demand back to the
-// reorder point, rounded up to six decimals; zero when they are not
-// below it.
-func shortage(reorderPoint, demand, stock, receipts *big.Rat) *big.Rat {
-	available := new(big.Rat).Sub(new(big.Rat).Add(stock, receipts), demand)
+// shortage is what brings the available quantity (stock plus receipts
+// less demand) back to the reorder point, rounded up to six decimals;
+// zero when it is not below it.
+func shortage(reorderPoint, available *big.Rat) *big.Rat {
 	if available.Cmp(reorderPoint) >= 0 {
 		return new(big.Rat)
 	}
@@ -96,7 +96,8 @@ func shortage(reorderPoint, demand, stock, receipts *big.Rat) *big.Rat {
 }
 
 // net counts the planned materials and proposes a requisition for each
-// shortage, in material order, writing the run's lines.
+// shortage, of the lots its plan sizes, in material order, writing the
+// run's lines.
 func (e *Endpoints) net(ctx context.Context, tx pgx.Tx, w *work) error {
 	c, err := e.count(ctx, w)
 	if err != nil {
@@ -109,15 +110,22 @@ func (e *Endpoints) net(ctx context.Context, tx pgx.Tx, w *work) error {
 	for _, pl := range w.plans {
 		m := w.materials[pl.MaterialID]
 		rop, demand, stock, receipts := money.ParseRat(pl.ReorderPoint), orZero(c.demand[m.ID]), orZero(c.stock[m.ID]), orZero(c.receipts[m.ID])
-		short := shortage(rop, demand, stock, receipts)
+		available := new(big.Rat).Sub(new(big.Rat).Add(stock, receipts), demand)
+		short := shortage(rop, available)
+		lots, err := pl.Lots.lots(short, available, m.Number)
+		if err != nil {
+			return err
+		}
 		l := Line{MaterialID: m.ID, Unit: m.BaseUnit, ReorderPoint: money.PlainQuantity(rop), Demand: money.PlainQuantity(demand),
-			Stock: money.PlainQuantity(stock), Receipts: money.PlainQuantity(receipts), Shortage: money.PlainQuantity(short)}
-		if short.Sign() > 0 {
-			p, err := e.propose(ctx, tx, w, pl, l, prices[m.ID])
+			Stock: money.PlainQuantity(stock), Receipts: money.PlainQuantity(receipts), Shortage: money.PlainQuantity(short), LotSize: pl.Lots.Procedure,
+			Proposed: money.PlainQuantity(sum(lots))}
+		if len(lots) > 0 {
+			p, err := e.propose(ctx, tx, w, pl, l, lots, prices[m.ID])
 			if err != nil {
 				return err
 			}
-			l.RequisitionID, l.RequisitionNumber = &p.ID, &p.Number
+			n := int32(len(lots)) // at most MaxLots
+			l.RequisitionID, l.RequisitionNumber, l.Lots = &p.ID, &p.Number, &n
 			w.proposed = append(w.proposed, proposal{material: m.ID, Proposed: p})
 		}
 		w.lines = append(w.lines, l)
@@ -125,19 +133,32 @@ func (e *Endpoints) net(ctx context.Context, tx pgx.Tx, w *work) error {
 	return nil
 }
 
-// propose raises the requisition of a line's shortage: the material in
-// its base unit, in the company's currency at its valuation price at the
-// plant (zero when it is not valued there), naming the plan's account,
-// needed by the run's day.
-func (e *Endpoints) propose(ctx context.Context, tx pgx.Tx, w *work, pl Plan, l Line, price Price) (Proposed, error) {
+// sum is the total of the lots, zero for none.
+func sum(lots []*big.Rat) *big.Rat {
+	total := new(big.Rat)
+	for _, q := range lots {
+		total.Add(total, q)
+	}
+	return total
+}
+
+// propose raises the requisition of a line's shortage, an item per lot:
+// the material in its base unit, in the company's currency at its
+// valuation price at the plant (zero when it is not valued there),
+// naming the plan's account, needed by the run's day.
+func (e *Endpoints) propose(ctx context.Context, tx pgx.Tx, w *work, pl Plan, l Line, lots []*big.Rat, price Price) (Proposed, error) {
 	exp, err := currency.Exponent(ctx, tx, w.le.LocalCurrency, nil)
 	if err != nil {
 		return Proposed{}, fmt.Errorf("mrp: currency %s: %w", w.le.LocalCurrency, err)
 	}
+	quantities := make([]string, len(lots))
+	for i, q := range lots {
+		quantities[i] = money.PlainQuantity(q)
+	}
 	p, err := e.Supply.Propose(ctx, Proposal{LegalEntityID: w.le.ID, MaterialID: pl.MaterialID, AccountID: pl.AccountID, Currency: w.le.LocalCurrency,
-		Quantity: l.Shortage, Unit: l.Unit, Price: price.Price.Plain(exp), PriceUnit: max(price.PriceUnit, 1), NeededBy: w.day})
+		Lots: quantities, Unit: l.Unit, Price: price.Price.Plain(exp), PriceUnit: max(price.PriceUnit, 1), NeededBy: w.day})
 	if err != nil {
-		return Proposed{}, fmt.Errorf("mrp: propose %s %s of material %s at plant %s: %w", l.Shortage, l.Unit, w.materials[pl.MaterialID].Number,
+		return Proposed{}, fmt.Errorf("mrp: propose %s %s of material %s at plant %s: %w", l.Proposed, l.Unit, w.materials[pl.MaterialID].Number,
 			w.plant.Code, err)
 	}
 	return p, nil
@@ -148,16 +169,17 @@ func writeRun(ctx context.Context, tx pgx.Tx, p reqctx.Principal, w work) error 
 	n := len(w.lines)
 	mats, units, rops, demands, stocks, receipts, shorts := make([]uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n),
 		make([]string, n), make([]string, n), make([]string, n)
-	reqs, numbers := make([]*uuid.UUID, n), make([]*string, n)
+	reqs, numbers, procs, proposed, lots := make([]*uuid.UUID, n), make([]*string, n), make([]string, n), make([]string, n), make([]*int32, n)
 	for i, l := range w.lines {
 		mats[i], units[i], rops[i], demands[i], stocks[i], receipts[i], shorts[i] = l.MaterialID, l.Unit, l.ReorderPoint, l.Demand, l.Stock, l.Receipts, l.Shortage
-		reqs[i], numbers[i] = l.RequisitionID, l.RequisitionNumber
+		reqs[i], numbers[i], procs[i], proposed[i], lots[i] = l.RequisitionID, l.RequisitionNumber, l.LotSize, l.Proposed, l.Lots
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO mrp.run_line (tenant_id, run_id, material_id, uom_code, reorder_point, demand, stock, receipts, shortage,
-			requisition_id, requisition_number)
-		SELECT $1, $2, m, u, r::numeric, d::numeric, s::numeric, x::numeric, sh::numeric, q, qn
-		FROM unnest($3::uuid[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::uuid[], $11::text[])
-			AS t(m, u, r, d, s, x, sh, q, qn)`, p.TenantID, w.run.ID, mats, units, rops, demands, stocks, receipts, shorts, reqs, numbers); err != nil {
+			requisition_id, requisition_number, lot_size, proposed, lots)
+		SELECT $1, $2, m, u, r::numeric, d::numeric, s::numeric, x::numeric, sh::numeric, q, qn, ls, pr::numeric, lt
+		FROM unnest($3::uuid[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::uuid[], $11::text[], $12::text[],
+			$13::text[], $14::int[]) AS t(m, u, r, d, s, x, sh, q, qn, ls, pr, lt)`, p.TenantID, w.run.ID, mats, units, rops, demands, stocks, receipts,
+		shorts, reqs, numbers, procs, proposed, lots); err != nil {
 		return fmt.Errorf("mrp: lines of planning run %s: %w", w.run.ID, err)
 	}
 	for _, x := range w.proposed {

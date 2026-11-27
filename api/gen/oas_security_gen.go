@@ -396,6 +396,7 @@ var operationRolesOidc = map[string][]string{
 	GetSopPlanOperation:                                  []string{},
 	GetStatisticalKeyFigureOperation:                     []string{},
 	GetStockTransportOrderOperation:                      []string{},
+	GetSupplierDeliveryPerformanceOperation:              []string{},
 	GetSupplierInvoiceOperation:                          []string{},
 	GetSupplierInvoiceDocumentOperation:                  []string{},
 	GetTaxReturnOperation:                                []string{},

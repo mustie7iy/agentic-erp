@@ -1293,6 +1293,10 @@ migrated_materials() {
     "Hex bolt M8: trading_good PC active 3200/0001+0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
   local steel
   steel=$(field '.items[] | select(.description == "Steel sheet 2 mm") | .id')
+  say "Each of a material's MAKT texts came over in its language (S1a2): the steel sheet's English one is its default,"
+  say "its German one a further description:"
+  expect "the steel sheet's descriptions" "$(field '.items[] | select(.description == "Steel sheet 2 mm") | [.descriptions[] | "\(.language) \(.description)"] | join("; ")')" \
+    "en Steel sheet 2 mm; de Stahlblech 2 mm"
   say "Each one's creation is a material change the run applied, with no approval request of its own; its reason names"
   say "SAP's material number, which the run keeps as the material's external reference:"
   api 200 '.items[] | "material change \(.number) \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
@@ -13855,10 +13859,15 @@ material_request() {
 # pending until Priya, the process owner, approves its create change
 # (S1b). Mira's change of its description and storage locations waits for
 # Priya's approval in turn; her earlier version is stale then; she blocks
-# the bracket, which applies at once.
+# the bracket, which applies at once. Descriptions by language (S1a2): the
+# bracket is described in Arabic too, the UAE pilot's second language, and
+# read in Arabic, in ar-AE and in French (its English default answered);
+# the zinc-plated change carries the new Arabic text and a French one; a
+# further description in the default's language is refused.
 step_material() {
-  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, active once the process owner approves it; the base unit as an alternative unit and another plant's storage location refused; a change approved, a stale version refused; blocked at once"
+  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; blocked at once"
   local plant main spares other far material number
+  local arabic="دعامة مشغولة M10" zinc="دعامة مشغولة M10، مطلية بالزنك"
   as ada
   say "Ada adds Mira, the master data specialist, to the team:"
   person mira "Mira Materials" finance_staff
@@ -13883,9 +13892,11 @@ step_material() {
   QUIET=1 api 200 '' activateOrgUnit -p "id=$far" -if-match "$ETAG"
   as mira
   say "Mira creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
-  say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b):"
-  api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status), change \(.pending_change_number)", (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
-    createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\",
+  say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b). It is described in English by"
+  say "default and in Arabic too, for the UAE pilot's people (S1a2):"
+  api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status), change \(.pending_change_number)", (.descriptions[] | "  described in \(.language): \(.description)"), (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
+    createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10\", \"description_language\": \"en\", \"descriptions\": [{\"language\": \"ar\", \"description\": \"$arabic\"}],
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\",
       \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\"]}], \"alternative_units\": [{\"unit\": \"BOX\", \"numerator\": 20, \"denominator\": 1}],
       \"reason\": \"New bracket for the Northwind range\"}"
   material=$(field .id)
@@ -13898,6 +13909,14 @@ step_material() {
   as mira
   api 200 '"material \(.number): \(.status), version \(.version)"' getMaterial -p "id=$material"
   expect "the approved material" "$(field '"\(.status) \(.version)"')" "active 2"
+  say "A reader names the language it wants: Arabic answers the Arabic text as given, ar-AE finds it by its language,"
+  say "and French, which the bracket has not, answers the English default, saying so:"
+  api 200 '"in \(.description_language): \(.description)"' getMaterial -p "id=$material" -p language=ar
+  expect "the bracket in Arabic" "$(field '"\(.description_language) \(.description)"')" "ar $arabic"
+  QUIET=1 api 200 '' getMaterial -p "id=$material" -p language=ar-AE
+  expect "the bracket in ar-AE" "$(field .description)" "$arabic"
+  api 200 '"in \(.description_language) (default \(.default_language)): \(.description)"' getMaterial -p "id=$material" -p language=fr
+  expect "the bracket in French" "$(field '"\(.description_language) \(.description)"')" "en Machined bracket M10"
   say "The base unit converts to itself, so it is no alternative unit; Montreal's store is not Toronto's:"
   refused 422 materials.base_unit_conversion createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"alternative_units\": [{\"unit\": \"EA\", \"numerator\": 1, \"denominator\": 1}]}"
@@ -13905,16 +13924,25 @@ step_material() {
   refused 422 materials.storage_location_invalid createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$far\"]}]}"
   expect "the refused storage location's field" "$(field '.errors[0].field')" "plants[0].storage_location_ids[0]"
-  say "Mira names the bracket's finish and keeps it in the spare parts store too, at the version she read; the"
-  say "change waits for Priya:"
+  say "A further description in English, the default's language, is refused: the default description is description:"
+  refused 422 materials.duplicate_language createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"descriptions\": [{\"language\": \"en\", \"description\": \"Bracket M12\"}]}"
+  expect "the refused description's field" "$(field '.errors[0].field')" "descriptions[0].language"
+  say "Mira names the bracket's finish, in Arabic too and now in French, and keeps it in the spare parts store too, at"
+  say "the version she read; the change waits for Priya:"
   QUIET=1 api 200 '' getMaterial -p "id=$material"
   api 200 '"material \(.number) \(.description): version \(.version), change \(.pending_change_number) pending"' updateMaterial -p "id=$material" -if-match "$ETAG" \
-    -body "{\"description\": \"Machined bracket M10, zinc plated\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\", \"$spares\"]}], \"reason\": \"Zinc plated from now on\"}"
+    -body "{\"description\": \"Machined bracket M10, zinc plated\", \"descriptions\": [{\"language\": \"ar\", \"description\": \"$zinc\"}, {\"language\": \"fr\", \"description\": \"Équerre usinée M10, zinguée\"}],
+      \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\", \"$spares\"]}], \"reason\": \"Zinc plated from now on\"}"
   expect "the material while its change waits" "$(field '"\(.version) \(.description)"')" "2 Machined bracket M10"
   approve priya "$(material_request "$material")" "Agreed with purchasing."
   as mira
   api 200 '"material \(.number) \(.description): version \(.version)", (.plants[] | "  plant \(.plant_code): \([.storage_locations[] | .code] | join(", "))")' getMaterial -p "id=$material"
   expect "the changed material" "$(field '"\(.version) \(.description) \([.plants[0].storage_locations[] | .code] | join(","))"')" "3 Machined bracket M10, zinc plated SL01,SL02"
+  expect "the changed descriptions" "$(field '[.descriptions[] | "\(.language) \(.description)"] | join("; ")')" \
+    "en Machined bracket M10, zinc plated; ar $zinc; fr Équerre usinée M10, zinguée"
+  QUIET=1 api 200 '' getMaterial -p "id=$material" -p language=fr-CA
+  expect "the bracket in fr-CA" "$(field '"\(.description_language) \(.description)"')" "fr Équerre usinée M10, zinguée"
   say "Her first version is stale now:"
   refused 412 request.version_mismatch updateMaterial -p "id=$material" -if-match '"1"' -body '{"material_group": "FASTENERS"}'
   say "A batch of brackets is found faulty; Mira blocks the bracket, which needs no approval and applies at once, at"
@@ -16648,10 +16676,14 @@ step_serial_numbers() {
 # to Montreal; he cancels an order of 30 more he entered by mistake
 # (review:batch92), which is not cancelled again. Toronto's run counts the
 # open order as its demand, and Montreal's as its receipt, and neither the
-# cancelled one, so neither proposes.
+# cancelled one, so neither proposes. Lot sizing (S2k2; ADR-0084 As
+# built S2k2): Mira creates the W8 washer, kept at Montreal, and plans it
+# there by a reorder point of 100 in fixed lots of 40, a minimum lot size
+# with a fixed lot refused; Ben's run of Montreal, none of it in stock,
+# proposes three lots of 40 (120) as the items of one requisition.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither"
-  local hinge sales own own_version run first second montreal store gasket plant mistake
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither; a washer planned in fixed lots is proposed in whole lots"
+  local hinge sales own own_version run first second montreal store gasket plant mistake washer
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -16785,6 +16817,34 @@ step_mrp() {
   say "nothing (counting none, it would propose 50):"
   mrp_run "$montreal" "$gasket"
   expect "Montreal's gasket" "$(field '.lines[] | select(.material_id == "'"$gasket"'") | "\(.demand.value) \(.stock.value) \(.receipts.value) \(.shortage.value) \(.requisition_id // "none")"')" "0 0 80 0 none"
+  as mira
+  say "Lot sizing (S2k2): Mira creates the W8 washer, kept in the Montreal store and bought in cartons of 40; Priya"
+  say "approves it; Ines values it at Montreal:"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Washer W8\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"WASHERS\",
+      \"plants\": [{\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  washer=$(field .id)
+  approve priya "$(material_request "$washer")" "Washer bought by the carton."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$washer\", \"plant_id\": \"$montreal\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"0.10\", \"currency\": \"CAD\"}}"
+  as mira
+  say "Mira plans it at Montreal by a reorder point of 100 in fixed lots of 40 (SAP's lot size FX); a minimum lot size"
+  say "with a fixed lot is refused, a fixed lot is ordered as it is:"
+  refused 422 mrp.invalid_lot_size createMaterialPlan -body "{\"plant_id\": \"$montreal\", \"material_id\": \"$washer\", \"mrp_type\": \"reorder_point\",
+      \"reorder_point\": \"100\", \"lot_size\": \"fixed\", \"fixed_lot_size\": \"40\", \"minimum_lot_size\": \"80\", \"account_id\": \"$(account 6000)\"}"
+  api 201 '"\(.material_number) at \(.plant_code): reorder point \(.reorder_point.value), \(.lot_size) lots of \(.fixed_lot_size.value) \(.fixed_lot_size.unit)"' \
+    createMaterialPlan -body "{\"plant_id\": \"$montreal\", \"material_id\": \"$washer\", \"mrp_type\": \"reorder_point\", \"reorder_point\": \"100\",
+      \"lot_size\": \"fixed\", \"fixed_lot_size\": \"40\", \"account_id\": \"$(account 6000)\"}"
+  as ben
+  say "Ben runs Montreal: none of the washer is there, so it is 100 short; the run proposes the three whole lots of 40"
+  say "that cover it, 120, as the items of one requisition:"
+  mrp_run "$montreal" "$washer"
+  expect "Montreal's washer" "$(field '.lines[] | select(.material_id == "'"$washer"'") | "\(.shortage.value) \(.lot_size) \(.proposed.value) \(.lots)"')" "100 fixed 120 3"
+  QUIET=1 api 200 '' getRequisition -p "id=$(field '.lines[] | select(.material_id == "'"$washer"'") | .requisition_id')"
+  api 200 '"proposal \(.document_number): \(.status), \([.items[] | "\(.quantity.value) \(.quantity.unit)"] | join(" + "))"' \
+    getRequisition -p "id=$(field .id)"
+  expect "the washer's proposal" "$(field '[.items[] | .quantity.value] | join(" ")')" "40 40 40"
   HINGE=$hinge
   passed
 }
@@ -16802,10 +16862,20 @@ step_mrp() {
 # refused by the run; it recommends ordering the 30 from Tyrell's catalog
 # item by the day the proposal is needed. Changing the proposal itself is
 # refused (403: its role holds no permission that writes a requisition);
-# Ben accepts and names Tyrell on the proposal himself.
+# Ben accepts and names Tyrell on the proposal himself. S2l1 (ADR-0082 As
+# built S2l1): Alex sets up Bolt Hardware Supply, whose hinges Priya loads
+# at 1.00 CAD, below Tyrell's; Ben has ordered three hinges from each and
+# receives them today: Tyrell's ordered 5 days ago and due today, on time;
+# Bolt's ordered 9 days ago and due 3 days ago, late. The suppliers'
+# delivery performance at Toronto shows both, measured from the orders and
+# receipts; the agent's order without the measures is refused by the run,
+# and it recommends Tyrell's catalog item naming Tyrell's measures, though
+# Bolt's is cheaper. The run's check reads those measures itself, over the
+# year ending on the run's day (the proposal's day), which the model's read
+# gives as from and to, so a review after midnight names the same ones.
 step_replenishment_agent() {
-  heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts"
-  local role item plan run proposal number day got session rec version want
+  heading "Step 153 — The replenishment agent: a planning run's proposal recommended for an order of its quantity from the hinge's catalog supplier by the day it is needed; another quantity refused; the agent's own change refused; the buyer decides and acts; the supplier chosen by its lead time and on-time share at the plant, named in the order"
+  local role item plan run proposal number day got session rec version want bolt ap po supplier ordered due lines measures
   [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
   as ada
   say "Ada sets up the replenishment agent (ADR-0072): an agent principal of type replenishment at autonomy level 1 on"
@@ -16825,6 +16895,48 @@ step_replenishment_agent() {
     createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"material_id\": \"$HINGE\", \"unit\": \"EA\",
       \"unit_price\": {\"amount\": \"1.10\", \"currency\": \"CAD\"}}"
   item=$(field .id) number=$(field .item_key)
+  as alex
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  ap=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  say "Alex sets up Bolt Hardware Supply as a second supplier of hinges; Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Bolt Hardware Supply\", \"country_code\": \"CA\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ap\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Second source of hinges\"}"
+  bolt=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$bolt" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Supplier confirmed by call-back"
+  as priya
+  say "Priya loads Bolt's H30 hinges at 1.00 CAD each, below Tyrell's 1.10:"
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit)"' \
+    createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$bolt\", \"material_id\": \"$HINGE\", \"unit\": \"EA\",
+      \"unit_price\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  as ben
+  say "Ben has ordered three hinges from each, received at Toronto today: Tyrell's ordered 5 days ago and due today;"
+  say "Bolt's ordered 9 days ago and due 3 days ago:"
+  for supplier in "$SUPPLIER:5:0" "$bolt:9:3"; do
+    IFS=: read -r supplier ordered due <<<"$supplier"
+    lines=$(jq -nc --arg m "$HINGE" --arg a "$(account 6000)" --arg d "$(date_add "$TODAY" "-$due")" \
+      '[range(3) | {material_id: $m, description: "Hinge H30", quantity: {value: "1", unit: "EA"}, unit_price: {amount: "1.10", currency: "CAD"}, account_id: $a, delivery_date: $d}]')
+    QUIET=1 api 201 '' createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$supplier\", \"currency\": \"CAD\",
+      \"order_date\": \"$(date_add "$TODAY" "-$ordered")\", \"items\": $lines}"
+    po=$(field .id)
+    api 200 '"purchase order \(.document_number) of \(.order_date): \(.status)\(if .release_request_id then ", release request" else "" end)"' \
+      releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+    if [ "$(field .status)" = pending_approval ]; then
+      approve priya "$(field .release_request_id)" "Hinges for Toronto"
+      as ben
+      QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+    fi
+    expect "the hinges' order" "$(field .status)" released
+    lines=$(jq -nc --arg po "$po" '[range(1; 4) | {purchase_order_id: $po, po_item_no: ., quantity: {value: "1", unit: "EA"}}]')
+    api 201 '"  goods receipt \(.document_number) of \(.posting_date) at Toronto, \(.items | length) items"' postGoodsReceipt -body "{\"legal_entity_id\": \"$LE\",
+      \"plant_id\": \"$PLANT\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": $lines}"
+  done
+  say "Their delivery performance for the hinge at Toronto over the year to today, measured from the orders and receipts"
+  say "(ADR-0082 As built S2l1):"
+  api 200 '"from \(.from) to \(.to), measured from \(.min_receipts) receipts", (.suppliers[] | "  \(.supplier_number) \(.supplier_name): \(.receipts) receipts (\(.history)), lead time \(.observed_lead_days) days against \(.planned_lead_days) planned, on time \(.on_time_receipts) of \(.dated_receipts) (\(.on_time_percent)%)")' \
+    getSupplierDeliveryPerformance -p "plant_id=$PLANT" -p "material_id=$HINGE"
+  expect "the suppliers' measures" "$(field '[.suppliers[] | "\(.supplier_id == "'"$bolt"'") \(.receipts) \(.observed_lead_days) \(.planned_lead_days) \(.on_time_receipts) \(.on_time_percent)"] | sort | join(", ")')" \
+    "false 3 5 5 3 100, true 3 9 6 0 0"
   as mira
   say "Mira raises the hinge's reorder point at Toronto to 60:"
   QUIET=1 api 200 '' listMaterialPlans -p "plant_id=$PLANT" -p "material_id=$HINGE"
@@ -16845,8 +16957,12 @@ step_replenishment_agent() {
   proposal=$(field '.lines[] | select(.material_id == "'"$HINGE"'") | .requisition_id')
   QUIET=1 api 200 '' getRequisition -p "id=$proposal"
   day=$(field .needed_by) version=$(field .version)
-  jq -n --arg run "$run" --arg req "$proposal" --arg le "$LE" --arg hinge "$HINGE" --arg number "$number" --arg s "$SUPPLIER" --arg item "$item" --arg day "$day" '
+  measures="Measures: 3 receipts (measured), lead time 5 days against 5 planned, on time 3 of 3 (100%)"
+  jq -n --arg run "$run" --arg req "$proposal" --arg le "$LE" --arg hinge "$HINGE" --arg number "$number" --arg s "$SUPPLIER" --arg item "$item" --arg day "$day" \
+    --arg plant "$PLANT" --arg bolt "$bolt" --arg measures "$measures" --arg from "$(date_add "$day" -364)" '
     {session_id: "{{session}}", object_type: "requisition", object_id: $req, kind: "order"} as $on |
+    "Order 30 EA from supplier \($s) by \($day): catalog item \($item)" as $first |
+    "\nWhy: Tyrell delivered 3 of 3 hinges on time in 5 days; Bolt Hardware Supply is cheaper at 1.00 CAD but delivered 0 of 3 on time in 9 days. The run'"'"'s shortage of the hinge is 30 EA." as $why |
     {vars: {session: "session id is ([0-9a-f-]{36})"},
      turns: [
       {tool: "getMrpRun", input: {id: $run}},
@@ -16855,24 +16971,30 @@ step_replenishment_agent() {
       {tool: "listContracts", input: {legal_entity_id: $le, material_id: $hinge, status: "active"}},
       {tool: "listPurchaseOrders", input: {legal_entity_id: $le, material_id: $hinge}},
       {tool: "getBusinessPartner", input: {id: $s}},
-      {tool: "createRecommendation", input: {body: ($on + {content: "Order 40 EA from supplier \($s) by \($day): catalog item \($item)\nWhy: round it up."})}},
-      {tool: "createRecommendation", input: {body: ($on + {content: "Order 30 EA from supplier \($s) by \($day): catalog item \($item)\nWhy: the run'"'"'s shortage of the hinge is 30 EA; Tyrell offers it in the company'"'"'s catalog at 1.10 CAD, and no contract or purchase order of it exists."})}},
-      {final: "Recommended ordering the hinge'"'"'s proposal from Tyrell'"'"'s catalog item; the buyer decides."}]}' >"$WORK/model-script.json"
+      {tool: "getBusinessPartner", input: {id: $bolt}},
+      {tool: "getSupplierDeliveryPerformance", input: {plant_id: $plant, material_id: $hinge, from: $from, to: $day}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Order 40 EA from supplier \($s) by \($day): catalog item \($item)\n\($measures)\nWhy: round it up."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($first + $why)})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: ($first + "\n" + $measures + $why)})}},
+      {final: "Recommended ordering the hinge'"'"'s proposal from Tyrell'"'"'s catalog item, on time, over Bolt'"'"'s, cheaper and late; the buyer decides."}]}' >"$WORK/model-script.json"
   say "Ben runs the agent: erp agent replenish reads the run before its session, then, through the stand-in's script"
-  say "(its suite's replay, evals/replenishment), reads the proposal and the hinge's sources, asks for 40 (refused by the"
-  say "run: an order is of the proposal's quantity) and recommends the 30 from Tyrell's catalog item."
+  say "(its suite's replay, evals/replenishment), reads the proposal, the hinge's sources and its suppliers' delivery"
+  say "performance at Toronto, asks for 40 (refused by the run: an order is of the proposal's quantity), orders the 30"
+  say "without the supplier's measures (refused: an order names them as read) and recommends the 30 from Tyrell's catalog"
+  say "item, on time, over Bolt's, cheaper and late."
   show ERP_AGENT_TOKEN=… erp agent replenish -run "$run"
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/replenishment-agent") "$ERP" agent replenish -run "$run" 2>"$WORK/stderr") ||
     { rm -f "$WORK/model-script.json"; fail "erp agent replenish failed ($(cat "$WORK/stderr"))"; }
   rm -f "$WORK/model-script.json"
   printf '%s\n' "$got" | sed 's/^/     /'
   session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
-  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 2."
   rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): order on requisition $proposal .*/\\1/p")
   [ -n "$rec" ] || fail "erp agent replenish printed no order on the proposal"
   api 200 '"  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content | split("\n") | join(" / "))"' getRecommendation -p "id=$rec"
   want="Order 30 EA from supplier $SUPPLIER by $day: catalog item $item"
   expect "the order's first line" "$(field '.content | split("\n")[0]')" "$want"
+  expect "the supplier's measures" "$(field '.content | split("\n")[1]')" "$measures"
   expect "made in its session" "$(field .session_id)" "$session"
   as replenishment-agent
   api 200 '"  its tool calls: \([.items[] | "\(.tool)\(if .is_error then " (refused)" else "" end)"] | join(", "))"' listAgentToolCalls -p "id=$session"

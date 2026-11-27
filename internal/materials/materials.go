@@ -124,12 +124,17 @@ type Material struct {
 	ID            uuid.UUID
 	Number        string
 	LegalEntityID uuid.UUID
-	Description   string
-	BaseUnit      string
-	BaseUnitName  string
-	Type          string
-	Group         string
-	Status        string
+	// Description is the default description, in DescriptionLanguage,
+	// which does not change; Descriptions are its further ones, by
+	// language (S1a2).
+	Description         string
+	DescriptionLanguage string
+	Descriptions        []Description
+	BaseUnit            string
+	BaseUnitName        string
+	Type                string
+	Group               string
+	Status              string
 	// BatchManaged says every movement of the material names a batch of
 	// it (SAP MARA's XCHPF, from memory; As built S2f); fixed once created.
 	BatchManaged bool
@@ -150,10 +155,14 @@ type Material struct {
 	UpdatedBy           uuid.UUID
 }
 
-// materialSelect reads materials with their plants, storage locations and
-// alternative units, each in a stated order, and the one change pending
-// (material_change_one_pending).
-const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description, m.base_uom_code, b.name, m.material_type, m.material_group,
+// materialSelect reads materials with their further descriptions,
+// plants, storage locations and alternative units, each in a stated order
+// (descriptions by language byte by byte, as langtag compares them), and
+// the one change pending (material_change_one_pending).
+const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description, m.description_language,
+		coalesce((SELECT json_agg(json_build_object('language', t.language, 'description', t.description) ORDER BY t.language COLLATE "C")
+			FROM materials.material_description t WHERE t.tenant_id = m.tenant_id AND t.material_id = m.id AND t.removed_at IS NULL), '[]'),
+		m.base_uom_code, b.name, m.material_type, m.material_group,
 		m.status, m.batch_managed, m.serial_managed, m.version, m.created_at, m.created_by, m.updated_at, m.updated_by,
 		coalesce((SELECT json_agg(json_build_object('plant_id', d.plant_id, 'legal_entity_id', d.legal_entity_id,
 				'storage_location_ids', coalesce((SELECT json_agg(s.storage_location_id ORDER BY s.storage_location_id)
@@ -170,7 +179,7 @@ const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description,
 
 func scanMaterial(row pgx.Row) (Material, error) {
 	var m Material
-	err := row.Scan(&m.ID, &m.Number, &m.LegalEntityID, &m.Description, &m.BaseUnit, &m.BaseUnitName, &m.Type, &m.Group, &m.Status, &m.BatchManaged, &m.SerialManaged, &m.Version,
+	err := row.Scan(&m.ID, &m.Number, &m.LegalEntityID, &m.Description, &m.DescriptionLanguage, &m.Descriptions, &m.BaseUnit, &m.BaseUnitName, &m.Type, &m.Group, &m.Status, &m.BatchManaged, &m.SerialManaged, &m.Version,
 		&m.CreatedAt, &m.CreatedBy, &m.UpdatedAt, &m.UpdatedBy, &m.Plants, &m.Units, &m.PendingChangeID, &m.PendingChangeNumber)
 	return m, errs.Wrapf(err, "scan material")
 }
@@ -220,7 +229,7 @@ func (e *Endpoints) record(ctx context.Context, m Material, ch change, before *s
 		alternatives[i] = map[string]any{"unit": u.Code, "numerator": u.Numerator, "denominator": u.Denominator}
 	}
 	payload := map[string]any{"material_id": m.ID, "number": m.Number, "legal_entity_id": m.LegalEntityID, "legal_entity_code": codes[m.LegalEntityID],
-		"description": m.Description, "base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status,
+		"description": m.Description, "description_language": m.DescriptionLanguage, "descriptions": m.Descriptions, "base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status,
 		"batch_managed": m.BatchManaged, "serial_managed": m.SerialManaged,
 		"status_before": before, "plants": plants, "alternative_units": alternatives, "change": ch.name, "version": m.Version}
 	if err := audit.Record(ctx, "materials.material."+ch.action, "materials.material", m.ID, ch.detail,

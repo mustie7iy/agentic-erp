@@ -81,14 +81,17 @@ func TestDatabaseFailures(t *testing.T) {
 	other := uuid.MustParse(e.active(t, map[string]any{"description": "Copper wire"})["id"].(string))
 	pending := uuid.MustParse(e.change(t, other.String(), mustJSON(t, map[string]any{"material_group": "WIRE",
 		"plants":            []any{map[string]any{"plant_id": e.p2, "storage_location_ids": []any{e.s3}}},
-		"alternative_units": []any{map[string]any{"unit": "KG", "numerator": 3, "denominator": 1}}}))["id"].(string))
+		"alternative_units": []any{map[string]any{"unit": "KG", "numerator": 3, "denominator": 1}},
+		"descriptions":      []any{map[string]any{"language": "ar", "description": arabic}}}))["id"].(string))
 	box := []gen.MaterialUnitInput{{Unit: "BOX", Numerator: 10, Denominator: 1}}
 	where := []gen.MaterialPlantInput{{PlantID: e.p1, StorageLocationIds: []uuid.UUID{e.s2}}}
+	arabicToo := []gen.MaterialDescription{{Language: "ar", Description: arabic}}
 	decide := materials.Approvals{Endpoints: h}
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateMaterial(ctx, &gen.MaterialCreate{LegalEntityID: e.DE, Description: "Machined bracket M10", BaseUnit: "EA",
-				MaterialType: "trading_good", MaterialGroup: "B", Plants: where, AlternativeUnits: box, ConfirmDuplicate: gen.NewOptBool(true)},
+				MaterialType: "trading_good", MaterialGroup: "B", Plants: where, AlternativeUnits: box, ConfirmDuplicate: gen.NewOptBool(true),
+				Descriptions: arabicToo},
 				gen.CreateMaterialParams{})
 			return err
 		},
@@ -105,7 +108,8 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"change": func(ctx context.Context) error {
-			_, err := h.UpdateMaterial(ctx, &gen.MaterialUpdate{Description: gen.NewOptString("Bolt"), Plants: where, AlternativeUnits: box},
+			_, err := h.UpdateMaterial(ctx, &gen.MaterialUpdate{Description: gen.NewOptString("Bolt"), Plants: where, AlternativeUnits: box,
+				Descriptions: arabicToo},
 				gen.UpdateMaterialParams{ID: id, IfMatch: `"2"`})
 			return err
 		},

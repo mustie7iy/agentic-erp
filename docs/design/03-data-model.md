@@ -2233,6 +2233,15 @@ described item naming the catalog item of the row it replaced.
 
 The purchase-to-pay event log (T103a, ADR-0080) pages a company's orders by date and id through `purchase_order_by_date` (`tenant_id, legal_entity_id, order_date, id`; migration 000340).
 
+The suppliers' delivery performance of a material at a plant (S2l1,
+ADR-0082 As built S2l1, `GET /v1/supplier-delivery-performance`) is read
+from the order items of the material, through
+`purchase_order_item_by_material` (`tenant_id, material_id`, partial:
+items of a material; migration 000487), and leaves out a receipt a
+reversal names, found through `goods_movement_by_reversal` (`tenant_id,
+reversal_of_id`, partial: reversals; migration 000488); no column is
+added.
+
 Stock transport orders within a company (S2h, migration 000418; ADR-0082
 As built S2h): `procurement.stock_transport_order` (SAP's purchasing
 document type UB, from memory), from a supplying plant to another
@@ -6733,10 +6742,12 @@ erDiagram
   material ||--o{ plant_data : "extended to"
   plant_data ||--o{ storage_location_data : "kept in"
   material ||--o{ unit_conversion : "alternative units"
+  material ||--o{ material_description : "described in"
   material { uuid id PK
     text number "material range of its company, once in the tenant"
     uuid legal_entity_id "tenancy: the numbering company"
-    text description "1 to 200 characters"
+    text description "1 to 200 characters: the default"
+    text description_language "BCP 47, fixed, en before S1a2"
     text base_uom_code "ref, fixed"
     text material_type "fixed"
     text material_group "1 to 9 of A-Z 0-9 - _"
@@ -6758,6 +6769,10 @@ erDiagram
     uuid storage_location_id PK "tenancy: under the plant"
     uuid plant_id FK
     timestamptz removed_at }
+  material_description { uuid material_id PK
+    text language PK "BCP 47, not the default's"
+    text description "1 to 200 characters"
+    timestamptz removed_at }
   unit_conversion { uuid material_id PK
     text uom_code PK "ref, not the base unit"
     int numerator "1 to 1000000"
@@ -6777,7 +6792,13 @@ erDiagram
   `-` or `_` (`material_group_check`); the status is `pending` (until its create change is approved), `active` or
   `blocked` (`material_status_check`) and the version at least 1
   (`material_version_check`). The number, company, base unit and type do
-  not change (`material_fixed`, a trigger). The list reads by number
+  not change (`material_fixed`, a trigger). The description is the
+  default one (S1a2, migrations 000484 and 000485), in
+  `description_language`, a BCP 47 tag of a language with an optional
+  script and region in canonical case
+  (`material_description_language_check`), `en` when an insert names none
+  (every material created before), which does not change
+  (`material_language_fixed`, a trigger). The list reads by number
   (`material_number_once`). The application creates materials and changes
   their description, group, status and version; it deletes none.
 - `materials.plant_data`: the material at a plant (MARC) of a material
@@ -6799,6 +6820,16 @@ erDiagram
   1,000,000 (`unit_conversion_numerator_check`,
   `unit_conversion_denominator_check`). The application updates the
   factors and the removal mark (`unit_conversion_removed_check`) alone.
+- `materials.material_description` (S1a2, migration 000484): a further
+  description (SAP MAKT) of a material that exists
+  (`material_description_material_fkey`), once per language
+  (`material_description_pkey`), in a tag of the default's form
+  (`material_description_tag_check`) other than the material's default
+  language (`material_description_not_default`, a trigger), its text 1
+  to 200 characters and not blank (`material_description_text_check`).
+  The application updates the text and the removal mark
+  (`material_description_removed_check`) alone; a description given back
+  clears its mark.
 - `materials.material_change` (S1b, migrations 000374 and 000375): a
   governed change of a material (`material_change_material_fkey`),
   numbered `MC` and eight digits (`material_change_number_check`) once in
@@ -7251,7 +7282,7 @@ erDiagram
 
 ## 3.37 Material requirements planning (`mrp`)
 
-ADR-0084, S2k (migration 000436). Materials' planning data at plants and
+ADR-0084, S2k (migration 000436; lot sizing, migration 000486). Materials' planning data at plants and
 planning runs per plant: the context reads tenancy's plants, materials,
 the ledger's accounts, sales' demand, inventory's stock and prices and
 procurement's receipts and requisitions through ports, writes
@@ -7271,6 +7302,12 @@ erDiagram
     uuid material_id "materials; once per plant"
     text mrp_type "reorder_point, no_planning"
     numeric reorder_point "0 or more, base unit"
+    text lot_size "lot_for_lot, fixed, replenish_to_maximum"
+    numeric fixed_lot_size "exactly with fixed"
+    numeric maximum_stock_level "exactly with replenish_to_maximum"
+    numeric minimum_lot_size "not with fixed"
+    numeric maximum_lot_size "not with fixed"
+    numeric rounding_value "not with fixed"
     uuid account_id "ledger: its proposals'"
     integer version }
   run { uuid id PK
@@ -7292,6 +7329,9 @@ erDiagram
     numeric stock
     numeric receipts
     numeric shortage "above 0 exactly with a requisition"
+    text lot_size "the plan's procedure"
+    numeric proposed "the shortage or more; null before 000486"
+    integer lots "with a requisition: its items"
     uuid requisition_id "procurement"
     text requisition_number }
   proposal { uuid requisition_id PK "procurement"
@@ -7310,7 +7350,14 @@ erDiagram
   and a reorder point of zero or more (`material_plan_reorder_point_check`);
   its company, plant and material do not change (`material_plan_fixed`,
   a trigger). Its version moves with every change (`material_plan_touch`).
-  The list reads by `material_plan_by_created_at`; a run reads the
+  Its lot sizing procedure (`material_plan_lot_size_check`, `lot_for_lot`
+  by default) takes its fixed lot size or maximum stock level exactly with
+  `fixed` or `replenish_to_maximum`, and a fixed lot no minimum or maximum
+  lot size or rounding value (`material_plan_lot_size_fields`); the level
+  is not below the reorder point (`material_plan_maximum_level`), every
+  quantity above zero (`material_plan_*_check`), the minimum not above
+  the maximum (`material_plan_lot_bounds`) and both multiples of the
+  rounding value (`material_plan_rounding`). The list reads by `material_plan_by_created_at`; a run reads the
   plant's plans under a share lock.
 - `mrp.run`: a planning run of a plant with its Operation, `queued`,
   `completed` or `failed` (`run_status_check`), one queued per plant
@@ -7324,7 +7371,11 @@ erDiagram
   reorder point, demand, stock, receipts and shortage, none below zero
   (`run_line_*_check`), naming the requisition proposed exactly when the
   shortage is above zero, with its number of 1 to 40 characters
-  (`run_line_proposed`, `run_line_requisition_number_check`).
+  (`run_line_proposed`, `run_line_requisition_number_check`); the lot
+  sizing procedure it sized by (`run_line_lot_size_check`) and what it
+  proposed, the shortage or more, above zero exactly with a shortage, in
+  one lot or more exactly then (`run_line_lots`); a line written before
+  000486 names neither, read as the shortage in one lot.
   Insert-only (`run_line_immutable`).
 - `mrp.proposal`: a requisition a run proposed (`proposal_run_fkey`), with
   its number (`proposal_requisition_number_check`) and the version it was

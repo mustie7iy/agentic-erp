@@ -4,7 +4,11 @@
 # the account the hinge's planning data names, the payment term NT30, and
 # the company's number ranges of 2026 for materials, MA, which no pack
 # ships (as the walkthrough's step_pack adds it), and for the requisitions
-# the planning runs propose, PR.
+# the planning runs propose, PR. For S2l1, the ranges of the orders and
+# goods receipts a case's setup posts, PO and GR, and an order up to
+# 1,000.00 released without an approval (order_release_approval's first
+# tier), so that a setup posts the orders and receipts its suppliers'
+# delivery performance is measured from.
 version: 1
 companies:
   - code: "3000"
@@ -92,6 +96,8 @@ purchasing:
         - role: Z_PURCH_MGR
           approvals: 1
   order_release_approval:
+    - up_to: "1000.00"
+      steps: []
     - steps:
         - role: Z_PURCH_MGR
           approvals: 1
@@ -110,3 +116,5 @@ number_ranges:
   - {company: "3000", document_type: journal_dr, fiscal_year: 2026, first: 1800000000, last: 1899999999}
   - {company: "3000", document_type: material, fiscal_year: 2026, prefix: MA, first: 1, last: 9999999}
   - {company: "3000", document_type: requisition, fiscal_year: 2026, prefix: PR, first: 1, last: 9999999}
+  - {company: "3000", document_type: purchase_order, fiscal_year: 2026, prefix: PO, first: 1, last: 9999999}
+  - {company: "3000", document_type: goods_receipt, fiscal_year: 2026, prefix: GR, first: 1, last: 9999999}

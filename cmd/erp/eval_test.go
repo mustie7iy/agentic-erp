@@ -110,13 +110,15 @@ func newReplayCell(t *testing.T, now func() time.Time) replayCell {
 
 // planRuns carries out the planning runs the replenishment suite's cases
 // start, as a cell without a workflow engine does (ADR-0084 §3), until the
-// test ends.
-func planRuns(t *testing.T) {
+// test ends, on the day before the cell's clock: every case's run is
+// reviewed on a later day than it was planned, as a buyer may (S2l1).
+func planRuns(t *testing.T, now func() time.Time) {
 	t.Helper()
 	ctx, stop := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	planner := &workflows.Planner{Mrps: &workflows.Mrps{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.MRP(app.Config{}),
-		Actors: identity.Actors{}}, Interval: 20 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	dayBefore := func() time.Time { return now().AddDate(0, 0, -1) }
+	planner := &workflows.Planner{Mrps: &workflows.Mrps{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.MRP(app.Config{Now: dayBefore}),
+		Actors: identity.Actors{}, Now: dayBefore}, Interval: 20 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	go func() {
 		defer close(done)
 		planner.Run(ctx)
@@ -269,7 +271,7 @@ func TestEvalSuites(t *testing.T) {
 			agentDay = now
 			t.Cleanup(func() { agentDay = nil })
 			if s.Agent == replenishmentagent.Type {
-				planRuns(t)
+				planRuns(t, now)
 			}
 			vars := map[string]string{"ERP_CONTROL_URL": c.control.URL, "ERP_API_URL": c.api.URL}
 			getenv = func(k string) string { return vars[k] }
@@ -300,11 +302,13 @@ func TestEvalSuites(t *testing.T) {
 // fiscal year 2026 and are due and valid on dates of its own
 // (evals/bid_comparison), and so do the count planning and demand
 // forecasting agents', whose materials take numbers and post documents of
-// 2026 (evals/count_planning, evals/demand_forecast); every other suite's
-// is the time.
+// 2026 (evals/count_planning, evals/demand_forecast), and the
+// replenishment agent's, whose suppliers' receipts of 2026 are measured
+// over the year ending on its run's day (evals/replenishment); every
+// other suite's is the time.
 func cellClock(t *testing.T, agent string) func() time.Time {
 	t.Helper()
-	if agent == bidagent.Type || agent == countagent.Type || agent == demandagent.Type {
+	if agent == bidagent.Type || agent == countagent.Type || agent == demandagent.Type || agent == replenishmentagent.Type {
 		return func() time.Time { return time.Date(2026, 11, 16, 17, 0, 0, 0, time.UTC) }
 	}
 	if agent != cashagent.Type {

@@ -74,14 +74,20 @@ type Scope struct {
 // Requested is what a change asks for, its payload: the fields given, nil
 // when it leaves them. A create's names the whole material.
 type Requested struct {
-	Description *string           `json:"description,omitempty"`
-	BaseUnit    *string           `json:"base_unit,omitempty"`
-	Type        *string           `json:"material_type,omitempty"`
-	Group       *string           `json:"material_group,omitempty"`
-	Status      *string           `json:"status,omitempty"`
-	Plants      *[]RequestedPlant `json:"plants,omitempty"`
-	Units       *[]RequestedUnit  `json:"alternative_units,omitempty"`
-	Scope       *Scope            `json:"plant_scope,omitempty"`
+	Description *string `json:"description,omitempty"`
+	// DescriptionLanguage is a create's: the default description's
+	// language (S1a2).
+	DescriptionLanguage *string `json:"description_language,omitempty"`
+	// Descriptions are the further descriptions, replacing the
+	// material's (S1a2).
+	Descriptions *[]Description    `json:"descriptions,omitempty"`
+	BaseUnit     *string           `json:"base_unit,omitempty"`
+	Type         *string           `json:"material_type,omitempty"`
+	Group        *string           `json:"material_group,omitempty"`
+	Status       *string           `json:"status,omitempty"`
+	Plants       *[]RequestedPlant `json:"plants,omitempty"`
+	Units        *[]RequestedUnit  `json:"alternative_units,omitempty"`
+	Scope        *Scope            `json:"plant_scope,omitempty"`
 	// BatchManaged is a create's: whether the material is managed in
 	// batches (As built S2f).
 	BatchManaged *bool `json:"batch_managed,omitempty"`

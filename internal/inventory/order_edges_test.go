@@ -195,7 +195,7 @@ func TestOrderPorts(t *testing.T) {
 	e := setupOrders(t)
 	h := endpoints(t)
 	ctx := context.Background()
-	in := inventory.OrderReceipt{Company: e.DE, Day: time.Now(), Reference: "GR1", Items: []inventory.OrderItem{{MaterialID: uuid.MustParse(e.bracket),
+	in := inventory.OrderReceipt{Company: e.DE, Day: time.Now().UTC(), Reference: "GR1", Items: []inventory.OrderItem{{MaterialID: uuid.MustParse(e.bracket),
 		PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}}}
 	items := []inventory.InvoiceItem{{MaterialID: uuid.MustParse(e.bracket), PlantID: e.p1, Quantity: "1", Unit: "EA"}}
 	src := inventory.InvoiceSource{InvoiceID: uuid.New(), PurchaseOrderID: uuid.New(), POItemNos: []int32{1}}
@@ -204,7 +204,7 @@ func TestOrderPorts(t *testing.T) {
 	if _, err := h.ReceiveForOrder(ctx, in, s.post); err == nil {
 		t.Error("receive outside a request: got nil, want an error")
 	}
-	if _, err := h.ReverseForOrder(ctx, uuid.New(), time.Now(), "GR2", s.post); err == nil {
+	if _, err := h.ReverseForOrder(ctx, uuid.New(), time.Now().UTC(), "GR2", s.post); err == nil {
 		t.Error("reverse outside a request: got nil, want an error")
 	}
 	if err := h.InvoiceDifferences(ctx, e.DE, items, src, s.post); err == nil {
@@ -253,11 +253,11 @@ func TestOrderPorts(t *testing.T) {
 		}, "inventory.amount_too_large"},
 		"no goods receipt": {func(ctx context.Context) error {
 			d := e.post(t, "561", e.item("1", "EA", nil))
-			_, err := h.ReverseForOrder(ctx, uuid.MustParse(d["id"].(string)), time.Now(), "GR2", s.post)
+			_, err := h.ReverseForOrder(ctx, uuid.MustParse(d["id"].(string)), time.Now().UTC(), "GR2", s.post)
 			return err
 		}, "no goods receipt to reverse"},
 		"an unknown document": {func(ctx context.Context) error {
-			_, err := h.ReverseForOrder(ctx, uuid.New(), time.Now(), "GR2", s.post)
+			_, err := h.ReverseForOrder(ctx, uuid.New(), time.Now().UTC(), "GR2", s.post)
 			return err
 		}, "not_found"},
 		"an invoice of no valuation": {func(ctx context.Context) error {

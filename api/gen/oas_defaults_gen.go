@@ -141,6 +141,10 @@ func (s *JournalEntryCreate) setDefaults() {
 // setDefaults set default value of fields.
 func (s *MaterialCreate) setDefaults() {
 	{
+		val := string("en")
+		s.DescriptionLanguage.SetTo(val)
+	}
+	{
 		val := bool(false)
 		s.ConfirmDuplicate.SetTo(val)
 	}

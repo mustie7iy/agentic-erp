@@ -183,6 +183,17 @@ func TestMigratedMaterials(t *testing.T) {
 	if got := e.materialList(t); !slices.Equal(got, want) {
 		t.Errorf("materials: got %v, want %v", got, want)
 	}
+	for description, want := range map[string]string{"Material M-1": "en en Material M-1, de Stahlblech", "Material M-2": "de de Material M-2"} {
+		m, _ := e.Must(200, "GET", "/v1/materials/"+e.materialID(t, description), "", "")
+		var ds []string
+		for _, d := range m["descriptions"].([]any) {
+			dm := d.(map[string]any)
+			ds = append(ds, fmt.Sprintf("%v %v", dm["language"], dm["description"]))
+		}
+		if got := fmt.Sprintf("%v %s", m["default_language"], strings.Join(ds, ", ")); got != want {
+			t.Errorf("%s's descriptions (S1a2): got %q, want %q", description, got, want)
+		}
+	}
 	changes, _ := e.Must(200, "GET", "/v1/material-changes?material_id="+e.materialID(t, "Material M-1"), "", "")
 	c := changes["items"].([]any)[0].(map[string]any)
 	expectFields(t, "the migrated material's change", c, map[string]any{"kind": "create", "status": "applied", "workflow_request_id": nil})
@@ -324,8 +335,8 @@ func TestMigratedMaterialDifferences(t *testing.T) {
 		diffs = append(diffs, fmt.Sprintf("%v: %v | %v", m["key"], m["sap"], m["platform"]))
 	}
 	want := []string{"plant P2: P2 | P2 (blocked)", "plant P4: P4 | none", "storage location P4/S5: P4/S5 | none",
-		`material M-1: raw_material, group STEEL, base unit KG, active: "Steel sheet, 3 mm"; plant P1 (S1); unit T 1000/1 | ` +
-			`raw_material, group STEEL, base unit KG, active: "Material M-1"; plant P1 (S1); unit T 1000/1`}
+		`material M-1: raw_material, group STEEL, base unit KG, active: en "Steel sheet, 3 mm", de "Stahlblech"; plant P1 (S1); unit T 1000/1 | ` +
+			`raw_material, group STEEL, base unit KG, active: en "Material M-1", de "Stahlblech"; plant P1 (S1); unit T 1000/1`}
 	if !slices.Equal(diffs, want) {
 		t.Errorf("diffs: got\n%s\nwant\n%s", strings.Join(diffs, "\n"), strings.Join(want, "\n"))
 	}

@@ -2617,17 +2617,21 @@ func (UnimplementedHandler) CreateLegalEntity(ctx context.Context, req *LegalEnt
 // `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
 // is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
 // `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
-// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
-// the material type do not change afterwards. Created `pending` with a material change of kind
-// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
-// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
-// it stays `pending` and is used nowhere. The change lists the existing materials with the same
-// description, white space and case aside, whatever their status, a pending one whose create change
-// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
-// refused (409 `materials.duplicate_description`, naming them) unless the request sets
-// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
-// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
-// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
+// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Its `description`
+// is its default one, in `description_language` (`en` when absent); `descriptions` gives it further
+// ones (S1a2), each in a BCP 47 language with known subtags in their canonical form (422
+// `materials.unknown_language`), each language once and none in the default's (422
+// `materials.duplicate_language`). The base unit, the material type and the default's language do not
+// change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`;
+// ADR-0082 §9, S1b), whose approval request the role `process_owner` decides
+// (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays
+// `pending` and is used nowhere. The change lists the existing materials with the same description,
+// white space and case aside, whatever their status, a pending one whose create change was rejected or
+// withdrawn aside (`possible_duplicates`); a material with such a description is refused (409
+// `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two
+// requests with one description wait for one another, so the second finds the first. Audited, and
+// published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key`
+// answers the material created. Human-only (`x-agent: false`).
 //
 // POST /v1/materials
 func (UnimplementedHandler) CreateMaterial(ctx context.Context, req *MaterialCreate, params CreateMaterialParams) (r CreateMaterialRes, _ error) {
@@ -2714,9 +2718,14 @@ func (UnimplementedHandler) CreateMaterialDocument(ctx context.Context, req *Mat
 // active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active
 // one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may
 // post to (422 `mrp.account_not_postable`); an MRP type of the list (422 `mrp.invalid_mrp_type`); a
-// reorder point with up to six decimals (422 `mrp.invalid_quantity`). A material is planned once at a
-// plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key` answers the
-// planning data created. Human-only (`x-agent: false`).
+// reorder point with up to six decimals (422 `mrp.invalid_quantity`); a lot sizing procedure of the
+// list, `lot_for_lot` unless named, with the quantities it uses and no others, each more than zero
+// with up to six decimals (422 `mrp.invalid_quantity`): a fixed lot size exactly with `fixed`, a
+// maximum stock level not below the reorder point exactly with `replenish_to_maximum`, no minimum or
+// maximum lot size or rounding value with a fixed lot, a minimum lot size not above the maximum and
+// both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field). A material is
+// planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same
+// `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`).
 //
 // POST /v1/material-plans
 func (UnimplementedHandler) CreateMaterialPlan(ctx context.Context, req *MaterialPlanCreate, params CreateMaterialPlanParams) (r CreateMaterialPlanRes, _ error) {
@@ -5755,7 +5764,9 @@ func (UnimplementedHandler) GetMatchResult(ctx context.Context, params GetMatchR
 //
 // One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
 // base unit, type, group and status, its plants and their storage locations in the companies the
-// caller may act in, each with its code and name, and its alternative units with their conversions.
+// caller may act in, each with its code and name, and its alternative units with their conversions;
+// its descriptions in every language it has, and its `description` in the `language` asked for, else
+// its default (S1a2).
 //
 // GET /v1/materials/{id}
 func (UnimplementedHandler) GetMaterial(ctx context.Context, params GetMaterialParams) (r GetMaterialRes, _ error) {
@@ -6645,6 +6656,31 @@ func (UnimplementedHandler) GetStatisticalKeyFigure(ctx context.Context, params 
 //
 // GET /v1/stock-transport-orders/{id}
 func (UnimplementedHandler) GetStockTransportOrder(ctx context.Context, params GetStockTransportOrderParams) (r GetStockTransportOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSupplierDeliveryPerformance implements getSupplierDeliveryPerformance operation.
+//
+// How the suppliers of a material delivered it to a plant over a window of goods receipt posting dates
+// (ADR-0082 As built S2l1), measured from posted documents at the moment of the read: per supplier,
+// the receipts (goods receipt items, movement 101, not reversed, on purchase order items of the
+// material whose plant, or else whose receipt's plant, is the plant), the planned lead time (the order
+// item's delivery date less the order date, the average over the receipts whose item has a delivery
+// date, in whole days rounded half away from zero), the observed lead time (the receipt's posting date
+// less the order date, averaged the same way), the on-time share (receipts posted on or before their
+// item's delivery date, of those whose item has one) and whether the supplier's history in the window
+// is `measured` (at least `min_receipts` receipts) or `thin`. Returns to the supplier (122) are not
+// deliveries and are not counted. A supplier with no receipt in the window has no row: no history.
+// Rows are in the order of `supplier_number`, then `supplier_id`; `totals` sum every row. A report,
+// not paged: one row per supplier that delivered the material to the plant in the window. The
+// replenishment agent reads it to suggest a supplier (ADR-0072 As built S2l1). The window defaults to
+// the 365 days ending on the plant's company's date; one that ends before it starts, or is longer than
+// 1,096 days, is 400 `request.invalid_parameter`. A plant that does not exist, or of a company the
+// caller cannot act in, is 422 `request.reference_not_found`. Reads only; every agent autonomy level
+// may call it.
+//
+// GET /v1/supplier-delivery-performance
+func (UnimplementedHandler) GetSupplierDeliveryPerformance(ctx context.Context, params GetSupplierDeliveryPerformanceParams) (r GetSupplierDeliveryPerformanceRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -8339,7 +8375,8 @@ func (UnimplementedHandler) ListMaterialValuations(ctx context.Context, params L
 // The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
 // base unit, type, group and status, its plants and storage locations in the companies the caller may
 // act in, and its alternative units. Filtered by number, plant, status, material type and material
-// group. Sortable by: `number`.
+// group; each `description` in the `language` asked for where the material has one, else its default
+// (S1a2). Sortable by: `number`.
 //
 // GET /v1/materials
 func (UnimplementedHandler) ListMaterials(ctx context.Context, params ListMaterialsParams) (r ListMaterialsRes, _ error) {
@@ -11863,19 +11900,23 @@ func (UnimplementedHandler) StartMigrationRun(ctx context.Context, params StartM
 // that are not received, open or in transit, and the items of the requisitions earlier runs proposed
 // that a person took over and that are not ordered, cancelled or rejected). Where the stock and
 // receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is
-// proposed as a draft purchase requisition of the material in its base unit, raised by the person who
-// started the run in the company's currency at the material's valuation price at the plant (zero when
-// it has none), naming the planning data's account and needed by the run's day. Before it plans, the
-// run cancels the plant's earlier proposals still its own: drafts no person changed since a run
-// proposed them. A proposal a person changed or submitted is theirs from then on and is never touched;
-// a requisition a person raised is never touched either. The run's lines say what it counted and
-// proposed per material. The plant is an active plant of a company the caller may act in (422
-// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
-// names it. A business problem while planning (the company's requisition number range exhausted, the
-// account no longer postable, the requester no longer active, an open quantity in a unit the material
-// no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation
-// with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried
-// out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+// sized by the planning data's lot sizing procedure (lot for lot: the shortage itself; a fixed lot
+// size; or up to the maximum stock level, with the minimum and maximum lot sizes and the rounding
+// value) and proposed as a draft purchase requisition of the material in its base unit, an item per
+// lot, raised by the person who started the run in the company's currency at the material's valuation
+// price at the plant (zero when it has none), naming the planning data's account and needed by the
+// run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no
+// person changed since a run proposed them. A proposal a person changed or submitted is theirs from
+// then on and is never touched; a requisition a person raised is never touched either. The run's lines
+// say what it counted and proposed per material. The plant is an active plant of a company the caller
+// may act in (422 `mrp.plant_invalid`); a run of the plant already queued is 409
+// `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's
+// requisition number range exhausted, the account no longer postable, the requester no longer active,
+// an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; a shortage
+// needing more than 100 lots of a material's fixed or maximum lot size: `mrp.too_many_lots`;
+// `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or
+// cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`.
+// Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/mrp-runs
 func (UnimplementedHandler) StartMrpRun(ctx context.Context, req *MrpRunStart, params StartMrpRunParams) (r StartMrpRunRes, _ error) {
@@ -12350,25 +12391,27 @@ func (UnimplementedHandler) UpdateLegalEntity(ctx context.Context, req *LegalEnt
 
 // UpdateMaterial implements updateMaterial operation.
 //
-// Requests a change of a material's description, material group, status, plants or alternative units
-// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
-// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
-// number, the base unit and the material type do not change. `status` moves between `active` and
-// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
-// plants in the companies the caller may act in, each with its storage locations, and leaves those of
-// other companies as they are; `alternative_units` replaces its alternative units, an empty list
-// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
-// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
-// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
-// block. A change that only blocks the material is applied at once, a pending change or not (the
-// material answered blocked, with a material change of kind `block`, applied, read with
-// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
-// pending update approved later leaves the block in place. Any other opens a pending material change
-// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
-// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
-// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
-// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
-// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
+// Requests a change of a material's description, further descriptions, material group, status, plants
+// or alternative units with the caller's version of it (`If-Match`; 412 when another change came
+// first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is
+// kept on the change. The number, the base unit and the material type do not change. `status` moves
+// between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces
+// the material's plants in the companies the caller may act in, each with its storage locations, and
+// leaves those of other companies as they are; `alternative_units` replaces its alternative units, an
+// empty list removing them; `descriptions` replaces its further descriptions, an empty list removing
+// them (S1a2), and `description` sets its default one; each is checked as `createMaterial` checks it.
+// A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as
+// is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change
+// (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at
+// once, a pending change or not (the material answered blocked, with a material change of kind
+// `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the
+// fields it changes, so a pending update approved later leaves the block in place. Any other opens a
+// pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise;
+// the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
+// applied to the material as it is then when its approval request is approved by the role
+// `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values
+// before and after, and published as MaterialChangeChanged, and MaterialChanged when the material
+// changes. Human-only (`x-agent: false`).
 //
 // PATCH /v1/materials/{id}
 func (UnimplementedHandler) UpdateMaterial(ctx context.Context, req *MaterialUpdate, params UpdateMaterialParams) (r UpdateMaterialRes, _ error) {
@@ -12378,10 +12421,12 @@ func (UnimplementedHandler) UpdateMaterial(ctx context.Context, req *MaterialUpd
 // UpdateMaterialPlan implements updateMaterialPlan operation.
 //
 // Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
-// §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_mrp_type`,
-// `mrp.invalid_quantity`, `mrp.account_not_postable`); a change to what it already is is 422
-// `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the plant
-// plans by it. JSON Merge Patch. Audited with the values before and after. Human-only
+// §4): its MRP type, reorder point, lot sizing (`null` removes a quantity) or account, checked as on
+// creation, the planning data as it is after the change (422 `mrp.invalid_mrp_type`,
+// `mrp.invalid_quantity`, `mrp.invalid_lot_size`, `mrp.account_not_postable`: changing `lot_size`
+// removes or adds the quantities the procedures use in the same patch); a change to what it already is
+// is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the
+// plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only
 // (`x-agent: false`).
 //
 // PATCH /v1/material-plans/{id}
