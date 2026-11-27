@@ -213,6 +213,10 @@ var tierRules = []struct {
 	{rx(`^pricing\.condition_types\[\*\]\.name$`), TierCosmetic},
 	{rx(`^pricing\.price_groups\[\*\]\.name$`), TierCosmetic},
 	{rx(`^pricing(\.|$)`), TierOperational},
+	// Who approves a company's S&OP plan versions posts nothing: it routes
+	// their approval, as purchasing's approval tiers route requisitions
+	// (ADR-0084 As built S2n2).
+	{rx(`^companies\[\*\]\.sop_approval(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }

@@ -27884,7 +27884,7 @@ paths:
             type: string
             maxLength: 20
             description: "Plan version status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: [draft, fixed]
+            x-extensible-enum: [draft, submitted, fixed]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -27939,7 +27939,7 @@ paths:
       tags:
         - mrp
       summary: Change the consensus of a draft S&OP plan version
-      description: "Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set to `null` is refused (400); a change to what every named line already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's consensus before and after. Human-only (`x-agent: false`)."
+      description: "Sets the consensus of lines of a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): `consensus` maps a line's `key` to its new consensus quantity in the line's unit, zero or more with up to six decimals (422 `mrp.invalid_quantity` naming the key); a key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set to `null` is refused (400); a change to what every named line already is is 422 `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A fixed version changes no more (409 `mrp.sop_plan_fixed`); a submitted one not while its approval request is pending (409 `mrp.sop_plan_submitted`: withdraw the request, `cancelApprovalRequest`, to change it). JSON Merge Patch. Audited with each line's consensus before and after. Human-only (`x-agent: false`)."
       x-permission: mrp.sop.write
       x-agent: false
       x-problem-codes:
@@ -27950,6 +27950,7 @@ paths:
         # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
         - mrp.sop_plan_concurrent
         - mrp.sop_plan_fixed
+        - mrp.sop_plan_submitted
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -28002,15 +28003,22 @@ paths:
       tags:
         - mrp
       summary: Fix an S&OP plan version as the consensus
-      description: "Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus included (the database refuses any change); the company's consensus plan is its fixed version with the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only (`x-agent: false`)."
+      description: "Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus included (the database refuses any change); the company's consensus plan is its fixed version with the highest number. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted 409 `mrp.sop_plan_submitted`. Where the company's plans are approved (its configuration's `sop_approval` names steps), a planner does not fix one: 409 `mrp.sop_approval_required`, submit it (`submitSopPlan`). Audited. Human-only (`x-agent: false`)."
       x-permission: mrp.sop.write
       x-agent: false
       x-problem-codes:
+        - config.not_bootstrapped
+        # ledger.no_exchange_rate and workflow.no_policy are listed because TestProblemCodes reads the approval engine's shared
+        # routing (steps), which answers them for amounts and purchase orders; a plan version's steps convert no amount, so not here.
+        - ledger.no_exchange_rate
+        - mrp.sop_approval_required
         # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
         # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
         - mrp.sop_plan_concurrent
         - mrp.sop_plan_fixed
+        - mrp.sop_plan_submitted
         - request.version_mismatch
+        - workflow.no_policy
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -28037,6 +28045,63 @@ paths:
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sop-plans/{id}:submit":
+    post:
+      operationId: submitSopPlan
+      tags:
+        - mrp
+      summary: Submit an S&OP plan version for approval
+      description: "Submits a `draft` plan version for approval at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built S2n2): where its company's configuration names approval steps (`companies[].sop_approval`: each a role and the number of distinct approvers it needs, in order), an approval request is opened (object type `sop_plan`, `approval_request_id`; approvers hold `mrp.sop.approve` and the step's role, never the requester) and the version is `submitted`: its consensus changes no more while the request is pending (409 `mrp.sop_plan_submitted`); approved at its last step it becomes `fixed`, fixed by that approver; rejected or withdrawn it goes back to `draft`. Where the company names no steps (the default) it is fixed at once, as `fixSopPlan` fixes it. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted already 409 `mrp.sop_plan_submitted`; a step naming a role that is not active is 422 `workflow.unknown_role`. Audited. Human-only (`x-agent: false`)."
+      x-permission: mrp.sop.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        # ledger.no_exchange_rate and workflow.no_policy are listed because TestProblemCodes reads the approval engine's shared
+        # routing (steps), which answers them for amounts and purchase orders; a plan version's steps convert no amount, so not here.
+        - ledger.no_exchange_rate
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # for every operation that writes versions; this one cannot reach it, as it changes a version without numbering one.
+        - mrp.sop_plan_concurrent
+        - mrp.sop_plan_fixed
+        - mrp.sop_plan_submitted
+        - request.version_mismatch
+        - workflow.no_policy
+        - workflow.request_pending
+        - workflow.unknown_role
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The submitted plan version, or the fixed one where the company's plans need no approval.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SopPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -37575,7 +37640,7 @@ paths:
       tags:
         - workflow
       summary: Approve an approval request
-      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409 `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is approved by a holder of the release role who did not propose the run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
+      description: "Records an approval for the current step. Human-only (agents get 403 `identity.agent_not_allowed`); the requester cannot approve; a person approves a request at most once. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions` (403 `identity.permission_missing` otherwise). The request is `approved` when the last step is complete, and the object moves on (a requisition becomes `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of `tax_manager` who did not prepare it, an S&OP plan version (`sop_plan`) becomes `fixed`, fixed by the approver of the last step). A manual entry is checked again as it is posted: when that refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name the parked entry's), the approval is refused and the request stays pending; so is a bank statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409 `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's release (`payment_run_release`) is approved by a holder of the release role who did not propose the run (403 `workflow.segregation_of_duties`); the approval does not release it. A change request whose latest regression evidence replayed no case (a suite captured with `allow_empty`) is approved only with a comment acknowledging that (422 `workflow.acknowledgement_required`)."
       x-permission: workflow.request.decide
       x-agent: false
       x-problem-codes:
@@ -37681,6 +37746,9 @@ paths:
         - materials.change_pending
         - materials.invalid_status
         - materials.number_taken
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # as an S&OP plan version's approval writes it (sop_plan); a decision changes a version without numbering one.
+        - mrp.sop_plan_concurrent
         - partner.address_overlap
         - partner.bank_account_overlap
         - partner.change_pending
@@ -37816,6 +37884,7 @@ paths:
         credit_limit_change: credit.limit.approve
         inventory_difference: inventory.difference.approve
         tax_return: tax.return.approve
+        sop_plan: mrp.sop.approve
   "/v1/approval-requests/{id}:reject":
     post:
       operationId: rejectApprovalRequest
@@ -37823,7 +37892,7 @@ paths:
       tags:
         - workflow
       summary: Reject an approval request
-      description: "Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions`. The object is rejected with it (for example a supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax return (`tax_return`) releases its tax items."
+      description: "Rejects the request with a mandatory comment. Human-only; the requester cannot reject. Besides `workflow.request.decide` the caller must hold the step's role and the approval permission of the object type, listed in `x-object-permissions`. The object is rejected with it (for example a supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax return (`tax_return`) releases its tax items; a rejected S&OP plan version (`sop_plan`) goes back to `draft`, its consensus to be changed and submitted again."
       x-permission: workflow.request.decide
       x-agent: false
       x-problem-codes:
@@ -37903,6 +37972,9 @@ paths:
         - ledger.zero_tax_base
         - materials.change_pending
         - materials.invalid_status
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # as an S&OP plan version's approval writes it (sop_plan); a decision changes a version without numbering one.
+        - mrp.sop_plan_concurrent
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
@@ -37985,13 +38057,14 @@ paths:
         credit_limit_change: credit.limit.approve
         inventory_difference: inventory.difference.approve
         tax_return: tax.return.approve
+        sop_plan: mrp.sop.approve
   "/v1/approval-requests/{id}:cancel":
     post:
       operationId: cancelApprovalRequest
       tags:
         - workflow
       summary: Cancel an approval request
-      description: "Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may cancel requests they raised (cancelling is not an approval decision). Recorded as a decision."
+      description: "Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may cancel requests they raised (cancelling is not an approval decision). Recorded as a decision. A withdrawn S&OP plan version (`sop_plan`) goes back to `draft`."
       x-permission: workflow.request.cancel
       x-autonomy: propose
       x-problem-codes:
@@ -38070,6 +38143,9 @@ paths:
         - ledger.zero_tax_base
         - materials.change_pending
         - materials.invalid_status
+        # The database's answer to two versions of a company numbered at once (sop_plan_number_once), which TestProblemCodes lists
+        # as an S&OP plan version's approval writes it (sop_plan); a decision changes a version without numbering one.
+        - mrp.sop_plan_concurrent
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
@@ -69456,15 +69532,16 @@ components:
             number: {type: integer, format: int32, description: "The version's number in the company, from 1.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [draft, fixed]
-              description: "`draft` while its consensus changes, then `fixed`, which changes no more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [draft, submitted, fixed]
+              description: "`draft` while its consensus changes; `submitted` while its approval request is pending, where the company's plans are approved (`submitSopPlan`), back to `draft` when the request is rejected or withdrawn; then `fixed`, which changes no more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             as_of: {type: string, format: date, description: "The company's day it reviewed on.", readOnly: true}
             first_day: {type: string, format: date, description: "The horizon's first day, the day after `as_of`.", readOnly: true}
             last_day: {type: string, format: date, description: "The horizon's last day, the last of its last month.", readOnly: true}
             months: {type: integer, format: int32, description: "The months of the horizon.", readOnly: true}
             fixed_at: {type: string, format: date-time, description: "When it was fixed; absent while it is a draft.", readOnly: true}
-            fixed_by: {type: string, format: uuid, description: "Who fixed it; absent while it is a draft.", readOnly: true}
+            fixed_by: {type: string, format: uuid, description: "Who fixed it: the planner who fixed or submitted it where the company's plans need no approval, else the approver of the approval's last step; absent until it is fixed.", readOnly: true}
+            approval_request_id: {type: string, format: uuid, description: "Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason): pending while it is `submitted`, approved once it is `fixed` by approval, rejected or cancelled after it went back to `draft`; absent while it was never submitted, or was fixed without approval.", readOnly: true}
             lines:
               type: array
               items:

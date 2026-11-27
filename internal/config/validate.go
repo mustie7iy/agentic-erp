@@ -290,6 +290,7 @@ func (v *validator) company(p string, co *Company) {
 	v.companyControlling(p, co)
 	v.operations(p, co)
 	v.closes(p, co, exp, known)
+	v.approvalSteps(p+".sop_approval", co.SopApproval.Steps)
 }
 
 // companyAmounts checks the company's tolerances and limits, read with

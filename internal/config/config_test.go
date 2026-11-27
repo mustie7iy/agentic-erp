@@ -148,6 +148,10 @@ func TestValidationRules(t *testing.T) {
 		{"service posting limit negative", func(c *Config) { c.Companies[0].ServicePostingLimit = "-1.00" }, "companies[1000].service_posting_limit"},
 		{"service posting limit digits", func(c *Config) { c.Companies[0].ServicePostingLimit = "1000.001" }, "companies[1000].service_posting_limit"},
 		{"over delivery", func(c *Config) { c.Companies[0].OverDeliveryPercent = 101 }, "companies[1000].gr_over_delivery_percent"},
+		{"S&OP approval without a role", func(c *Config) { c.Companies[0].SopApproval.Steps = []ApprovalStep{{Role: " ", Approvals: 1}} },
+			"companies[1000].sop_approval.steps[0].role"},
+		{"S&OP approval of no approvers", func(c *Config) { c.Companies[0].SopApproval.Steps = []ApprovalStep{{Role: "controller"}} },
+			"companies[1000].sop_approval.steps[0].approvals"},
 		{"iban", func(c *Config) { c.Companies[0].HouseBank.IBAN = "GB33BUKB20201555555556" }, "companies[1000].house_bank.iban"},
 		{"bic", func(c *Config) { c.Companies[0].HouseBank.BIC = "BUK" }, "companies[1000].house_bank.bic"},
 		{"main bank account not an asset", func(c *Config) { c.Companies[0].HouseBank.GLAccount = "211000" }, "companies[1000].house_bank.gl_account"},
@@ -749,6 +753,10 @@ func TestRuntime(t *testing.T) {
 	c.Companies[1].BankStatements.ApprovalTiers = []ApprovalTier{{UpTo: "1000.00"}, {Steps: []ApprovalStep{{Role: "treasurer", Approvals: 1}}}}
 	if got := c.RoleNames(); !slices.Contains(got, "treasurer") {
 		t.Errorf("role names with a bank clearing tier: got %v, want treasurer among them", got)
+	}
+	c.Companies[1].SopApproval.Steps = []ApprovalStep{{Role: "sop_lead", Approvals: 1}}
+	if got := c.RoleNames(); !slices.Contains(got, "sop_lead") {
+		t.Errorf("role names with S&OP approval steps: got %v, want sop_lead among them", got)
 	}
 	if c.PaymentTerm("NT30") == nil {
 		t.Error("PaymentTerm(NT30): got nil, want the term")

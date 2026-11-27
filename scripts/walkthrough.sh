@@ -1805,7 +1805,9 @@ migrated_down_payment() {
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
 # 5126 scrapping, 5196 price differences, 5197 revaluation, 5198
 # inventory differences, S2d, 5016 cost of goods sold, S2b1; no pack ships
-# them), the inventory difference tolerance of CAD 50.00 (S2d), and two
+# them), the inventory difference tolerance of CAD 50.00 (S2d), the
+# approval of its S&OP plan versions by the process owner and then the
+# controller (S2n2, ADR-0084 As built S2n2), and two
 # codes of tax alone for the return's adjustments (kind adjustment, rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
 # instalment paid (line 110) on 2300.
@@ -1860,6 +1862,7 @@ PILOT_SETTINGS='
         "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197", "difference": "5198",
         "cost_of_goods_sold": "5016"}]
     | .inventory_difference_tolerance = "50.00"
+    | .sop_approval = {"steps": [{"role": "process_owner", "approvals": 1}, {"role": "controller", "approvals": 1}]}
     | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
         "overpayment_percent": "0.5"}
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
@@ -17577,11 +17580,18 @@ company_account() {
 # and receipts less the consensus, which starts as the forecast. Mira
 # agrees 20 for the third month, naming its line by key; a key that is no
 # line is refused. The demand forecasting agent's own review is refused
-# (x-agent: false). Mira fixes the version: it changes no more, and it is
-# Maple's consensus plan.
+# (x-agent: false). S2n2 (ADR-0084 As built S2n2): Maple's plans are
+# approved (companies[].sop_approval, step 1: the process owner, then the
+# controller), so Mira's fix is refused and she submits the version; while
+# it waits its consensus is refused, and so is the agent's submission.
+# Priya, the process owner, rejects it for its third month; a draft again,
+# Mira raises that month to 25 and submits it anew; Priya approves the
+# first step, cannot approve the controller's, and Carla approves it: the
+# version is fixed by Carla, changes no more, and is Maple's consensus
+# plan.
 step_sop_review() {
-  heading "Step 159 — S&OP review: Maple's demand forecast reviewed against supply by material group and month; the planner agrees the consensus and fixes the plan version, which changes no more; the forecasting agent's own review refused"
-  local plan key1 key3 stock open3 balanced
+  heading "Step 159 — S&OP review: Maple's demand forecast reviewed against supply by material group and month; the planner agrees the consensus and submits the plan version; the process owner rejects it, then approves it again submitted, and the controller's approval fixes it, so it changes no more; the forecasting agent's own review and submission refused"
+  local plan key1 key3 stock open3 balanced request carla
   [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
   as mira
   QUIET=1 api 200 '' listStock -p "material_id=$HINGE" -p page_size=500
@@ -17613,11 +17623,42 @@ step_sop_review() {
   say "Fixing the consensus is the planner's (x-agent: false): the demand forecasting agent's own review is refused:"
   refused 403 identity.agent_not_allowed createSopPlan -body "{\"legal_entity_id\": \"$LE\"}"
   as mira
-  say "Mira fixes the version as Maple's consensus plan; fixed, it changes no more:"
+  say "Maple's plans are approved before they are fixed (companies[].sop_approval: the process owner, then the"
+  say "controller, ADR-0084 As built S2n2), so Mira's fix is refused; she submits the version for approval:"
   QUIET=1 api 200 '' getSopPlan -p "id=$plan"
-  api 200 '"S&OP plan \(.number): \(.status) at \(.fixed_at)"' fixSopPlan -p "id=$plan" -if-match "$ETAG"
-  expect "the version fixed by Mira" "$(field '"\(.status) \(.fixed_by != null)"')" "fixed true"
-  refused 409 mrp.sop_plan_fixed updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  refused 409 mrp.sop_approval_required fixSopPlan -p "id=$plan" -if-match "$ETAG"
+  api 200 '"S&OP plan \(.number): \(.status), approval request \(.approval_request_id != null)"' submitSopPlan -p "id=$plan" -if-match "$ETAG"
+  request=$(field .approval_request_id)
+  say "While it waits, its consensus does not change, and the agent does not submit (x-agent: false):"
+  refused 409 mrp.sop_plan_submitted updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  as demand-agent
+  refused 403 identity.agent_not_allowed submitSopPlan -p "id=$plan" -if-match "$ETAG"
+  as priya
+  say "Priya, the process owner, rejects it: the third month is too low for the season. A draft again:"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  expect "the request's steps" "$(field '"\(.object_type) \(.steps | length) \(.object_resource)"')" "sop_plan 2 /v1/sop-plans/$plan"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$request" -if-match "$ETAG" \
+    -body '{"comment": "The third month is too low for the season."}'
+  as mira
+  QUIET=1 api 200 '' getSopPlan -p "id=$plan"
+  expect "the version after the rejection" "$(field '"\(.status) \(.approval_request_id)"')" "draft $request"
+  say "Mira raises the third month to 25 and submits it again:"
+  api 200 '.lines[] | select(.key == "'"$key3"'") | "  \(.key): consensus \(.consensus.value), projected \(.projected_stock.value) \(.unit)"' \
+    updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  api 200 '"S&OP plan \(.number): \(.status)"' submitSopPlan -p "id=$plan" -if-match "$ETAG"
+  request=$(field .approval_request_id)
+  approve priya "$request" "Agreed for supply."
+  say "The second step is the controller's: Priya, who holds no controller role, is refused; Carla approves it, and"
+  say "the version is fixed as Maple's consensus plan, by Carla; fixed, it changes no more:"
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  refused 403 workflow.role_missing approveApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{"comment": "Again."}'
+  approve carla "$request" "Agreed for finance."
+  as mira
+  QUIET=1 api 200 '' getSopPlan -p "id=$plan"
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  expect "the version fixed by Carla, naming the approved request" "$(field '"\(.status) \(.fixed_by) \(.approval_request_id)"')" "fixed $carla $request"
+  expect "the third month's consensus" "$(field '.lines[] | select(.key == "'"$key3"'") | .consensus.value')" 25
+  refused 409 mrp.sop_plan_fixed updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"30\"}}"
   api 200 '.items[] | "  consensus plan: version \(.number), fixed \(.fixed_at)"' listSopPlans -p "legal_entity_id=$LE" -p status=fixed
   expect "Maple's fixed versions" "$(field '[.items[].id] | join(" ")')" "$plan"
   passed

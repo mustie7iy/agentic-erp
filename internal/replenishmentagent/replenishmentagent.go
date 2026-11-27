@@ -77,13 +77,14 @@ var Reads = []string{"getMrpRun", "getRequisition", "getMaterial", "listCatalogI
 // counts (their creation and cancellation; review:batch92), every write of
 // an RFQ (created from a requisition, published, awarded, cancelled,
 // closed), a planning run, materials' planning data and S&OP plan versions
-// (S2n), which its tools hold none of; the buyer and the planner do these.
+// (S2n; their submission for approval, S2n2), which its tools hold none of;
+// the buyer and the planner do these.
 var Never = []string{"createRequisition", "updateRequisition", "submitRequisition", "cancelRequisition",
 	"createPurchaseOrder", "updatePurchaseOrder", "releasePurchaseOrder", "closePurchaseOrder", "cancelPurchaseOrder",
 	"createPurchaseOrderChange", "updatePurchaseOrderChange", "cancelPurchaseOrderChange", "submitPurchaseOrderChange",
 	"postIntercompanyGoodsIssue", "createGrIrClearing",
 	"createScheduleLine", "callOffScheduleLine", "createRfq", "publishRfq", "awardRfq", "cancelRfq", "closeRfq", "startMrpRun", "createMaterialPlan", "updateMaterialPlan",
-	"createSopPlan", "updateSopPlan", "fixSopPlan", "createStockTransportOrder", "cancelStockTransportOrder"}
+	"createSopPlan", "updateSopPlan", "fixSopPlan", "submitSopPlan", "createStockTransportOrder", "cancelStockTransportOrder"}
 
 const system = `You review the purchase requisitions a material requirements planning run proposed and recommend, for each, what to
 order, from which supplier and when, for a buyer to decide.

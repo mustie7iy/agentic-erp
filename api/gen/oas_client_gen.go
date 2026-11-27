@@ -307,10 +307,11 @@ type Invoker interface {
 	// request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 	// `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
 	// is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of
-	// `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that
-	// refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
-	// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
-	// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
+	// `tax_manager` who did not prepare it, an S&OP plan version (`sop_plan`) becomes `fixed`, fixed by
+	// the approver of the last step). A manual entry is checked again as it is posted: when that refuses
+	// it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name
+	// the parked entry's), the approval is refused and the request stays pending; so is a bank statement
+	// line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
 	// `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
 	// the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's
 	// release (`payment_run_release`) is approved by a holder of the release role who did not propose the
@@ -449,7 +450,8 @@ type Invoker interface {
 	// CancelApprovalRequest invokes cancelApprovalRequest operation.
 	//
 	// Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may
-	// cancel requests they raised (cancelling is not an approval decision). Recorded as a decision.
+	// cancel requests they raised (cancelling is not an approval decision). Recorded as a decision. A
+	// withdrawn S&OP plan version (`sop_plan`) goes back to `draft`.
 	//
 	// POST /v1/approval-requests/{id}:cancel
 	CancelApprovalRequest(ctx context.Context, request *CommentRequiredInput, params CancelApprovalRequestParams) (CancelApprovalRequestRes, error)
@@ -3664,8 +3666,10 @@ type Invoker interface {
 	// Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built
 	// S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus
 	// included (the database refuses any change); the company's consensus plan is its fixed version with
-	// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only
-	// (`x-agent: false`).
+	// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted 409
+	// `mrp.sop_plan_submitted`. Where the company's plans are approved (its configuration's `sop_approval`
+	// names steps), a planner does not fix one: 409 `mrp.sop_approval_required`, submit it
+	// (`submitSopPlan`). Audited. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sop-plans/{id}:fix
 	FixSopPlan(ctx context.Context, params FixSopPlanParams) (FixSopPlanRes, error)
@@ -8712,7 +8716,8 @@ type Invoker interface {
 	// object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 	// supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
 	// (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax
-	// return (`tax_return`) releases its tax items.
+	// return (`tax_return`) releases its tax items; a rejected S&OP plan version (`sop_plan`) goes back to
+	// `draft`, its consensus to be changed and submitted again.
 	//
 	// POST /v1/approval-requests/{id}:reject
 	RejectApprovalRequest(ctx context.Context, request *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error)
@@ -9976,6 +9981,22 @@ type Invoker interface {
 	//
 	// POST /v1/requisitions/{id}:submit
 	SubmitRequisition(ctx context.Context, params SubmitRequisitionParams) (SubmitRequisitionRes, error)
+	// SubmitSopPlan invokes submitSopPlan operation.
+	//
+	// Submits a `draft` plan version for approval at the caller's version (`If-Match`, 412 otherwise;
+	// ADR-0084 As built S2n2): where its company's configuration names approval steps
+	// (`companies[].sop_approval`: each a role and the number of distinct approvers it needs, in order),
+	// an approval request is opened (object type `sop_plan`, `approval_request_id`; approvers hold
+	// `mrp.sop.approve` and the step's role, never the requester) and the version is `submitted`: its
+	// consensus changes no more while the request is pending (409 `mrp.sop_plan_submitted`); approved at
+	// its last step it becomes `fixed`, fixed by that approver; rejected or withdrawn it goes back to
+	// `draft`. Where the company names no steps (the default) it is fixed at once, as `fixSopPlan` fixes
+	// it. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted already 409
+	// `mrp.sop_plan_submitted`; a step naming a role that is not active is 422 `workflow.unknown_role`.
+	// Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sop-plans/{id}:submit
+	SubmitSopPlan(ctx context.Context, params SubmitSopPlanParams) (SubmitSopPlanRes, error)
 	// TakeCashSnapshot invokes takeCashSnapshot operation.
 	//
 	// Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f),
@@ -10482,8 +10503,10 @@ type Invoker interface {
 	// key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set
 	// to `null` is refused (400); a change to what every named line already is is 422
 	// `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A
-	// fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's
-	// consensus before and after. Human-only (`x-agent: false`).
+	// fixed version changes no more (409 `mrp.sop_plan_fixed`); a submitted one not while its approval
+	// request is pending (409 `mrp.sop_plan_submitted`: withdraw the request, `cancelApprovalRequest`, to
+	// change it). JSON Merge Patch. Audited with each line's consensus before and after. Human-only
+	// (`x-agent: false`).
 	//
 	// PATCH /v1/sop-plans/{id}
 	UpdateSopPlan(ctx context.Context, request *SopPlanUpdate, params UpdateSopPlanParams) (UpdateSopPlanRes, error)
@@ -13494,10 +13517,11 @@ func (c *Client) sendApplyPlanBatch(ctx context.Context, request *PlanBatchCreat
 // request is `approved` when the last step is complete, and the object moves on (a requisition becomes
 // `approved`, a partner change is applied, a change request becomes `approved`, a manual journal entry
 // is posted, a bank statement line is posted, a tax return becomes `approved` by a holder of
-// `tax_manager` who did not prepare it). A manual entry is checked again as it is posted: when that
-// refuses it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose
-// fields name the parked entry's), the approval is refused and the request stays pending; so is a bank
-// statement line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
+// `tax_manager` who did not prepare it, an S&OP plan version (`sop_plan`) becomes `fixed`, fixed by
+// the approver of the last step). A manual entry is checked again as it is posted: when that refuses
+// it (409 `ledger.period_not_open`, 422 `ledger.account_not_postable` and the like, whose fields name
+// the parked entry's), the approval is refused and the request stays pending; so is a bank statement
+// line's posting (`bank_clearing`) and a GR/IR clearing's (`gr_ir_clearing`, 409
 // `ledger.gr_ir_clearing_outdated` when a position moved since it was proposed), and whoever matched
 // the line by hand cannot approve its posting (403 `workflow.segregation_of_duties`). A payment run's
 // release (`payment_run_release`) is approved by a holder of the release role who did not propose the
@@ -15038,7 +15062,8 @@ func (c *Client) sendCallOffScheduleLine(ctx context.Context, params CallOffSche
 // CancelApprovalRequest invokes cancelApprovalRequest operation.
 //
 // Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may
-// cancel requests they raised (cancelling is not an approval decision). Recorded as a decision.
+// cancel requests they raised (cancelling is not an approval decision). Recorded as a decision. A
+// withdrawn S&OP plan version (`sop_plan`) goes back to `draft`.
 //
 // POST /v1/approval-requests/{id}:cancel
 func (c *Client) CancelApprovalRequest(ctx context.Context, request *CommentRequiredInput, params CancelApprovalRequestParams) (CancelApprovalRequestRes, error) {
@@ -39830,8 +39855,10 @@ func (c *Client) sendFinalizeConsolidationRun(ctx context.Context, params Finali
 // Fixes a `draft` plan version at the caller's version (`If-Match`, 412 otherwise; ADR-0084 As built
 // S2n): it becomes `fixed`, naming who fixed it and when, and changes no more, its lines and consensus
 // included (the database refuses any change); the company's consensus plan is its fixed version with
-// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`. Audited. Human-only
-// (`x-agent: false`).
+// the highest number. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted 409
+// `mrp.sop_plan_submitted`. Where the company's plans are approved (its configuration's `sop_approval`
+// names steps), a planner does not fix one: 409 `mrp.sop_approval_required`, submit it
+// (`submitSopPlan`). Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/sop-plans/{id}:fix
 func (c *Client) FixSopPlan(ctx context.Context, params FixSopPlanParams) (FixSopPlanRes, error) {
@@ -116607,7 +116634,8 @@ func (c *Client) sendRejectAccrualProposal(ctx context.Context, request *ReasonI
 // object type, listed in `x-object-permissions`. The object is rejected with it (for example a
 // supplier invoice exception leaves the invoice `rejected`); a payment run whose release is rejected
 // (`payment_run_release`) is rejected too, its items freed (product owner 2026-10-25); a rejected tax
-// return (`tax_return`) releases its tax items.
+// return (`tax_return`) releases its tax items; a rejected S&OP plan version (`sop_plan`) goes back to
+// `draft`, its consensus to be changed and submitted again.
 //
 // POST /v1/approval-requests/{id}:reject
 func (c *Client) RejectApprovalRequest(ctx context.Context, request *CommentRequiredInput, params RejectApprovalRequestParams) (RejectApprovalRequestRes, error) {
@@ -128125,6 +128153,173 @@ func (c *Client) sendSubmitRequisition(ctx context.Context, params SubmitRequisi
 	return result, nil
 }
 
+// SubmitSopPlan invokes submitSopPlan operation.
+//
+// Submits a `draft` plan version for approval at the caller's version (`If-Match`, 412 otherwise;
+// ADR-0084 As built S2n2): where its company's configuration names approval steps
+// (`companies[].sop_approval`: each a role and the number of distinct approvers it needs, in order),
+// an approval request is opened (object type `sop_plan`, `approval_request_id`; approvers hold
+// `mrp.sop.approve` and the step's role, never the requester) and the version is `submitted`: its
+// consensus changes no more while the request is pending (409 `mrp.sop_plan_submitted`); approved at
+// its last step it becomes `fixed`, fixed by that approver; rejected or withdrawn it goes back to
+// `draft`. Where the company names no steps (the default) it is fixed at once, as `fixSopPlan` fixes
+// it. One fixed already is 409 `mrp.sop_plan_fixed`, one submitted already 409
+// `mrp.sop_plan_submitted`; a step naming a role that is not active is 422 `workflow.unknown_role`.
+// Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/sop-plans/{id}:submit
+func (c *Client) SubmitSopPlan(ctx context.Context, params SubmitSopPlanParams) (SubmitSopPlanRes, error) {
+	res, err := c.sendSubmitSopPlan(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendSubmitSopPlan(ctx context.Context, params SubmitSopPlanParams) (res SubmitSopPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("submitSopPlan"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sop-plans/{id}:submit"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SubmitSopPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sop-plans/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":submit"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SubmitSopPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSubmitSopPlanResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // TakeCashSnapshot invokes takeCashSnapshot operation.
 //
 // Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f),
@@ -135044,8 +135239,10 @@ func (c *Client) sendUpdateSegment(ctx context.Context, request *SegmentUpdate, 
 // key that is no line of the plan is 422 `mrp.sop_line_unknown`; a line is never removed, so a key set
 // to `null` is refused (400); a change to what every named line already is is 422
 // `mrp.nothing_to_change`. The lines not named stay as they are; their projected stock follows. A
-// fixed version changes no more (409 `mrp.sop_plan_fixed`). JSON Merge Patch. Audited with each line's
-// consensus before and after. Human-only (`x-agent: false`).
+// fixed version changes no more (409 `mrp.sop_plan_fixed`); a submitted one not while its approval
+// request is pending (409 `mrp.sop_plan_submitted`: withdraw the request, `cancelApprovalRequest`, to
+// change it). JSON Merge Patch. Audited with each line's consensus before and after. Human-only
+// (`x-agent: false`).
 //
 // PATCH /v1/sop-plans/{id}
 func (c *Client) UpdateSopPlan(ctx context.Context, request *SopPlanUpdate, params UpdateSopPlanParams) (UpdateSopPlanRes, error) {

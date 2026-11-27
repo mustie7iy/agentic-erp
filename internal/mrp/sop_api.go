@@ -42,7 +42,7 @@ func sopAPI(p SopPlan, companies map[uuid.UUID]string) gen.SopPlan {
 	out := gen.SopPlan{ID: p.ID, Version: p.Version, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(p.UpdatedBy), LegalEntityID: p.LegalEntityID, CompanyCode: companies[p.LegalEntityID], Number: p.Number,
 		Status: p.Status, AsOf: p.AsOf, FirstDay: p.FirstDay, LastDay: p.LastDay, Months: int32(p.Months), FixedAt: apitypes.OptDateTime(p.FixedAt),
-		FixedBy: apitypes.OptUUID(p.FixedBy), Lines: make([]gen.SopPlanLine, len(p.Lines))}
+		FixedBy: apitypes.OptUUID(p.FixedBy), ApprovalRequestID: apitypes.OptUUID(p.ApprovalRequestID), Lines: make([]gen.SopPlanLine, len(p.Lines))}
 	var opening *big.Rat
 	for i, l := range p.Lines { // by group, unit and month: a group's months follow one another
 		if i == 0 || p.Lines[i-1].Group != l.Group || p.Lines[i-1].Unit != l.Unit {
@@ -109,6 +109,16 @@ func (e *Endpoints) UpdateSopPlan(ctx context.Context, req *gen.SopPlanUpdate, p
 // FixSopPlan implements POST /v1/sop-plans/{id}:fix.
 func (e *Endpoints) FixSopPlan(ctx context.Context, params gen.FixSopPlanParams) (gen.FixSopPlanRes, error) {
 	p, err := e.FixSop(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	out, tag, err := e.oneSop(ctx, p, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetSopPlanOKHeaders{ETag: tag, Response: out}, nil
+}
+
+// SubmitSopPlan implements POST /v1/sop-plans/{id}:submit.
+func (e *Endpoints) SubmitSopPlan(ctx context.Context, params gen.SubmitSopPlanParams) (gen.SubmitSopPlanRes, error) {
+	p, err := e.SubmitSop(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	out, tag, err := e.oneSop(ctx, p, err)
 	if err != nil {
 		return nil, err

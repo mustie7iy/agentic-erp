@@ -16,7 +16,9 @@
 // imports it. Its
 // S&OP plan versions (ADR-0084 As built S2n, plan-supply-chain.md §S2n)
 // review a company's demand forecast against supply by material group
-// and month, and fix the consensus a planner agrees.
+// and month, and fix the consensus a planner agrees, approved first
+// through the workflow context's engine where the company asks it (As
+// built S2n2; the one context besides the leaf's ports it imports).
 // Tenancy is row-level security (ADR-0003), quantities exact decimals
 // (ADR-0082 §5), state changes guarded (ADR-0008) and audited (ADR-0011).
 package mrp
@@ -194,6 +196,7 @@ type Endpoints struct {
 	Accounts  Accounts
 	Supply    Supply
 	Runs      Runs
+	Requests  SopRequests // S&OP plan versions' approval (S2n2)
 	Pages     *pagination.Codec
 	Now       func() time.Time // the clock of a run's company day; nil: the wall clock
 }

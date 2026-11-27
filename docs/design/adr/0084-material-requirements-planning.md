@@ -443,3 +443,63 @@ specialist):
   weekly, monthly), optimising procedures (part period, least unit cost,
   Groff), scrap and firming in a planning time fence, beside the leaf's
   safety stock, MRP areas, planned orders and calendars.
+
+### S2n2 approval of the consensus plan (batch 97, 2026-11-26; an item of "later: S&OP variants")
+
+A planner fixed a company's S&OP plan version alone (S2n). Decided by
+default (SAP IBP approves a consensus version in its S&OP process steps,
+**from memory**, for the SAP specialist; this platform's approval engine
+as requisitions, material changes and inventory differences use it):
+
+- **Off by default per company.** `companies[].sop_approval.steps` (each a
+  role and the number of distinct people holding it who approve, in
+  order; config's `approvalSteps` checks them, `RoleNames` names their
+  roles) is operational configuration, tier 2, as purchasing's approval
+  tiers are: it routes approval and posts nothing. A company without
+  steps fixes its versions as before; `submitSopPlan` fixes one at once
+  there, as the engine approves at once an object whose policy asks no
+  step, so a client may always submit.
+- **Submitted** (`submitSopPlan`, If-Match, audited `mrp.sop_plan.submit`):
+  the engine opens a request of object type `sop_plan` (the approval
+  permission `mrp.sop.approve`, migration 000489, which agents never hold;
+  the step's role; never the requester; a person once per request), and
+  the version is `submitted`, naming it (`approval_request_id`). While it
+  waits, its consensus, its fix and a second submission are 409
+  `mrp.sop_plan_submitted` (the database refuses a change too:
+  `sop_plan_fixed`, `sop_plan_line_fixed`); a planner's fix where the
+  company has steps is 409 `mrp.sop_approval_required`.
+- **Decided** (`mrp.SopApprovals`, the engine's handler and locator):
+  approved at its last step, the version is `fixed`, `fixed_by` the
+  approver of that step (who decided it), audited `.fix` naming the
+  request; rejected (`.reject`, the reason in the request and the audit)
+  or withdrawn by its requester (`.withdraw`), it is a `draft` again, its
+  request kept as its latest, to change and submit anew. A version not
+  waiting for the request called back is a fault (500), not a refusal.
+- **An approved plan is frozen.** Fixed, it changes no more, as S2n's
+  fixed versions do; a change is a new review (`createSopPlan`), the next
+  version. No reopening: a version is a snapshot of its company's day,
+  and the next review counts what moved since (S2n's locks).
+- **Not linked to planning runs.** A planning run does not read the
+  consensus plan today (S2k: a run's demand is the plant's confirmed
+  sales, intercompany and stock transport orders), so no run reads only
+  approved plans; that link waits for a run that plans by forecast,
+  which no tracker leaf asks for yet (listed for the product owner).
+- **Imports.** mrp imports approvals (`layout`), as inventory and credit
+  do: the engine is the workflow context's published API, which imports
+  only config, so no cycle and no new direction.
+- **Locks.** Submitting locks the version, then inserts its request; a
+  decision locks the request, then the version (the engine's order). No
+  path locks a version and then an existing request, so the orders do not
+  meet. The configuration's steps are read when the request opens; a
+  later change of them does not move a pending request, as for every
+  object type.
+- **People only.** `submitSopPlan` is `x-agent: false` and in the demand
+  forecasting, replenishment and planning agents' never lists; deciding
+  is the engine's, human only.
+- Migration 000489 (its down refuses a submitted version or one naming a
+  request; `TestSopPlanApprovalDownRefused`); schema tests in
+  `db/sop_test.go`; `TestSopApproval`, `TestSopSubmitWithoutApproval`,
+  `TestSopApprovalRefusals`. Walkthrough step 159: Maple's versions are
+  approved by the process owner, then the controller.
+- Left in the tracker's "later: S&OP variants": capacity and supply
+  optimisation, scenario comparison.

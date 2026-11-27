@@ -29,7 +29,7 @@ import (
 // Operations are the operations context's.
 func MRP(cfg Config) *mrp.Endpoints {
 	return &mrp.Endpoints{Settings: configuration.Settings{}, Plants: tenancy.Directory{}, Materials: materials.Materials{}, Accounts: ledger.Accounts{},
-		Supply: mrpSupply{inventory: Inventory(cfg), procurement: Procurement(cfg)}, Runs: runOperations{kind: mrp.KindRun}, Pages: cfg.Pages, Now: cfg.Now}
+		Supply: mrpSupply{inventory: Inventory(cfg), procurement: Procurement(cfg)}, Runs: runOperations{kind: mrp.KindRun}, Requests: opener(), Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // mrpSupply gives the mrp context what it reads and writes of the plant

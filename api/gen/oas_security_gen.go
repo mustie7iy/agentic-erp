@@ -707,6 +707,7 @@ var operationRolesOidc = map[string][]string{
 	SubmitPaymentRunOperation:                            []string{},
 	SubmitPurchaseOrderChangeOperation:                   []string{},
 	SubmitRequisitionOperation:                           []string{},
+	SubmitSopPlanOperation:                               []string{},
 	TakeCashSnapshotOperation:                            []string{},
 	TerminateContractOperation:                           []string{},
 	TransmitBankFileOperation:                            []string{},

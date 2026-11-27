@@ -59,7 +59,7 @@ func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want 
 }
 
 // TestDownsRevert (batch 95S): on a database holding nothing the guards
-// refuse, the downs of 000486 (lot sizing) and of 000485 and 000484
+// refuse, the downs of 000489 (S&OP approval), 000486 (lot sizing) and of 000485 and 000484
 // (material descriptions) drop what their ups added, so that each up
 // applies again after its down (06 §6.4: a down reverts its up, and
 // TestMigrationsRevertCleanly, reverting the whole chain, would not see
@@ -74,6 +74,7 @@ func TestDownsRevert(t *testing.T) {
 		names                 []string // the migrations reverted, latest first
 		schema, table, column string   // a column the first up added
 	}{
+		{[]string{"000489_sop_plan_approval"}, "mrp", "sop_plan", "approval_request_id"},
 		{[]string{"000486_mrp_lot_sizing"}, "mrp", "material_plan", "lot_size"},
 		{[]string{"000485_validate_material_descriptions", "000484_material_descriptions"}, "materials", "material", "description_language"},
 	} {

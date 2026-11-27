@@ -1,7 +1,8 @@
 // Package approvals is the workflow context (03-data-model §3.11): approval
 // requests for requisitions, partner changes, configuration changes,
 // supplier invoice exceptions, period unlocks, manual journal entries,
-// purchase orders and their changes, and cost and profit center changes,
+// purchase orders and their changes, cost and profit center changes, S&OP
+// plan versions and the other object types below,
 // with sequential steps that each need a number of distinct approvals from
 // holders of a role. Only people approve or reject, never the requester,
 // and nobody approves a request twice; the requester may withdraw it. (The prototype's engine is
@@ -23,7 +24,8 @@
 // bank statement line by its company's bank_statements.approval_tiers, or
 // by DefaultBankClearingRole until the company has tiers (ADR-0047, T49f),
 // and center changes by DefaultCenterChangeRole (T56a), and credit limit
-// changes by DefaultCreditLimitRole (T77d), and the release
+// changes by DefaultCreditLimitRole (T77d), and S&OP plan versions by
+// their company's sop_approval steps (ADR-0084 As built S2n2), and the release
 // of a payment run whose total, in its company's currency at the run
 // date's rate, is above the company's release_dual_limit by one holder of
 // payments.release_role (ADR-0038, product owner 2026-10-22).
@@ -84,6 +86,10 @@ const (
 	// above its company's tolerance, posted when approved (ADR-0082 As
 	// built S2d).
 	InventoryDifference = "inventory_difference"
+	// SopPlan is an S&OP plan version submitted to be fixed as its
+	// company's consensus plan, by the company's sop_approval steps
+	// (ADR-0084 As built S2n2).
+	SopPlan = "sop_plan"
 )
 
 // Request statuses.
@@ -164,6 +170,7 @@ var ObjectPermissions = map[string]string{
 	MaterialChange:      "materials.change.approve",
 	CreditLimitChange:   "credit.limit.approve",
 	InventoryDifference: "inventory.difference.approve",
+	SopPlan:             "mrp.sop.approve",
 }
 
 func init() {
@@ -365,8 +372,9 @@ type NewRequest struct {
 	// Company is the configuration's code of LegalEntityID (its tenancy
 	// code), whose manual_entry_approval_limit a manual entry is measured
 	// against, whose bank_statements.approval_tiers route a bank clearing,
-	// and whose release_dual_limit a payment run's release is measured
-	// against; the owner passes both from the one legal entity it posts in.
+	// whose release_dual_limit a payment run's release is measured
+	// against, and whose sop_approval steps an S&OP plan version takes; the
+	// owner passes both from the one legal entity it posts in.
 	Company string
 }
 
@@ -489,6 +497,21 @@ func releaseSteps(ctx context.Context, rates Rates, doc *config.Config, in NewRe
 	return []policyStep{{doc.Payments.ReleaseRole, 1}}, nil
 }
 
+// sopPlanSteps are the company's sop_approval steps: none for a company
+// without them, or one the configuration lacks, whose plan versions are
+// then fixed at once, as before approval existed (ADR-0084 As built S2n2).
+func sopPlanSteps(doc *config.Config, in NewRequest) []policyStep {
+	co := doc.Company(in.Company)
+	if co == nil {
+		return nil
+	}
+	out := make([]policyStep, len(co.SopApproval.Steps))
+	for i, s := range co.SopApproval.Steps {
+		out[i] = policyStep{s.Role, s.Approvals}
+	}
+	return out
+}
+
 // steps resolves the steps the active configuration requires.
 func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) ([]policyStep, error) {
 	var out []policyStep
@@ -517,6 +540,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultCreditLimitRole, 1})
 	case InventoryDifference:
 		out = append(out, policyStep{DefaultInventoryDifferenceRole, 1})
+	case SopPlan:
+		return sopPlanSteps(doc, in), nil
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:
