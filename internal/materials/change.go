@@ -257,11 +257,28 @@ func requestedUnits(ctx context.Context, tx pgx.Tx, m Material, ch Change) (Requ
 		}
 	}
 	if ch.Units != nil || ch.BaseMeasures != nil {
-		if err := checkMeasures(ctx, tx, m.ID, measuresOf(m.BaseUnit, ch.BaseMeasures, units)); err != nil {
+		um := measuresOf(m.BaseUnit, ch.BaseMeasures, units)
+		um.kept = keptGTINs(m, ch.BaseMeasures == nil, ch.Units == nil)
+		if err := checkMeasures(ctx, tx, m.ID, um); err != nil {
 			return Requested{}, err
 		}
 	}
 	return req, nil
+}
+
+// keptGTINs are the GTINs of the material's units a change leaves as
+// they are, by GTIN with the unit carrying it.
+func keptGTINs(m Material, base, alternatives bool) map[string]string {
+	out := map[string]string{}
+	if base && m.BaseMeasures.GTIN != "" {
+		out[m.BaseMeasures.GTIN] = m.BaseUnit
+	}
+	for _, u := range m.Units {
+		if alternatives && u.Measures.GTIN != "" {
+			out[u.Measures.GTIN] = u.Code
+		}
+	}
+	return out
 }
 
 // only keeps what the change sets of the fields it changes: a field it
@@ -353,14 +370,17 @@ func write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req R
 }
 
 // replaceUnits replaces what a change gives of the material's units: the
-// measures it replaces marked removed first, then its alternative units,
-// then the measures written, each of a unit the material has by then
-// (unit_measure_of_unit).
+// GTINs it removes and writes locked at once (lockGTINs), the measures it
+// replaces marked removed, then its alternative units, then the measures
+// written, each of a unit the material has by then (unit_measure_of_unit).
 func replaceUnits(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req Requested) error {
 	if req.Units == nil && req.BaseMeasures == nil {
 		return nil
 	}
-	if err := removeMeasures(ctx, tx, p, m, req.BaseMeasures != nil, req.Units != nil); err != nil {
+	if err := lockGTINs(ctx, tx, append(m.gtins(req.BaseMeasures != nil, req.Units != nil), req.gtins()...)); err != nil {
+		return err
+	}
+	if _, err := removeMeasures(ctx, tx, p, m, req.BaseMeasures != nil, req.Units != nil); err != nil {
 		return err
 	}
 	var units []UnitInput

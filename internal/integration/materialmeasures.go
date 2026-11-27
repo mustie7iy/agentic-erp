@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"math/big"
 	"regexp"
 	"slices"
 	"strings"
@@ -81,7 +80,7 @@ func (mp *materialPlan) measures(table, matnr, unit string, f unitFields) materi
 	}
 	if kinds[0].unit != "" {
 		m.GrossWeight, m.NetWeight, m.WeightUnit = f.gross, f.net, f.weightUnit
-		if m.GrossWeight != "" && m.NetWeight != "" && ratOf(m.NetWeight).Cmp(ratOf(m.GrossWeight)) > 0 {
+		if m.GrossWeight != "" && m.NetWeight != "" && materials.DecimalAbove(m.NetWeight, m.GrossWeight) {
 			mp.add(SevWarning, table, key, "the net weight %s %s is more than the gross weight %s; the weights are left out", m.NetWeight, m.WeightUnit,
 				m.GrossWeight)
 			m.GrossWeight, m.NetWeight, m.WeightUnit = "", "", ""
@@ -126,12 +125,6 @@ func (mp *materialPlan) measureKind(table, key string, k *measureKind) bool {
 		return false
 	}
 	return true
-}
-
-// ratOf is a quantity the load accepted, exactly.
-func ratOf(s string) *big.Rat {
-	r, _ := new(big.Rat).SetString(s) // quantity wrote it as a decimal
-	return r
 }
 
 // baseMeasures are the base unit's measures: MARA's weights, volume and

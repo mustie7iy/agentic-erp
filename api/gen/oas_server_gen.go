@@ -10292,19 +10292,20 @@ type Handler interface {
 	// them (S1a2), and `description` sets its default one; `base_unit_measures` replaces the base unit's
 	// dimensions, weights and GTIN, an empty object removing them, and each alternative unit's `measures`
 	// are replaced with `alternative_units` (S1a3); each is checked as `createMaterial` checks it, a GTIN
-	// again when the change is applied (409 `materials.gtin_taken` on the approval when another material
-	// took it meanwhile). A change that would leave the material as it is is refused (422
-	// `materials.nothing_to_change`), as is a change of a `pending` material (409
-	// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
-	// block. A change that only blocks the material is applied at once, a pending change or not (the
-	// material answered blocked, with a material change of kind `block`, applied, read with
-	// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
-	// pending update approved later leaves the block in place. Any other opens a pending material change
-	// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
-	// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
-	// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
-	// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
-	// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
+	// also against the units the change keeps (422 `materials.duplicate_gtin`) and again when the change
+	// is applied (409 `materials.gtin_taken` on the approval when another material took it meanwhile). A
+	// change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is
+	// a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change
+	// (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at
+	// once, a pending change or not (the material answered blocked, with a material change of kind
+	// `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the
+	// fields it changes, so a pending update approved later leaves the block in place. Any other opens a
+	// pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise;
+	// the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
+	// applied to the material as it is then when its approval request is approved by the role
+	// `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values
+	// before and after, and published as MaterialChangeChanged, and MaterialChanged when the material
+	// changes. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/materials/{id}
 	UpdateMaterial(ctx context.Context, req *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)

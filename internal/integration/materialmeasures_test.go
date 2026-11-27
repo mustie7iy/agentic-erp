@@ -91,3 +91,20 @@ func TestMigratedMeasures(t *testing.T) {
 	expectFields(t, "materials with differences", checkOf(t, got, "2000", "Materials: materials with differences"), map[string]any{"sap": "0",
 		"platform": "0", "pass": true})
 }
+
+// TestMigratedMeasureGTINTaken (S1a3): a GTIN another material of the
+// tenant already carries refuses the SAP material, as a request is
+// refused, and the run fails.
+func TestMigratedMeasureGTINTaken(t *testing.T) {
+	e := materialSetup(t)
+	e.Must(201, "POST", "/v1/materials", fmt.Sprintf(`{"legal_entity_id": %q, "description": "Steel coil", "base_unit": "KG", "material_type": "raw_material",
+		"material_group": "STEEL", "base_unit_measures": {"gtin": "10036000291459"}}`, e.DE), "")
+	write(t, e.dir, "materials.json", withMeasures())
+	_, got := e.act(t, e.run(t, e.connector(t, "materials.json"), "documents", false, e.DE.String()), "start")
+	if load := strings.Join(loadIssues(got), "\n"); !strings.Contains(load, "MARA M-1: materials.gtin_taken: ") {
+		t.Errorf("load: got\n%s\nwant M-1 refused for its tonne's GTIN", load)
+	}
+	if got["status"] != "failed" {
+		t.Errorf("status: got %v, want failed", got["status"])
+	}
+}

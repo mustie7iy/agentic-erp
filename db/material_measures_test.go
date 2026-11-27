@@ -186,7 +186,8 @@ func TestUnitMeasureTriggersAsOwner(t *testing.T) {
 }
 
 // TestUnitMeasureDownRefused (S1a3, migration 000489): the down refuses,
-// rather than drops, a unit's measures (removed ones too: their history),
+// rather than drops, a unit's measures (removed ones too: what a unit last
+// carried before it was removed),
 // which the previous version cannot hold (06 §6.4).
 func TestUnitMeasureDownRefused(t *testing.T) {
 	need(t)

@@ -2600,8 +2600,10 @@ its dimensions, weights and GTIN, as SAP keeps them per unit in MARM
   `materials.gtin_taken`), whatever that material's status: a blocked
   material still is the item its GTIN names, and GS1 does not reuse a
   GTIN for another item; a material whose create change is rejected or
-  withdrawn never came to be, so its GTINs are freed (its measures marked
-  removed). The brief's "among active materials" is read as "among
+  withdrawn never came to be, so its GTINs are freed: its measures are
+  marked removed and its version moves, audited
+  (`materials.material.release`) and published as MaterialChanged, so a
+  reader holding its ETag or event sees them go. The brief's "among active materials" is read as "among
   materials that exist": a pending create holds its GTIN while it waits,
   so two requests cannot both take one. SAP makes a second EAN of a
   material a warning by default (from memory); the platform refuses,
@@ -2612,13 +2614,21 @@ its dimensions, weights and GTIN, as SAP keeps them per unit in MARM
   alternative unit's `measures` with `alternative_units`, is an `update`
   change waiting for its approval, audited with the measures before and
   after (`base_unit_measures`, `alternative_unit_measures`). A GTIN is
-  checked against other materials when the change is requested and,
+  checked against other materials, and against the material's units the
+  change keeps (422 `materials.duplicate_gtin`), when the change is
+  requested and,
   by the unique index, when it is applied: of two changes asking for one
   GTIN, the second's approval is refused 409 `materials.gtin_taken` and
   the material stays as it was. A change replaces the measures in scope
   as a whole: those are marked removed before any is written again, so a
   GTIN moved between two units of the material in one change is never on
-  two at once.
+  two at once. **Locks (ADR-0008):** every writer takes the advisory locks
+  of the GTINs it removes and writes, at once and in key order, before it
+  touches any row (`lockGTINs`); the SAP run takes all its GTINs after its
+  material numbers (`Migration.LockGTINs`), as a request draws its number
+  before it writes its measures. Two writers taking GTINs in opposite
+  orders then wait in one order instead of deadlocking
+  (`TestGTINsInOppositeOrder`).
 - **Data (migration 000489).** `materials.unit_measure`, one row per
   unit with measures, of the base unit or an alternative unit the
   material has (`unit_measure_of_unit`), each unit of its kind

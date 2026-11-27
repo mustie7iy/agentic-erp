@@ -136,7 +136,7 @@ func (m Measures) check(field string, dims dimensions) error {
 			return err
 		}
 	}
-	if m.NetWeight != "" && m.GrossWeight != "" && rat(m.NetWeight).Cmp(rat(m.GrossWeight)) > 0 {
+	if m.NetWeight != "" && m.GrossWeight != "" && DecimalAbove(m.NetWeight, m.GrossWeight) {
 		return problem.Invalid("materials.invalid_measures", field+".net_weight", "The net weight "+m.NetWeight+" is more than the gross weight "+
 			m.GrossWeight+"; the gross weight includes the packaging.")
 	}
@@ -168,10 +168,17 @@ func (g measureGroup) checkUnit(field string, given bool, dims dimensions) error
 	return nil
 }
 
-// rat is a decimal check has accepted, exactly.
-func rat(s string) *big.Rat {
-	r, _ := new(big.Rat).SetString(s) // decimal matched it, so it parses
-	return r
+// DecimalAbove reports whether decimal a is more than decimal b, exactly:
+// a net weight above its gross (the SAP load's check too). Each is digits
+// with an optional point and decimals, as check and the load accept them;
+// false when either is none.
+func DecimalAbove(a, b string) bool {
+	x, okA := new(big.Rat).SetString(a)
+	y, okB := new(big.Rat).SetString(b)
+	if !okA || !okB {
+		return false
+	}
+	return x.Cmp(y) > 0
 }
 
 // unitMeasures are the measures a request gives a material, by unit:
@@ -181,6 +188,10 @@ type unitMeasures struct {
 	units  []string
 	fields []string
 	ms     []Measures
+	// kept are the GTINs of the material's units the request leaves as
+	// they are, each with the unit carrying it, which a GTIN it gives
+	// may not be (a change's; requestedUnits).
+	kept map[string]string
 }
 
 func measuresOf(base string, baseM *Measures, units []UnitInput) unitMeasures {
@@ -196,7 +207,8 @@ func measuresOf(base string, baseM *Measures, units []UnitInput) unitMeasures {
 }
 
 // checkMeasures checks a request's measures (Measures.check), each GTIN
-// on one unit only (422 materials.duplicate_gtin) and on no unit of
+// on one unit only, of the request or one the material keeps (422
+// materials.duplicate_gtin), and on no unit of
 // another material than self, whatever its status (409
 // materials.gtin_taken, naming it); the database's unique index holds the
 // GTIN when it is written, so two requests at once cannot both take one.
@@ -206,6 +218,9 @@ func checkMeasures(ctx context.Context, tx pgx.Tx, self uuid.UUID, um unitMeasur
 		return err
 	}
 	keys, fields := []string{}, map[string]string{}
+	for g, unit := range um.kept {
+		fields[gtin.Key(g)] = "the material's unit " + unit + ", which the change keeps,"
+	}
 	for i, m := range um.ms {
 		if err := m.check(um.fields[i], dims); err != nil {
 			return err
@@ -241,10 +256,11 @@ const measureColumns = `json_strip_nulls(json_build_object('gtin', x.gtin, 'gros
 
 // lockGTINs takes the GTINs' advisory locks, by key in key order, held
 // to the end of the transaction (ADR-0008). Every writer of a GTIN takes
-// them before it writes one, so two writers waiting on unique index
-// entries each holds (one material's change taking X then Y, another's Y
-// then X) wait in one order instead, the second then refused 409
-// materials.gtin_taken; the SAP migration run takes all its GTINs first
+// them before it writes or removes one (replaceUnits takes those it
+// removes and those it writes at once), so two writers waiting on unique
+// index entries each holds (one material's change taking X then Y,
+// another's Y then X) wait in one order instead, the second then refused
+// 409 materials.gtin_taken; the SAP migration run takes all its GTINs first
 // (Migration.LockGTINs), after its material numbers, as a creation draws
 // its number before it writes its measures.
 func lockGTINs(ctx context.Context, tx pgx.Tx, gtins []string) error {
@@ -262,8 +278,9 @@ func lockGTINs(ctx context.Context, tx pgx.Tx, gtins []string) error {
 
 // writeMeasures writes the measures of the units given that have any,
 // setting those of a unit that has, or had and lost, some rather than
-// writing them twice; a unit without measures writes nothing. Their GTINs
-// are locked first (lockGTINs).
+// writing them twice (a row given back keeps its first created_at and
+// created_by; the audit records who changed it); a unit without measures
+// writes nothing. Their GTINs are locked first (lockGTINs).
 func writeMeasures(ctx context.Context, tx pgx.Tx, p reqctx.Principal, material uuid.UUID, um unitMeasures) error {
 	cols := make([][]string, 11)
 	var gtins []string
@@ -305,16 +322,38 @@ func writeMeasures(ctx context.Context, tx pgx.Tx, p reqctx.Principal, material 
 }
 
 // removeMeasures marks removed the measures a change replaces: the base
-// unit's when base, every alternative unit's when alternatives. They are
-// marked before any is written again, so a GTIN moved from one unit of
-// the material to another is never on two at once.
-func removeMeasures(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, base, alternatives bool) error {
-	if _, err := tx.Exec(ctx, `UPDATE materials.unit_measure SET removed_at = now(), removed_by = $5
-		WHERE material_id = $1 AND removed_at IS NULL AND (($2 AND uom_code = $4) OR ($3 AND uom_code <> $4))`,
-		m.ID, base, alternatives, m.BaseUnit, p.ID); err != nil {
-		return fmt.Errorf("materials: remove the measures of material %s: %w", m.Number, err)
+// unit's when base, every alternative unit's when alternatives, and
+// answers how many units had some. They are marked before any is written
+// again, so a GTIN moved from one unit of the material to another is
+// never on two at once; the GTINs they carry are locked first
+// (lockGTINs), as a writer's, since releasing one is writing it. m is the
+// material as its caller locked it, so its measures are those removed.
+func removeMeasures(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, base, alternatives bool) (int64, error) {
+	if err := lockGTINs(ctx, tx, m.gtins(base, alternatives)); err != nil {
+		return 0, err
 	}
-	return nil
+	tag, err := tx.Exec(ctx, `UPDATE materials.unit_measure SET removed_at = now(), removed_by = $5
+		WHERE material_id = $1 AND removed_at IS NULL AND (($2 AND uom_code = $4) OR ($3 AND uom_code <> $4))`,
+		m.ID, base, alternatives, m.BaseUnit, p.ID)
+	if err != nil {
+		return 0, fmt.Errorf("materials: remove the measures of material %s: %w", m.Number, err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// gtins are the GTINs the material's units carry now: the base unit's
+// when base, the alternative units' when alternatives.
+func (m Material) gtins(base, alternatives bool) []string {
+	var out []string
+	if base && m.BaseMeasures.GTIN != "" {
+		out = append(out, m.BaseMeasures.GTIN)
+	}
+	for _, u := range m.Units {
+		if alternatives && u.Measures.GTIN != "" {
+			out = append(out, u.Measures.GTIN)
+		}
+	}
+	return out
 }
 
 // measureDetail is the measures of a material's units as the audit

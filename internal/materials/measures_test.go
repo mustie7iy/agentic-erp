@@ -140,6 +140,11 @@ func TestMeasuresChanged(t *testing.T) {
 	}
 	e.Problem(422, "materials.nothing_to_change", "PATCH", path+"/"+id, mustJSON(t, map[string]any{"base_unit_measures": map[string]any{
 		"gross_weight": "0.130", "weight_unit": "KG"}}), tag)
+	status, refused, _ := e.Do("PATCH", path+"/"+id, mustJSON(t, map[string]any{"base_unit_measures": map[string]any{"gtin": eachGTIN0}}), tag)
+	if status != 422 || refused["code"] != "materials.duplicate_gtin" || field(refused) != "base_unit_measures.gtin" {
+		t.Errorf("the box's GTIN for the base unit: got %d %v %v, want 422 materials.duplicate_gtin on base_unit_measures.gtin", status, refused["code"],
+			field(refused))
+	}
 	cleared := e.changed(t, id, `{"base_unit_measures": {}, "alternative_units": []}`)
 	if g := measured(cleared["base_unit_measures"]); g != "" {
 		t.Errorf("cleared: got %q, want none", g)
@@ -167,6 +172,17 @@ func TestGTINsAcrossMaterials(t *testing.T) {
 	rejected := e.create(t, map[string]any{"description": "Copper wire", "base_unit_measures": map[string]any{"gtin": otherGTIN}})
 	r := e.Pending(t, rejected["pending_change_id"].(string))
 	e.As(e.Approver).Must(200, "POST", "/v1/approval-requests/"+r["id"].(string)+":reject", `{"comment": "Not ours"}`, `"1"`)
+	gone, goneTag := e.Must(200, "GET", path+"/"+rejected["id"].(string), "", "")
+	if got := measured(gone["base_unit_measures"]); got != "" || gone["version"] != 2.0 || goneTag != `"2"` {
+		t.Errorf("the rejected material: got measures %q, version %v, ETag %s, want none at version 2", got, gone["version"], goneTag)
+	}
+	released := e.events(t, "material_changed", rejected["id"].(string))
+	if last := released[len(released)-1]; last["change"] != "changed" || last["version"] != 2.0 || measured(last["base_unit_measures"]) != "" {
+		t.Errorf("the rejected material's last event: got %v, want changed at version 2 without measures", last)
+	}
+	if got := e.audits(t, rejected["id"].(string), "materials.material.release"); len(got) != 1 {
+		t.Errorf("the release's audit records: got %d, want 1", len(got))
+	}
 	second := e.active(t, map[string]any{"description": "Brass wire", "base_unit_measures": map[string]any{"gtin": otherGTIN}})
 	third := e.active(t, map[string]any{"description": "Steel wire", "alternative_units": nil})
 	_, tag = e.Must(200, "GET", path+"/"+third["id"].(string), "", "")
