@@ -103,13 +103,14 @@ func totals(ctx context.Context, tx pgx.Tx, ss []Snapshot) error {
 		ss[i].Currencies = []SnapshotCurrency{}
 	}
 	rows, _ := tx.Query(ctx, `SELECT f.snapshot_id, f.currency, c.exponent,
-			coalesce(sum(f.amount) FILTER (WHERE f.source <> 'payable_blocked'), 0)::bigint,
-			coalesce(sum(f.amount) FILTER (WHERE f.source = 'payable_blocked'), 0)::bigint, count(*)
+			coalesce(sum(f.amount) FILTER (WHERE f.source NOT IN ('payable_blocked', 'receivable_blocked')), 0)::bigint,
+			coalesce(sum(f.amount) FILTER (WHERE f.source = 'payable_blocked'), 0)::bigint,
+			coalesce(sum(f.amount) FILTER (WHERE f.source = 'receivable_blocked'), 0)::bigint, count(*)
 		FROM cash.snapshot_flow f JOIN ref.currency c ON c.code = f.currency
 		WHERE f.snapshot_id = ANY($1) GROUP BY f.snapshot_id, f.currency, c.exponent ORDER BY f.snapshot_id, f.currency`, ids)
 	var id uuid.UUID
 	var c SnapshotCurrency
-	_, err := pgx.ForEachRow(rows, []any{&id, &c.Currency, &c.Exponent, &c.Total, &c.Blocked, &c.Lines}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&id, &c.Currency, &c.Exponent, &c.Total, &c.Blocked, &c.BlockedReceipts, &c.Lines}, func() error {
 		ss[at[id]].Currencies = append(ss[at[id]].Currencies, c)
 		return nil
 	})
@@ -184,7 +185,7 @@ type SnapshotLinePage struct {
 	Next     string
 }
 
-// SnapshotLine is a line as listed: its supplier, payment and document
+// SnapshotLine is a line as listed: its supplier, customer, payment and document
 // left out (nil) for a caller who may not read them; HasDocument says
 // whether it names one.
 type SnapshotLine struct {
@@ -199,10 +200,12 @@ type SnapshotLine struct {
 	Amount             money.Minor
 	Count              int
 	Supplier           *PartnerName
+	Customer           *PartnerName // the customer a receipt is from (T53l1)
 	Payment            *uuid.UUID
 	HasDocument        bool
 	Document           *Document
 	supplier, payments *uuid.UUID // as stored, before the caller's permissions
+	customer           *uuid.UUID
 }
 
 // lineCursor is the last line of a page.
@@ -244,7 +247,7 @@ func (e *Endpoints) SnapshotLines(ctx context.Context, q SnapshotLinesQuery) (Sn
 	}
 	size := max(q.PageSize, 1)
 	rows, _ := tx.Query(ctx, `SELECT f.line_no, f.flow_no, f.value_date, f.bucket_end, f.house_bank_id, f.source, f.certainty, f.late, f.liquidity_item,
-			f.amount, f.flow_count, f.supplier_id, f.payment_id, f.document_kind, f.document_id, f.document_number
+			f.amount, f.flow_count, f.supplier_id, f.payment_id, f.document_kind, f.document_id, f.document_number, f.customer_id
 		FROM cash.snapshot_flow f`+where+` AND f.line_no > $8 ORDER BY f.line_no LIMIT $9`, append(args, c.After, size+1)...)
 	lines, err := pgx.CollectRows(rows, scanLine)
 	if err != nil {
@@ -289,7 +292,7 @@ func scanLine(r pgx.CollectableRow) (SnapshotLine, error) {
 	var kind, number *string
 	var doc *uuid.UUID
 	err := r.Scan(&l.LineNo, &l.FlowNo, &l.Date, &l.End, &l.Bank, &l.Source, &l.Certainty, &l.Late, &l.Item, &l.Amount, &l.Count, &l.supplier, &l.payments,
-		&kind, &doc, &number)
+		&kind, &doc, &number, &l.customer)
 	if doc != nil {
 		l.HasDocument, l.Document = true, &Document{Kind: *kind, ID: *doc, Number: deref(number)}
 	}
@@ -315,7 +318,7 @@ func (e *Endpoints) shownLines(ctx context.Context, lines []SnapshotLine) ([]Sna
 }
 
 // lineRefs is what a page of lines names in other contexts, as the caller
-// may see it: its suppliers' names, its banks' codes, and whether payments
+// may see it: its suppliers' and customers' names, its banks' codes, and whether payments
 // are shown.
 type lineRefs struct {
 	names    map[uuid.UUID]PartnerName
@@ -324,10 +327,12 @@ type lineRefs struct {
 }
 
 func (e *Endpoints) lineRefs(ctx context.Context, lines []SnapshotLine, may func(string) (bool, error)) (lineRefs, error) {
-	var suppliers, banks []uuid.UUID
+	var partners, banks []uuid.UUID
 	for _, l := range lines {
-		if l.supplier != nil && !slices.Contains(suppliers, *l.supplier) {
-			suppliers = append(suppliers, *l.supplier)
+		for _, id := range []*uuid.UUID{l.supplier, l.customer} {
+			if id != nil && !slices.Contains(partners, *id) {
+				partners = append(partners, *id)
+			}
 		}
 		if l.Bank != nil && !slices.Contains(banks, *l.Bank) {
 			banks = append(banks, *l.Bank)
@@ -335,7 +340,7 @@ func (e *Endpoints) lineRefs(ctx context.Context, lines []SnapshotLine, may func
 	}
 	var r lineRefs
 	var err error
-	if r.names, err = e.partnerNames(ctx, suppliers, may); err != nil {
+	if r.names, err = e.partnerNames(ctx, partners, may); err != nil {
 		return lineRefs{}, err
 	}
 	if r.codes, err = idref.Resolve(ctx, e.Payments.HouseBankCodes, banks, houseBankRef); err != nil {
@@ -345,14 +350,22 @@ func (e *Endpoints) lineRefs(ctx context.Context, lines []SnapshotLine, may func
 	return r, err
 }
 
-// show fills a line's supplier, payment and bank code, and leaves out a
+// named is the partner's number and name as the caller may see it, nil
+// for none.
+func (r lineRefs) named(id *uuid.UUID) *PartnerName {
+	if id == nil {
+		return nil
+	}
+	if n, ok := r.names[*id]; ok {
+		return &n
+	}
+	return nil
+}
+
+// show fills a line's supplier, customer, payment and bank code, and leaves out a
 // document the caller may not read.
 func (r lineRefs) show(l *SnapshotLine, may func(string) (bool, error)) error {
-	if l.supplier != nil {
-		if n, ok := r.names[*l.supplier]; ok {
-			l.Supplier = &n
-		}
-	}
+	l.Supplier, l.Customer = r.named(l.supplier), r.named(l.customer)
 	if r.payments {
 		l.Payment = l.payments
 	}

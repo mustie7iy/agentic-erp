@@ -2816,6 +2816,7 @@ erDiagram
     text reason_code }
   house_bank { uuid id PK
     uuid legal_entity_id
+    text code "1-10 upper-case letters or digits: SAP's HBKID, or HBKID + HKTID per account of a bank of several (000497)"
     bytea iban_cipher "the IBAN, or a Canadian bank's account number (T45d)"
     text bic
     text institution_number "Canadian bank: 3 digits; null for an IBAN"
@@ -3449,6 +3450,7 @@ activate, and orders under them are refused.
 | Table | Purpose |
 |---|---|
 | `external_ref` | Maps any entity to its key in an external system (SAP object and key); unique per system/object/key; names the migration run that loaded it (`migration_run_id`, NULL for references recorded before 000168) |
+| `opening_item` | The open vendor items of a migration's opening entries: an SAP line's key (`<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>`) per system with the opening entry (`journal_entry_id`, `fiscal_year`) and the line (`line_no`) that holds it, and the run that posted it, so a later fiscal year's run clears an item SAP cleared in that year (ADR-0034 As built, 000499); one item per line; insert-only |
 | `connector` | Configured connections (SAP OData, bank SFTP, EDI VAN, email, a treasury system's SFTP directory, `treasury_export` since 000209, a warehouse management system, `wms` since 000449, a transport management system, `tms` since 000462, a trade compliance service, `gts` since 000467); secrets by reference to the vault |
 | `message` | Inbound and outbound messages with status, attempts, payload reference |
 | `wms_message` | A message exchanged with a warehouse system through a `wms` connector (ADR-0082 As built S2q, 000449; S2q2's receipt kinds, 000453), unique per connector, direction and message id: `outbound` (`outbound_delivery`, the delivery to pick, or `inbound_receipt`, a released purchase order's stock items at a plant to put away, `document_id` the order; its body the JSON as sent; once per delivery or order, `wms_message_once`; `pending` while an attempt is due, `sent`, `failed` with the last attempt's code, at most six attempts) or `inbound` (`goods_issue` or `goods_receipt`, a movement the warehouse system reported, its body as received; `posted` naming the material document, or `refused` with its problem; `acknowledged_at` once the warehouse system was told). A `tms` connector's messages (S2r, 000462) are its own kinds: `transport_request` (outbound, the delivery to plan, once per delivery beside its warehouse system's) and `shipment` (inbound, `recorded` on the delivery, never posted, or `refused`); only a shipment is recorded (`wms_message_direction`). A trade compliance service's through a `gts` connector (S2s, 000467): `screening_request` (outbound, the delivery to screen, once per delivery, sent when it was created pending) and `screening_result` (inbound, `recorded` on the delivery, never posted, or `refused`); a shipment and a screening result alone are recorded (`wms_message_direction`). What a message is, and an inbound one's outcome, never change (`wms_message_kept`) |
@@ -3547,8 +3549,8 @@ line or reservation. An agent's budget is identity's
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
 | RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning). Posted documents (RBSTAT 5): the quantities of their ordinary items, by XRECH, as `payables.migrated_invoice_item` for matching (T72b2); one whose XRECH, an item's TBTKZ or an ordinary item's quantity cannot be read stops the load |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
-| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review) |
-| T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers (ADR-0038 As built) |
+| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review); a house bank of several accounts, each with its ID (HKTID), one `payments.house_bank` per account, coded HBKID + HKTID, and the ranking names the account T042I names per method and currency (ADR-0038 As built, a house bank's account by payment method) |
+| T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers; T042I's account (HKTID) chooses, per method and currency, the account a house bank of several accounts is ranked by (ADR-0038 As built) |
 | LFB1-ZWELS | `supplier_company.payment_methods`, the methods allowed (its letter order is not a preference: A4(c)); a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
@@ -3621,6 +3623,7 @@ erDiagram
     bigint amount "minor units, signed"
     int flow_count
     uuid supplier_id "partner context"
+    uuid customer_id "partner context (T53l1)"
     uuid payment_id "payments context"
     text document_kind
     uuid document_id "the owning context's" }
@@ -3664,7 +3667,7 @@ erDiagram
 | `cash.planning_group` | The configuration's `cash.planning_groups` (SAP T035), kept by `cash.Setup`, inactive once dropped; suppliers name one per company (`partner.supplier_company.planning_group`, §3.6) |
 | `cash.memo_record` | An expected receipt or payment (SAP's memo records, ADR-0051 §7; T53d): a signed, non-zero amount in minor units of its currency, a value date and an expiry date on or after it, a certainty, an active liquidity item of the amount's direction (`cash.check_memo_item`, when the item or amount is written; `cash.Setup` refuses taking away an item an open record names), a house bank or none (forecast only), optionally a series (`weekly`, `monthly` on the value date's day, `quarterly`; until a day or a count of 2-520, or neither) expanded at read time, `counts_until` the last occurrence's expiry (a one-off record's `expires_on`, null for a series without end; an active record past it is shown `expired`). An override (`recurrence_of`, `occurrence_date`) replaces one occurrence of a series, once per occurrence (`memo_record_override_once`). `origin` `agent` records carry their session and reason and are the only ones `proposed` or `rejected`; `upload` ones carry their batch key and a reference unique per company and key (`memo_record_batch_reference`). Realised by a statement line or by a person; a series only through an override of an occurrence. Changes are versions; never deleted |
 | `cash.snapshot` | A snapshot of a company's liquidity forecast (ADR-0051 §6, T53f, 000198): `daily` (the TakeCashSnapshot workflow's, one per company and date, `snapshot_daily`) or `on_demand` (a person's, named, `snapshot_name`), its date and zone, the last day of its buckets and the configuration version that classified it. Insert-only (no version, no update or delete granted); deleted with its lines 25 months after its date by the workflow through `cash.delete_expired_snapshots`, which computes the 25 months and refuses a day after UTC's tomorrow, unless a variance comment refers to it (000201) |
-| `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
+| `cash.snapshot_flow` | A snapshot's lines in transaction currency: within 31 days of its date, what one forecast flow (`flow_no`) pays of one document under one liquidity item, with its day at the bank, house bank, source, certainty, lateness, supplier, customer (a receipt's, T53l1; never with a supplier nor on a bucket's sum, `snapshot_flow_customer`) and payment (`flow_count` 1, `snapshot_flow_count`); beyond, a bucket's sum (`bucket_end`) per currency, source, certainty, item and house bank, naming no document, supplier or payment and never late (`snapshot_flow_bucket`). A document is named whole (`snapshot_flow_document`); an item is the tenant's (null: unclassified). Insert-only |
 | `cash.variance_comment` | A comment on one row of a company's forecast variance (ADR-0051 §11, T53f4, 000201): its period (`variance_comment_period`), lag (0, 7 or 30), liquidity item (the tenant's, active or not; null: what no rule assigns) and the snapshot that variance compares with, of the same company (`variance_comment_snapshot`, which keeps the snapshot past its retention); a text of 1 to 2,000 characters, not blank; `proposed` (an agent's, T53i), `accepted` or `rejected`, decided exactly when not proposed (`variance_comment_decided`; a person's is accepted as written, decided by its author). The forecast agent's proposal (T53i, 000218) names its session and cites 1 to 50 documents its variance's attribution lists (checked by the application; `variance_comment_session`, `variance_comment_citations`); a person decides it once, from `proposed`, by another than its author, raising its `version` (`cash.check_variance_comment_decision`), with a reason exactly when rejected (`variance_comment_rejected`), its text changed only by an accepted edit that keeps the agent's as `proposed_text` (`variance_comment_edited`); the application may update only the status, who decided, when, why, the text, the proposed text and the version. Never deleted |
 | `cash.export` | An export of a snapshot to a treasury system (ADR-0051 §14, T53h, 000209) through a `treasury_export` connector, in the cash export schema v1 (`api/schemas/cash-export.v1.json`) and the connector's format: queued with the snapshot for every active such connector naming its company, or by a person; `pending` until the exporter (`cash.Exporter`) delivers it, waiting `next_attempt_at` between attempts (at most six, `export_pending`), then `delivered` (`delivered_at` and `resend` set, `export_delivered`) or `failed` with the last attempt's problem code. Its file is named by company, snapshot date and content hash (`export_file`, which ties the name to the hash's form and the format), so the same snapshot exported again is the same file, `resend` when its connector was delivered that hash before. Of the snapshot's company (`export_snapshot`), deleted with it by retention (ON DELETE CASCADE); never deleted otherwise. `erp_worker` reads `tenant_id`, `status` and `next_attempt_at` to find the tenants with exports due |
 | `cash.outbox`, `cash.inbox` | The context's events (`MemoRecordChanged`, `CashSnapshotTaken`, offered to webhooks since T53h, `VarianceCommentDecided`, `CashExportDelivered`), relayed as every context's (000152, `outbox.Contexts`) |
@@ -3777,7 +3780,8 @@ payment's. No migration; reading the actuals is `cash.forecast.read`.
 
 T53f3 compares a snapshot with the actuals, storing nothing: the
 `cash.snapshot` of the legal entity and date (`daily` first, else the
-last `on_demand`) and its `cash.snapshot_flow`s but `payable_blocked`;
+last `on_demand`) and its `cash.snapshot_flow`s but `payable_blocked` (and
+`receivable_blocked` since T53l1);
 the actuals' lines as T53f2 reads them, each matched payment's settled
 items with their `ledger.journal_entry` and that entry's
 `source_document_id` when `payables` posted it (the supplier invoice), a
@@ -3800,6 +3804,24 @@ names an order as `document_kind` `purchase_order` (000205 widens
 `snapshot_flow_document_kind_check` `NOT VALID`, 000206 validates it); the
 variance knows a payment of an invoice entered on an order
 (`payables.supplier_invoice.purchase_order_id`) as that order.
+
+T53l1 adds the receipts from customers, storing nothing new but a
+snapshot's customer: the ordinary customer open items of the leading
+ledger (`ledger.journal_line` on a customer reconciliation account, not
+cleared, not special G/L, through receivables' published read) with
+their `ledger.open_item_terms`, those collections
+holds back on the read date (a `collections.dunning_block` in force of
+the item or its customer, or an open `collections.dispute_case_item`)
+apart; and each confirmed `sales.sales_order` not blocked for credit with
+what its live `sales.sales_order_item`s are not yet billed by posted
+`sales.billing_document_item`s, plus their output tax, billed on its
+`requested_delivery_date`, else `order_date` plus `cash.order_lead_days`,
+due by its `payment_term_code`'s net days. A snapshot's line names the
+customer (`cash.snapshot_flow.customer_id`, 000500) and a sales order as
+`document_kind` `sales_order` (000500 widens
+`snapshot_flow_document_kind_check` and adds `snapshot_flow_customer`
+`NOT VALID`, 000501 validates both; the down of 000500 refuses while a
+line of a receipt exists).
 
 T53j1 copies the actuals into the analytical store (ADR-0044 As built
 T53j1), storing nothing in PostgreSQL: dataset `cash_actuals`, one row

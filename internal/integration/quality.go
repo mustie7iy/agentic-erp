@@ -152,6 +152,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.ledgers()
 	q.noted()
 	q.journal()
+	q.clearingYears()
 	q.reconciliationAccounts()
 	q.lineCenters()
 	q.downPayments()
@@ -372,14 +373,20 @@ type journalScan struct {
 	sizes        map[string][]money.Minor
 	openByVendor map[string]bool
 	noRange      map[string]bool
+	// lines are the journal lines' keys seen (sapItemKey): a line is in
+	// the extract once.
+	lines map[string]bool
 }
 
 // journal checks the Universal Journal: every document must balance, hit
 // known accounts and have a number range for its document type.
 func (q *qualityCheck) journal() {
-	s := journalScan{docLines: map[string][]money.Minor{}, sizes: map[string][]money.Minor{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}}
+	s := journalScan{docLines: map[string][]money.Minor{}, sizes: map[string][]money.Minor{}, openByVendor: map[string]bool{}, noRange: map[string]bool{}, lines: map[string]bool{}}
 	for _, l := range q.e.ACDOCA {
 		q.journalLine(l, &s)
+	}
+	for _, l := range q.e.ClearedEarlier { // earlier years' documents the year's clearings clear, loaded with them
+		q.lineOnce(l, &s)
 	}
 	for _, key := range sortedKeys(s.docLines) {
 		if total, err := money.Sum(s.docLines[key]...); err != nil || total != 0 {
@@ -405,8 +412,19 @@ func (q *qualityCheck) journal() {
 	}
 }
 
+// lineOnce refuses a journal line the extract holds twice: it would post
+// twice, or name one opening item twice (integration.opening_item's key),
+// and SAP keys a line once (review:batch98).
+func (q *qualityCheck) lineOnce(l sap.ACDOCA, s *journalScan) {
+	if s.lines[sapItemKey(l)] {
+		q.add(SevError, "ACDOCA", sapItemKey(l), "the journal line is in the extract twice (company code, fiscal year, document and line); export each line once")
+	}
+	s.lines[sapItemKey(l)] = true
+}
+
 func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
 	key := l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR
+	q.lineOnce(l, s)
 	amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
 	if err != nil {
 		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)

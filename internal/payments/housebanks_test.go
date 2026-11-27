@@ -91,6 +91,13 @@ func TestHouseBanks(t *testing.T) {
 	if f := check(func(c *config.Config) { c.Companies[1].HouseBanks = []config.HouseBank{further("db-1")} }); len(f) != 1 || f[0].Path != "companies[2000].house_banks[db-1].name" {
 		t.Fatalf("bad further name: %v", f)
 	}
+	if f := check(func(c *config.Config) { c.Companies[1].HouseBanks = []config.HouseBank{further("DEUTB00002")} }); len(f) != 0 {
+		t.Fatalf("a code of ten characters, a house bank and its account's ID (ADR-0038): got %v, want no finding", f)
+	}
+	if f := check(func(c *config.Config) { c.Companies[1].HouseBanks = []config.HouseBank{further("DEUTB000002")} }); len(f) != 1 ||
+		f[0].Path != "companies[2000].house_banks[DEUTB000002].name" {
+		t.Fatalf("a code of eleven characters: got %v, want it refused on its name", f)
+	}
 
 	apply := func(doc *config.Config) error {
 		return apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.Apply(ctx, doc) })

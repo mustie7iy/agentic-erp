@@ -178,8 +178,9 @@ type Bucket struct {
 
 // ForecastCurrency is the flows of one currency per bucket, in the
 // buckets' order, their total over the horizon, the flows expected after
-// its last bucket, and the blocked suppliers' flows in the buckets and
-// after, counted in the totals and Beyond only when asked.
+// its last bucket, and the blocked suppliers' flows and the receipts held
+// back in the buckets and after, each summed apart and counted in the
+// totals and Beyond only when asked.
 type ForecastCurrency struct {
 	Currency string
 	Exponent int
@@ -190,6 +191,9 @@ type ForecastCurrency struct {
 	Total   money.Minor
 	Beyond  Beyond
 	Blocked Beyond
+	// BlockedReceipts are the receipts of customer items collections holds
+	// back (receivable_blocked, T53l1), summed and counted as Blocked is.
+	BlockedReceipts Beyond
 	// Items are its rows by liquidity item and its hierarchy (T53e3).
 	Items []ItemRow
 }
@@ -233,7 +237,10 @@ type datedFlow struct {
 	// flow), which shares sums: what a snapshot keeps per document (T53f).
 	partShares [][]Share
 	supplier   *uuid.UUID
-	documents  []paidDocument
+	// customer is the customer a receipt is expected from (T53l1), nil
+	// for every other flow.
+	customer  *uuid.UUID
+	documents []paidDocument
 	// identity tells a flow from others of its day, source and documents
 	// (a run's payments, a payment's lines in transit, a series'
 	// occurrences) in the drill-down's keys; "" when its documents do.
@@ -414,8 +421,9 @@ func errForecastTooLarge() *problem.Problem {
 // (payment_run, confirmed), whose items and requests the payables port
 // leaves out (never both), the payments in transit from its active house
 // banks (in_transit, confirmed) and its memo records' occurrences up to the
-// last day (memo, T53e4); and those banks, whose statements open the
-// forecast.
+// last day (memo, T53e4), and the receipts expected from customers
+// (receivable, receivable_blocked apart, and sales_order, T53l1); and
+// those banks, whose statements open the forecast.
 func (e *Endpoints) forecastFlows(ctx context.Context, tx pgx.Tx, r reader, legalEntity uuid.UUID, last time.Time) ([]datedFlow, []Bank, error) {
 	payables, err := e.Payments.Payables(ctx, legalEntity, r.read)
 	if err != nil {
@@ -437,7 +445,11 @@ func (e *Endpoints) forecastFlows(ctx context.Context, tx pgx.Tx, r reader, lega
 	if err != nil {
 		return nil, nil, err
 	}
-	return append(append(out, payments...), memos...), banks, nil
+	receipts, err := e.receiptFlows(ctx, r, legalEntity)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(append(append(out, payments...), memos...), receipts...), banks, nil
 }
 
 // paymentFlows are the payments of runs not yet released, on the run
@@ -788,13 +800,17 @@ func (s *sums) closings(c *ForecastCurrency) {
 }
 
 // into adds a flow to its currency: to the bucket its day falls in, else
-// beyond, and to the totals, unless it is a blocked supplier's not asked
-// for, which is listed in its bucket and summed in Blocked only; and its
+// beyond, and to the totals, unless it is a blocked supplier's or a
+// receipt held back not asked for, which is listed in its bucket and
+// summed in Blocked or BlockedReceipts only; and its
 // shares to the currency's rows by liquidity item alike.
 func (r reader) into(c *ForecastCurrency, rows *itemRows, bs []Bucket, f datedFlow, includeBlocked bool) {
-	blocked := f.source == SourcePayableBlocked
-	if blocked {
+	blocked := blockedSource(f.source)
+	switch f.source {
+	case SourcePayableBlocked:
 		c.Blocked = r.sums.addTo(c.Blocked, f.amount)
+	case SourceReceivableBlocked:
+		c.BlockedReceipts = r.sums.addTo(c.BlockedReceipts, f.amount)
 	}
 	counted := includeBlocked || !blocked
 	// The first bucket ending on or after the day, found or not: its start

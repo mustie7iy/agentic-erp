@@ -1001,7 +1001,8 @@ counterpart for is noted):
   account: SAP posts a payment by the method to the subaccount, the
   platform credits the bank's one clearing account for every method.
   T042I's account ID (HKTID) is not used: the extract takes one account per
-  house bank (T012K).
+  house bank (T012K). (Since "As built: a house bank's account by payment
+  method", at the end, it chooses the account.)
 - **Suppliers' methods.** LFB1-ZWELS ("List of the Payment Methods to be
   Considered", DZWELS, CHAR 10; https://leanx.eu/en/sap/table/lfb1.html),
   one character per method, blanks skipped, loads in its order as the
@@ -1127,7 +1128,8 @@ configuration holds what the company pays by):
   account (HKTID) choosing the house bank's account. The first is built
   on the platform's side in "As built: an item's fixed payment method",
   below, and taken over from SAP in "As built: a migrated item's fixed
-  payment method"; T042I's account stays open.
+  payment method"; T042I's account is built in "As built: a house bank's
+  account by payment method", at the end.
 
 
 ## As built: an item's fixed payment method (A4(c), second part, platform side; product owner 2026-11-10)
@@ -1584,3 +1586,72 @@ configuration. A releaser no longer active is replaced by whoever
 resumes, who becomes the releaser. A house bank is read as it was
 proposed. Unpayable items and suppliers are dropped already (review
 batch 76).
+
+
+## As built: a house bank's account by payment method (A4, T042I; product owner 2026-11-10)
+
+The SAP specialist answered (po:2026-11-09, A4 [H]) that T042I gives, per
+house bank, payment method and currency, the account (HKTID, a T012K
+account) a payment run pays from: without it the bank is known but not
+its account. The configuration draft took one account per house bank,
+its first T012K row, and did not read HKTID. The product owner decided
+on 2026-11-10 that the house bank code is per account: plain HBKID where
+a house bank has one account, HBKID plus HKTID where it has several.
+Decided by default, from those and the draft's pattern ("refused, not
+guessed", above):
+
+- **The extract.** T012K carries HKTID (`sap.T012K.HKTID`); the mock gives
+  each of its house banks' one account the ID T042I names, 00001.
+- **Codes, and the fit with the house bank model.** A house bank here is
+  one account (an IBAN or a Canadian account, a currency, a ledger
+  account), so a house bank of several accounts, each with an ID of its
+  own, gives each account a house bank of its own in the draft, coded
+  HBKID + HKTID with no separator, as the decision says; the first account
+  of the company's first bank stays the main house bank. A house bank of
+  one account keeps its code, with or without an ID. The platform's code
+  was 1-5 upper-case letters or digits (SAP's HBKID); HBKID and HKTID are
+  each at most five characters (from memory, on the specialist list), so
+  the code now takes 1-10 (`payments.house_bank` `house_bank_code_check`,
+  widened by 000497 NOT VALID and validated by 000498; the activation's
+  check in `payments.HouseBanks`). A down to 000496 refuses while a code
+  longer than five exists. Two banks whose codes join to the same string
+  (AB + C1, ABC + 1) are refused by validation as a duplicate house bank.
+  No contract change: no response or request declares the code's length.
+- **The ranking.** For a T042A row with a currency, the bank's account is
+  the one T042I names for the bank, method and that currency; for a row
+  without one, every account T042I names for the bank and method, each
+  once and ranked, as before, for its own account's currency unless the
+  method ranks that currency with rows of its own. A T042I row matches
+  only its own currency: whether SAP uses one without a currency for every
+  currency is not stated by the specialist and is on the specialist list.
+- **Where T042I names none,** the bank's first account is ranked, as the
+  draft did before, with a note on the method's ranking for a bank of
+  several accounts (one of one account has no choice to note). An account
+  T042I names that T012K does not give the company is ranked by the code
+  it would have, which validation refuses ("a house bank of the company"),
+  with a note: SAP could not pay from it either. A bank subaccount
+  (T042I UKONT) is compared with the ledger account of the account T042I
+  names.
+- **An extract without the IDs,** or with two accounts of a bank under
+  one ID, keeps the bank's first account, the others left out with a note
+  saying the extract does not tell them apart, as before.
+- **Fit-gap keys.** A T012K row of a bank of several identified accounts
+  is keyed `BUKRS/HBKID/HKTID`; the others as before.
+- **Walkthrough.** Step 1 shows T042I's accounts and, on a copy of the
+  extract in which MUSD has a second account that T042I names for bank
+  transfers in USD, a draft with house banks MUSD00001 and MUSD00002 and
+  the method's USD ranking naming MUSD00002; the pilot's own draft, of
+  banks with one account each, is unchanged.
+- **Check on the pilot system:** that T012K and T042I carry HKTID, its
+  length, and whether a T042I row without a currency is used.
+- **Integration (batch 98F).** A missing account whose would-be code is
+  another house bank's (MAIN + X = MAINX) is ranked as that bank, which
+  validation cannot refuse, so the draft now notes it for a person to
+  correct (`missingAccount`; TestHouseBankAccountNotNamed). The code's
+  ten characters through payments: the contract and the events declare
+  no length for it; a bank file's object key takes it whole; a pain.001
+  message id of a run with a file per bank and method keeps the bank and
+  method within the 35 characters (`maxMessageID`, the run's part
+  shortened and hashed), now tested with a ten-character code
+  (TestMessageIDsOfLongCodes); statements name the house bank by id. No
+  format clips or truncates it.

@@ -66,7 +66,7 @@ func applyMethods(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UU
 	for _, pm := range methods {
 		codes, descriptions = append(codes, pm.Code), append(descriptions, pm.Description)
 		for _, r := range pm.Ranking {
-			// The codes are 1-5 upper-case letters or digits, so a comma
+			// The codes are 1-10 upper-case letters or digits, so a comma
 			// separates them unambiguously.
 			rankMethods, currencies, banks = append(rankMethods, pm.Code), append(currencies, r.Currency), append(banks, strings.Join(r.HouseBanks, ","))
 		}

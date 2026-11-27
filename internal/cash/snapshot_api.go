@@ -70,6 +70,9 @@ func (e *Endpoints) ListCashSnapshotFlows(ctx context.Context, params gen.ListCa
 		if s := l.Supplier; s != nil {
 			f.Supplier.SetTo(gen.PartnerName{ID: s.ID, Number: s.Number, Name: s.Name})
 		}
+		if c := l.Customer; c != nil {
+			f.Customer.SetTo(gen.PartnerName{ID: c.ID, Number: c.Number, Name: c.Name})
+		}
 		if d := l.Document; d != nil {
 			f.Document.SetTo(gen.CashSnapshotDocument{Kind: d.Kind, ID: d.ID, Number: apitypes.OptText(d.Number)})
 		}
@@ -85,7 +88,8 @@ func snapshotToAPI(s Snapshot) gen.CashSnapshot {
 		Currencies: make([]gen.CashSnapshotCurrency, len(s.Currencies))}
 	for i, c := range s.Currencies {
 		amount := amounts(c.Currency, c.Exponent)
-		out.Currencies[i] = gen.CashSnapshotCurrency{Currency: c.Currency, Total: amount(c.Total), Blocked: amount(c.Blocked), LineCount: int32(c.Lines)}
+		out.Currencies[i] = gen.CashSnapshotCurrency{Currency: c.Currency, Total: amount(c.Total), Blocked: amount(c.Blocked),
+			BlockedReceipts: amount(c.BlockedReceipts), LineCount: int32(c.Lines)}
 	}
 	return out
 }

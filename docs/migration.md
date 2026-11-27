@@ -268,14 +268,27 @@ A clearing already done is left as it is, so a run of the same extract
 again clears nothing; an item the platform has cleared or reversed since,
 or that a payment proposal holds, is refused and fails the run rather than
 being cleared twice. A clearing whose counter-item is
-another fiscal year's (a prior-year invoice paid this year) is not in the
-extract, which holds the scope's fiscal year only and not SAP's clearing
-date (AUGDT): its clearing does not net to zero and fails the run, as the
-cleared items of such a year do in `balances` mode. Decided (product owner,
-2026-10-31) and not built yet: such an item is loaded open at its fiscal
-year's end, as SAP's key-date reading by the clearing date does, and the
-later year's run clears it; this needs SAP's clearing date and the clearing
-document's fiscal year in the extract (ADR-0034 As built, tracker). The SAP
+another fiscal year's (a prior-year invoice paid this year) failed its run
+before, the scope holding its fiscal year only. Decided (product owner,
+2026-10-31) and built: a run reads its year's journal as it stood at the
+year's end, so a vendor item SAP cleared by a clearing document of a later
+fiscal year (ACDOCA-AUGGJ after the run's year) loads open, in either mode,
+and the reconciliation counts it open on both sides; the later year's run,
+in `documents` mode, takes the earlier years' documents its clearings clear
+from the extract (they must be in the file: export every fiscal year to
+migrate) and clears them against what the earlier year's run loaded, an
+entry of their own or a line of its opening entry. An earlier year's item
+no run of that year loaded fails the run, naming the item and the year to
+migrate first; a `balances` run of the later year cannot clear them and its
+quality gate refuses such a clearing (tracker: to decide and build), as it
+refuses a clearing of earlier years' documents alone without AUGDT, which
+dates it; an AUGGJ that is no year is refused. Reconciling an earlier
+year's run again after the later year's run cleared its items shows them
+as differences (tracker). A journal line the extract holds twice (the same
+company code, fiscal year, document and line) is refused by the quality gate,
+naming it: export each line once (review:batch98).
+An extract without AUGGJ reads AUGBL as before (ADR-0034 As built, vendor
+items SAP cleared in a later fiscal year). The SAP
 specialist confirmed the fields (po:2026-11-09, A3, [H]): ACDOCA-AUGDT and
 ACDOCA-AUGGJ beside AUGBL, all three empty on an open item (AUGDT
 `00000000`, AUGGJ `0000`); they are on ACDOCA from S/4HANA 1610, on BSEG
@@ -836,7 +849,7 @@ one outcome and its notes:
 | Down payment account | T074 | `BUKRS/KOART/UMSKZ/reconciliation account` |
 | Tax code | T007A | `BUKRS/MWSKZ` |
 | Invoice tolerance | T169G | `BUKRS/TOLSL` |
-| House bank account | T012K | `BUKRS/HBKID`, and ` (account n)` for its n-th row |
+| House bank account | T012K | `BUKRS/HBKID`; `BUKRS/HBKID/HKTID` for an account of a house bank of several, each with its ID; ` (account n)` for the n-th row of one whose accounts have no IDs |
 | Payment method, with its name (T042Z), bank ranking (T042A) and subaccounts (T042I) | T042E | `ZBUKR/ZLSCH` |
 | Bank ranking of a method the company does not set up | T042A | `ZBUKR/ZLSCH` |
 | Payment term | T052 | `ZTERM` |
@@ -1079,6 +1092,23 @@ others record a confirmation.
   OData extract's items load without a fixed method and are paid by the
   company's run order. Fixed methods are entered, and migrated, only once
   an upgrade of the cell has completed.
+- A house bank's account by payment method (ADR-0038 As built): the
+  extract's T012K carries each account's ID (HKTID). A house bank of one
+  account keeps its code (HBKID). A house bank of several accounts, each
+  with its own ID, gives each account a house bank of its own, coded house
+  bank and account ID (HBKID + HKTID, at most ten characters; product
+  owner 2026-11-10), and the payment methods' ranking names, per method
+  and currency, the account T042I names (A4 [H]); for a T042A row without
+  a currency, the accounts T042I names for the method, each ranked for its
+  own currency. Where T042I names no account of such a bank, its first
+  account is ranked, as before, with a note; an account T042I names that
+  T012K lacks is ranked by the code it would have, which validation
+  refuses, with a note. An extract without account IDs keeps one account
+  per house bank, the first, with a note. **Check on the pilot system:**
+  that the pilot's T012K and T042I carry HKTID as stated, that HKTID is at
+  most five characters (written from memory), and whether a T042I row
+  without a currency is used (the draft matches T042I's currency to the
+  T042A row's, and takes every T042I row for a T042A row without one).
 - Vendor addresses: the load first took the vendor's street with house
   number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
   REGIO (product owner 2026-11-04, ADR-0054 As built), field names written
@@ -1316,6 +1346,15 @@ others record a confirmation.
   period 000 carry-forward and a valuation posted to the account are named
   but not told apart (the extract carries no POPER, AWTYP or T030H); verify
   the check against the pilot's data.
+- **Clearings across fiscal years** (ADR-0034 As built, vendor items SAP
+  cleared in a later fiscal year): a file extract is to hold every fiscal
+  year to migrate, with ACDOCA-AUGGJ (and AUGDT) on each cleared line, so
+  a year's run holds open what SAP cleared later and the later year's run
+  finds the earlier documents it clears. An OData extract maps neither
+  field and reads one fiscal year: the pilot's `$metadata` is to name the
+  API's properties for both (from memory: ClearingDate and
+  ClearingDocFiscalYear on A_JournalEntryItemBasic, unconfirmed), and the
+  earlier years' items cleared in the year must be read as well.
 - **Noted items and the document status (BSTAT)** (review:batch63): the
   load leaves out the lines with ACDOCA-BSTAT `S` and reports them, on the
   specialist's answers A14 and A15. Still to ask the SAP specialist, none

@@ -54,10 +54,10 @@ dimensions:
   - {name: match, label: Classified by, description: "What classified a bank statement line: payment, posting_rule, incoming, excluded, or unmatched (no decided match yet, its direction's default item)"}
   - {name: liquidity_item, label: Liquidity item, description: "The liquidity item's code; empty for a share of no item"}
   - {name: liquidity_item_name, label: Liquidity item name}
-  - {name: flow_source, label: Forecast source, description: "Where a forecast flow came from: in_transit, payment_run, memo, payable, payable_blocked (a supplier blocked for payment), invoice_unposted, down_payment or purchase_order (ADR-0051 §4)"}
+  - {name: flow_source, label: Forecast source, description: "Where a forecast flow came from: in_transit, payment_run, memo, payable, payable_blocked (a supplier blocked for payment), invoice_unposted, down_payment, purchase_order, receivable, receivable_blocked (a customer item held back by a dunning block or a dispute) or sales_order (ADR-0051 §4)"}
   - {name: certainty, label: Certainty, description: "How certain a forecast flow was: actual, confirmed, expected or planned"}
   - {name: lag_days, label: Lag in days, description: "The days from a snapshot's date to the value date it forecast"}
-  - {name: blocked, label: Blocked supplier, description: "Whether a forecast flow was owed to a supplier blocked for payment (flow source payable_blocked), which the forecast's totals leave out"}
+  - {name: blocked, label: Blocked flow, description: "Whether a forecast flow was owed to a supplier blocked for payment (flow source payable_blocked) or owed by a customer whose item collections holds back (receivable_blocked), which the forecast's totals leave out"}
   - {name: figure, label: Accuracy figure, description: "Which figure of a cell of the forecast's accuracy a row holds: variance (actual less forecast), absolute_variance or absolute_forecast"}
 
 metrics:

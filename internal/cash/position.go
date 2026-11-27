@@ -33,11 +33,15 @@ type Endpoints struct {
 	Settings      Settings
 	Payments      Payments
 	Ledger        Ledger
-	Sessions      Sessions          // agents' sessions, for their proposals
-	Partners      Partners          // suppliers' names, for the forecast's drill-down (T53e4)
-	Treasury      TreasuryChannels  // the treasury systems snapshots are exported to (T53h)
-	Pages         *pagination.Codec // list page tokens
-	Now           func() time.Time  // the read date's clock; nil: time.Now
+	// Receivables and SalesOrders are the forecast's receipts from
+	// customers (T53l1).
+	Receivables Receivables
+	SalesOrders SalesOrders
+	Sessions    Sessions          // agents' sessions, for their proposals
+	Partners    Partners          // suppliers' names, for the forecast's drill-down (T53e4)
+	Treasury    TreasuryChannels  // the treasury systems snapshots are exported to (T53h)
+	Pages       *pagination.Codec // list page tokens
+	Now         func() time.Time  // the read date's clock; nil: time.Now
 	// Consistent begins the read a snapshot reads the forecast in, apart
 	// from the transaction it writes in (T53f).
 	Consistent Consistency

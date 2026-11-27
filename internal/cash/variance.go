@@ -257,12 +257,13 @@ type keptLine struct {
 // keptLines are the snapshot's lines at document level, whatever the
 // period's end (a document forecast after it may be paid in it, which is
 // timing), and its bucket sums dated up to the last day; but what blocked
-// suppliers were owed: the forecast's totals did not count them
+// suppliers were owed and the receipts held back (T53l1): the forecast's
+// totals did not count them
 // (ADR-0051 §9, T53e2), so neither does the variance.
 func keptLines(ctx context.Context, tx pgx.Tx, snapshot uuid.UUID, last time.Time) ([]keptLine, error) {
 	rows, _ := tx.Query(ctx, `SELECT f.line_no, f.value_date, f.bucket_end, f.currency, coalesce(f.liquidity_item, ''), f.amount, f.payment_id,
 			f.supplier_id, f.document_kind, f.document_id, coalesce(f.document_number, '')
-		FROM cash.snapshot_flow f WHERE f.snapshot_id = $1 AND f.source <> 'payable_blocked'
+		FROM cash.snapshot_flow f WHERE f.snapshot_id = $1 AND f.source NOT IN ('payable_blocked', 'receivable_blocked')
 			AND (f.bucket_end IS NULL OR f.value_date <= $2) ORDER BY f.line_no`, snapshot, last)
 	lines, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (keptLine, error) {
 		var l keptLine
