@@ -1720,10 +1720,10 @@ recommendation. Decided by default (for the product owner's review):
   97F's integration). The reposting copies no custom field: a cost object
   custom field (ADR-0046 As built T56k) is on purchase orders and supplier
   invoices, not on journal entries, and the reposting's target center goes
-  through the
-  ledger's own assignment checks when it is parked and again when it is
-  posted. The close agent's tools and never list keep it from posting,
-  changing or cancelling a reposting, and closing's sign-off is unchanged.
+  through the ledger's own assignment checks when it is parked and again
+  when it is posted. The close agent's tools and never list keep it from
+  posting, changing or cancelling a reposting, and closing's sign-off is
+  unchanged.
   A cost object custom field's value is a center's id while the analytics
   dimensions (As built T56i2) carry codes and names: nothing joins them.
 - **Not in this slice** (T56j, what T56j1 leaves): the lines on the
