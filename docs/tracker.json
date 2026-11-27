@@ -9347,7 +9347,8 @@
       "s": "T",
       "t": "fix: db's TestMigrationsRevertCleanly reverts and re-applies the whole chain, so it cannot see a down migration that reverts nothing, whose up's columns an earlier down later drops with its tables (found in batch 95S); TestDownsRevert checks the downs it names one at a time (batch 95S: 000484–000486; batch 96S: 000490–000493): a check over every down, comparing the schema after it with the schema before its up",
       "r": "db/migrator_test.go TestDownsRevert · TestMigrationsRevertCleanly · 06 §6.4",
-      "src": "review:batch95"
+      "src": "review:batch95",
+      "c": []
      }
     ]
    },
@@ -10071,7 +10072,8 @@
       "s": "T",
       "t": "places that rename a refused call's field errors to the caller's request by hand, copying or changing the problem in place, could use problem.Renamed (S2f2's helper, which copies it and leaves out fields the request does not have): for example internal/ledger/itemassign.go, internal/procurement/stock.go, internal/sales/order_items.go and internal/payables/expenses.go (pre-existing; gibatch's note)",
       "r": "internal/platform/problem/led.go Renamed · ADR-0083 As built S2f2",
-      "src": "review:batch96"
+      "src": "review:batch96",
+      "c": []
      }
     ]
    },

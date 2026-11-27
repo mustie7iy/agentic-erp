@@ -482,3 +482,9 @@ default:
   the lead time as it is and one naming the lead time leaves the lot
   sizing; a planning run sizes by the lot sizing and does not read the
   lead time (batch 96S integration, `TestPlanLotSizingAndLeadTime`).
+- **Down migrations refuse** (batch 96S integration; 06 §6.4): the downs
+  of 000493 and 000492 refuse, reading every tenant's rows with
+  `row_security = off`, while an order item is confirmed in part on the
+  lead time or a plan names a lead time, rather than drop them
+  (`TestLeadTimeDownsRefused`); with neither they drop what their ups
+  added (`TestDownsRevert`).

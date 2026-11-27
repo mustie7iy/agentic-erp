@@ -5850,8 +5850,8 @@ erDiagram
   confirmed it, which the material's replenishment lead time covers by
   that day; set and cleared together, only beside a confirmed quantity,
   more than zero and at most what is confirmed
-  (`sales_order_item_lead_time`); the application may update them. The same migration adds
-  `sales.delivery_assignment.plant_id`, the plant the delivery ships
+  (`sales_order_item_lead_time`); the application may update them. S2j's
+  migration 000430 also adds `sales.delivery_assignment.plant_id`, the plant the delivery ships
   from (the existing ones take their delivery's; NOT NULL since the
   contract step 000458/000459, which gave any assignment still without it
   its delivery's), indexed by `delivery_assignment_by_plant`: what

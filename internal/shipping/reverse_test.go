@@ -240,6 +240,17 @@ func TestGoodsIssueReversalRefusals(t *testing.T) {
 	}
 }
 
+// availabilityFree reports whether the availability check's lock of the
+// material at P1 is free, tried on another connection: a transaction in
+// flight that holds it makes it taken.
+func (e env) availabilityFree(t *testing.T, material string) bool {
+	t.Helper()
+	var ok bool
+	pgtest.Scan(t, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`,
+		[]any{fmt.Sprintf("sales.availability:%s:%s:%s", e.Tenant.ID, e.p1, material)}, &ok)
+	return ok
+}
+
 // TestReversalTakesTheAvailabilityLock (S2b3, the leaf src
 // review:batch86): until the reversal commits, it holds the availability
 // check's lock of each of its materials at the plant, so a check waits
@@ -254,12 +265,7 @@ func TestReversalTakesTheAvailabilityLock(t *testing.T) {
 	d, tag := e.Must(201, "POST", deliveries, e.create(order), "")
 	_, tag = e.Must(200, "POST", deliveries+"/"+d["id"].(string)+":pick", pick("1 1 BOX", "2 2 EA"), tag)
 	_, tag = e.issued(t, d["id"].(string), tag)
-	free := func(material string) bool {
-		var ok bool
-		pgtest.Scan(t, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`,
-			[]any{fmt.Sprintf("sales.availability:%s:%s:%s", e.Tenant.ID, e.p1, material)}, &ok)
-		return ok
-	}
+	free := func(material string) bool { return e.availabilityFree(t, material) }
 	for _, m := range []string{e.bracket, bolt} {
 		if !free(m) {
 			t.Fatalf("the lock of %s before the reversal: got taken, want free", m)

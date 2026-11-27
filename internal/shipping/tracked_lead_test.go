@@ -2,13 +2,11 @@ package shipping_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
-	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // TestTrackedOnTheLeadTime (batch 96S integration: S2j2 with S2f2 and
@@ -34,15 +32,15 @@ func TestTrackedOnTheLeadTime(t *testing.T) {
 	if got, want := e.stockByBatch(t, e.sealant), "L3 5"; got != want {
 		t.Errorf("the batches after the goods issue: got %q, want %q", got, want)
 	}
+	if !e.availabilityFree(t, e.sealant) {
+		t.Fatalf("the sealant's availability lock before the reversal: got taken, want free")
+	}
 	h := endpoints(t)
 	err := e.inRequest(t, func(ctx context.Context) error {
 		if _, err := h.ReverseOutboundDeliveryGoodsIssue(ctx, gen.ReverseOutboundDeliveryGoodsIssueParams{ID: uuid.MustParse(id), IfMatch: tag}); err != nil {
 			return err
 		}
-		var free bool // read on another connection: the reversal's transaction holds the lock
-		pgtest.Scan(t, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`,
-			[]any{fmt.Sprintf("sales.availability:%s:%s:%s", e.Tenant.ID, e.p1, e.sealant)}, &free)
-		if free {
+		if e.availabilityFree(t, e.sealant) {
 			t.Errorf("the sealant's availability lock during the reversal: got free, want held by the reversal")
 		}
 		return nil
