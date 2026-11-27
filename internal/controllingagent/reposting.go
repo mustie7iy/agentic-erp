@@ -153,6 +153,8 @@ func (r *run) source(e entry, n int) (line, error) {
 		return line{}, fmt.Errorf("%w: the entry has no line %d", ErrSource, n)
 	}
 	l := e.Lines[i]
+	// amount_lc is always in local currency; the comparison guards the
+	// entry built below against a contract that ever said otherwise.
 	if (l.CostCenterID == "" && l.ProfitCenterID == "") || l.InternalOrderID != "" || l.AmountLC.Currency != e.LocalCurrency {
 		return line{}, ErrSource
 	}

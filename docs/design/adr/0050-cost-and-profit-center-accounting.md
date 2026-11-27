@@ -1655,7 +1655,11 @@ recommendation. Decided by default (for the product owner's review):
   as the line was posted, into its special period if it was one (ADR-0060
   §3), header text the reason, line texts naming the line; no tax code,
   partner, quantity or trading partner (a reposting moves cost between
-  centers and nothing else). The agent computes no amount (ADR-0072 §4):
+  centers and nothing else). The local amount moves exactly; the group
+  amount is converted again at the posting date's rate, so where group and
+  local currency differ a few cents of group currency may stay on the old
+  center (the line took its entry's rounding difference, or the rate was
+  corrected since), as with a manual reposting. The agent computes no amount (ADR-0072 §4):
   a part of a line is a person's, who changes the parked entry before
   posting it, as they change its date when the line's period has been
   closed since (SAP's KB11N reposts any amount in an open period, from

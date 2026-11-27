@@ -3782,6 +3782,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "The controlling agent's once-per-line rule held by the database: two runs on one company at the same moment can each park a reposting of one line under one reference (the agent's check is a read), and a person who posts both moves the line twice; a partial unique index on ledger.parked_entry (tenant_id, legal_entity_id, reference) for agents' entries, or the ledger refusing the second, makes it a database rule",
+        "r": "internal/controllingagent reposting.go unproposed · internal/ledger parked.go · ADR-0050 §12, As built T56j1 (Once per line)",
+        "src": "review:T56j1",
+        "c": []
+       },
+       {
         "s": "P",
         "t": "Evaluation against the live Claude API: the controlling agent (type controlling, evals/controlling) certified on the model erp-default routes to before it runs above level 0 in a tenant's cell; until then evals/controlling is replayed against the model stand-in only",
         "r": "T43 (waits on: the user: a live Claude API key and spend) · evals/controlling/suite.yaml (TestEvalSuites, replay) · erp-server certify · ADR-0050 §12, As built T56j1 · ADR-0039",
