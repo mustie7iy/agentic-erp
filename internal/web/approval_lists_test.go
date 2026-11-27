@@ -140,10 +140,10 @@ func TestEveryObjectRead(t *testing.T) {
 	ids := map[string]uuid.UUID{}
 	s := newStack(t, stackOptions{permissions: []string{"config.change.read", "payables.invoice.read", "ledger.period.read", "ledger.entry.read",
 		"procurement.order.read", "ledger.cost_center.read", "payments.run.read", "tax.return.read", "payments.statement.read", "materials.material.read",
-		"credit.limit.read", "inventory.stock.read"}, seed: func(f fixture.Env) {
+		"credit.limit.read", "inventory.stock.read", "mrp.sop.read"}, seed: func(f fixture.Env) {
 		for _, kind := range []string{"requisition", "partner_change", "config_change", "invoice_exception", "period_unlock", "manual_entry",
 			"purchase_order", "order_change", "bank_clearing", "center_change", "gr_ir_clearing", "payment_run_release", "tax_return", "material_change",
-			"credit_limit_change", "inventory_difference"} {
+			"credit_limit_change", "inventory_difference", "sop_plan"} {
 			// Written as an owning context's Open leaves it, whatever the
 			// tenant's tiers would ask of an object of the kind.
 			ids[kind] = uuid.Must(uuid.NewV7())

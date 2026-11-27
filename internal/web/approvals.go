@@ -46,6 +46,7 @@ var (
 		"center_change": i18n.ObjectCenterChange, "payment_run_release": i18n.ObjectRunRelease,
 		"gr_ir_clearing": i18n.ObjectGRIRClearing, "tax_return": i18n.ObjectTaxReturn, "material_change": i18n.ObjectMaterialChange,
 		"credit_limit_change": i18n.ObjectCreditLimit, "inventory_difference": i18n.ObjectInventoryDifference,
+		"sop_plan": i18n.ObjectSopPlan,
 	}
 	statuses = map[string]i18n.Key{"pending": i18n.StatusPending, "approved": i18n.StatusApproved, "rejected": i18n.StatusRejected,
 		"cancelled": i18n.StatusCancelled}
