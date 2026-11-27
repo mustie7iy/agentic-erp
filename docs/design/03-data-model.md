@@ -2816,6 +2816,7 @@ erDiagram
     text reason_code }
   house_bank { uuid id PK
     uuid legal_entity_id
+    text code "1-10 upper-case letters or digits: SAP's HBKID, or HBKID + HKTID per account of a bank of several (000490)"
     bytea iban_cipher "the IBAN, or a Canadian bank's account number (T45d)"
     text bic
     text institution_number "Canadian bank: 3 digits; null for an IBAN"
@@ -3547,8 +3548,8 @@ line or reservation. An agent's budget is identity's
 | Outline agreement validity end and follow-on contract (EKKO-KDATE, reference agreement) | `contract.valid_to`, `contract.renewal_of_id`, `expiry_alerted_on` and `ContractExpiring` (T47g) |
 | RBKP/RSEG | `payables.supplier_invoice` + items; parked documents (RBSTAT A) by kind (T72b): RBKP-XRECH "X" an invoice, blank a credit memo; all items RSEG-TBTKZ "X" a subsequent debit (XRECH "X") or credit (blank), their items of quantity 0. An absent or unknown indicator stops the load; a document mixing subsequent and ordinary items is not migrated (warning). Posted documents (RBSTAT 5): the quantities of their ordinary items, by XRECH, as `payables.migrated_invoice_item` for matching (T72b2); one whose XRECH, an item's TBTKZ or an ordinary item's quantity cannot be read stops the load |
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
-| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review) |
-| T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers (ADR-0038 As built) |
+| T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review); a house bank of several accounts, each with its ID (HKTID), one `payments.house_bank` per account, coded HBKID + HKTID, and the ranking names the account T042I names per method and currency (ADR-0038 As built, a house bank's account by payment method) |
+| T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers; T042I's account (HKTID) chooses, per method and currency, the account a house bank of several accounts is ranked by (ADR-0038 As built) |
 | LFB1-ZWELS | `supplier_company.payment_methods`, the methods allowed (its letter order is not a preference: A4(c)); a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |

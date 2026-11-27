@@ -818,6 +818,23 @@ step_tenant() {
   jq -r --arg cc "$CC" '.T042A[] | select(.ZBUKR == $cc) | "     T042A method \(.ZLSCH), \(.WAERS), rank \(.RANGF): house bank \(.HBKID)"' "$WORK/data/extract.json"
   grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | sed 's/^/     /'
   expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$' || true)" 2
+  say "T042I names, per house bank, method and currency, the account (T012K HKTID) a bank pays from (SAP specialist A4):"
+  jq -r --arg cc "$CC" '.T042I[] | select(.ZBUKR == $cc) | "     T042I house bank \(.HBKID), method \(.ZLSCH), \(.WAERS): account \(.HKTID)"' "$WORK/data/extract.json"
+  say "Each of the pilot's house banks has one account, so each keeps its code. Had MUSD a second USD account, 00002, that"
+  say "T042I names for bank transfers in USD, each account would be a house bank of its own, coded house bank and account"
+  say "ID (product owner 2026-11-10), and the method's USD ranking would name the account T042I names (ADR-0038 As built):"
+  jq --arg cc "$CC" '.SKB1 += [(.SKB1[] | select(.BUKRS == $cc and .SAKNR == "0000102000") | .SAKNR = "0000103000")]
+    | .T012K += [(.T012K[] | select(.BUKRS == $cc and .HBKID == "MUSD") | .HKTID = "00002" | .BANKN = "5012347" | .HKONT = "0000103000")]
+    | .T042I |= map(if .ZBUKR == $cc and .HBKID == "MUSD" then .HKTID = "00002" | .UKONT = "0000103000" else . end)' \
+    "$WORK/data/extract.json" >"$WORK/data/extract-accounts.json"
+  show erp config generate -source file:data/extract-accounts.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -cutover "$YEAR-01-01" -out config-accounts.yaml
+  if "$ERP" config generate -source "file:$WORK/data/extract-accounts.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -cutover "$YEAR-01-01" -out "$WORK/config-accounts.yaml" >"$WORK/generate-accounts.out" 2>&1; then
+    fail "a draft with USD house banks whose accounts are not revalued validated"
+  fi
+  grep -E '^ +- name: MUSD|^          - currency: USD$|^              - MUSD' "$WORK/config-accounts.yaml" | sed 's/^ */     /'
+  expect "the house banks of MUSD's two accounts" "$(grep -cE '^      - name: MUSD0000[12]$' "$WORK/config-accounts.yaml" || true)" 2
+  expect "the account the USD ranking names" "$(grep -A 2 '^          - currency: USD$' "$WORK/config-accounts.yaml" | tail -1 | tr -d ' -')" MUSD00002
   say "SAP's cost element categories (CSKB-KATYP; T56h2) give the accounts' cost elements: sales revenue a revenue"
   say "element (11), the expenses primary costs (01), and the exchange rate accounts, no cost elements in SAP, none,"
   say "so their lines take no cost object (ADR-0050 §4)."

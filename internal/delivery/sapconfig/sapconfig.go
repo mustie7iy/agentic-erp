@@ -375,31 +375,40 @@ func (g *gen) timeZone(o objRef, p string, co *config.Company) {
 // houseBanks is the company's main house bank, its first T012K row, and
 // the further ones, each on its own G/L account (ADR-0038). The main bank
 // gives the account determination its bank account where T030 has none,
-// and keeps its own G/L account where T030 names another. SAP keeps
-// several accounts under one house bank (HKTID, not in the extract); only
-// the first is taken, with a note. Each bank is in its account's currency
-// (houseBankCurrency).
+// and keeps its own G/L account where T030 names another. A house bank of
+// several accounts, each with its ID (HKTID), gives each its own house
+// bank, coded house bank and account ID (bankAccounts.code), which T042I
+// chooses among by payment method and currency; one whose accounts the
+// extract does not tell apart keeps its first, with a note. Each bank is
+// in its account's currency (houseBankCurrency).
 func (g *gen) houseBanks(p string, co *config.Company) (config.HouseBank, []config.HouseBank) {
 	var main config.HouseBank
 	var further []config.HouseBank
 	ad := &co.AccountDetermination
-	rows := map[string]int{} // T012K rows read per house bank
+	accounts := g.accountsOf(co.Code)
+	rows, taken := map[string]int{}, 0 // T012K rows read per house bank; house banks taken
 	for _, b := range g.e.T012K {
 		if b.BUKRS != co.Code {
 			continue
 		}
 		rows[b.HBKID]++
-		o := g.read("T012K", houseBankKey(b, rows[b.HBKID]))
-		hb := config.HouseBank{Name: b.HBKID, IBAN: b.IBAN, BIC: b.SWIFT, GLAccount: sap.Alpha(b.HKONT)}
-		g.canadianAccount(o, p+".house_banks["+b.HBKID+"]", b, &hb)
-		if rows[b.HBKID] == 1 { // a dropped account's currency is not the bank's
-			g.houseBankCurrency(o, p+".house_banks["+b.HBKID+"]", b, co.Currency, &hb)
-		}
-		switch {
-		case rows[b.HBKID] > 1:
-			g.leaveOut(o, p+".house_banks["+b.HBKID+"]", "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken")
+		code := accounts.code(b)
+		o, path := g.read("T012K", accounts.key(b, rows[b.HBKID])), p+".house_banks["+code+"]"
+		hb := config.HouseBank{Name: code, IBAN: b.IBAN, BIC: b.SWIFT, GLAccount: sap.Alpha(b.HKONT)}
+		g.canadianAccount(o, path, b, &hb)
+		if rows[b.HBKID] > 1 && !accounts.several(b.HBKID) { // a dropped account's currency is not the bank's
+			g.leaveOut(o, path, "house bank "+b.HBKID+" has several accounts in T012K; only the first is taken: the extract does not give each "+
+				"an account ID of its own (HKTID), by which T042I names the account a payment method pays from")
 			continue
-		case len(rows) > 1:
+		}
+		g.houseBankCurrency(o, path, b, co.Currency, &hb)
+		if accounts.several(b.HBKID) {
+			g.note(o, path+".name", fmt.Sprintf("house bank %s has several accounts in T012K: each is a house bank of its own, coded house bank and "+
+				"account ID (HBKID %s, HKTID %s; product owner 2026-11-10), which the payment methods' ranking names as T042I does", b.HBKID, b.HBKID, accountID(b.HKTID)))
+		}
+		taken++
+		switch {
+		case taken > 1:
 			further = append(further, hb)
 		case ad.Bank == "":
 			ad.Bank, hb.GLAccount = hb.GLAccount, ""
@@ -412,17 +421,6 @@ func (g *gen) houseBanks(p string, co *config.Company) (config.HouseBank, []conf
 		}
 	}
 	return main, further
-}
-
-// houseBankKey is a T012K row's key in the fit-gap report: company code
-// and house bank, and for a further account of the bank its place among
-// the bank's rows, as the extract gives no account ID (HKTID).
-func houseBankKey(b sap.T012K, n int) string {
-	key := b.BUKRS + "/" + b.HBKID
-	if n > 1 {
-		key += fmt.Sprintf(" (account %d)", n)
-	}
-	return key
 }
 
 // unknownCurrency marks a house bank whose T012K row has no currency
