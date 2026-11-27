@@ -78,7 +78,8 @@ type cashOrder struct {
 // order's code that cannot be calculated adds none (ADR-0051 As built
 // T53g); the order's other lines keep theirs. Company access is the
 // caller's to check. A value out of range (422 sales.amount_too_large) or
-// a payment term not configured refuses the read.
+// a payment term not configured (422 sales.unknown_payment_term) refuses
+// the read.
 func (e *Endpoints) CashOrders(ctx context.Context, legalEntity uuid.UUID) ([]CashOrder, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -105,8 +106,8 @@ func (e *Endpoints) CashOrders(ctx context.Context, legalEntity uuid.UUID) ([]Ca
 		if o.Gross, err = v.cashGross(ctx, o.open); err != nil {
 			return nil, err
 		}
-		if o.NetDays, err = e.netDays(ctx, netDays, o.PaymentTermCode); err != nil {
-			return nil, fmt.Errorf("sales: payment term of sales order %s: %w", o.Number, err)
+		if o.NetDays, err = e.netDays(ctx, netDays, o); err != nil {
+			return nil, err
 		}
 		out[i] = o.CashOrder
 	}
@@ -154,19 +155,23 @@ func (e *Endpoints) cashLines(ctx context.Context, orders []cashOrder) error {
 	return nil
 }
 
-// netDays is the payment term's net days, each term read once.
-func (e *Endpoints) netDays(ctx context.Context, read map[string]int, code string) (int, error) {
-	if days, ok := read[code]; ok {
+// netDays is the order's payment term's net days, each term read once; a
+// term no longer configured refuses the read (422
+// sales.unknown_payment_term naming the order): its due date is not
+// guessed.
+func (e *Endpoints) netDays(ctx context.Context, read map[string]int, o cashOrder) (int, error) {
+	if days, ok := read[o.PaymentTermCode]; ok {
 		return days, nil
 	}
-	term, ok, err := e.Terms.PaymentTerm(ctx, code)
-	if err == nil && !ok {
-		err = fmt.Errorf("payment term %s is not configured", code)
-	}
+	term, ok, err := e.Terms.PaymentTerm(ctx, o.PaymentTermCode)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("sales: payment term %s of sales order %s: %w", o.PaymentTermCode, o.Number, err)
 	}
-	read[code] = term.NetDays
+	if !ok {
+		return 0, problem.Unprocessable("sales.unknown_payment_term", "Payment term "+o.PaymentTermCode+" of sales order "+o.Number+
+			" is not configured, so when it is due cannot be told.")
+	}
+	read[o.PaymentTermCode] = term.NetDays
 	return term.NetDays, nil
 }
 

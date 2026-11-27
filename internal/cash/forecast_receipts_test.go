@@ -299,13 +299,7 @@ func TestLiquidityForecastReceiptsRefused(t *testing.T) {
 	e.exec(t, `SET session_replication_role = replica`)
 	e.exec(t, `UPDATE sales.sales_order SET payment_term_code = 'NOPE' WHERE id = $1`, order)
 	e.exec(t, `RESET session_replication_role`)
-	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		_, err := app.Cash(app.Config{Now: func() time.Time { return readAt }}).Forecast(ctx, cash.ForecastQuery{LegalEntity: e.le})
-		return err
-	})
-	if err == nil || !strings.Contains(err.Error(), "payment term NOPE is not configured") {
-		t.Errorf("a term not configured: got %v, want it refused", err)
-	}
+	e.Problem(422, "sales.unknown_payment_term", "GET", "/v1/liquidity-forecast?legal_entity_id="+e.le.String(), "", "")
 }
 
 // TestLiquidityForecastReceiptsFailures: every database failure of the

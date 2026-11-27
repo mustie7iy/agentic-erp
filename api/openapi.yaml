@@ -35411,6 +35411,7 @@ paths:
         - payables.withholding_tax_code_unknown
         - request.validation_failed
         - sales.amount_too_large
+        - sales.unknown_payment_term
         # Listed because TestProblemCodes reads sales' order valuation (valuation.code), which answers it for a code
         # no longer an output code of the company; the forecast's read (CashOrders) takes such a line without tax instead.
         - sales.unknown_tax_code
@@ -35578,6 +35579,7 @@ paths:
         - payables.withholding_tax_code_unknown
         - request.validation_failed
         - sales.amount_too_large
+        - sales.unknown_payment_term
         # Listed because TestProblemCodes reads sales' order valuation (valuation.code), which answers it for a code
         # no longer an output code of the company; the forecast's read (CashOrders) takes such a line without tax instead.
         - sales.unknown_tax_code
@@ -35781,6 +35783,7 @@ paths:
         - payables.withholding_tax_code_unknown
         - request.validation_failed
         - sales.amount_too_large
+        - sales.unknown_payment_term
         # Listed because TestProblemCodes reads sales' order valuation (valuation.code), which answers it for a code
         # no longer an output code of the company; the forecast's read (CashOrders) takes such a line without tax instead.
         - sales.unknown_tax_code
@@ -35871,6 +35874,7 @@ paths:
         - request.invalid_page_token
         - request.validation_failed
         - sales.amount_too_large
+        - sales.unknown_payment_term
         # Listed because TestProblemCodes reads sales' order valuation (valuation.code), which answers it for a code
         # no longer an output code of the company; the forecast's read (CashOrders) takes such a line without tax instead.
         - sales.unknown_tax_code
