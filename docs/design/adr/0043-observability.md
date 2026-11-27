@@ -298,3 +298,7 @@ traces, and CPU and memory saturation.
   S2m) brings `autonomy.Kinds` to 26 (24 types, "untyped" and "none");
   the ceiling is the real count, 26. The worst case `Check` computes
   stays under `MaxSeries` (65,000).
+- The controlling agent (`controlling`, ADR-0050 §12 As built T56j1)
+  brings `autonomy.Kinds` to 27 (25 types, "untyped" and "none"); the
+  ceiling is the real count, 27. The worst case `Check` computes stays
+  under `MaxSeries` (65,000).
