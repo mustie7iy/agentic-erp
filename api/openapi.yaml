@@ -25845,7 +25845,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["101", "102", "122", "123", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
+            x-extensible-enum: ["101", "102", "122", "123", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702", "653"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -26053,7 +26053,7 @@ paths:
       tags:
         - inventory
       summary: Reverse a material document
-      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409 `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). It is refused, as a posting is, while an open count document counts one of its materials at one of its storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
+      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409 `inventory.reverse_stock_transport`), nor a customer's return received into stock yet (653, S2b4; 409 `inventory.reverse_customer_return`), nor a count's differences (409 `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). It is refused, as a posting is, while an open count document counts one of its materials at one of its storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -26073,6 +26073,7 @@ paths:
         - inventory.posting_blocked
         - inventory.quantity_too_large
         - inventory.reverse_count
+        - inventory.reverse_customer_return
         - inventory.reverse_goods_issue
         - inventory.reverse_goods_receipt
         - inventory.reverse_stock_transport
@@ -30260,17 +30261,111 @@ paths:
       tags:
         - sales
       summary: Confirm that returned quantities were received
-      description: "Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was received. The returns order is read under a row lock, so two receipts of one returns order wait for one another. A returns order that is not confirmed takes none (409 `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two receipts racing for an item's last quantity, one is recorded. The receipt is numbered within its returns order and written once; it is not changed or reversed in the first version. Each returns order item's `received_quantity` rises by what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed: its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`)."
+      description: "Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is (`confirmSalesDelivery`); a credit memo request reads what was received, and its items of materials kept in stock are received into stock (below). The returns order is read under a row lock, so two receipts of one returns order wait for one another. A returns order that is not confirmed takes none (409 `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two receipts racing for an item's last quantity, one is recorded. The receipt is numbered within its returns order and written once; it is not changed or reversed in the first version. Each returns order item's `received_quantity` rises by what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed: its delivered, billed and returned quantities stay. Into stock (S2b4; ADR-0083 As built S2b4): an item whose sales order item is of a material kept in stock names the `storage_location_id` it is received into (422 `sales.storage_location_required`), a storage location of the returns order's company (422 `sales.storage_location_invalid`) at which the material is kept (422 `inventory.storage_location_not_extended`; its plant the location's, active and the material extended to it, 422 `inventory.plant_invalid`, `inventory.plant_not_extended`, both naming `items[i].storage_location_id`), with the batch and serial numbers of a tracked material; another item names none of these (422 `sales.return_not_stocked`). Those items are posted into stock as one material document of movement type `653` (`material_document_id`; SAP's return delivery into unrestricted-use stock, from memory: there are no stock types yet, so the goods are in the location's one stock, available to an order's availability check at once), dated `receipt_date`, its `reference` the returns order's number. Each goes back at the cost its sales order item's goods issues took out and did not get back since: its share by quantity of what the order item's goods issues not reversed cost, less what earlier receipts into stock took back, the last share taking the remainder; one beyond what those goods issues delivered and is not back in stock is refused (422 `sales.exceeds_issued_quantity` naming `items[i].quantity.value`). An order item no goods issue delivered goes back as a receipt is valued: at a standard price at the price, at a moving price its quantity at the moving price (422 `inventory.no_price` when that is zero). Its value posts in one WA journal entry from the valuation class's cost of goods sold account back to its stock account (422 `inventory.no_inventory_account` when the class names none), at a standard price the rest on its price difference account, so the cost of goods sold falls by each item's `cost`; the ledger's refusals apply (such as 422 `ledger.period_not_open`), as does a physical inventory count open on the material there (409 `inventory.posting_blocked`). The 653 is not reversed yet (Later). The credit memo for the return is unchanged: a credit memo request's. Audited, and published as ReturnReceived and MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`)."
       x-permission: sales.return.receive
       x-agent: false
       x-problem-codes:
+        - config.no_number_range
         - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.batch_invalid
+        - inventory.batch_not_allowed
+        - inventory.batch_not_supported
+        - inventory.batch_required
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.serial_in_stock
+        - inventory.serial_not_allowed
+        - inventory.serial_not_in_stock
+        - inventory.serial_not_supported
+        - inventory.serial_quantity
+        - inventory.serial_repeated
+        - inventory.serial_required
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - sales.exceeds_issued_quantity
         - sales.exceeds_open_quantity
         - sales.invalid_quantity
         - sales.item_repeated
         - sales.items_required
         - sales.receipt_date_in_future
+        - sales.return_not_stocked
         - sales.returns_order_not_confirmed
+        - sales.storage_location_invalid
+        - sales.storage_location_required
         - sales.unit_mismatch
         - sales.unknown_returns_item
       parameters:
@@ -30293,6 +30388,16 @@ paths:
                       quantity:
                         value: "20"
                         unit: EA
+              into_stock:
+                summary: An item of a material kept in stock, received into a storage location
+                value:
+                  receipt_date: "2026-11-30"
+                  items:
+                    - item_no: 1
+                      quantity:
+                        value: "2"
+                        unit: BOX
+                      storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
       responses:
         "201":
           description: "Created; the receipt."
@@ -67936,6 +68041,14 @@ components:
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The returns order item's number (`ReturnsOrder.items[].item_no`)."}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity received: more than zero, in the item's unit, at most the item's open quantity (returned less received)."}
+        storage_location_id: {type: string, format: uuid, description: "The storage location an item of a material kept in stock is received into (S2b4), one of the returns order's company (422 `sales.storage_location_invalid`), its plant the location's; required for such an item (422 `sales.storage_location_required`) and named for no other (422 `sales.return_not_stocked`)."}
+        batch_number: {type: string, pattern: "^[A-Z0-9_-]{1,10}$", description: "The batch an item of a batch-managed material goes back to, by its number, one of the material's (`GET /v1/batch-stock?material_id=`; 422 `inventory.batch_invalid`, `inventory.batch_required`, `inventory.batch_not_allowed`); absent for another material."}
+        serial_numbers:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {type: string, pattern: "^[A-Z0-9_-]{1,18}$", description: "A serial number: 1 to 18 capitals, digits, `-` or `_`."}
+          description: "The serial numbers of the units of a serial-managed material received, one for each unit of the base unit (422 `inventory.serial_required`, `inventory.serial_quantity`), each once (422 `inventory.serial_repeated`) and in no stock (409 `inventory.serial_in_stock`); absent for another material (422 `inventory.serial_not_allowed`)."
     ReturnReceiptItem:
       type: object
       description: "An item of a return receipt: the quantity received of one item of the returns order."
@@ -67946,9 +68059,10 @@ components:
         item_key: {type: string, description: "The sales order item's item key; absent when it has none.", readOnly: true}
         description: {type: string, description: "The sales order item's description.", readOnly: true}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity received, in the item's unit."}
+        cost: {$ref: "#/components/schemas/Money", description: "Of an item received into stock (S2b4): what it took back from the cost of goods sold, in the company's currency, the value its line of the receipt's material document put into the stock with any price difference; absent for another item.", readOnly: true}
     ReturnReceipt:
       type: object
-      description: "A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person confirmed as received on a date. It moves no stock and posts nothing. It is written once and never changed."
+      description: "A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person confirmed as received on a date. Its items of materials kept in stock are received into stock by one material document (653, ADR-0083 As built S2b4), which it names; its other items move no stock and post nothing. It is written once and never changed."
       required: [id, receipt_no, returns_order_id, returns_order_number, receipt_date, items, created_at, created_by]
       properties:
         id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
@@ -67961,6 +68075,8 @@ components:
           items: {$ref: "#/components/schemas/ReturnReceiptItem"}
           description: "The items received, by the returns order's item number."
           readOnly: true
+        material_document_id: {type: string, format: uuid, description: "The material document (653, `GET /v1/material-documents/{id}`) that received its items of materials kept in stock into stock, posted on `receipt_date`, whose `journal_entry_id` took their cost of goods sold back; absent for a receipt of no such item (S2b4).", readOnly: true}
+        material_document_number: {type: string, description: "That material document's number; absent with it.", readOnly: true}
         created_at: {type: string, format: date-time, description: "When the receipt was confirmed.", readOnly: true}
         created_by: {type: string, format: uuid, description: "The principal who confirmed it.", readOnly: true}
       examples:
@@ -69235,7 +69351,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["101", "102", "122", "123", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
+          x-extensible-enum: ["101", "102", "122", "123", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702", "653"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
@@ -69248,7 +69364,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
-        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409 `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643, S2i1, the supplying company's): the purchase order's `document_number` (`GET /v1/purchase-orders?document_number=`, the receiving company's order), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on every other document.", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409 `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643, S2i1, the supplying company's): the purchase order's `document_number` (`GET /v1/purchase-orders?document_number=`, the receiving company's order), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). A customer's return received into stock (653, S2b4): the returns order's `document_number` (`GET /v1/returns-orders`), whose return receipt names this document (`listReturnReceipts`) and whose WA entry takes the cost of goods sold back; it is not reversed yet (409 `inventory.reverse_customer_return`). Absent on every other document.", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}

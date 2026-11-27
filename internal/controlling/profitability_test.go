@@ -19,10 +19,11 @@ import (
 )
 
 // salesPerms are what the profitability tests' people hold: selling,
-// billing and crediting, recording prices, and the report's read.
+// billing and crediting, recording prices, taking returns, and the
+// report's read.
 var salesPerms = []string{"sales.order.read", "sales.order.write", "sales.order.confirm", "sales.delivery.confirm", "sales.billing.read",
 	"sales.billing.write", "sales.billing.post", "sales.price.write", "credit.limit.write", "sales.credit_memo_request.read",
-	"sales.credit_memo_request.write", "sales.credit_memo_request.approve", "controlling.profitability.read"}
+	"sales.credit_memo_request.write", "sales.credit_memo_request.approve", "controlling.profitability.read", "sales.return.write", "sales.return.confirm"}
 
 // profitable is a tenant whose company 2000 (EUR) sells to Northwind
 // (BP70000001) and Contoso (BP70000002) on the customer reconciliation

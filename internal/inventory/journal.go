@@ -19,7 +19,7 @@ import (
 var counterKinds = map[string]string{"501": config.InventoryReceipt, "502": config.InventoryReceipt, "561": config.InventoryInitialEntry,
 	"562": config.InventoryInitialEntry, "201": config.InventoryConsumption, "202": config.InventoryConsumption, "551": config.InventoryScrapping,
 	"552": config.InventoryScrapping, "601": config.InventoryCostOfGoodsSold, "602": config.InventoryCostOfGoodsSold, "643": config.InventoryCostOfGoodsSold,
-	"701": config.InventoryDifference, "702": config.InventoryDifference}
+	"653": config.InventoryCostOfGoodsSold, "701": config.InventoryDifference, "702": config.InventoryDifference}
 
 // entryRef is the journal entry a document or price change posted; all
 // nil when it posted none.

@@ -61,9 +61,11 @@ func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want 
 // TestDownsRevert (batch 95S): on a database holding nothing the guards
 // refuse, the downs of 000486 (lot sizing) and of 000485 and 000484
 // (material descriptions), batch 96S's of 000490 (recounts), 000491
-// (goods issue lines), 000493 and 000492 (lead times), and batch 97S's of
+// (goods issue lines), 000493 and 000492 (lead times), batch 97S's of
 // 000494 (S&OP approval), 000495 (units' measures) and 000496 (indicators
-// taken off, ABC analyses applied) drop what their ups added, so that each
+// taken off, ABC analyses applied), and batch 98S's of 000503 and 000502
+// (returns to the supplier) and of 000505 and 000504 (customer returns
+// into stock) drop what their ups added, so that each
 // up applies again after its down (06 §6.4: a down reverts its up, and
 // TestMigrationsRevertCleanly, reverting the whole chain, would not see
 // one that left its columns behind).
@@ -76,16 +78,23 @@ func TestDownsRevert(t *testing.T) {
 	for _, c := range []struct {
 		names                 []string // the migrations reverted, latest first
 		schema, table, column string   // a column the first up added
+		// check, for an up that adds no column, is true while what it
+		// changed is still there.
+		check string
 	}{
-		{[]string{"000496_cycle_count_removal"}, "inventory", "cycle_count_material", "status"},
-		{[]string{"000495_material_measures"}, "materials", "unit_measure", "gtin"},
-		{[]string{"000494_sop_plan_approval"}, "mrp", "sop_plan", "approval_request_id"},
-		{[]string{"000486_mrp_lot_sizing"}, "mrp", "material_plan", "lot_size"},
-		{[]string{"000490_count_recounts"}, "inventory", "count_item", "recounts"},
-		{[]string{"000491_delivery_issue_tracking"}, "shipping", "outbound_delivery_issue_line", "batch_id"},
-		{[]string{"000493_sales_lead_time"}, "sales", "sales_order_item", "lead_time_quantity"},
-		{[]string{"000492_mrp_lead_time"}, "mrp", "material_plan", "replenishment_lead_time_days"},
-		{[]string{"000485_validate_material_descriptions", "000484_material_descriptions"}, "materials", "material", "description_language"},
+		{[]string{"000496_cycle_count_removal"}, "inventory", "cycle_count_material", "status", ""},
+		{[]string{"000495_material_measures"}, "materials", "unit_measure", "gtin", ""},
+		{[]string{"000494_sop_plan_approval"}, "mrp", "sop_plan", "approval_request_id", ""},
+		{[]string{"000486_mrp_lot_sizing"}, "mrp", "material_plan", "lot_size", ""},
+		{[]string{"000490_count_recounts"}, "inventory", "count_item", "recounts", ""},
+		{[]string{"000491_delivery_issue_tracking"}, "shipping", "outbound_delivery_issue_line", "batch_id", ""},
+		{[]string{"000493_sales_lead_time"}, "sales", "sales_order_item", "lead_time_quantity", ""},
+		{[]string{"000492_mrp_lead_time"}, "mrp", "material_plan", "replenishment_lead_time_days", ""},
+		{[]string{"000485_validate_material_descriptions", "000484_material_descriptions"}, "materials", "material", "description_language", ""},
+		{names: []string{"000503_validate_supplier_returns", "000502_supplier_returns"}, schema: "inventory", table: "material_document", column: "movement_type",
+			check: `SELECT EXISTS (SELECT FROM pg_constraint WHERE conrelid = 'inventory.material_document'::regclass
+				AND conname = 'material_document_movement_type_check' AND pg_get_constraintdef(oid) LIKE '%''122''%')`},
+		{[]string{"000505_validate_customer_return_stock", "000504_customer_return_stock"}, "sales", "return_receipt_posting", "receipt_id", ""},
 	} {
 		t.Run(c.names[len(c.names)-1], func(t *testing.T) {
 			tx, err := conn.Begin(ctx)

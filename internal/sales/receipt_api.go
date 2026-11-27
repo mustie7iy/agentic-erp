@@ -12,22 +12,29 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// receiptAPI is a return receipt as the API gives it.
+// receiptAPI is a return receipt as the API gives it, naming the
+// material document that received its stock items and each such item's
+// cost (S2b4).
 func receiptAPI(c ReturnReceipt) gen.ReturnReceipt {
 	out := gen.ReturnReceipt{ID: c.ID, ReceiptNo: c.No, ReturnsOrderID: c.ReturnsOrderID, ReturnsOrderNumber: c.ReturnsOrderNumber, ReceiptDate: c.Date,
-		Items: make([]gen.ReturnReceiptItem, len(c.Items)), CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy}
+		Items: make([]gen.ReturnReceiptItem, len(c.Items)), MaterialDocumentID: apitypes.OptUUID(c.MaterialDocumentID),
+		MaterialDocumentNumber: apitypes.OptString(c.MaterialDocumentNumber), CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy}
 	for i, it := range c.Items {
 		out.Items[i] = gen.ReturnReceiptItem{ItemNo: it.ItemNo, BillingItemNo: it.BillingItemNo, ItemKey: apitypes.OptString(it.ItemKey),
 			Description: it.Description, Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}}
+		if it.Cost != nil { // an item's cost is its receipt's posting's
+			out.Items[i].Cost = gen.NewOptMoney(apitypes.Money(*it.Cost, *c.CostCurrency, c.CostExponent))
+		}
 	}
 	return out
 }
 
 // ConfirmReturnReceipt implements POST /v1/returns-orders/{id}/receipts.
 func (e *Endpoints) ConfirmReturnReceipt(ctx context.Context, req *gen.ReturnReceiptCreate, params gen.ConfirmReturnReceiptParams) (gen.ConfirmReturnReceiptRes, error) {
-	in := ReceiptInput{Date: req.ReceiptDate, Items: make([]ItemQuantity, len(req.Items))}
+	in := ReceiptInput{Date: req.ReceiptDate, Items: make([]ReceiptItemInput, len(req.Items))}
 	for i, it := range req.Items {
-		in.Items[i] = ItemQuantity{ItemNo: it.ItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
+		in.Items[i] = ReceiptItemInput{ItemQuantity: ItemQuantity{ItemNo: it.ItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit},
+			StorageLocationID: apitypes.Ptr[uuid.UUID](it.StorageLocationID), Batch: it.BatchNumber.Value, SerialNumbers: it.SerialNumbers}
 	}
 	c, err := e.ConfirmReceipt(ctx, params.ID, in)
 	if err != nil {

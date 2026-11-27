@@ -26,7 +26,7 @@ var perms = []string{"materials.material.read", "materials.material.write", "ten
 	"inventory.valuation.read", "inventory.valuation.write", "ledger.entry.read", "sales.order.read", "sales.order.write", "sales.order.confirm",
 	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "shipping.delivery.read", "shipping.delivery.write", "shipping.goods_issue.post",
 	"inventory.count.write", "shipping.trade_compliance.release", "sales.billing.post",
-	"inventory.count_plan.write", "inventory.batch.write"}
+	"inventory.count_plan.write", "inventory.batch.write", "sales.return.read", "sales.return.write", "sales.return.confirm", "sales.return.receive"}
 
 const deliveries = "/v1/outbound-deliveries"
 
@@ -65,8 +65,13 @@ func setup(t *testing.T) env {
 // valued gives company 2000 a customer reconciliation account, the
 // inventory accounts of valuation class 3000, of class 3100, which names
 // no cost of goods sold account, and of class 3200, which names price
-// difference and revaluation accounts too.
+// difference and revaluation accounts too, and the number range
+// journal_dr of the entries its customer invoices post (a billing
+// document's, which a returns order needs posted).
 func valued(c *config.Config) {
+	for _, y := range fixture.Years() {
+		c.NumberRanges = append(c.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999})
+	}
 	de := c.Company("2000")
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true},
 		config.Account{Number: "150000", Name: "Inventory", Type: config.Asset}, config.Account{Number: "391000", Name: "Initial entries", Type: config.Equity},

@@ -276911,6 +276911,18 @@ func (s *ReturnReceipt) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		if s.MaterialDocumentID.Set {
+			e.FieldStart("material_document_id")
+			s.MaterialDocumentID.Encode(e)
+		}
+	}
+	{
+		if s.MaterialDocumentNumber.Set {
+			e.FieldStart("material_document_number")
+			s.MaterialDocumentNumber.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("created_at")
 		json.EncodeDateTime(e, s.CreatedAt)
 	}
@@ -276920,15 +276932,17 @@ func (s *ReturnReceipt) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfReturnReceipt = [8]string{
+var jsonFieldsNameOfReturnReceipt = [10]string{
 	0: "id",
 	1: "receipt_no",
 	2: "returns_order_id",
 	3: "returns_order_number",
 	4: "receipt_date",
 	5: "items",
-	6: "created_at",
-	7: "created_by",
+	6: "material_document_id",
+	7: "material_document_number",
+	8: "created_at",
+	9: "created_by",
 }
 
 // Decode decodes ReturnReceipt from json.
@@ -276936,7 +276950,7 @@ func (s *ReturnReceipt) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ReturnReceipt to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -277018,8 +277032,28 @@ func (s *ReturnReceipt) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
+		case "material_document_id":
+			if err := func() error {
+				s.MaterialDocumentID.Reset()
+				if err := s.MaterialDocumentID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_id\"")
+			}
+		case "material_document_number":
+			if err := func() error {
+				s.MaterialDocumentNumber.Reset()
+				if err := s.MaterialDocumentNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_number\"")
+			}
 		case "created_at":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -277031,7 +277065,7 @@ func (s *ReturnReceipt) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -277051,8 +277085,9 @@ func (s *ReturnReceipt) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b11111111,
+	for i, mask := range [2]uint8{
+		0b00111111,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -277252,14 +277287,21 @@ func (s *ReturnReceiptItem) encodeFields(e *jx.Encoder) {
 		e.FieldStart("quantity")
 		s.Quantity.Encode(e)
 	}
+	{
+		if s.Cost.Set {
+			e.FieldStart("cost")
+			s.Cost.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfReturnReceiptItem = [5]string{
+var jsonFieldsNameOfReturnReceiptItem = [6]string{
 	0: "item_no",
 	1: "billing_item_no",
 	2: "item_key",
 	3: "description",
 	4: "quantity",
+	5: "cost",
 }
 
 // Decode decodes ReturnReceiptItem from json.
@@ -277326,6 +277368,16 @@ func (s *ReturnReceiptItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quantity\"")
+			}
+		case "cost":
+			if err := func() error {
+				s.Cost.Reset()
+				if err := s.Cost.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost\"")
 			}
 		default:
 			return d.Skip()
@@ -277400,11 +277452,36 @@ func (s *ReturnReceiptItemCreate) encodeFields(e *jx.Encoder) {
 		e.FieldStart("quantity")
 		s.Quantity.Encode(e)
 	}
+	{
+		if s.StorageLocationID.Set {
+			e.FieldStart("storage_location_id")
+			s.StorageLocationID.Encode(e)
+		}
+	}
+	{
+		if s.BatchNumber.Set {
+			e.FieldStart("batch_number")
+			s.BatchNumber.Encode(e)
+		}
+	}
+	{
+		if s.SerialNumbers != nil {
+			e.FieldStart("serial_numbers")
+			e.ArrStart()
+			for _, elem := range s.SerialNumbers {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfReturnReceiptItemCreate = [2]string{
+var jsonFieldsNameOfReturnReceiptItemCreate = [5]string{
 	0: "item_no",
 	1: "quantity",
+	2: "storage_location_id",
+	3: "batch_number",
+	4: "serial_numbers",
 }
 
 // Decode decodes ReturnReceiptItemCreate from json.
@@ -277437,6 +277514,45 @@ func (s *ReturnReceiptItemCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quantity\"")
+			}
+		case "storage_location_id":
+			if err := func() error {
+				s.StorageLocationID.Reset()
+				if err := s.StorageLocationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_id\"")
+			}
+		case "batch_number":
+			if err := func() error {
+				s.BatchNumber.Reset()
+				if err := s.BatchNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"batch_number\"")
+			}
+		case "serial_numbers":
+			if err := func() error {
+				s.SerialNumbers = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.SerialNumbers = append(s.SerialNumbers, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"serial_numbers\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

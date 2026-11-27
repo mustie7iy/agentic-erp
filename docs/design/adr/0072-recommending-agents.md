@@ -1310,9 +1310,11 @@ A later slice adds its row here and its section under "As built".
   agents' lists name their own contexts' writes and approval decisions,
   not every write, so none of the three is on them (batch 97S
   integration);
-  `recountPhysicalInventoryItems`, S2d2; `TestNever` keeps it whole against the contract's writes named
-  `PhysicalInventory`, `MaterialDocument`, `GoodsReceipt`, `GoodsIssue` or
-  `CycleCount`),
+  `recountPhysicalInventoryItems`, S2d2; `confirmReturnReceipt`, which
+  posts a customer's return into stock, S2b4; `TestNever` keeps it whole
+  against the contract's writes named `PhysicalInventory`,
+  `MaterialDocument`, `GoodsReceipt`, `GoodsIssue`, `CycleCount` or
+  `ReturnReceipt`),
   none among its tools, and each `x-agent: false` but the purchase order
   receipt's two (`postGoodsReceipt`, `reverseGoodsReceipt`, open to
   agents by the contract, not to this one): it never creates a count

@@ -746,10 +746,59 @@ delivery.
 - **As built** (2026-11-24): ADR-0083 As built S2b3, migrations 000471
   and 000472, walkthrough step 143 (`goods_issue_reversal`).
 
+#### S2b4 Customer returns received into stock (653)
+
+The first item of the leaf "later: delivery variants: … returns
+deliveries (stock posting of T85b's returns)" (lane custret,
+2026-11-27); what is left of it stays a leaf.
+
+**Capability.** A sales administrator confirms that a customer's
+returned goods arrived (T85b's return receipt) and names the storage
+location an item of a material kept in stock goes back into: the stock
+and its value come back at the cost the goods issue took out for them,
+and the cost of goods sold is taken back in the same posting; the credit
+memo for the return stays the credit memo request's.
+
+- **Adds:** on `POST /v1/returns-orders/{id}/receipts`, each item's
+  `storage_location_id`, `batch_number` and `serial_numbers`; the
+  receipt's `material_document_id`, `_number` and each item's `cost`;
+  inventory's movement type `653` and `Endpoints.ReceiveForReturn`;
+  `sales.return_receipt_posting` and `sales.return_receipt_item_cost`;
+  the problem codes `sales.storage_location_required`,
+  `sales.storage_location_invalid`, `sales.return_not_stocked`,
+  `sales.exceeds_issued_quantity` and
+  `inventory.reverse_customer_return`.
+- **Decided by default (ADR-0083 As built S2b4):** the receipt posts on
+  its own date into unrestricted stock (there are no stock types); each
+  item at its share of what its order item's goods issues not reversed
+  cost, less what earlier receipts took back, the last share the
+  remainder; refused beyond what those goods issues delivered and is not
+  back; an order item no goods issue delivered at the valuation's price
+  (ADR-0082 §8); the 653 not reversed yet; cost of sales by segment falls
+  on the receipt's date.
+- **Walkthrough:** `step_return_into_stock`: Northwind returns 2 of 5
+  washers delivered from Montreal and billed; a receipt without its
+  storage location is refused; the 653 puts them back at the cost the
+  601 took, its entry crediting 5016 and debiting 1416; the store, the
+  valuation and the cost of sales by segment show it; the 653 is not
+  reversed by hand.
+- **Acceptance:** the receipt posts once, at the goods issue's cost; the
+  stock, the valuation and the cost of goods sold move by it; a receipt
+  beyond what was issued and is not back is refused; the availability
+  check sees the stock.
+- **Later:** a returns delivery document of its own (SAP LR, from
+  memory) and its goods receipt; returns into blocked or quality
+  inspection stock (651, 655, 657, with stock types); the 653's reversal;
+  a receipt naming the delivery it returns, at that delivery's cost; a
+  check that a returned serial number was delivered to the customer; a
+  warehouse system reporting a return receipt.
+- **As built** (2026-11-27): ADR-0083 As built S2b4, migrations 000504
+  and 000505, walkthrough step 165 (`return_into_stock`).
+
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
-delivery notes, returns deliveries (stock posting of T85b's returns),
-the order-to-delivery variants of `plan-breadth-week2.md` §T78c.
+delivery notes, the returns deliveries S2b4 left (its Later), the
+order-to-delivery variants of `plan-breadth-week2.md` §T78c.
 
 ### S2c Physical inventory count documents (pilot)
 

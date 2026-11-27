@@ -15,9 +15,12 @@ import (
 // reversal 602 beside the count's 701 and 702, and the account
 // determination both the inventory_difference and the
 // inventory_cost_of_goods_sold keys, S2h's 351 (000418 and 000419) and
-// S2i1's 643 (000443 and 000444), S1e2's 122 and 123 (000502 and 000503).
-// Reverting 000503 and 000502 restores 000444's checks, validated, 122 and
-// 123 refused; reverting 000444 and 000443 restores
+// S2i1's 643 (000443 and 000444), S1e2's 122 and 123 (000502 and 000503)
+// and S2b4's 653 (000504 and 000505), which runs after S1e2's and keeps
+// its types. Reverting 000505 and 000504 restores 000503's checks,
+// validated, 653 refused and 122 and 123 still taken; reverting 000503 and
+// 000502 restores 000444's checks, validated, 122 and 123 refused too;
+// reverting 000444 and 000443 restores
 // 000419's checks, validated, 643 refused; reverting 000419 and 000418
 // restores 000411's checks, validated, 351 refused; reverting 000411 and 000410 then restores 000408's checks,
 // validated: 701, 702 and inventory_difference:<class> still taken, 601,
@@ -73,6 +76,7 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			{"123", movementTypeDoc, []any{tenant, id(), "123", ret, "GR2"}},
 			{"351", movementTypeDoc, []any{tenant, id(), "351", nil, "TO1"}},
 			{"643", movementTypeDoc, []any{tenant, id(), "643", nil, "PO1"}},
+			{"653", movementTypeDoc, []any{tenant, id(), "653", nil, "RO1"}},
 			{"601", movementTypeDoc, []any{tenant, issue, "601", nil, "OD1"}},
 			{"602", movementTypeDoc, []any{tenant, id(), "602", issue, "OD1"}},
 			{"701", movementTypeDoc, []any{tenant, id(), "701", nil, nil}},
@@ -100,6 +104,21 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			}
 		}
 	}
+	// 000504's down refuses to revert while a customer's return into stock
+	// exists (this test's and those other tests committed).
+	if err := all(tx, step("DELETE FROM sales.return_receipt_item_cost"), step("DELETE FROM sales.return_receipt_posting"),
+		step("DELETE FROM inventory.material_document WHERE movement_type = '653'")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"000505_validate_customer_return_stock", "000504_customer_return_stock"} {
+		if err := exec(tx, migrationNamed(t, name).Down); err != nil {
+			t.Fatalf("%s's down: %v", name, err)
+		}
+	}
+	customerReturns := map[string]string{"653": "material_document_movement_type_check"}
+	check(t, "after reverting 000505 and 000504", customerReturns)
+	// 000503's state is validated checks.
+	validated(t, "000505 and 000504", "material_document_movement_type_check", "material_document_reversal_check", "material_document_reference")
 	// 000502's down refuses to revert while a return to the supplier or its
 	// reversal exists (this test's and those other tests committed).
 	if err := exec(tx, "DELETE FROM inventory.material_document WHERE movement_type IN ('122', '123')"); err != nil {
@@ -110,7 +129,7 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			t.Fatalf("%s's down: %v", name, err)
 		}
 	}
-	returns := map[string]string{"122": "material_document_movement_type_check", "123": "material_document_movement_type_check"}
+	returns := refusedWith(customerReturns, "122", "123")
 	check(t, "after reverting 000503 and 000502", returns)
 	// 000444's state is validated checks.
 	validated(t, "000503 and 000502", "material_document_movement_type_check", "material_document_reversal_check", "material_document_reference")

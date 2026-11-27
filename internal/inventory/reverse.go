@@ -22,7 +22,8 @@ import (
 // as well). The reversal moves the stock back under the same locks and
 // checks as a posting (reversal); a material blocked since is still
 // reversed. A delivery's goods issue is reversed by shipping
-// (ReverseForDelivery), with the order's delivered quantity.
+// (ReverseForDelivery), with the order's delivered quantity; a
+// customer's return into stock (653) is not reversed yet (S2b4).
 func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Document) error) (Document, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -68,6 +69,11 @@ func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Docu
 		// is cancelled first: shipping reverses it (S2b3).
 		return Document{}, problem.Conflict("inventory.reverse_goods_issue", "Material document "+orig.Number+" is the goods issue of outbound delivery "+
 			*orig.Reference+"; reverse the delivery's goods issue (reverseOutboundDeliveryGoodsIssue), which reverses its stock too.")
+	case mt.customerReturn:
+		// The return receipt's cost and its returns order move with it:
+		// Later (As built S2b4).
+		return Document{}, problem.Conflict("inventory.reverse_customer_return", "Material document "+orig.Number+" receives a customer's return of "+
+			"returns order "+*orig.Reference+" into stock; it is not reversed yet.")
 	}
 	return e.reversal(ctx, tx, p, orig, nil)
 }
