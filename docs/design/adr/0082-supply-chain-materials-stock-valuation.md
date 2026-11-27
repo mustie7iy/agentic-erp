@@ -1039,8 +1039,9 @@ references are `integration.external_ref`'s.
   company's date then; rejection (`rejected`) or the requester's
   withdrawal (`withdrawn`) posts nothing and closes the document, lifting
   the posting block: the materials are recounted by a new document
-  (MI11's link between the two is Later). The posting block holds while
-  the differences wait, so the book quantity is still the frozen one.
+  (MI11's link between the two is Later; an item recounted on its own
+  document before posting is S2d2's). The posting block holds while the
+  differences wait, so the book quantity is still the frozen one.
 - **Locks:** the count document's row, then the valuations and stock rows
   of every item with a difference in the order every posting takes them
   (`lockCount`, so the second material document locks nothing new), then
@@ -1058,6 +1059,99 @@ references are `integration.external_ref`'s.
   the object type, headless otherwise.
 - Walkthrough step 141 extended: the pilot's settings add account 5198,
   the class's `difference` account, and a tolerance of CAD 50.00.
+
+### S2d2 (2026-11-25)
+
+Recounts with history, the first item of the tracker's "later:
+difference posting variants" leaf (plan-supply-chain.md §S2d2), decided
+by default from SAP's recount (MI11, ISEG's recount counter ZAEHL and the
+recount indicator, all from memory, for the specialist):
+
+- **The same document, not a new one.** SAP's MI11 marks the item and
+  creates a new document for the recount, linked to the old (from
+  memory); here the recount stays on its item, as the brief and S2c's
+  one open count per material and location make simpler: the item keeps
+  its book quantity, its posting block and its number, and a second
+  document never holds the material while the first waits. Recounting by
+  a new document linked to the first is in the leaf's remainder.
+- `POST /v1/physical-inventory-documents/{id}:recount`
+  (`recountPhysicalInventoryItems`, `If-Match`, permission
+  `inventory.count.write`, as entering a count: SAP's MI11 is the
+  counting clerk's transaction too, from memory), human-only
+  (`x-agent: false`), by item number (422 `inventory.unknown_item`,
+  `inventory.duplicate_item`). Each item's count is kept as an **earlier
+  count** (`inventory.count_item_recount`, migration 000490), numbered
+  from 1 among the item's counts, with what it counted in the base unit
+  and as entered, when and by whom, and when and by whom it was sent for
+  the recount; the item is then open to be counted again through
+  `:enterCount`, its `count_no` one more, and the document is `counting`
+  until every item is counted (from `counted`, the one way back the
+  status flow allows, and only while an item is uncounted). Only the
+  latest count is posted: `:postDifferences` reads the item's count as
+  before, and an earlier count is never posted.
+- **When.** An item is recounted while its document is `counting` or
+  `counted` and the item is counted (409 `inventory.item_not_counted`
+  otherwise). A document `pending_approval` is not recounted (409
+  `inventory.count_invalid_status`, as `posted`, `rejected`,
+  `withdrawn`): its approval request names the value of the counts it was
+  asked for, so the approver rejects and a new document counts again, as
+  S2d has it; a recount asked while differences wait for approval
+  (withdrawing the request) is in the remainder. A posted item is not
+  recounted (409).
+- **At most 99 counts** of an item (98 recounts, 409
+  `inventory.recount_limit`; `count_item_recounts_check`): SAP sets no
+  limit that we know of (from memory); a bound keeps a document's history
+  finite.
+- **The database holds the history** (03 §3.35): an earlier count is
+  insert-only and is the open, unposted item's count as it is, numbered
+  after the item's earlier ones (`count_item_recount_check`); a count is
+  taken off an item only with its recounts one more and that earlier
+  count written (`count_item_once`, widened); a counted document goes back
+  to `counting` only while an item of it is uncounted
+  (`count_document_status_flow`, widened); a count's name goes with the
+  count (`count_item_counted_by_name_check`, `count_item_once`); the down
+  migration refuses while an earlier count or a count's name exists. Schema tests `TestRecountRules`,
+  `TestRecountTriggersAsOwner` (as the owner), `TestRecountDownRefused`
+  (as a migrating role held to RLS).
+- **Locks.** The count document's row (`FOR UPDATE`), which `:enterCount`
+  and `:postDifferences` take first, then its items; the earlier count's
+  foreign key takes the item's key share, which the item's own update
+  (no key column) does not conflict with. A recount and a posting at once
+  are ordered by the document's lock and the second refused at the
+  version it read (`TestRecountAndPostAtOnce`).
+- **Read.** Each item gives `count_no` and `earlier_counts` (in count
+  order, empty when never recounted), so the document shows each item's
+  counts in order: its earlier counts, then its latest
+  (`counted_quantity`). **Who** counted and who sent an item back are
+  given by id and by name as named then (`counted_by_name`,
+  `recounted_by_name`, read through the new `People` port, the app's
+  `LedgerPeople`, when the count or recount is written, as sales' credit
+  release and shipping's trade compliance release keep theirs): a count
+  entered from this version on names its counter, an earlier one has no
+  name. The audit record and the event carry the ids alone (ADR-0079, PO
+  2026-11-05).
+- **Audited and published.** `inventory.count_document.recount` names
+  the document, each item's count number and the counts set aside
+  (`recounted`). Unlike the count's other steps, a recount publishes
+  **PhysicalInventoryRecountRequested** (asyncapi, inventory channel):
+  whoever counts again (a counting device or a warehouse system) learns
+  that an item is open again; it names the document, its company, plant
+  and storage location, its status and version, and each item, in the
+  request's order, with its material and the count set aside, by person
+  id, never a name. Not
+  offered to webhooks until a consumer asks.
+- **Agents.** `recountPhysicalInventoryItems` is on the never lists of
+  the count planning and demand forecasting agents (ADR-0072 As built
+  S2e, S2m). The counts due (S2c2) and the count planning agent's last
+  count read posted documents only, so a recount changes neither.
+- Walkthrough step 141, `step_count`, extended: Wade's first count of the
+  brackets is sent for a recount by Ines, recounted, both counts shown in
+  order, the latest posted; a posted document's item is not recounted.
+
+**Later** (the leaf's remainder): a recount by a new document linked to
+the first (SAP MI11's), a recount while differences wait for approval,
+difference reasons, approval tiers by value, a tolerance per item and
+per user group, partial posting of a document's items.
 
 **S2b1** (ADR-0083, lane ship, 2026-11-19): movement types `601` (goods
 issue for a delivery, posted by shipping through

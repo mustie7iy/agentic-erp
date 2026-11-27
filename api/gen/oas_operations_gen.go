@@ -590,6 +590,7 @@ const (
 	RealiseMemoRecordOperation                           OperationName = "RealiseMemoRecord"
 	ReconcileMigrationRunOperation                       OperationName = "ReconcileMigrationRun"
 	RecordAgentToolCallOperation                         OperationName = "RecordAgentToolCall"
+	RecountPhysicalInventoryItemsOperation               OperationName = "RecountPhysicalInventoryItems"
 	RedateCostCenterOperation                            OperationName = "RedateCostCenter"
 	RedateProfitCenterOperation                          OperationName = "RedateProfitCenter"
 	RedeliverWebhookDeliveryOperation                    OperationName = "RedeliverWebhookDelivery"

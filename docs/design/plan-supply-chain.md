@@ -740,7 +740,39 @@ enters the counted quantities.
   material documents are not reversed (409 `inventory.reverse_count`): a
   new count corrects them. **Later:** a tolerance per item and per user
   group, difference reasons, partial posting of a document's items,
-  recount history (MI11 linking the documents).
+  recount history (first slice S2d2: recounts on the same document; MI11
+  linking the documents stays Later).
+
+### S2d2 Recounts with history (difference posting variants, first slice)
+
+**Capability.** An inventory controller sends counted items of a count
+document whose differences are not posted for a recount; the earlier
+counts are kept with who counted and when, the items are counted again,
+and only the latest count is posted.
+
+- **Adds** (lane recount, 2026-11-25; the tracker's "later: difference
+  posting variants" split, its first item; decided by default, ADR-0082
+  As built S2d2): `POST /v1/physical-inventory-documents/{id}:recount`
+  (SAP MI11, from memory; `If-Match`, permission `inventory.count.write`,
+  human-only) on a `counting` or `counted` document, by item number: each
+  counted item's count is kept in `inventory.count_item_recount`
+  (insert-only, numbered from 1, with who counted it and when and who
+  sent it for the recount and when), the item open to be counted again
+  through `:enterCount`, the document `counting` until every item is
+  counted. 409 `inventory.item_not_counted` for an item not counted, 409
+  `inventory.recount_limit` past 99 counts, 409
+  `inventory.count_invalid_status` once the differences are posted, wait
+  for approval, or were rejected or withdrawn. Each item reads
+  `count_no` and `earlier_counts`, in count order. Audited
+  (`inventory.count_document.recount`) and published as
+  PhysicalInventoryRecountRequested. On the count planning and demand
+  forecasting agents' never lists.
+- **Walkthrough:** extends `step_count`. **Acceptance:** an earlier
+  count is kept and shown in order; only the latest count is posted; a
+  posted item is not recounted (409).
+- **Later:** a recount by a new document linked to the first (SAP MI11's),
+  a recount while differences wait for approval, difference reasons,
+  approval tiers by value.
 
 ### S2e Count planning agent
 

@@ -189,6 +189,13 @@ type Accounts interface {
 	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
 }
 
+// People names principals by id (the identity context, through the app's
+// adapter): a count names who entered it and who sent it for a recount,
+// as they were named then (S2d2). An id of none is left out.
+type People interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Settings reads the active configuration: a company's time zone and
 // valuation classes (configuration context).
 type Settings interface {
@@ -209,6 +216,8 @@ type Endpoints struct {
 	// Requests opens the approval requests of count differences above a
 	// company's tolerance (S2d).
 	Requests Opener
+	// People names who counts and who sends an item for a recount (S2d2).
+	People People
 	// Now is the clock a document is dated by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time

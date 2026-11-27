@@ -5768,8 +5768,15 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Recounts with history: a counted item of a count document whose difference is not posted is sent for a recount by a person, its count kept as an earlier count with who counted it and when, the item counted again and only its latest count posted; the document shows each item's counts in order",
+      "r": "S2d2 · docs/design/plan-supply-chain.md §S2d2 · ADR-0082 As built S2d2 · ADR-0072 As built S2e, S2m · db/migrations/000490 · inventory.count_item_recount · count_item.recounts · POST /v1/physical-inventory-documents/{id}:recount · PhysicalInventoryItem.count_no, .earlier_counts · PhysicalInventoryRecountRequested · inventory.item_not_counted, inventory.recount_limit · countagent and demandagent never lists · TestRecount, TestRecountRefused, TestRecountAndPostAtOnce, TestRecountLimit, TestRecountRules, TestRecountTriggersAsOwner, TestRecountDownRefused · walkthrough step_count",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: difference posting variants: recounts with history, difference reasons, approval tiers by value (after the plan's slices; product owner 2026-11-17)",
+      "t": "later: difference posting variants: a recount by a new document linked to the first (SAP MI11's), a recount while differences wait for approval, difference reasons, approval tiers by value (after the plan's slices; product owner 2026-11-17)",
       "r": "docs/design/plan-supply-chain.md §S2d, Later",
       "src": "baseline",
       "c": []

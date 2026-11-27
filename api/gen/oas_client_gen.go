@@ -3469,10 +3469,11 @@ type Invoker interface {
 	// request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
 	// `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
 	// alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
-	// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
-	// recount is a new document, once this one is closed. A material blocked since is still counted. Items
-	// may be entered in several calls; once every item is counted the document is `counted`, its
-	// differences ready to post (S2d). A document no longer `counting` takes no count (409
+	// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`) until it
+	// is sent for a recount (`recountPhysicalInventoryItems`, S2d2), which keeps its count as an earlier
+	// count; its recount is entered here as its first count was. A material blocked since is still
+	// counted. Items may be entered in several calls; once every item is counted the document is
+	// `counted`, its differences ready to post (S2d). A document no longer `counting` takes no count (409
 	// `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
 	// Audited. Human-only (`x-agent: false`).
 	//
@@ -8640,6 +8641,25 @@ type Invoker interface {
 	//
 	// POST /v1/agent-sessions/{id}/tool-calls
 	RecordAgentToolCall(ctx context.Context, request *AgentToolCallCreate, params RecordAgentToolCallParams) (RecordAgentToolCallRes, error)
+	// RecountPhysicalInventoryItems invokes recountPhysicalInventoryItems operation.
+	//
+	// Sends counted items of a `counting` or `counted` document for a recount at the caller's version
+	// (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422
+	// `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's
+	// count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when
+	// and who sent it for the recount and when, each by id and by name as named then) and the item is open
+	// to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is
+	// `counting` until every item is counted again. Only an item's latest count is posted
+	// (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not
+	// entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409
+	// `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were
+	// rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are
+	// counted by a new document. One of a company the caller may not act in is not found (404). The
+	// posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/physical-inventory-documents/{id}:recount
+	RecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (RecountPhysicalInventoryItemsRes, error)
 	// RedateCostCenter invokes redateCostCenter operation.
 	//
 	// Extends or ends the cost center's validity: the first period starts at `valid_from`, the last ends
@@ -38728,10 +38748,11 @@ func (c *Client) sendEnterIntercompanySupplierInvoice(ctx context.Context, param
 // request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
 // `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
 // alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
-// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
-// recount is a new document, once this one is closed. A material blocked since is still counted. Items
-// may be entered in several calls; once every item is counted the document is `counted`, its
-// differences ready to post (S2d). A document no longer `counting` takes no count (409
+// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`) until it
+// is sent for a recount (`recountPhysicalInventoryItems`, S2d2), which keeps its count as an earlier
+// count; its recount is entered here as its first count was. A material blocked since is still
+// counted. Items may be entered in several calls; once every item is counted the document is
+// `counted`, its differences ready to post (S2d). A document no longer `counting` takes no count (409
 // `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
 // Audited. Human-only (`x-agent: false`).
 //
@@ -115896,6 +115917,179 @@ func (c *Client) sendRecordAgentToolCall(ctx context.Context, request *AgentTool
 
 	stage = "DecodeResponse"
 	result, err := decodeRecordAgentToolCallResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// RecountPhysicalInventoryItems invokes recountPhysicalInventoryItems operation.
+//
+// Sends counted items of a `counting` or `counted` document for a recount at the caller's version
+// (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422
+// `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's
+// count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when
+// and who sent it for the recount and when, each by id and by name as named then) and the item is open
+// to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is
+// `counting` until every item is counted again. Only an item's latest count is posted
+// (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not
+// entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409
+// `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were
+// rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are
+// counted by a new document. One of a company the caller may not act in is not found (404). The
+// posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:recount
+func (c *Client) RecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (RecountPhysicalInventoryItemsRes, error) {
+	res, err := c.sendRecountPhysicalInventoryItems(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRecountPhysicalInventoryItems(ctx context.Context, request *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (res RecountPhysicalInventoryItemsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("recountPhysicalInventoryItems"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/physical-inventory-documents/{id}:recount"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RecountPhysicalInventoryItemsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/physical-inventory-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":recount"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRecountPhysicalInventoryItemsRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RecountPhysicalInventoryItemsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRecountPhysicalInventoryItemsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

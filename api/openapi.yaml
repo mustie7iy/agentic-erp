@@ -26540,7 +26540,7 @@ paths:
       tags:
         - inventory
       summary: Enter counted quantities
-      description: "Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`; ADR-0082 As built S2c; SAP MI04), by item number (422 `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422 `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a recount is a new document, once this one is closed. A material blocked since is still counted. Items may be entered in several calls; once every item is counted the document is `counted`, its differences ready to post (S2d). A document no longer `counting` takes no count (409 `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404). Audited. Human-only (`x-agent: false`)."
+      description: "Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`; ADR-0082 As built S2c; SAP MI04), by item number (422 `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422 `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`) until it is sent for a recount (`recountPhysicalInventoryItems`, S2d2), which keeps its count as an earlier count; its recount is entered here as its first count was. A material blocked since is still counted. Items may be entered in several calls; once every item is counted the document is `counted`, its differences ready to post (S2d). A document no longer `counting` takes no count (409 `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404). Audited. Human-only (`x-agent: false`)."
       x-permission: inventory.count.write
       x-agent: false
       x-problem-codes:
@@ -26567,6 +26567,64 @@ paths:
       responses:
         "200":
           description: The count document with the counts entered.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalInventoryDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/physical-inventory-documents/{id}:recount":
+    post:
+      operationId: recountPhysicalInventoryItems
+      tags:
+        - inventory
+      summary: Send counted items for a recount
+      description: "Sends counted items of a `counting` or `counted` document for a recount at the caller's version (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422 `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when and who sent it for the recount and when, each by id and by name as named then) and the item is open to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is `counting` until every item is counted again. Only an item's latest count is posted (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409 `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are counted by a new document. One of a company the caller may not act in is not found (404). The posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested. Human-only (`x-agent: false`)."
+      x-permission: inventory.count.write
+      x-agent: false
+      x-problem-codes:
+        - inventory.count_invalid_status
+        - inventory.count_open
+        - inventory.duplicate_item
+        - inventory.item_not_counted
+        - inventory.recount_limit
+        - inventory.unknown_item
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The items to recount.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhysicalInventoryRecount"
+      responses:
+        "200":
+          description: "The count document, `counting`, with the items open to be counted again."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -68574,7 +68632,7 @@ components:
     PhysicalInventoryItem:
       type: object
       description: "An item of a count document (SAP ISEG): a material, its book quantity frozen as the document was created and, once counted, the quantity counted."
-      required: [item_no, material_id, material_number, material_description, book_quantity]
+      required: [item_no, material_id, material_number, material_description, book_quantity, count_no, earlier_counts]
       properties:
         item_no: {type: integer, format: int32, description: "The item's number in the document, from 1.", readOnly: true}
         material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
@@ -68585,10 +68643,50 @@ components:
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity counted as it was entered, in the unit it was entered in; absent with `counted_quantity`.", readOnly: true}
         counted_at: {type: string, format: date-time, description: "When the count was entered; absent with it.", readOnly: true}
         counted_by: {type: string, format: uuid, description: "Who entered it; absent with it.", readOnly: true}
+        counted_by_name: {type: string, description: "That person's name as it was when they entered it (S2d2); absent with it, and for a count entered before names were kept.", readOnly: true}
         difference: {$ref: "#/components/schemas/Quantity", description: "Once the document is posted, the counted quantity less the book quantity, in the base unit: positive a gain, negative a loss, zero none (S2d); absent before.", readOnly: true}
         difference_value: {$ref: "#/components/schemas/Money", description: "What the difference moved in value on the material's valuation in the plant, signed as it is; absent with it.", readOnly: true}
         material_document_id: {type: string, format: uuid, description: "The material document (`GET /v1/material-documents/{id}`, movement type 701 or 702) that posted the difference; absent when there was none.", readOnly: true}
         material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        count_no: {type: integer, format: int32, description: "The number of the item's latest count, the one `counted_quantity` gives and its difference is posted from: 1 until it is sent for a recount, one more at each recount (S2d2).", readOnly: true}
+        earlier_counts:
+          type: array
+          items: {$ref: "#/components/schemas/PhysicalInventoryEarlierCount"}
+          description: "The item's earlier counts, each sent for a recount, in the order they were counted (by `count_no`), before its latest; empty when it was never recounted (S2d2)."
+          readOnly: true
+    PhysicalInventoryEarlierCount:
+      type: object
+      description: "An earlier count of a count document's item, sent for a recount (S2d2; SAP MI11, from memory): kept as it was counted, never posted."
+      required: [count_no, counted_quantity, entry_quantity, counted_at, counted_by, recounted_at, recounted_by, recounted_by_name]
+      properties:
+        count_no: {type: integer, format: int32, description: "Its number among the item's counts, from 1.", readOnly: true}
+        counted_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity it counted, in the material's base unit.", readOnly: true}
+        entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity as it was entered, in the unit it was entered in.", readOnly: true}
+        counted_at: {type: string, format: date-time, description: "When it was entered.", readOnly: true}
+        counted_by: {type: string, format: uuid, description: "Who entered it.", readOnly: true}
+        counted_by_name: {type: string, description: "That person's name as it was when they entered it; absent for a count entered before names were kept.", readOnly: true}
+        recounted_at: {type: string, format: date-time, description: "When the item was sent for a recount, which set this count aside.", readOnly: true}
+        recounted_by: {type: string, format: uuid, description: "Who sent it for the recount.", readOnly: true}
+        recounted_by_name: {type: string, description: "That person's name as it was then.", readOnly: true}
+    PhysicalInventoryRecount:
+      type: object
+      description: "Counted items of a count document to recount."
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/PhysicalInventoryRecountInput"}
+          description: "The items to recount, each once."
+    PhysicalInventoryRecountInput:
+      type: object
+      description: "An item to recount."
+      required: [item_no]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, maximum: 100, description: "The item's number in the document."}
     PhysicalInventoryDocument:
       description: "A physical inventory count document (SAP IKPF with its ISEG items): the materials of a plant's storage location counted, their book quantities frozen and their stock blocked from postings until the document is closed. Its `version` moves at each step."
       allOf:
@@ -68610,7 +68708,7 @@ components:
             status:
               type: string
               x-extensible-enum: [counting, counted, pending_approval, posted, rejected, withdrawn]
-              description: "`counting` until every item is counted, then `counted`; `pending_approval` while its differences wait for approval; `posted` once they are posted; `rejected` or `withdrawn` when their approval was refused or withdrawn, nothing posted. The posting block holds until it is `posted`, `rejected` or `withdrawn`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`counting` until every item is counted, then `counted`, and `counting` again while an item sent for a recount waits for it (S2d2); `pending_approval` while its differences wait for approval; `posted` once they are posted; `rejected` or `withdrawn` when their approval was refused or withdrawn, nothing posted. The posting block holds until it is `posted`, `rejected` or `withdrawn`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             workflow_request_id: {type: string, format: uuid, description: "The approval request (`GET /v1/approval-requests/{id}`) of differences above the company's tolerance (S2d); absent when none was asked.", readOnly: true}
             difference_value: {$ref: "#/components/schemas/Money", description: "The value of the differences, gains and losses alike, the approval was asked for; absent with it.", readOnly: true}

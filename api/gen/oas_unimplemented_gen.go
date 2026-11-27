@@ -3987,10 +3987,11 @@ func (UnimplementedHandler) EnterIntercompanySupplierInvoice(ctx context.Context
 // request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
 // `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
 // alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
-// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
-// recount is a new document, once this one is closed. A material blocked since is still counted. Items
-// may be entered in several calls; once every item is counted the document is `counted`, its
-// differences ready to post (S2d). A document no longer `counting` takes no count (409
+// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`) until it
+// is sent for a recount (`recountPhysicalInventoryItems`, S2d2), which keeps its count as an earlier
+// count; its recount is entered here as its first count was. A material blocked since is still
+// counted. Items may be entered in several calls; once every item is counted the document is
+// `counted`, its differences ready to post (S2d). A document no longer `counting` takes no count (409
 // `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
 // Audited. Human-only (`x-agent: false`).
 //
@@ -10373,6 +10374,28 @@ func (UnimplementedHandler) ReconcileMigrationRun(ctx context.Context, params Re
 //
 // POST /v1/agent-sessions/{id}/tool-calls
 func (UnimplementedHandler) RecordAgentToolCall(ctx context.Context, req *AgentToolCallCreate, params RecordAgentToolCallParams) (r RecordAgentToolCallRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RecountPhysicalInventoryItems implements recountPhysicalInventoryItems operation.
+//
+// Sends counted items of a `counting` or `counted` document for a recount at the caller's version
+// (`If-Match`; ADR-0082 As built S2d2; SAP MI11, from memory), by item number (422
+// `inventory.unknown_item`, each once in the request, 422 `inventory.duplicate_item`): each item's
+// count is kept as an earlier count (`earlier_counts`, numbered from 1, with who counted it and when
+// and who sent it for the recount and when, each by id and by name as named then) and the item is open
+// to be counted again (`enterPhysicalInventoryCount`), its `count_no` one more; the document is
+// `counting` until every item is counted again. Only an item's latest count is posted
+// (`postPhysicalInventoryDifferences`). An item not counted (its first count or its recount not
+// entered yet) is not recounted (409 `inventory.item_not_counted`), nor one counted 99 times (409
+// `inventory.recount_limit`). A document whose differences are posted, wait for approval, or were
+// rejected or withdrawn takes no recount (409 `inventory.count_invalid_status`): its materials are
+// counted by a new document. One of a company the caller may not act in is not found (404). The
+// posting block holds throughout. Audited, and published as PhysicalInventoryRecountRequested.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:recount
+func (UnimplementedHandler) RecountPhysicalInventoryItems(ctx context.Context, req *PhysicalInventoryRecount, params RecountPhysicalInventoryItemsParams) (r RecountPhysicalInventoryItemsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

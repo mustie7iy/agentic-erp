@@ -37,3 +37,18 @@ func TestCountValueErrUnfound(t *testing.T) {
 		t.Errorf("got %v, want the refusal as it is", got)
 	}
 }
+
+// TestRecountLimit: an item counted maxCounts times is not recounted again
+// (count_item_recounts_check holds the database to it).
+func TestRecountLimit(t *testing.T) {
+	counted := "5"
+	d := CountDocument{Number: "PI1", Items: []CountItem{{ItemNo: 1, Counted: &counted, Recounts: maxCounts - 2}, {ItemNo: 2, Counted: &counted,
+		Recounts: maxCounts - 1}}}
+	if _, err := checkRecounts(d, []int{1}, refs{}); err != nil {
+		t.Errorf("an item counted %d times: got %v, want it recounted", maxCounts-1, err)
+	}
+	_, err := checkRecounts(d, []int{2}, refs{})
+	if p := problem.From(err); p.Code != "inventory.recount_limit" || p.Status != 409 {
+		t.Errorf("an item counted %d times: got %v, want 409 inventory.recount_limit", maxCounts, err)
+	}
+}

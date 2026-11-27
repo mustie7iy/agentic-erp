@@ -7029,6 +7029,24 @@ erDiagram
   difference naming its material document and a zero one none, only once
   the item is closed (`count_item_posted`), each set once
   (`count_item_once`).
+- S2d2 (migration 000490): `inventory.count_item` gains `recounts`, how
+  often the item was sent for a recount, 0 to 98
+  (`count_item_recounts_check`: at most 99 counts), and
+  `counted_by_name`, who entered the count as named then, only with a
+  count (`count_item_counted_by_name_check`; none before this version).
+  `inventory.count_item_recount`: an item's earlier count, numbered 1 to
+  98 among its counts (`count_item_recount_count_no_check`), of an item of
+  the document (`count_item_recount_item_fkey`), with its quantity counted
+  and entry of zero or more in a known unit, when and by whom (by id and
+  name), and when and by whom (id and name) it was sent for the recount; the open, unposted item's count
+  as it is, numbered after the item's earlier ones
+  (`count_item_recount_check`, a trigger after the row's checks);
+  insert-only (`count_item_recount_insert_only`). A count is taken off an
+  item only with its `recounts` one more and that earlier count kept
+  (`count_item_once`, widened), and a counted document goes back to
+  counting only while an item of it is not counted
+  (`count_document_status_flow`, widened). The down migration refuses
+  while an earlier count or a count's name exists.
 - S2h (migrations 000418, 000419): `inventory.material_document` takes
   the movement type `351`, a stock transport order's goods issue, which
   names its order's number as its `reference`, as the order's goods
@@ -7115,7 +7133,8 @@ erDiagram
   indicator and version alone. Neither is deleted. The counts due are
   read, not stored (`GET /v1/cycle-counts-due`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
-  (`MaterialDocumentPosted`, `MaterialPriceChanged`).
+  (`MaterialDocumentPosted`, `MaterialPriceChanged`,
+  `PhysicalInventoryRecountRequested`, S2d2).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
   `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
   `inventory.count.post` and the approval permission
