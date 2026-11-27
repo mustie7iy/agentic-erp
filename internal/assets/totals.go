@@ -14,14 +14,17 @@ import (
 // (those whose seq is the asset's last_seq) by the history sheet's columns
 // (ADR-0057 §5, §9): the cost of acquisitions, of retirements and of
 // transfers in and out, and the accumulated depreciation of depreciation
-// (runs and catch-ups), retirements and transfers. Its select list ends
-// with those six sums; keys are the columns before them.
+// (runs and catch-ups), retirements, transfers, impairment losses and
+// their reversals (As built, impairment). Its select list ends with those
+// eight sums; keys are the columns before them.
 const totalsOf = `coalesce(sum(m.cost) FILTER (WHERE m.kind = 'acquisition'), 0),
 		coalesce(sum(m.cost) FILTER (WHERE m.kind = 'retirement'), 0),
 		coalesce(sum(m.cost) FILTER (WHERE m.kind IN ('transfer_in', 'transfer_out')), 0),
 		coalesce(sum(m.accumulated) FILTER (WHERE m.kind = 'depreciation'), 0),
 		coalesce(sum(m.accumulated) FILTER (WHERE m.kind = 'retirement'), 0),
-		coalesce(sum(m.accumulated) FILTER (WHERE m.kind IN ('transfer_in', 'transfer_out')), 0)
+		coalesce(sum(m.accumulated) FILTER (WHERE m.kind IN ('transfer_in', 'transfer_out')), 0),
+		coalesce(sum(m.accumulated) FILTER (WHERE m.kind = 'impairment'), 0),
+		coalesce(sum(m.accumulated) FILTER (WHERE m.kind = 'impairment_reversal'), 0)
 	FROM assets.asset a JOIN assets.movement m ON m.tenant_id = a.tenant_id AND m.asset_id = a.id AND m.seq = a.last_seq
 	WHERE a.id = ANY($1)`
 
@@ -29,7 +32,8 @@ const totalsOf = `coalesce(sum(m.cost) FILTER (WHERE m.kind = 'acquisition'), 0)
 const addedTo = `acquisitions = t.acquisitions + EXCLUDED.acquisitions, retired_cost = t.retired_cost + EXCLUDED.retired_cost,
 		transferred_cost = t.transferred_cost + EXCLUDED.transferred_cost, depreciation = t.depreciation + EXCLUDED.depreciation,
 		retired_accumulated = t.retired_accumulated + EXCLUDED.retired_accumulated,
-		transferred_accumulated = t.transferred_accumulated + EXCLUDED.transferred_accumulated`
+		transferred_accumulated = t.transferred_accumulated + EXCLUDED.transferred_accumulated,
+		impairment_losses = t.impairment_losses + EXCLUDED.impairment_losses, impairment_reversals = t.impairment_reversals + EXCLUDED.impairment_reversals`
 
 // keepTotals adds the movements of the assets' latest posting to the year
 // totals the history sheet reads (ADR-0057 §5, §9): each asset's per
@@ -47,14 +51,14 @@ const addedTo = `acquisitions = t.acquisitions + EXCLUDED.acquisitions, retired_
 // (keepBooked), rows of the same assets.
 func keepTotals(ctx context.Context, tx pgx.Tx, assets ...uuid.UUID) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO assets.class_year_total AS t (tenant_id, legal_entity_id, ledger_id, fiscal_year, class_code, acquisitions,
-			retired_cost, transferred_cost, depreciation, retired_accumulated, transferred_accumulated)
+			retired_cost, transferred_cost, depreciation, retired_accumulated, transferred_accumulated, impairment_losses, impairment_reversals)
 		SELECT m.tenant_id, m.legal_entity_id, m.ledger_id, m.fiscal_year, m.class_code, `+totalsOf+`
 		GROUP BY 1, 2, 3, 4, 5 ORDER BY 1, 2, 3, 4, 5
 		ON CONFLICT (tenant_id, legal_entity_id, ledger_id, fiscal_year, class_code) DO UPDATE SET `+addedTo, assets); err != nil {
 		return fmt.Errorf("assets: class year totals of %d assets: %w", len(assets), err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO assets.year_total AS t (tenant_id, ledger_id, asset_id, fiscal_year, legal_entity_id, class_code, acquisitions,
-			retired_cost, transferred_cost, depreciation, retired_accumulated, transferred_accumulated)
+			retired_cost, transferred_cost, depreciation, retired_accumulated, transferred_accumulated, impairment_losses, impairment_reversals)
 		SELECT m.tenant_id, m.ledger_id, m.asset_id, m.fiscal_year, m.legal_entity_id, m.class_code, `+totalsOf+`
 		GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 2, 3, 4
 		ON CONFLICT (tenant_id, ledger_id, asset_id, fiscal_year) DO UPDATE SET `+addedTo, assets); err != nil {

@@ -80,20 +80,58 @@ func scanReconBank(row pgx.Row) (reconBank, error) {
 	return b, errs.Wrapf(err, "scan house bank")
 }
 
+// reconciledFigures sets, on the statements a reconciliation takes
+// (s), what their lines add to the figures for good (000476): the sum of
+// their excluded lines and the latest posting date of their posted
+// lines' matches, null without one, as figures reads them.
+const reconciledFigures = `reconciled_excluded = (SELECT coalesce(sum(l.amount), 0) FROM payments.bank_statement_line l
+		WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status = 'excluded'),
+	reconciled_posted_until = (SELECT max(m.posting_date) FROM payments.bank_statement_line l
+		JOIN payments.statement_match m ON m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no AND m.status <> 'rejected'
+		WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status = 'posted')`
+
 // figures are the house bank's figures on each date, each with the
 // closing balance given for it.
+//
+// A reconciled statement adds what it kept when it was reconciled
+// (reconciledFigures): its excluded lines' sum, nothing in transit, and
+// its lines to posted_later only when one was posted after the earliest
+// date asked. So the lines read are those of the statements not
+// reconciled, from the earliest one, and of the few reconciled ones
+// posted late, not the bank's whole history (T49); a statement reconciled
+// by a server of the release before 000476 keeps nothing, and its lines
+// are read as before.
 func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dates []time.Time, closing []money.Minor) ([]Figures, error) {
-	rows, _ := tx.Query(ctx, `WITH per AS (
-			SELECT s.closing_date AS c, coalesce(sum(l.amount) FILTER (WHERE l.status = 'excluded'), 0) AS excluded,
-				coalesce(sum(l.amount) FILTER (WHERE l.status NOT IN ('posted', 'excluded')), 0) AS in_transit
+	rows, _ := tx.Query(ctx, `WITH st AS NOT MATERIALIZED (
+			-- kept: what its lines add is on the statement; settled: kept, and
+			-- none of its lines posted after the earliest date asked. Each
+			-- statement's lines are read in a LATERAL subquery of their own
+			-- (the late one fenced with OFFSET 0 so it is not flattened), so
+			-- the lines are probed by statement through their key, only for
+			-- the statements whose lines count, however the tables' sizes
+			-- sway the planner (TestReconcileReadsUnreconciledLines).
+			-- Plain expressions of the statement's columns, so a use's
+			-- condition on them filters the statements before their lines
+			-- are read.
+			SELECT s.tenant_id, s.id, s.closing_date, s.reconciled_excluded, s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL AS kept,
+				s.status = 'reconciled' AND s.reconciled_excluded IS NOT NULL
+					AND coalesce(s.reconciled_posted_until <= (SELECT min(d) FROM unnest($2::date[]) AS d), true) AS settled
 			FROM payments.bank_statement s
-			LEFT JOIN payments.bank_statement_line l ON l.tenant_id = s.tenant_id AND l.statement_id = s.id
-			WHERE s.house_bank_id = $1 GROUP BY s.id, s.closing_date),
+			WHERE s.house_bank_id = $1),
+		per AS (
+			SELECT closing_date AS c, reconciled_excluded AS excluded, 0::bigint AS in_transit FROM st WHERE kept
+			UNION ALL
+			SELECT s.closing_date, t.excluded, t.in_transit FROM st s, LATERAL (
+				SELECT coalesce(sum(l.amount) FILTER (WHERE l.status = 'excluded'), 0) AS excluded,
+					coalesce(sum(l.amount) FILTER (WHERE l.status NOT IN ('posted', 'excluded')), 0) AS in_transit
+				FROM payments.bank_statement_line l WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id) t
+			WHERE NOT s.kept),
 		late AS (
-			SELECT s.closing_date AS c, m.posting_date AS pd, l.amount FROM payments.bank_statement s
-			JOIN payments.bank_statement_line l ON l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status = 'posted'
-			JOIN payments.statement_match m ON m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no AND m.status <> 'rejected'
-			WHERE s.house_bank_id = $1 AND m.posting_date > s.closing_date)
+			SELECT s.closing_date AS c, t.pd, t.amount FROM st s, LATERAL (
+				SELECT m.posting_date AS pd, l.amount FROM payments.bank_statement_line l
+				JOIN payments.statement_match m ON m.tenant_id = l.tenant_id AND m.statement_id = l.statement_id AND m.line_no = l.line_no AND m.status <> 'rejected'
+				WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status = 'posted' AND m.posting_date > s.closing_date OFFSET 0) t
+			WHERE NOT s.settled)
 		SELECT x.d, x.closing, NULL::bigint, coalesce((SELECT sum(excluded) FROM per WHERE c <= x.d), 0)::bigint,
 			coalesce((SELECT sum(in_transit) FROM per WHERE c <= x.d), 0)::bigint, coalesce((SELECT sum(amount) FROM late WHERE c <= x.d AND pd > x.d), 0)::bigint
 		FROM unnest($2::date[], $3::bigint[]) WITH ORDINALITY AS x(d, closing, n) ORDER BY x.n`, b.ID, dates, closing)
@@ -119,8 +157,11 @@ func figures(ctx context.Context, tx pgx.Tx, accounts Accounts, b reconBank, dat
 // the closing date. Its callers hold the bank's statement lock and have
 // just changed a line of s, or run the rules on it.
 func (e *Endpoints) reconcile(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement) error {
+	// OFFSET 0 keeps the NOT EXISTS a subquery run for each imported
+	// statement, not an anti-join the planner may run over every statement's
+	// lines (TestReconcileReadsUnreconciledLines, T49).
 	rows, _ := tx.Query(ctx, statementSelect+` WHERE s.house_bank_id = $1 AND s.status = 'imported' AND NOT EXISTS (SELECT FROM payments.bank_statement_line l
-		WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status NOT IN ('posted', 'excluded')) ORDER BY s.closing_date, s.id`, s.HouseBankID)
+		WHERE l.tenant_id = s.tenant_id AND l.statement_id = s.id AND l.status NOT IN ('posted', 'excluded') OFFSET 0) ORDER BY s.closing_date, s.id`, s.HouseBankID)
 	done, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Statement, error) { return scanStatement(r) })
 	if err != nil {
 		return fmt.Errorf("payments: statements of house bank %s to reconcile: %w", s.HouseBankID, err)
@@ -156,7 +197,8 @@ func (e *Endpoints) reconcile(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	return reconcileStatements(ctx, tx, p, done, figs, agreed, company)
 }
 
-// reconcileStatements sets the statements agreed reconciled, audits each
+// reconcileStatements sets the statements agreed reconciled, with what
+// their lines add to the figures from then on (reconciledFigures), audits each
 // and publishes BankStatementReconciled, once: the update takes only a
 // statement still imported, so a statement reconciled before records
 // nothing again. The house bank's statements are of one company, whose
@@ -166,8 +208,8 @@ func reconcileStatements(ctx context.Context, tx pgx.Tx, p reqctx.Principal, don
 	for id := range agreed {
 		ids = append(ids, id)
 	}
-	rows, _ := tx.Query(ctx, `UPDATE payments.bank_statement SET status = 'reconciled', reconciled_at = now(), reconciled_by = $2,
-		version = version + 1, updated_by = $2 WHERE id = ANY($1) AND status = 'imported' RETURNING id`, ids, p.ID)
+	rows, _ := tx.Query(ctx, `UPDATE payments.bank_statement s SET status = 'reconciled', reconciled_at = now(), reconciled_by = $2,
+		`+reconciledFigures+`, version = version + 1, updated_by = $2 WHERE id = ANY($1) AND status = 'imported' RETURNING id`, ids, p.ID)
 	set, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return fmt.Errorf("payments: reconcile statements %v: %w", ids, err)

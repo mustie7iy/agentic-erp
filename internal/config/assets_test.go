@@ -38,6 +38,11 @@ func TestAssetClassesValid(t *testing.T) {
 	if fs := Validate(withAssets(t), currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("asset classes configured: got %v, want no errors", fs)
 	}
+	impairing := withAssets(t)
+	impairing.Companies[0].AssetAccounts[0].ImpairmentLoss, impairing.Companies[0].AssetAccounts[0].ImpairmentReversal = "690000", "490000"
+	if fs := Validate(impairing, currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("impairment accounts named: got %v, want no errors", fs)
+	}
 	const cls, acc = "asset_classes[MACHINES]", "companies[1000].asset_accounts[MACHINES]"
 	c0tax := withAssets(t).Companies[0].TaxCodes[0].Code
 	terms := func(i int, mutate func(*AssetTerms)) func(c *Config) {
@@ -79,6 +84,18 @@ func TestAssetClassesValid(t *testing.T) {
 		{"a loss that is no expense", accounts(func(a *AssetAccounts) { a.Loss = "400000" }), acc + ".loss"},
 		{"a depreciation account only allocations post to", flag("620000", func(a *Account) { a.CostElement = CostElementSecondary }), acc + ".depreciation"},
 		{"a loss account only allocations post to", flag("690000", func(a *Account) { a.CostElement = CostElementSecondary }), acc + ".loss"},
+		{"an impairment loss not in the chart", accounts(func(a *AssetAccounts) { a.ImpairmentLoss = "999999" }), acc + ".impairment_loss"},
+		{"an impairment loss that is no expense", accounts(func(a *AssetAccounts) { a.ImpairmentLoss = "490000" }), acc + ".impairment_loss"},
+		{"an impairment reversal that is no revenue", accounts(func(a *AssetAccounts) { a.ImpairmentReversal = "690000" }), acc + ".impairment_reversal"},
+		{"an impairment reversal on a reconciliation account", func(c *Config) {
+			c.Companies[0].ChartOfAccounts = append(c.Companies[0].ChartOfAccounts, Account{Number: "160800", Name: "Write-ups", Type: Asset,
+				AssetReconciliation: true})
+			c.Companies[0].AssetAccounts[0].ImpairmentReversal = "160800"
+		}, acc + ".impairment_reversal"},
+		{"an impairment loss only allocations post to", func(c *Config) {
+			c.Companies[0].AssetAccounts[0].ImpairmentLoss = "690000"
+			c.Companies[0].Account("690000").CostElement = CostElementSecondary
+		}, acc + ".impairment_loss"},
 		{"a vendor reconciliation clearing account", func(c *Config) {
 			c.Companies[0].Account("211000").Type = Asset
 			c.Companies[0].AssetAccounts[0].Clearing = "211000"

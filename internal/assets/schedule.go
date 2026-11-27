@@ -102,12 +102,18 @@ func (p Plan) ResidualAt(moves []Move, m Month) money.Minor {
 // its value date (ADR-0057 §7): an acquisition's cost, the cost,
 // accumulated depreciation (negative, a credit) and residual value a
 // transfer in brought, or those a retirement or transfer out took
-// (negated); each the signed change it recorded. Depreciation movements
-// are not moves: the walk computes depreciation, it does not read it.
+// (negated); each the signed change it recorded. An impairment loss or
+// its reversal (Impairment) is applied at the end of its period instead,
+// after that period's depreciation: it measures the carrying amount at
+// that date, and the periods after depreciate the carrying amount then
+// over the life left (IAS 36.63; As built, impairment). Depreciation
+// movements are not moves: the walk computes depreciation, it does not
+// read it.
 type Move struct {
 	Month                       Month
 	Seq                         int32 // the asset's posting order
 	Cost, Accumulated, Residual money.Minor
+	Impairment                  bool
 }
 
 // Step is one period of the walk: its depreciation d_k (zero before the
@@ -120,14 +126,14 @@ type Step struct {
 
 // Walk is the planned schedule (ADR-0057 §7) from the earliest of the
 // depreciation start and the moves' periods through the period through:
-// the moves of a period are applied at its start, those after through
-// are ignored, and each period from the start (k = 1) takes d_k of the
-// net book value B_k and residual value R_k then, by the method, rounded
-// half away from zero to minor units and held to max(0, min(d_k, B_k -
-// R_k)); from k = n on, d_k = max(0, B_k - R_k). Moves are applied in the
-// order given within a period; their effects add, so the order changes
-// nothing. A plan whose start is after through, without moves by then,
-// has no steps.
+// the moves of a period are applied at its start, an impairment's at its
+// end (Move), those after through are ignored, and each period from the
+// start (k = 1) takes d_k of the net book value B_k and residual value
+// R_k then, by the method, rounded half away from zero to minor units
+// and held to max(0, min(d_k, B_k - R_k)); from k = n on, d_k = max(0,
+// B_k - R_k). Moves are applied in the order given within a period;
+// their effects add, so the order changes nothing. A plan whose start is
+// after through, without moves by then, has no steps.
 func Walk(p Plan, moves []Move, through Month) ([]Step, error) {
 	var steps []Step
 	err := walk(p, moves, through, func(s Step) { steps = append(steps, s) })
@@ -144,45 +150,92 @@ func PlannedThrough(p Plan, moves []Move, through Month) (money.Minor, error) {
 	return sum, err
 }
 
+// byMonth orders moves by their periods.
+func byMonth(a, b Move) int { return int(a.Month) - int(b.Month) }
+
+// inMonthOrder is the moves applied at their periods' starts and the
+// impairments applied at their ends (Move), each in period order: the
+// impairments are kept apart because the walk applies them after the
+// period's d_k, not before it. Copied only to split or sort, since most
+// assets have one move and none impaired.
+func inMonthOrder(moves []Move) (starts, ends []Move) {
+	if slices.ContainsFunc(moves, func(mv Move) bool { return mv.Impairment }) {
+		for _, mv := range moves {
+			if mv.Impairment {
+				ends = append(ends, mv)
+			} else {
+				starts = append(starts, mv)
+			}
+		}
+		slices.SortStableFunc(ends, byMonth)
+	} else {
+		starts = moves
+	}
+	if !slices.IsSortedFunc(starts, byMonth) {
+		starts = slices.Clone(starts)
+		slices.SortStableFunc(starts, byMonth)
+	}
+	return starts, ends
+}
+
 // walk visits Walk's steps in order.
 func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
-	byMonth := func(a, b Move) int { return int(a.Month) - int(b.Month) }
-	if !slices.IsSortedFunc(moves, byMonth) { // copied only to sort: most assets have one move
-		moves = slices.Clone(moves)
-		slices.SortStableFunc(moves, byMonth)
+	starts, ends := inMonthOrder(moves)
+	first := p.firstMonth(starts, ends, through)
+	// taken: accumulated depreciation moves brought (negative) or took
+	// (positive), impairments' included; moved: the residual value they
+	// brought or took.
+	var cost, taken, moved, depreciation money.Minor
+	i, j := 0, 0
+	for m := first; m <= through; m++ {
+		for ; i < len(starts) && starts[i].Month <= m; i++ {
+			cost, taken, moved = cost+starts[i].Cost, taken+starts[i].Accumulated, moved+starts[i].Residual
+		}
+		book := cost + taken - depreciation
+		d, err := p.depreciationIn(m, book, moved, starts[:i])
+		if err != nil {
+			return err
+		}
+		depreciation += d
+		var impaired money.Minor
+		for ; j < len(ends) && ends[j].Month <= m; j++ {
+			impaired += ends[j].Accumulated
+		}
+		taken += impaired
+		visit(Step{Month: m, Depreciation: d, BookValue: book - d + impaired})
 	}
+	return nil
+}
+
+// firstMonth is the month walk starts in: the plan's start or the first
+// move's, whichever is earlier, or the month after through when there is
+// neither.
+func (p Plan) firstMonth(starts, ends []Move, through Month) Month {
 	first := through + 1
 	if p.Start != nil {
 		first = min(first, *p.Start)
 	}
-	if len(moves) > 0 {
-		first = min(first, moves[0].Month)
-	}
-	// taken: accumulated depreciation moves brought (negative) or took
-	// (positive); moved: the residual value they brought or took.
-	var cost, taken, moved, depreciation money.Minor
-	i := 0
-	for m := first; m <= through; m++ {
-		for ; i < len(moves) && moves[i].Month <= m; i++ {
-			cost, taken, moved = cost+moves[i].Cost, taken+moves[i].Accumulated, moved+moves[i].Residual
+	for _, ms := range [][]Move{starts, ends} {
+		if len(ms) > 0 {
+			first = min(first, ms[0].Month)
 		}
-		book := cost + taken - depreciation
-		var d money.Minor
-		if p.Start != nil && m >= *p.Start && (p.Stop == nil || m < *p.Stop) {
-			in, residual := p, p.Residual+moved
-			if len(p.Changes) > 0 { // walked for changed terms alone: most assets have none
-				in = p.at(m)
-				residual = in.residual(moves[:i])
-			}
-			var err error
-			if d, err = in.period(int32(m-*p.Start)+1, book, residual); err != nil {
-				return err
-			}
-		}
-		depreciation += d
-		visit(Step{Month: m, Depreciation: d, BookValue: book - d})
 	}
-	return nil
+	return first
+}
+
+// depreciationIn is month m's depreciation on book value book, with moved
+// the residual value the moves applied so far (applied) brought or took:
+// none outside the plan's periods, from its start up to its stop.
+func (p Plan) depreciationIn(m Month, book, moved money.Minor, applied []Move) (money.Minor, error) {
+	if p.Start == nil || m < *p.Start || (p.Stop != nil && m >= *p.Stop) {
+		return 0, nil
+	}
+	in, residual := p, p.Residual+moved
+	if len(p.Changes) > 0 { // walked for changed terms alone: most assets have none
+		in = p.at(m)
+		residual = in.residual(applied)
+	}
+	return in.period(int32(m-*p.Start)+1, book, residual)
 }
 
 // Planned is the planned depreciation through a period, Σ d_k for k up to

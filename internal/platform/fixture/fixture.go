@@ -392,6 +392,14 @@ func (e Env) Withholding(tb testing.TB, codes ...config.WithholdingTaxCode) {
 	}
 }
 
+// UAEStandard is S5, the UAE's standard rate of 5% from 2026, levied in
+// the emirate each line names (ADR-0049 §7), its output tax on account.
+func UAEStandard(account string) config.TaxCode {
+	return config.TaxCode{Code: "S5", Description: "UAE standard rate", Direction: config.TaxOutput, Kind: config.TaxStandard,
+		Components: []config.TaxComponent{{Key: "vat", AccountKey: config.KeyOutput, Account: account, Jurisdiction: "AE", JurisdictionOnLine: true,
+			Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}}
+}
+
 // TaxCodes gives company 2000 the tax codes in the ledger, beside or in
 // place of the prototype's codes of the same name, as an activated
 // configuration with them would (T61a).

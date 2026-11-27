@@ -1312,10 +1312,31 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "fix: a goods movement reads its account determination key with no lock (ledger.Accounts.Determination, internal/ledger/ports.go), so a movement posting while a configuration activation changes a valuation class's stock account can post to the old account after the change commits; read the key FOR SHARE so the activation's update waits for the posting, or the posting for the activation",
-      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted",
+      "r": "internal/ledger/ports.go Determination (SELECT account_id FROM ledger.account_determination, no lock) · internal/ledger/setup.go (activation's upsert and removal) · ADR-0008 (state-changing rows read under a lock) · ADR-0048 As built batch 93 · 409 ledger.determination_key_posted · done (finfix): one tenant lock, shared by Accounts.Determination, exclusive in Setup.Apply (database.LockTenantShared); TestDeterminationAndActivationSerialize; ADR-0048 As built finfix",
       "src": "review:batch93",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: two reads of account determination rows bypass Accounts.Determination and so the tenant's determination lock (GRIROrder's price_difference read in internal/ledger/ports.go, the gr_ir join in internal/ledger/pricedifference.go): a posting driven by them while an activation changes the key can still post to the account it replaced; read them through the lock",
+      "r": "internal/ledger/ports.go GRIROrder · internal/ledger/pricedifference.go · ADR-0048 As built finfix · ADR-0008",
+      "src": "review:batch95",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: a configuration activation keeps the row locks of the number ranges it raised while it goes on to apply the rest of the document (applyRanges raises only changed ranges since finfix, but each lock is held to commit), so a posting that draws a number from a range the activation raised can still form a lock cycle with it, which PostgreSQL breaks by rolling the victim back (40P01, nothing written); ADR-0048 As built finfix leaves it, since a posting draws its numbers before or after its keys depending on its path and no order of the two locks avoids it: retry the victim on 40P01 (the posting, or the activation), or record the decision to leave it",
+      "r": "internal/configuration/configuration.go applyRanges · internal/platform/numbering · internal/ledger/ports.go Determination (determinationLock, shared) · internal/ledger/setup.go Setup.Apply (exclusive) · ADR-0008 lock order · finfix's review",
+      "src": "review:batch95",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A cash liquidity simulation and a snapshot read still look each company's legal entity up one round trip at a time (LegalEntities.ByCode per company), as readDaysOf did before finfix: read them in one LegalEntities.Entities lookup",
+      "r": "internal/cash/simulation.go (LegalEntities.ByCode per company) · internal/cash/snapshot_read.go (Company per legal entity, ByCode) · internal/cash/readday.go zonedDays (finfix, the one lookup) · ADR-0051 As built",
+      "src": "review:batch95",
       "c": []
      },
      {
@@ -1520,11 +1541,25 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Impairment of assets and its history sheet lines, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): postings of impairment losses recognised and reversed on an asset per ledger, and the sheet's lines for them, accumulated depreciation shown with accumulated impairment. Not built: the assets context posts no impairment today (ADR-0057 §1)",
+        "s": "D",
+        "t": "Impairment of assets and its history sheet lines, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): postings of impairment losses recognised and reversed on an asset per ledger, and the sheet's lines for them, accumulated depreciation shown with accumulated impairment. Built: POST /v1/assets/{id}:impair (loss or reversal, per ledger, IAS 36.117 ceiling), GET /v1/asset-impairments, the sheet's impairment_losses and impairment_reversals (ADR-0057 As built, impairment; migrations 000480-000483)",
         "r": "ADR-0057 §1, §9, As built (B14) · GET /v1/asset-history-sheet",
         "src": "po:2026-11-09",
         "pilot": "po:2026-11-09 · adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A separate accumulated impairment account (IAS 16.73(d) allows accumulated impairment aggregated with accumulated depreciation, as built): an asset class may name its own accumulated impairment account, its postings land there, and a retirement or transfer removes its share of accumulated impairment from it apart from accumulated depreciation",
+        "r": "ADR-0057 As built, impairment (accumulated depreciation holds accumulated impairment) · internal/assets impairment.go, retirement.go, transfer · companies[].asset_accounts · IAS 16.73(d) · impair's backlog",
+        "src": "review:batch95",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Measurement of an asset classified as held for sale (IFRS 5.15, 5.20, 5.21): at the lower of its carrying amount and fair value less costs to sell at classification, the write-down an impairment loss and a later gain a reversal up to the losses recognised, posted through the impairment path; the classification itself and the depreciation stop are their own leaf (B11)",
+        "r": "ADR-0057 As built, impairment · internal/assets impairment.go · IFRS 5.15, 5.20, 5.21 (cited from memory, to confirm with the accounting specialist) · impair's backlog",
+        "src": "review:batch95",
         "c": []
        },
        {
@@ -1672,9 +1707,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Bound the reconciliation check to the bank's statements from the earliest one not reconciled, before production-sized statement history",
-        "r": "internal/payments/reconciliation.go · T49",
+        "r": "internal/payments/reconciliation.go · T49 · done (finfix): 000476 reconciled_excluded and reconciled_posted_until kept at reconciliation; figures read only unreconciled statements' lines; TestReconcileReadsUnreconciledLines; ADR-0047 As built",
         "src": "baseline",
         "c": []
        }
@@ -1935,9 +1970,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A memo record list finds the legal entities of all zoned companies in one lookup, not one ByCode round trip per company: since T72n7 every new tenant's companies have a zone, so T72n2's saving for a tenant without zones no longer applies",
-      "r": "found in batch 26's integration review (nit) · internal/cash readday.go readDaysOf (LegalEntities.ByCode per company) · ADR-0051 as built (T72n2)",
+      "r": "found in batch 26's integration review (nit) · internal/cash readday.go readDaysOf (LegalEntities.ByCode per company) · ADR-0051 as built (T72n2) · done (finfix): readday.go zonedDays, one LegalEntities.Entities lookup; TestReadDaysOfOneLookup",
       "src": "review:batch26",
       "c": []
      }
@@ -2395,10 +2430,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Ledger-aware list index and planner statistics for the journal list's ledger filter",
-        "r": "T52",
+        "r": "T52 · done (finfix): 000477-000479 ledger page indexes, plain ledger condition on the resolved ledger, the page chosen in a subquery before the entries' lines (batch 95F fix), no extended statistics (ADR-0045 As built finfix); TestListReadsOnlyItsLedgersPage, db TestJournalEntryLedgerPageIndexes",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Contract step of the ledger page indexes: drop the page indexes without the ledger (journal_entry_page_posting and _number, 000055; journal_entry_page_period, 000186) in a release after the one shipping 000477-000479, once a check finds no read of the journal by company and posting date, document number or period that does not name the ledger; closes the case ADR-0045 As built finfix leaves, statistics that put a company at about one entry, where the shallower ledger-less index wins and a page reads about the page again per other ledger",
+        "r": "ADR-0045 As built finfix · TestListReadsOnlyItsLedgersPage · 06 §6.4",
+        "src": "review:batch95",
         "c": []
        }
       ]
@@ -2622,10 +2664,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Tax follow-up: the declared tax base and the jurisdiction on the journal_entry_posted event's lines (asyncapi), so analytics sees import bases and sales by emirate",
-        "r": "ADR-0049 §9 · after T61e",
+        "r": "ADR-0049 §9 · after T61e · api/asyncapi.yaml JournalEntryPostedV1 lines tax_jurisdiction, tax_base_tc, tax_base_lc · ledger.addTax · TestPostedEventTax · analytics/datasets/v1/gl_lines.yaml tax_jurisdiction, tax_base_minor (role measure) · semantic dimension tax_jurisdiction of revenue and income · reader TestTaxColumns · extract TestTaxColumns, TestJournalExtractedAgain (the journal extracted again when its columns change) · store TestParity · ADR-0049 §9 As built batch 95 · ADR-0044 As built batch 95 · walkthrough step 41 (step_uae)",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A governed analytics metric of the declared import bases (the VAT 201's box 6, imports accounted for through the return): the gl_lines dataset carries tax_base_minor and tax_jurisdiction since taxevent, but no semantic metric sums the declared base of import tax codes per period and company, so an analyst rebuilds the box from raw lines",
+        "r": "internal/analytics/semantic.yaml · analytics/datasets/v1/gl_lines.yaml tax_base_minor · ADR-0044 As built taxevent · ADR-0049 §9 · taxevent's backlog",
+        "src": "review:batch95",
         "c": []
        },
        {

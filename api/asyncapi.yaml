@@ -3692,7 +3692,7 @@ components:
     AssetMovementPosted:
       name: AssetMovementPosted
       title: Asset movement posted
-      summary: An acquisition, retirement or transfer of an asset was posted.
+      summary: An acquisition, retirement, transfer or impairment of an asset was posted.
       description: |
         Emitted by `asset-acquisitions` (POST, `acquisition`) and
         `asset-retirements` (POST, `retirement`, T57g) and `asset-transfers`
@@ -3709,8 +3709,12 @@ components:
         catch-up, a catch-up entry of its own named beside the main one);
         an asset transfer its receiver with the receiver's status and
         version after it (the cost and accumulated depreciation taken off
-        the asset are brought onto the receiver). Subject is the document
-        id.
+        the asset are brought onto the receiver). `assets/{id}:impair`
+        (POST, `impairment`; ADR-0057 As built, impairment) carries its
+        `impairment_kind` (loss or reversal) and its one ledger, whose
+        cost is unchanged and whose accumulated depreciation changes by
+        the loss (negative) or the reversal (positive). Subject is the
+        document id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -5955,6 +5959,13 @@ components:
               amount_lc: {$ref: '#/components/schemas/SignedMoney'}
               amount_gc: {$ref: '#/components/schemas/SignedMoney'}
               tax_code: {type: [string, 'null']}
+              tax_jurisdiction: {type: string, pattern: '^[A-Z]{2}-[A-Z0-9]{1,3}$', description: 'The country subdivision (ISO 3166-2) the line''s tax is levied in, where its code''s component levies its lines'' subdivision (ADR-0049 §7): a UAE sale''s emirate (`AE-DU`), on its base and its tax lines alike, as `GET /v1/journal-entries/{id}` shows it. Absent on lines without one.'}
+              tax_base_tc:
+                $ref: '#/components/schemas/SignedMoney'
+                description: "A tax line's declared base in transaction currency (ADR-0049 §9): the declared value an import's tax from a customs declaration is on, which no line of the entry carries, as its code's tax item takes it (`tax_base` of `GET /v1/journal-entries/{id}`); negated on a reversal. Absent on other lines."
+              tax_base_lc:
+                $ref: '#/components/schemas/SignedMoney'
+                description: "The declared base in local currency, converted with the entry's rate; set with `tax_base_tc`."
               quantity: {$ref: '#/components/schemas/Quantity'}
               purchase_order_id: {$ref: '#/components/schemas/NullableUuid', description: 'Purchase order whose item a GR/IR line belongs to.'}
               po_item_no: {type: [integer, 'null'], minimum: 1, description: 'Item of the purchase order, set with purchase_order_id.'}
@@ -7611,8 +7622,9 @@ components:
       type: object
       required: [document_kind, document_id, asset_id, legal_entity_id, asset_number, class_code, value_date, posting_date, currency_lc, currency_gc, ledgers, asset_status, asset_version]
       properties:
-        document_kind: {type: string, description: 'Open enum: acquisition, retirement, transfer.'}
-        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement, `assets.transfer.id` for a transfer.'}
+        document_kind: {type: string, description: 'Open enum: acquisition, retirement, transfer, impairment.'}
+        document_id: {$ref: '#/components/schemas/Uuid', description: '`assets.acquisition.id` for an acquisition, `assets.retirement.id` for a retirement, `assets.transfer.id` for a transfer, `assets.impairment.id` for an impairment (GET /v1/asset-impairments/{id}).'}
+        impairment_kind: {type: string, description: 'An impairment''s kind. Open enum: loss, reversal.'}
         transfer_kind: {type: string, description: 'A transfer''s kind. Open enum: center, asset.'}
         from_cost_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s previous cost center; null without one. Center ids are named through the centers API (GET /v1/cost-centers/{id}, /v1/profit-centers/{id}), which needs ledger.cost_center.read.'}
         from_profit_center_id: {$ref: '#/components/schemas/NullableUuid', description: 'A center transfer''s previous profit center; null without one.'}
@@ -7641,11 +7653,11 @@ components:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
               cost: {$ref: '#/components/schemas/SignedMoney', description: In local currency; negative for a reduction or a retirement.}
               cost_gc: {$ref: '#/components/schemas/SignedMoney', description: In group currency.}
-              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s or transfer''s change of accumulated depreciation in local currency, its catch-up and the share taken off (positive: a debit).'}
+              accumulated: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s or transfer''s change of accumulated depreciation in local currency, its catch-up and the share taken off (positive: a debit); an impairment''s, the loss (negative) or the reversal (positive).'}
               catch_up_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'A center transfer''s catch-up entry of its own, dated the last day of the period before.'}
               catch_up_fiscal_year: {type: integer}
               catch_up_document_number: {type: string}
-              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement or transfer).'}
+              accumulated_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement, transfer or impairment).'}
               gain: {$ref: '#/components/schemas/SignedMoney', description: 'A retirement''s gain (positive) or loss (negative) in local currency.'}
               gain_gc: {$ref: '#/components/schemas/SignedMoney', description: 'The same in group currency (a retirement).'}
               journal_entry_id: {$ref: '#/components/schemas/Uuid'}

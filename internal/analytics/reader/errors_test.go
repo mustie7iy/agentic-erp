@@ -276,6 +276,8 @@ func TestDuckFailures(t *testing.T) {
 		Currency     string    `parquet:"currency"`
 		Exponent     int32     `parquet:"exponent"`
 		PostedXID    uint64    `parquet:"posted_xid"`
+		Jurisdiction *string   `parquet:"tax_jurisdiction,optional"`
+		TaxBase      *int64    `parquet:"tax_base_minor,optional"`
 	}
 	for name, req := range map[string]Request{
 		"amount as text":  forged(t, encode(t, []textGL{{TenantID: e.a, AmountMinor: "x"}})),

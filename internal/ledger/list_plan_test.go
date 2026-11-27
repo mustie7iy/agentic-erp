@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -88,4 +90,86 @@ func seedCopies(t *testing.T, id string, n int) {
 		t.Fatalf("seed commit: %v", err)
 	}
 	pgtest.Exec(t, `ANALYZE ledger.journal_entry`)
+}
+
+// TestListReadsOnlyItsLedgersPage (T52): in a company keeping a second
+// ledger, a page of one ledger's entries reads the entries on it, not
+// their copies in the other ledger, which share their posting dates and
+// document numbers and so lie among them in a page index without the
+// ledger. 2,000 entries in each ledger, of one posting date; each sort,
+// the leading ledger by default and 2L by its id, after six runs, as
+// TestListReadsOnlyItsPage. Twice: on a journal of the company alone, and
+// on one grown by 6,000 entries of the other company with the statistics
+// of a journal many tenants share (tenant_id's n_distinct set to 150, as
+// the package's whole run leaves it), where the ledger page indexes are a
+// level deeper than those without the ledger. There a list that read the
+// page in the same scan as the entries' lines took the shallower index
+// (GitHub's race run of PR #147; ADR-0045 As built finfix).
+func TestListReadsOnlyItsLedgersPage(t *testing.T) {
+	e := setup(t)
+	if err := e.applyTax(t, parallel(t)); err != nil {
+		t.Fatal(err)
+	}
+	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'open', version = version + 1 WHERE tenant_id = $1 AND fiscal_year = 2026 AND period <= 12
+		AND status <> 'open'`, e.ten.ID)
+	bank, revenue := e.account(t, "2000", "100000"), e.account(t, "2000", "400000")
+	je, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.de, "2026-06-15", "EUR", line{bank, "1.00", ""}, line{revenue, "-1.00", ""}), "")
+	var copyID, local string
+	pgtest.Scan(t, `SELECT c.id::text, c.ledger_id::text FROM ledger.journal_entry e JOIN ledger.journal_entry c ON c.tenant_id = e.tenant_id
+		AND c.posting_group_id = e.posting_group_id AND c.id <> e.id WHERE e.id = $1`, []any{je["id"]}, &copyID, &local)
+	seedCopies(t, je["id"].(string), 1999)
+	seedCopies(t, copyID, 1999)
+	t.Run("company alone", func(t *testing.T) { readsLedgersPage(t, e, local) })
+	usBank, usRevenue := e.account(t, "1000", "100000"), e.account(t, "1000", "400000")
+	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
+	us, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.us, "2026-03-10", "USD", line{usBank, "1.00", ""}, line{usRevenue, "-1.00", ""}), "")
+	pgtest.Exec(t, `ALTER TABLE ledger.journal_entry_y2026 ALTER COLUMN tenant_id SET (n_distinct = 150)`)
+	t.Cleanup(func() { // the package's other tests plan with the statistics its data gives
+		pgtest.Exec(t, `ALTER TABLE ledger.journal_entry_y2026 ALTER COLUMN tenant_id RESET (n_distinct)`)
+		pgtest.Exec(t, `ANALYZE ledger.journal_entry`)
+	})
+	seedCopies(t, us["id"].(string), 5999) // its ANALYZE takes the setting
+	t.Run("larger journal", func(t *testing.T) { readsLedgersPage(t, e, local) })
+}
+
+// readsLedgersPage lists a page of company 2000's entries in each sort,
+// of the leading ledger and of local (2L), and checks it read the page.
+func readsLedgersPage(t *testing.T, e env, local string) {
+	t.Helper()
+	const size = 50
+	for _, c := range []struct{ ledger, order string }{
+		{"", "posting_date"}, {"", "document_number desc"}, {local, "posting_date desc"}, {local, "document_number"},
+	} {
+		t.Run(c.order+" "+map[bool]string{true: "leading", false: "2L"}[c.ledger == ""], func(t *testing.T) {
+			if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
+				params := gen.ListJournalEntriesParams{LegalEntityID: gen.NewOptUUID(e.de), FiscalYear: gen.NewOptInt32(2026),
+					PageSize: gen.NewOptInt32(size), OrderBy: gen.NewOptString(c.order)}
+				if c.ledger != "" {
+					params.LedgerID = gen.NewOptUUID(uuid.MustParse(c.ledger))
+				}
+				h := endpoints()
+				for range 6 {
+					if _, err := h.ListJournalEntries(ctx, params); err != nil {
+						return err
+					}
+				}
+				tx, _ := reqctx.TxFrom(ctx) // InRequest always puts its transaction in the context
+				before := pgtest.RowsRead(t, ctx, tx, "ledger", `journal\_entry\_y%`)
+				page, err := h.ListJournalEntries(ctx, params)
+				if err != nil {
+					return err
+				}
+				got := pgtest.RowsRead(t, ctx, tx, "ledger", `journal\_entry\_y%`) - before
+				if got > size+1 {
+					t.Errorf("entries read for a page of %d: got %d, want at most %d", size, got, size+1)
+				}
+				if n := len(page.(*gen.JournalEntryPage).Items); n != size {
+					t.Errorf("entries on the page: got %d, want %d", n, size)
+				}
+				return nil
+			}); err != nil {
+				t.Fatalf("list: %v", err)
+			}
+		})
+	}
 }

@@ -180,7 +180,9 @@ type Line struct {
 	notRecovered money.Minor
 }
 
-const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
+// entryColumns is what an entry is read as, from an entry e joined as
+// entryJoins joins it; entrySelect reads it from the journal.
+const entryColumns = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 		(SELECT g.is_leading FROM ledger.ledger g WHERE g.tenant_id = e.tenant_id AND g.id = e.ledger_id), e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
 		e.document_date, e.posting_date, e.tax_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
 		e.reference, e.header_text, e.source_context, e.source_document_id, e.reversal_of_id, e.reversal_of_year, r.reversal_entry_id,
@@ -194,12 +196,17 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 			'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code, 'trading_partner_id', l.trading_partner_id,
 			'internal_order_id', l.internal_order_id)
 			ORDER BY l.line_no)
-		 FROM ledger.journal_line l` + centerJoins + ` WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
-	FROM ledger.journal_entry e
+		 FROM ledger.journal_line l` + centerJoins + ` WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)`
+
+// entryJoins joins an entry e's currencies and its reversal.
+const entryJoins = `
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
 	JOIN ref.currency clc ON clc.code = e.currency_lc
 	JOIN ref.currency cgc ON cgc.code = e.currency_gc
 	LEFT JOIN ledger.reversal r ON r.tenant_id = e.tenant_id AND r.original_entry_id = e.id`
+
+const entrySelect = entryColumns + `
+	FROM ledger.journal_entry e` + entryJoins
 
 // centerJoins joins a line l's cost center cc, profit center pc and
 // segment sg, for their codes.
@@ -598,6 +605,21 @@ func addCenters(line map[string]any, l Line) {
 	}
 }
 
+// addTax adds the line's declared tax base, in transaction and local
+// currency (an import's from its customs declaration, ADR-0049 §9), and
+// the subdivision its tax is levied in (an emirate, §7) to its event line,
+// each absent when the line has none: the values its tax items were
+// written from. The database sets both bases or neither
+// (journal_line_tax_base).
+func addTax(line map[string]any, l Line, e Entry) {
+	if l.TaxBase != nil && l.TaxBaseLC != nil {
+		line["tax_base_tc"], line["tax_base_lc"] = money.EventAmount(*l.TaxBase, e.CurrencyTC, e.ExpTC), money.EventAmount(*l.TaxBaseLC, e.CurrencyLC, e.ExpLC)
+	}
+	if l.TaxJurisdiction != nil {
+		line["tax_jurisdiction"] = *l.TaxJurisdiction
+	}
+}
+
 func postedEvent(e Entry) outbox.Event {
 	lines := make([]map[string]any, len(e.Lines))
 	for i, l := range e.Lines {
@@ -613,6 +635,7 @@ func postedEvent(e Entry) outbox.Event {
 		if l.SpecialGL != nil {
 			line["special_gl"] = *l.SpecialGL
 		}
+		addTax(line, l, e)
 		addCenters(line, l)
 		if l.TradingPartnerID != nil {
 			line["trading_partner_id"] = *l.TradingPartnerID
@@ -1620,7 +1643,8 @@ func requireOwnEntry(orig Entry) error {
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for asset document "+orig.SourceDocumentID.String()+
 			"; an acquisition is reversed with POST /v1/asset-acquisitions/"+orig.SourceDocumentID.String()+":reverse, a retirement with POST /v1/asset-retirements/"+
 			orig.SourceDocumentID.String()+":reverse, a transfer with POST /v1/asset-transfers/"+orig.SourceDocumentID.String()+
-			":reverse, and a depreciation run's entries are never reversed one by one.")
+			":reverse, a depreciation run's entries are never reversed one by one, and an impairment is not reversed: GET /v1/asset-impairments/"+
+			orig.SourceDocumentID.String()+" names its asset, on which a reversal of its loss is posted with POST /v1/assets/{asset id}:impair (kind reversal).")
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
 		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")

@@ -86,6 +86,13 @@
 // depreciation to the depreciation booked on the assets' terms (keepTotals,
 // keepBooked), which the preview, a run's batches and a catch-up read with
 // the terms, and their moves are read from a covering index.
+//
+// The B14 leaf builds impairment (ADR-0057 As built, impairment; IAS 36):
+// a loss, or a reversal of earlier losses within IAS 36.117's ceiling, of
+// an asset in one ledger, measured against the schedule's carrying amount
+// at the end of its value date's period, after which the schedule
+// depreciates the carrying amount then over the life left; the history
+// sheet shows both as lines of accumulated depreciation.
 package assets
 
 import (

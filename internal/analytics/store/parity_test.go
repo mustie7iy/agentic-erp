@@ -80,6 +80,23 @@ func (p parity) post(t *testing.T, le uuid.UUID, company, cur, date, debit, cred
 	return je["id"].(string), tag
 }
 
+// dubaiSale gives company 2000 S5, the UAE's standard rate levied in the
+// emirate each line names (ADR-0049 §7), and posts a sale under it in
+// Dubai, its revenue and tax lines naming AE-DU, so the tax jurisdiction
+// dimension has a value beside the lines without one.
+func (p parity) dubaiSale(t *testing.T) {
+	t.Helper()
+	doc := parityDoc(t)
+	co := doc.Company("2000")
+	co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "240000", Name: "Output tax", Type: config.Liability})
+	fixture.TaxCodes(t, p.Tenant, doc, fixture.UAEStandard("240000"))
+	p.Must(201, "POST", "/v1/journal-entries", fmt.Sprintf(`{"legal_entity_id": %q, "document_date": "2026-04-14", "posting_date": "2026-04-14", "currency": "EUR",
+		"lines": [{"account_id": %q, "amount": {"amount": "210.00", "currency": "EUR"}},
+		{"account_id": %q, "amount": {"amount": "-200.00", "currency": "EUR"}, "tax_code": "S5", "tax_jurisdiction": "AE-DU"},
+		{"account_id": %q, "amount": {"amount": "-10.00", "currency": "EUR"}, "tax_code": "S5", "tax_jurisdiction": "AE-DU"}]}`,
+		p.DE, p.Account(t, "2000", "100000"), p.Account(t, "2000", "400000"), p.Account(t, "2000", "240000")), "")
+}
+
 // order inserts a purchase order of le with one item, and a removed one.
 func (p parity) order(t *testing.T, le, supplier uuid.UUID, company, cur, date, quantity string, price int64) {
 	t.Helper()
@@ -144,6 +161,7 @@ func setupParity(t *testing.T) parity {
 	p.post(t, p.US, "1000", "USD", "2026-08-10", "510000", "211000", "45.50", &p.Supplier, nil)
 	p.post(t, p.US, "1000", "USD", "2026-02-11", "100000", "400000", "800.00", nil, nil)
 	p.post(t, p.DE, "2000", "EUR", "2026-03-05", "610000", "100000", "999.00", nil, &p.parallel)
+	p.dubaiSale(t)
 	p.order(t, p.DE, p.Supplier, "2000", "EUR", "2026-03-01", "2.5", 1234)
 	p.order(t, p.DE, p.Vendor, "2000", "EUR", "2026-09-15", "1", 10000)
 	p.order(t, p.US, p.Supplier, "1000", "USD", "2026-04-04", "0.333333", 999)
@@ -355,6 +373,15 @@ func TestParity(t *testing.T) {
 			if got := fmt.Sprint(res.Rows); got != "[["+want+"]]" {
 				t.Errorf("%s of 2000: got %s, want [[%s]]", metric, got, want)
 			}
+		}
+		// The Dubai sale's revenue under its emirate, the other sales under
+		// none.
+		res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"revenue"}, By: []string{"tax_jurisdiction"}})
+		if err != nil {
+			t.Fatalf("revenue of 2000 by tax jurisdiction: got %v, want an answer", err)
+		}
+		if got := fmt.Sprint(res.Rows); !strings.HasSuffix(got, " [AE-DU 200.00]]") || len(res.Rows) != 2 {
+			t.Errorf("revenue of 2000 by tax jurisdiction: got %s, want a row of none, then AE-DU's 200.00", got)
 		}
 		for ledger, want := range map[string]string{"": "120.00", p.parallel.String(): "1119.00"} {
 			res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, analytics.Query{Measures: []string{"expenses"}, Ledger: ledger})
