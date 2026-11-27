@@ -119,7 +119,7 @@ func (e *Endpoints) answer(ctx context.Context, m *analytics.Model, q analytics.
 		return nil, err
 	}
 	defer release()
-	db := e.database(datasets, q)
+	db := e.database(m, datasets, q)
 	src := store.Source{Reader: e.Reader, Database: db, Datasets: datasets, Requires: db.Permissions(), Now: e.Now, Log: e.Log}
 	facts, err := src.Facts(ctx, m, p, q, asOf)
 	if err != nil {
@@ -186,12 +186,12 @@ func (e *Endpoints) Init() *Endpoints {
 	return e
 }
 
-// database is the database path of q: the semantic layer's facts read
-// through the API in-process, as the caller, the centers too when q names
-// their names or nodes.
-func (e *Endpoints) database(datasets []string, q analytics.Query) analytics.Source {
+// database is the database path of q under m: the semantic layer's facts
+// read through the API in-process, as the caller, the centers too when q
+// or its metrics name their names or nodes.
+func (e *Endpoints) database(m *analytics.Model, datasets []string, q analytics.Query) analytics.Source {
 	return analytics.Source{API: &apitools.Client{BaseURL: "http://loopback", HTTP: &http.Client{Transport: e.Loopback}}, Datasets: datasets, Cash: e.Cash,
-		Centers: analytics.NamesCenters(q)}
+		Centers: analytics.NamesCenters(m, q)}
 }
 
 // principal is the caller's company scope: the codes of the companies it
@@ -260,7 +260,7 @@ func (e *Endpoints) Permissions(m *analytics.Model, q analytics.Query) []string 
 			datasets = append(datasets, f.Dataset)
 		}
 	}
-	return e.database(datasets, q).Permissions()
+	return e.database(m, datasets, q).Permissions()
 }
 
 // datasets are the fact datasets the query's metrics read. A dataset the

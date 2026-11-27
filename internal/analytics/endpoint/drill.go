@@ -46,7 +46,7 @@ func (e *Endpoints) DrillAnalyticsQuery(ctx context.Context, req *gen.AnalyticsD
 		return nil, err
 	}
 	defer release()
-	db := e.database(datasets, d.row)
+	db := e.database(d.model, datasets, d.row)
 	src := store.Source{Reader: e.Reader, Database: db, Datasets: datasets, Requires: db.Permissions(), Now: e.Now, Log: e.Log}
 	drilled, err := src.Documents(ctx, d.model, p, d.row, d.after, d.size, req.Query.AsOf.Or(time.Time{}))
 	if err != nil {

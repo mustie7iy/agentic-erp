@@ -351,6 +351,25 @@ func TestParity(t *testing.T) {
 			}
 		}
 	}
+	t.Run("a metric on the centers", func(t *testing.T) {
+		// A change request's metric filtered by a center's node (T56i2):
+		// the store joins the snapshots for its filter as the database
+		// path reads the centers for it.
+		m, err := analytics.ParseModel([]byte(strings.Replace(string(b), "metrics:\n", `metrics:
+  - {name: leaf_expenses, label: Leaf expenses, description: The expenses of the cost centers at node LEAF., type: money, source: gl_lines,
+     aggregate: sum, sign: 1, filter: {account_type: [expense], cost_center_node: [LEAF]}, dimensions: [company]}
+`, 1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := analytics.Query{Measures: []string{"leaf_expenses"}, By: []string{"company"}}
+		dbFacts := p.dbFacts(t, m)
+		p.same(t, m, dbFacts, analytics.Principal{ID: "a"}, q)
+		res, err := analytics.Execute(m, dbFacts, analytics.Principal{Companies: []string{"2000"}}, q)
+		if err != nil || fmt.Sprint(res.Rows) != "[[2000 50.00]]" {
+			t.Errorf("leaf expenses of 2000: got %v, %v; want CC100's 50.00", res, err)
+		}
+	})
 	t.Run("endpoint", p.endpoint)
 	t.Run("documents", p.documents)
 	t.Run("permissions", p.permissions)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -138,19 +139,83 @@ func TestSourceCenterErrors(t *testing.T) {
 	})
 }
 
+// adminMetrics are a change request's metrics (T55g) on the centers: the
+// expenses of the cost centers at node ADMIN, and their share of all.
+const adminMetrics = `metrics:
+  - name: admin_expenses
+    label: Administration expenses
+    description: The expenses of the cost centers at node ADMIN.
+    type: money
+    source: gl_lines
+    aggregate: sum
+    sign: 1
+    filter: {account_type: [expense], cost_center_node: [ADMIN]}
+    dimensions: [company, fiscal_year]
+  - name: admin_share
+    label: Administration share
+    description: The administration's share of the expenses.
+    type: ratio
+    derived: {op: divide, left: admin_expenses, right: expenses}
+    dimensions: [company, fiscal_year]
+`
+
+// adminModel is the seed model with adminMetrics.
+func adminModel(t *testing.T) *Model {
+	t.Helper()
+	b, err := os.ReadFile("semantic.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := ParseModel([]byte(strings.Replace(string(b), "metrics:\n", adminMetrics, 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// TestCenterMetric: a metric filtered by a center's node reads the
+// centers: over facts read with them it is answered, over facts read
+// without them it is refused rather than answered as zero.
+func TestCenterMetric(t *testing.T) {
+	m := adminModel(t)
+	q := Query{Measures: []string{"admin_expenses"}}
+	with, err := Source{API: fakeAPI(t, centerPages()), Datasets: []string{"gl_lines"}, Centers: NamesCenters(m, q)}.Facts(context.Background(), m, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Execute(m, with, Principal{}, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(res.Rows); got != "[[10.00]]" {
+		t.Errorf("admin expenses: got %s, want [[10.00]]", got)
+	}
+	without, err := Source{API: fakeAPI(t, centerPages()), Datasets: []string{"gl_lines"}}.Facts(context.Background(), m, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Execute(m, without, Principal{}, q); !errors.Is(err, errNoCenters) {
+		t.Errorf("without the centers: got %v, want %v", err, errNoCenters)
+	}
+}
+
 // TestNamesCenters: a query names the centers by breaking down or
-// filtering by a center's name or node, not by a center's code.
+// filtering by a center's name or node, or by a measure whose metric
+// filters by one, not by a center's code.
 func TestNamesCenters(t *testing.T) {
+	m := adminModel(t)
 	for name, c := range map[string]struct {
 		q    Query
 		want bool
 	}{
-		"by a name":    {Query{By: []string{"company", "profit_center_name"}}, true},
-		"by a node":    {Query{Where: []Filter{{Dim: "cost_center_node", Op: "in", Values: []string{"ADMIN"}}}}, true},
-		"by the codes": {Query{By: []string{"cost_center", "segment"}, Where: []Filter{{Dim: "profit_center", Op: "in", Values: []string{"PC10"}}}}, false},
+		"by a name":                   {Query{By: []string{"company", "profit_center_name"}}, true},
+		"by a node":                   {Query{Where: []Filter{{Dim: "cost_center_node", Op: "in", Values: []string{"ADMIN"}}}}, true},
+		"by the codes":                {Query{Measures: []string{"expenses"}, By: []string{"cost_center", "segment"}, Where: []Filter{{Dim: "profit_center", Op: "in", Values: []string{"PC10"}}}}, false},
+		"a metric filtered by a node": {Query{Measures: []string{"admin_expenses"}}, true},
+		"a metric derived from it":    {Query{Measures: []string{"admin_share"}}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := NamesCenters(c.q); got != c.want {
+			if got := NamesCenters(m, c.q); got != c.want {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
 		})

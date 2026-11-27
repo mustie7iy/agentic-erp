@@ -6872,8 +6872,15 @@ step_order_budget() {
 # account this year, the debits less the credits, in whole cents of the
 # local currency: jq reads each two-decimal amount as a number and rounds
 # it to whole cents before adding, as the reports' other checks do.
-center_costs() {
-  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$1" -p page_size=100
+center_costs() { report_costs "cost_center_id=$1" "$2"; }
+
+# report_costs FILTER ACCOUNT is center_costs for the cost center report
+# narrowed by FILTER (cost_center_id=..., or hierarchy_node_id=... for the
+# centers at a node and below it, a node's total being their rows'), in
+# whole cents; the report must fit one page.
+report_costs() {
+  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "$1" -p page_size=100
+  [ "$(field '.next_page_token // ""')" = "" ] || fail "the cost center report by $1 has more than one page"
   field "[.items[] | select(.account_id == \"$2\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
 }
 
@@ -10125,20 +10132,11 @@ center_node_analytics() {
   [ -n "$got" ] || fail "no actual costs at node ADMIN in $YEAR: the earlier steps' postings are not there"
   want=''
   for number in $(field '[.rows[] | .[2].value] | join(" ")'); do
-    want="${want:+$want; }$number $(amount "$(node_costs "$node" "$(account "$number")")")"
+    want="${want:+$want; }$number $(amount "$(report_costs "hierarchy_node_id=$node" "$(account "$number")")")"
   done
   say "The cost center report of node ADMIN, its centers' rows summed account by account (GET /v1/cost-center-balances):"
   expect "expenses by cost center node, the node's report" "$got" "$want"
   say "The governed metric expenses by hierarchy node agrees with the report: ADMIN $got CAD."
-}
-
-# node_costs NODE ACCOUNT is this year's actual on ACCOUNT of the cost
-# centers at NODE of a cost center hierarchy and below it, in cents, as the
-# cost center report gives it by hierarchy_node_id: its rows summed.
-node_costs() {
-  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "hierarchy_node_id=$1" -p page_size=100
-  [ "$(field '.next_page_token // ""')" = "" ] || fail "the node's report has more than one page"
-  field "[.items[] | select(.account_id == \"$2\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
 }
 
 # step_planning_agent is T105e (ADR-0072, As built T105e): the planning

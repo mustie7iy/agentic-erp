@@ -1404,8 +1404,9 @@ are T56i3.
   would answer nothing. Left until a metric needs one.
 - *Permissions: the centers' read when named.* The names and nodes are
   read from the centers (`ledger.cost_center.read`), not from the journal
-  lines, so a query that breaks down or filters by one of them
-  (`analytics.NamesCenters`) needs that permission beside the journal's,
+  lines, so a query that breaks down or filters by one of them, or asks
+  for a metric whose filter names one (a change request's metric may,
+  T55g; review round 1), (`analytics.NamesCenters`) needs that permission beside the journal's,
   on both paths: the database path reads the centers only then
   (`Source.Centers`), and the store requires it then (`Requires`, in the
   database path's read order: after `ledger.account.read`). A journal
@@ -1434,9 +1435,10 @@ are T56i3.
   reader `TestCenterSnapshots`; analytics `TestSourceReadsCenters`,
   `TestSourceWithoutCenters`, `TestSourceCenterErrors`, `TestNamesCenters`,
   `TestSourcePermissionsOfCenters`; endpoint `TestPermissionsOfCenters`;
-  watchers `TestReadPermissions`; store `TestParity` (every journal metric
-  by the five dimensions, CC100's reposting under "Cost center hundred"
-  and LEAF, and the permissions).
+  `TestCenterMetric`; watchers `TestReadPermissions`; store `TestParity`
+  (every journal metric by the five dimensions, CC100's reposting under
+  "Cost center hundred" and LEAF, a metric filtered by node LEAF, and the
+  permissions).
 
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other

@@ -25,11 +25,13 @@ import (
 var CenterDimensions = []string{"cost_center_name", "cost_center_node", "profit_center_name", "profit_center_node", "segment_name"}
 
 // NamesCenters reports whether q breaks down or filters by one of
-// CenterDimensions: the database path must then read the centers
-// (Source.Centers), which needs ledger.cost_center.read beside the
-// journal's permissions. A query of the journal by the centers' codes
-// alone needs neither.
-func NamesCenters(q Query) bool {
+// CenterDimensions, or one of its measures' base metrics under m filters
+// by one (a metric a change request added may): the database path must
+// then read the centers (Source.Centers), which needs
+// ledger.cost_center.read beside the journal's permissions, as the store
+// path joins the snapshots for it. A query of the journal by the centers'
+// codes alone needs neither.
+func NamesCenters(m *Model, q Query) bool {
 	for _, d := range q.By {
 		if slices.Contains(CenterDimensions, d) {
 			return true
@@ -40,6 +42,15 @@ func NamesCenters(q Query) bool {
 			return true
 		}
 	}
+	for _, name := range q.Measures {
+		for _, b := range m.BaseMetrics(name) {
+			for d := range m.Metric(b).Filter {
+				if slices.Contains(CenterDimensions, d) {
+					return true
+				}
+			}
+		}
+	}
 	return false
 }
 
@@ -47,9 +58,10 @@ func NamesCenters(q Query) bool {
 // read without the centers: answered, every line would be under none.
 var errNoCenters = errors.New("the facts were read without the centers' names and nodes this query names")
 
-// withCenters is nil when f answers q's center dimensions, or q names none.
-func (f *Facts) withCenters(q Query) error {
-	if NamesCenters(q) && !f.Centers {
+// withCenters is nil when f answers the center dimensions q names under
+// m, or q names none.
+func (f *Facts) withCenters(m *Model, q Query) error {
+	if NamesCenters(m, q) && !f.Centers {
 		return errNoCenters
 	}
 	return nil
@@ -87,7 +99,7 @@ func readCenters(ctx context.Context, api *apitools.Client) (*centers, error) {
 	}{{"/v1/cost-centers", active}, {"/v1/profit-centers", active}, {"/v1/segments", nil}} {
 		list, err := apitools.List[named](ctx, api, l.path, l.query)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("analytics: the centers of %s: %w", l.path, err)
 		}
 		for _, n := range list {
 			c.names[n.ID] = n.Name
@@ -106,7 +118,7 @@ func readCenters(ctx context.Context, api *apitools.Client) (*centers, error) {
 func (c *centers) readNodes(ctx context.Context, api *apitools.Client, kind string) error {
 	standard, err := apitools.List[struct{ ID string }](ctx, api, "/v1/hierarchies", url.Values{"kind": {kind}, "is_standard": {"true"}})
 	if err != nil {
-		return err
+		return fmt.Errorf("analytics: the standard %s hierarchy: %w", kind, err)
 	}
 	for _, h := range standard {
 		resp, err := api.Do(ctx, http.MethodGet, "/v1/hierarchies/"+h.ID, nil, nil, "")

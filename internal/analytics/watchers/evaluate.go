@@ -164,8 +164,8 @@ func (e *Endpoints) evaluate(ctx context.Context, tx pgx.Tx, p reqctx.Principal,
 
 // readPermissions are the permissions the watcher's metric's data is read
 // with, as the database path reads it (analytics.Source.Permissions), the
-// centers' read too when its filters name a center's name or node
-// (analytics.NamesCenters), sorted: an alert is shown only to a caller
+// centers' read too when its filters or its metric's name a center's name
+// or node (analytics.NamesCenters), sorted: an alert is shown only to a caller
 // holding them (ADR-0077 §5).
 func readPermissions(m *analytics.Model, w Watcher) []string {
 	needed := map[string]bool{}
@@ -178,7 +178,7 @@ func readPermissions(m *analytics.Model, w Watcher) []string {
 			datasets = append(datasets, f.Dataset)
 		}
 	}
-	perms := analytics.Source{Datasets: datasets, Centers: analytics.NamesCenters(analytics.Query{Where: w.Filters})}.Permissions()
+	perms := analytics.Source{Datasets: datasets, Centers: analytics.NamesCenters(m, analytics.Query{Measures: []string{w.Metric}, Where: w.Filters})}.Permissions()
 	slices.Sort(perms)
 	return perms
 }
