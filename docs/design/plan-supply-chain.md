@@ -199,13 +199,71 @@ its description in that language, or the default one when it has none.
 - **As built** (2026-11-24): ADR-0082 As built S1a2, migrations 000484
   and 000485, walkthrough step 122.
 
+#### S1a3 Dimensions, weights and GTINs
+
+The second item of the leaf "later: material master variants" (lane
+matdims, 2026-11-26); what is left of it stays a leaf (Later, below).
+
+**Capability.** A master data specialist records, for each unit of
+measure a material is kept in, its base unit and each alternative unit,
+its gross and net weight, volume, length, width and height and its GTIN
+(SAP MARM per unit, MARA's copy for the base unit, from memory); a person,
+an integration or a scanner reading materials finds a material by a
+unit's GTIN.
+
+- **Reuses:** S1a's material and its units (`unit_conversion`), S1b's
+  material changes (the measures are governed as any other field),
+  `ref.unit_of_measure` and its dimensions, S2o's SAP load of MARA and
+  MARM.
+- **Adds:** `materials.unit_measure` (one row per unit with measures,
+  removed by its mark as a unit is) and `materials.gtin_valid`;
+  `internal/platform/gtin`; `base_unit_measures` on `MaterialCreate`,
+  `MaterialUpdate`, `Material` and `MaterialChangeRequested`, `measures`
+  on `MaterialUnitInput` and `MaterialUnit`; the query parameter `gtin`
+  of `listMaterials`; the problem codes `materials.invalid_measures`,
+  `materials.invalid_gtin`, `materials.duplicate_gtin` and
+  `materials.gtin_taken`; MaterialChanged's `base_unit_measures` and
+  `alternative_units[].measures`; ADR-0082 As built S1a3.
+- **Decided by default (ADR-0082 As built S1a3):** measures per unit,
+  base and alternative, as MARM keeps them, a net weight on any unit;
+  decimal strings above zero of up to ten digits and three decimals in
+  one unit of mass, one of volume and one of length, a unit given with a
+  value and only then, the net no more than the gross; no new units of
+  measure; a GTIN of GS1's four lengths with its check digit, compared in
+  14 digits, naming one unit of one material in the tenant whatever its
+  status, freed when a create change is rejected or withdrawn; a GTIN
+  checked when a change is requested and again when it is applied.
+- **SAP:** MARA's BRGEW, NTGEW, GEWEI, VOLUM, VOLEH and EAN11 and the
+  base unit's MARM dimensions; each alternative unit's MARM BRGEW, GEWEI,
+  VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM and EAN11 (from memory); what
+  the platform cannot hold is left out with a warning, a GTIN two units
+  share is left out of both.
+- **Walkthrough:** `step_material`: the bracket's and the box's GTINs,
+  weights, volume and size are given by a change Priya approves; a list
+  finds the bracket by its GTIN written in 13 digits; the box's GTIN on a
+  new material, a net weight above the gross and a wrong check digit are
+  refused.
+- **Acceptance:** each value is kept and answered as given, never as a
+  float, without trailing zeros; a unit of the wrong kind, a value without
+  its unit and a net weight above the gross are refused naming the field;
+  a GTIN is refused without its check digit, on two units of a request or
+  on another material's unit, a GTIN-12 and its GTIN-13 being one; a
+  change of the measures waits for its approval and is audited before and
+  after; an alternative unit removed takes its measures with it.
+- **As built** (2026-11-26): ADR-0082 As built S1a3, migration 000495,
+  walkthrough step 122.
+
 **Later for Material master:** changing a material's default language,
 documents and outputs taking the material's description in their
 partner's language, the duplicate check across languages, a later SAP
 run's new or changed descriptions of a material an earlier run created
 (the rest of descriptions by language, S1a2); the material's sales
 organisation and purchasing views (MVKE, EINA/EINE belong to S1f and
-sourcing); dimensions, weights and EAN/GTIN codes;
+sourcing); of dimensions, weights and GTINs (S1a3): a delivery's gross
+weight and volume from its items' units, GTINs on documents and e-invoice
+lines and items found by GTIN, GTIN types beyond GS1's four lengths and
+several GTINs per unit (SAP's NUMTP, MEAN), a later SAP run's new or
+changed measures of a material an earlier run created;
 material types and groups from configuration (T134, T023) instead of an
 open enumeration and a code; plant-specific status and MRP data (MARC
 fields beyond the assignment, S2k); external number assignment;

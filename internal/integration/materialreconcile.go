@@ -134,24 +134,48 @@ type materialPlantText struct {
 }
 
 // materialText is a material as a difference shows it: its type, group,
-// base unit, status and descriptions (the default first, each with its
-// language), its plants, each with its storage locations, and its
-// alternative units.
-func materialText(mtype, group, base, status string, descriptions []materials.Description, plants []materialPlantText, units []materials.UnitInput) string {
+// base unit with its measures, status and descriptions (the default
+// first, each with its language), its plants, each with its storage
+// locations, and its alternative units with theirs.
+func materialText(mtype, group string, base materialUnitText, status string, descriptions []materials.Description, plants []materialPlantText,
+	units []materials.UnitInput) string {
 	texts := make([]string, len(descriptions))
 	for i, d := range descriptions {
 		texts[i] = fmt.Sprintf("%s %q", d.Language, d.Text)
 	}
-	parts := []string{fmt.Sprintf("%s, group %s, base unit %s, %s: %s", mtype, group, base, status, strings.Join(texts, ", "))}
+	parts := []string{fmt.Sprintf("%s, group %s, base unit %s%s, %s: %s", mtype, group, base.code, measureText(base.measures), status,
+		strings.Join(texts, ", "))}
 	slices.SortFunc(plants, func(a, b materialPlantText) int { return strings.Compare(a.code, b.code) })
 	for _, p := range plants {
 		slices.Sort(p.locations)
 		parts = append(parts, "plant "+p.code+" ("+strings.Join(p.locations, ", ")+")")
 	}
 	for _, u := range units {
-		parts = append(parts, fmt.Sprintf("unit %s %d/%d", u.Code, u.Numerator, u.Denominator))
+		parts = append(parts, fmt.Sprintf("unit %s %d/%d%s", u.Code, u.Numerator, u.Denominator, measureText(u.Measures)))
 	}
 	return strings.Join(parts, "; ")
+}
+
+// materialUnitText is a material's base unit with its measures.
+type materialUnitText struct {
+	code     string
+	measures materials.Measures
+}
+
+// measureText is a unit's measures as a difference shows them, in
+// brackets after the unit; nothing when it has none.
+func measureText(m materials.Measures) string {
+	if m.IsZero() {
+		return ""
+	}
+	var out []string
+	for _, f := range [][2]string{{"GTIN", m.GTIN}, {"gross", m.GrossWeight}, {"net", m.NetWeight}, {"", m.WeightUnit}, {"volume", m.Volume},
+		{"", m.VolumeUnit}, {"length", m.Length}, {"width", m.Width}, {"height", m.Height}, {"", m.DimensionUnit}} {
+		if f[1] != "" {
+			out = append(out, strings.TrimSpace(f[0]+" "+f[1]))
+		}
+	}
+	return " [" + strings.Join(out, " ") + "]"
 }
 
 // sapMaterialText is SAP's material with its plants of the company, ok
@@ -164,7 +188,8 @@ func sapMaterialText(m sapMaterial, company map[string]bool) (string, bool) {
 		}
 	}
 	descriptions := append([]materials.Description{{Language: m.language, Text: m.description}}, m.descriptions...)
-	return materialText(m.mtype, m.group, m.baseUnit, materials.Active, descriptions, plants, m.units), len(plants) > 0
+	return materialText(m.mtype, m.group, materialUnitText{m.baseUnit, m.baseMeasures}, materials.Active, descriptions, plants, m.units),
+		len(plants) > 0
 }
 
 // materialText is the platform's material with its plants of the legal
@@ -183,7 +208,8 @@ func (st *materialStates) materialText(m materials.Material, le uuid.UUID) (stri
 	}
 	units := make([]materials.UnitInput, len(m.Units))
 	for i, u := range m.Units {
-		units[i] = materials.UnitInput{Code: u.Code, Numerator: u.Numerator, Denominator: u.Denominator}
+		units[i] = materials.UnitInput{Code: u.Code, Numerator: u.Numerator, Denominator: u.Denominator, Measures: u.Measures}
 	}
-	return materialText(m.Type, m.Group, m.BaseUnit, m.Status, m.AllDescriptions(), plants, units), len(plants) > 0
+	return materialText(m.Type, m.Group, materialUnitText{m.BaseUnit, m.BaseMeasures}, m.Status, m.AllDescriptions(), plants, units),
+		len(plants) > 0
 }

@@ -81,12 +81,13 @@ type sapLocation struct{ lgort, name string }
 
 // sapMaterial is a material the load creates: its SAP number, its
 // platform type, group, base unit and default description with its
-// language, its further descriptions by language, its alternative units
-// in code order and its plants in plant order, each with its storage
-// locations in code order.
+// language, its further descriptions by language, its base unit's
+// measures, its alternative units with theirs in code order and its
+// plants in plant order, each with its storage locations in code order.
 type sapMaterial struct {
 	number, mtype, group, baseUnit, description, language string
 	descriptions                                          []materials.Description
+	baseMeasures                                          materials.Measures
 	units                                                 []materials.UnitInput
 	plants                                                []sapMaterialPlant
 }
@@ -96,17 +97,18 @@ type sapMaterialPlant struct {
 	locations []string
 }
 
-// knownUnits reads the platform's units of measure (ref.unit_of_measure),
-// which a material's base and alternative units must be.
-func knownUnits(ctx context.Context, tx pgx.Tx) (map[string]bool, error) {
-	rows, _ := tx.Query(ctx, `SELECT code FROM ref.unit_of_measure`)
-	codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
+// knownUnits reads the platform's units of measure (ref.unit_of_measure)
+// with their kinds (mass, volume, length, …), which a material's base and
+// alternative units, and its measures' units, must be.
+func knownUnits(ctx context.Context, tx pgx.Tx) (map[string]string, error) {
+	rows, _ := tx.Query(ctx, `SELECT code, dimension FROM ref.unit_of_measure`)
+	out := map[string]string{}
+	var code, dimension string
+	if _, err := pgx.ForEachRow(rows, []any{&code, &dimension}, func() error {
+		out[code] = dimension
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("integration: read the units of measure: %w", err)
-	}
-	out := make(map[string]bool, len(codes))
-	for _, c := range codes {
-		out[c] = true
 	}
 	return out, nil
 }
@@ -168,7 +170,7 @@ func orgUnitIssues(table, key, code, name, what string, add func(table, key, for
 // materialPlan reads the extract's materials against its plants: the
 // materials the load creates, in number order, and what it finds.
 type materialPlan struct {
-	units     map[string]bool // the platform's units of measure
+	units     map[string]string // the platform's units of measure, with their kinds
 	plants    map[string]sapPlant
 	texts     map[string][]sapText
 	marm      map[string][]sap.MARM
@@ -187,7 +189,7 @@ func (mp *materialPlan) add(sev, table, key, format string, args ...any) {
 // location the extract does not have, and warnings for a material flagged
 // for deletion, which is not migrated, and for one held back with its
 // reasons (heldBack).
-func materialsOf(e *sap.Extract, units map[string]bool, plants []sapPlant) ([]sapMaterial, []Issue) {
+func materialsOf(e *sap.Extract, units map[string]string, plants []sapPlant) ([]sapMaterial, []Issue) {
 	mp := &materialPlan{units: units, plants: map[string]sapPlant{}, texts: map[string][]sapText{}, marm: map[string][]sap.MARM{},
 		marc: map[string][]sap.MARC{}, mard: map[string][]sap.MARD{}}
 	for _, p := range plants {
@@ -217,6 +219,7 @@ func materialsOf(e *sap.Extract, units map[string]bool, plants []sapPlant) ([]sa
 			mp.material(r)
 		}
 	}
+	mp.sharedGTINs()
 	return mp.materials, mp.issues
 }
 
@@ -289,6 +292,7 @@ func (mp *materialPlan) material(r sap.MARA) {
 		mp.add(SevWarning, "MARA", r.MATNR, "held back: %s", strings.Join(reasons, "; "))
 		return
 	}
+	m.baseMeasures = mp.baseMeasures(r)
 	mp.materials = append(mp.materials, m)
 }
 
@@ -359,7 +363,7 @@ func (mp *materialPlan) materialPlants(matnr string) []sapMaterialPlant {
 // numbers from 1 to 1,000,000 (ADR-0082 §5: exact, never rounded).
 func (mp *materialPlan) materialUnits(r sap.MARA) ([]materials.UnitInput, []string) {
 	var reasons []string
-	if !mp.units[r.MEINS] {
+	if mp.units[r.MEINS] == "" {
 		reasons = append(reasons, fmt.Sprintf("base unit %q is no unit of measure of the platform", r.MEINS))
 	}
 	rows := slices.SortedFunc(slices.Values(mp.marm[r.MATNR]), func(a, b sap.MARM) int { return cmp.Compare(a.MEINH, b.MEINH) })
@@ -374,12 +378,14 @@ func (mp *materialPlan) materialUnits(r sap.MARA) ([]materials.UnitInput, []stri
 			if num != 1 || den != 1 {
 				reasons = append(reasons, fmt.Sprintf("the base unit's own conversion is %s/%s, not 1/1", u.UMREZ, u.UMREN))
 			}
-		case !mp.units[u.MEINH]:
+		case mp.units[u.MEINH] == "":
 			reasons = append(reasons, fmt.Sprintf("alternative unit %q is no unit of measure of the platform", u.MEINH))
 		case !numOK || !denOK:
 			reasons = append(reasons, fmt.Sprintf("the conversion of %s, %s/%s base units, is not whole numbers from 1 to 1,000,000", u.MEINH, u.UMREZ, u.UMREN))
 		default:
-			out = append(out, materials.UnitInput{Code: u.MEINH, Numerator: num, Denominator: den})
+			out = append(out, materials.UnitInput{Code: u.MEINH, Numerator: num, Denominator: den, Measures: mp.measures("MARM", r.MATNR, u.MEINH, unitFields{
+				gross: u.BRGEW, weightUnit: u.GEWEI, volume: u.VOLUM, volumeUnit: u.VOLEH, length: u.LAENG, width: u.BREIT, height: u.HOEHE,
+				dimensionUnit: u.MEABM, ean: u.EAN11})})
 		}
 	}
 	return out, reasons

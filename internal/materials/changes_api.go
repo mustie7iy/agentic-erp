@@ -90,8 +90,12 @@ func changeAPI(c MaterialChange, refs changeRefs) gen.MaterialChange {
 	if r.Units != nil {
 		req.AlternativeUnits = make([]gen.MaterialUnitInput, len(*r.Units))
 		for i, u := range *r.Units {
-			req.AlternativeUnits[i] = gen.MaterialUnitInput{Unit: u.Code, Numerator: u.Numerator, Denominator: u.Denominator}
+			req.AlternativeUnits[i] = gen.MaterialUnitInput{Unit: u.Code, Numerator: u.Numerator, Denominator: u.Denominator, Measures: measuresOut(u.Measures)}
 		}
+	}
+	if r.BaseMeasures != nil {
+		req.BaseUnitMeasures = measuresOut(*r.BaseMeasures)
+		req.BaseUnitMeasures.Set = true // an empty object: the change removes them
 	}
 	req.DescriptionLanguage = apitypes.OptString(r.DescriptionLanguage)
 	if r.Descriptions != nil {

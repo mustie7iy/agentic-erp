@@ -198698,6 +198698,10 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 		e.Str(s.BaseUnitName)
 	}
 	{
+		e.FieldStart("base_unit_measures")
+		s.BaseUnitMeasures.Encode(e)
+	}
+	{
 		e.FieldStart("material_type")
 		e.Str(s.MaterialType)
 	}
@@ -198747,7 +198751,7 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterial = [24]string{
+var jsonFieldsNameOfMaterial = [25]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -198763,15 +198767,16 @@ var jsonFieldsNameOfMaterial = [24]string{
 	12: "descriptions",
 	13: "base_unit",
 	14: "base_unit_name",
-	15: "material_type",
-	16: "material_group",
-	17: "status",
-	18: "batch_managed",
-	19: "serial_managed",
-	20: "pending_change_id",
-	21: "pending_change_number",
-	22: "plants",
-	23: "alternative_units",
+	15: "base_unit_measures",
+	16: "material_type",
+	17: "material_group",
+	18: "status",
+	19: "batch_managed",
+	20: "serial_managed",
+	21: "pending_change_id",
+	22: "pending_change_number",
+	23: "plants",
+	24: "alternative_units",
 }
 
 // Decode decodes Material from json.
@@ -198779,7 +198784,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode Material to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -198967,8 +198972,18 @@ func (s *Material) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"base_unit_name\"")
 			}
-		case "material_type":
+		case "base_unit_measures":
 			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				if err := s.BaseUnitMeasures.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"base_unit_measures\"")
+			}
+		case "material_type":
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialType = string(v)
@@ -198980,7 +198995,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_type\"")
 			}
 		case "material_group":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialGroup = string(v)
@@ -198992,7 +199007,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_group\"")
 			}
 		case "status":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -199004,7 +199019,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "batch_managed":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Bool()
 				s.BatchManaged = bool(v)
@@ -199016,7 +199031,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"batch_managed\"")
 			}
 		case "serial_managed":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Bool()
 				s.SerialManaged = bool(v)
@@ -199048,7 +199063,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"pending_change_number\"")
 			}
 		case "plants":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				s.Plants = make([]MaterialPlant, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -199066,7 +199081,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plants\"")
 			}
 		case "alternative_units":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				s.AlternativeUnits = make([]MaterialUnit, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -199092,10 +199107,11 @@ func (s *Material) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11011111,
 		0b11111111,
-		0b11001111,
+		0b10011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -199871,6 +199887,12 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.BaseUnitMeasures.Set {
+			e.FieldStart("base_unit_measures")
+			s.BaseUnitMeasures.Encode(e)
+		}
+	}
+	{
 		if s.MaterialType.Set {
 			e.FieldStart("material_type")
 			s.MaterialType.Encode(e)
@@ -199922,18 +199944,19 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialChangeRequested = [11]string{
+var jsonFieldsNameOfMaterialChangeRequested = [12]string{
 	0:  "description",
 	1:  "description_language",
 	2:  "descriptions",
 	3:  "base_unit",
-	4:  "material_type",
-	5:  "batch_managed",
-	6:  "serial_managed",
-	7:  "material_group",
-	8:  "status",
-	9:  "plants",
-	10: "alternative_units",
+	4:  "base_unit_measures",
+	5:  "material_type",
+	6:  "batch_managed",
+	7:  "serial_managed",
+	8:  "material_group",
+	9:  "status",
+	10: "plants",
+	11: "alternative_units",
 }
 
 // Decode decodes MaterialChangeRequested from json.
@@ -199990,6 +200013,16 @@ func (s *MaterialChangeRequested) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"base_unit\"")
+			}
+		case "base_unit_measures":
+			if err := func() error {
+				s.BaseUnitMeasures.Reset()
+				if err := s.BaseUnitMeasures.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"base_unit_measures\"")
 			}
 		case "material_type":
 			if err := func() error {
@@ -200137,6 +200170,12 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 		e.Str(s.BaseUnit)
 	}
 	{
+		if s.BaseUnitMeasures.Set {
+			e.FieldStart("base_unit_measures")
+			s.BaseUnitMeasures.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("material_type")
 		e.Str(s.MaterialType)
 	}
@@ -200190,20 +200229,21 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialCreate = [13]string{
+var jsonFieldsNameOfMaterialCreate = [14]string{
 	0:  "legal_entity_id",
 	1:  "description",
 	2:  "description_language",
 	3:  "descriptions",
 	4:  "base_unit",
-	5:  "material_type",
-	6:  "material_group",
-	7:  "plants",
-	8:  "alternative_units",
-	9:  "reason",
-	10: "confirm_duplicate",
-	11: "batch_managed",
-	12: "serial_managed",
+	5:  "base_unit_measures",
+	6:  "material_type",
+	7:  "material_group",
+	8:  "plants",
+	9:  "alternative_units",
+	10: "reason",
+	11: "confirm_duplicate",
+	12: "batch_managed",
+	13: "serial_managed",
 }
 
 // Decode decodes MaterialCreate from json.
@@ -200279,8 +200319,18 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"base_unit\"")
 			}
+		case "base_unit_measures":
+			if err := func() error {
+				s.BaseUnitMeasures.Reset()
+				if err := s.BaseUnitMeasures.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"base_unit_measures\"")
+			}
 		case "material_type":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialType = string(v)
@@ -200292,7 +200342,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_type\"")
 			}
 		case "material_group":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialGroup = string(v)
@@ -200387,7 +200437,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b01110011,
+		0b11010011,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -202075,6 +202125,222 @@ func (s *MaterialDuplicate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *MaterialDuplicate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialMeasures) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialMeasures) encodeFields(e *jx.Encoder) {
+	{
+		if s.Gtin.Set {
+			e.FieldStart("gtin")
+			s.Gtin.Encode(e)
+		}
+	}
+	{
+		if s.GrossWeight.Set {
+			e.FieldStart("gross_weight")
+			s.GrossWeight.Encode(e)
+		}
+	}
+	{
+		if s.NetWeight.Set {
+			e.FieldStart("net_weight")
+			s.NetWeight.Encode(e)
+		}
+	}
+	{
+		if s.WeightUnit.Set {
+			e.FieldStart("weight_unit")
+			s.WeightUnit.Encode(e)
+		}
+	}
+	{
+		if s.Volume.Set {
+			e.FieldStart("volume")
+			s.Volume.Encode(e)
+		}
+	}
+	{
+		if s.VolumeUnit.Set {
+			e.FieldStart("volume_unit")
+			s.VolumeUnit.Encode(e)
+		}
+	}
+	{
+		if s.Length.Set {
+			e.FieldStart("length")
+			s.Length.Encode(e)
+		}
+	}
+	{
+		if s.Width.Set {
+			e.FieldStart("width")
+			s.Width.Encode(e)
+		}
+	}
+	{
+		if s.Height.Set {
+			e.FieldStart("height")
+			s.Height.Encode(e)
+		}
+	}
+	{
+		if s.DimensionUnit.Set {
+			e.FieldStart("dimension_unit")
+			s.DimensionUnit.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfMaterialMeasures = [10]string{
+	0: "gtin",
+	1: "gross_weight",
+	2: "net_weight",
+	3: "weight_unit",
+	4: "volume",
+	5: "volume_unit",
+	6: "length",
+	7: "width",
+	8: "height",
+	9: "dimension_unit",
+}
+
+// Decode decodes MaterialMeasures from json.
+func (s *MaterialMeasures) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialMeasures to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "gtin":
+			if err := func() error {
+				s.Gtin.Reset()
+				if err := s.Gtin.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gtin\"")
+			}
+		case "gross_weight":
+			if err := func() error {
+				s.GrossWeight.Reset()
+				if err := s.GrossWeight.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gross_weight\"")
+			}
+		case "net_weight":
+			if err := func() error {
+				s.NetWeight.Reset()
+				if err := s.NetWeight.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_weight\"")
+			}
+		case "weight_unit":
+			if err := func() error {
+				s.WeightUnit.Reset()
+				if err := s.WeightUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"weight_unit\"")
+			}
+		case "volume":
+			if err := func() error {
+				s.Volume.Reset()
+				if err := s.Volume.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"volume\"")
+			}
+		case "volume_unit":
+			if err := func() error {
+				s.VolumeUnit.Reset()
+				if err := s.VolumeUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"volume_unit\"")
+			}
+		case "length":
+			if err := func() error {
+				s.Length.Reset()
+				if err := s.Length.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"length\"")
+			}
+		case "width":
+			if err := func() error {
+				s.Width.Reset()
+				if err := s.Width.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"width\"")
+			}
+		case "height":
+			if err := func() error {
+				s.Height.Reset()
+				if err := s.Height.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"height\"")
+			}
+		case "dimension_unit":
+			if err := func() error {
+				s.DimensionUnit.Reset()
+				if err := s.DimensionUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"dimension_unit\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialMeasures")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialMeasures) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialMeasures) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -203907,13 +204173,18 @@ func (s *MaterialUnit) encodeFields(e *jx.Encoder) {
 		e.FieldStart("denominator")
 		e.Int32(s.Denominator)
 	}
+	{
+		e.FieldStart("measures")
+		s.Measures.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfMaterialUnit = [4]string{
+var jsonFieldsNameOfMaterialUnit = [5]string{
 	0: "unit",
 	1: "unit_name",
 	2: "numerator",
 	3: "denominator",
+	4: "measures",
 }
 
 // Decode decodes MaterialUnit from json.
@@ -203973,6 +204244,16 @@ func (s *MaterialUnit) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"denominator\"")
 			}
+		case "measures":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.Measures.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"measures\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -203983,7 +204264,7 @@ func (s *MaterialUnit) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -204050,12 +204331,19 @@ func (s *MaterialUnitInput) encodeFields(e *jx.Encoder) {
 		e.FieldStart("denominator")
 		e.Int32(s.Denominator)
 	}
+	{
+		if s.Measures.Set {
+			e.FieldStart("measures")
+			s.Measures.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialUnitInput = [3]string{
+var jsonFieldsNameOfMaterialUnitInput = [4]string{
 	0: "unit",
 	1: "numerator",
 	2: "denominator",
+	3: "measures",
 }
 
 // Decode decodes MaterialUnitInput from json.
@@ -204102,6 +204390,16 @@ func (s *MaterialUnitInput) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"denominator\"")
+			}
+		case "measures":
+			if err := func() error {
+				s.Measures.Reset()
+				if err := s.Measures.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"measures\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -204155,6 +204453,273 @@ func (s *MaterialUnitInput) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *MaterialUnitInput) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialUnitMeasures) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialUnitMeasures) encodeFields(e *jx.Encoder) {
+	{
+		if s.Gtin.Set {
+			e.FieldStart("gtin")
+			s.Gtin.Encode(e)
+		}
+	}
+	{
+		if s.GrossWeight.Set {
+			e.FieldStart("gross_weight")
+			s.GrossWeight.Encode(e)
+		}
+	}
+	{
+		if s.NetWeight.Set {
+			e.FieldStart("net_weight")
+			s.NetWeight.Encode(e)
+		}
+	}
+	{
+		if s.WeightUnit.Set {
+			e.FieldStart("weight_unit")
+			s.WeightUnit.Encode(e)
+		}
+	}
+	{
+		if s.WeightUnitName.Set {
+			e.FieldStart("weight_unit_name")
+			s.WeightUnitName.Encode(e)
+		}
+	}
+	{
+		if s.Volume.Set {
+			e.FieldStart("volume")
+			s.Volume.Encode(e)
+		}
+	}
+	{
+		if s.VolumeUnit.Set {
+			e.FieldStart("volume_unit")
+			s.VolumeUnit.Encode(e)
+		}
+	}
+	{
+		if s.VolumeUnitName.Set {
+			e.FieldStart("volume_unit_name")
+			s.VolumeUnitName.Encode(e)
+		}
+	}
+	{
+		if s.Length.Set {
+			e.FieldStart("length")
+			s.Length.Encode(e)
+		}
+	}
+	{
+		if s.Width.Set {
+			e.FieldStart("width")
+			s.Width.Encode(e)
+		}
+	}
+	{
+		if s.Height.Set {
+			e.FieldStart("height")
+			s.Height.Encode(e)
+		}
+	}
+	{
+		if s.DimensionUnit.Set {
+			e.FieldStart("dimension_unit")
+			s.DimensionUnit.Encode(e)
+		}
+	}
+	{
+		if s.DimensionUnitName.Set {
+			e.FieldStart("dimension_unit_name")
+			s.DimensionUnitName.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfMaterialUnitMeasures = [13]string{
+	0:  "gtin",
+	1:  "gross_weight",
+	2:  "net_weight",
+	3:  "weight_unit",
+	4:  "weight_unit_name",
+	5:  "volume",
+	6:  "volume_unit",
+	7:  "volume_unit_name",
+	8:  "length",
+	9:  "width",
+	10: "height",
+	11: "dimension_unit",
+	12: "dimension_unit_name",
+}
+
+// Decode decodes MaterialUnitMeasures from json.
+func (s *MaterialUnitMeasures) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialUnitMeasures to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "gtin":
+			if err := func() error {
+				s.Gtin.Reset()
+				if err := s.Gtin.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gtin\"")
+			}
+		case "gross_weight":
+			if err := func() error {
+				s.GrossWeight.Reset()
+				if err := s.GrossWeight.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gross_weight\"")
+			}
+		case "net_weight":
+			if err := func() error {
+				s.NetWeight.Reset()
+				if err := s.NetWeight.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_weight\"")
+			}
+		case "weight_unit":
+			if err := func() error {
+				s.WeightUnit.Reset()
+				if err := s.WeightUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"weight_unit\"")
+			}
+		case "weight_unit_name":
+			if err := func() error {
+				s.WeightUnitName.Reset()
+				if err := s.WeightUnitName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"weight_unit_name\"")
+			}
+		case "volume":
+			if err := func() error {
+				s.Volume.Reset()
+				if err := s.Volume.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"volume\"")
+			}
+		case "volume_unit":
+			if err := func() error {
+				s.VolumeUnit.Reset()
+				if err := s.VolumeUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"volume_unit\"")
+			}
+		case "volume_unit_name":
+			if err := func() error {
+				s.VolumeUnitName.Reset()
+				if err := s.VolumeUnitName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"volume_unit_name\"")
+			}
+		case "length":
+			if err := func() error {
+				s.Length.Reset()
+				if err := s.Length.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"length\"")
+			}
+		case "width":
+			if err := func() error {
+				s.Width.Reset()
+				if err := s.Width.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"width\"")
+			}
+		case "height":
+			if err := func() error {
+				s.Height.Reset()
+				if err := s.Height.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"height\"")
+			}
+		case "dimension_unit":
+			if err := func() error {
+				s.DimensionUnit.Reset()
+				if err := s.DimensionUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"dimension_unit\"")
+			}
+		case "dimension_unit_name":
+			if err := func() error {
+				s.DimensionUnitName.Reset()
+				if err := s.DimensionUnitName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"dimension_unit_name\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialUnitMeasures")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialUnitMeasures) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialUnitMeasures) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -204217,6 +204782,12 @@ func (s *MaterialUpdate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.BaseUnitMeasures.Set {
+			e.FieldStart("base_unit_measures")
+			s.BaseUnitMeasures.Encode(e)
+		}
+	}
+	{
 		if s.Reason.Set {
 			e.FieldStart("reason")
 			s.Reason.Encode(e)
@@ -204224,14 +204795,15 @@ func (s *MaterialUpdate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialUpdate = [7]string{
+var jsonFieldsNameOfMaterialUpdate = [8]string{
 	0: "description",
 	1: "descriptions",
 	2: "material_group",
 	3: "status",
 	4: "plants",
 	5: "alternative_units",
-	6: "reason",
+	6: "base_unit_measures",
+	7: "reason",
 }
 
 // Decode decodes MaterialUpdate from json.
@@ -204322,6 +204894,16 @@ func (s *MaterialUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"alternative_units\"")
+			}
+		case "base_unit_measures":
+			if err := func() error {
+				s.BaseUnitMeasures.Reset()
+				if err := s.BaseUnitMeasures.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"base_unit_measures\"")
 			}
 		case "reason":
 			if err := func() error {
@@ -219294,6 +219876,39 @@ func (s OptMatchDecision) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptMatchDecision) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes MaterialMeasures as json.
+func (o OptMaterialMeasures) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes MaterialMeasures from json.
+func (o *OptMaterialMeasures) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptMaterialMeasures to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptMaterialMeasures) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptMaterialMeasures) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

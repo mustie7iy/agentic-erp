@@ -5223,8 +5223,9 @@ components:
         description with its language and its descriptions in other
         languages (S1a2), base unit, type, group and status, its plants with
         their companies by id and code and their storage locations by id, and its
-        alternative units with their conversions, whatever companies the
-        person who changed it may act in.
+        alternative units with their conversions, and the dimensions,
+        weights and GTIN of its base unit and of each alternative unit
+        (S1a3), whatever companies the person who changed it may act in.
         `GET /v1/materials/{id}` returns the material at `version` or
         later. Not offered to webhooks until a consumer asks. Subject is
         the material id.
@@ -5238,7 +5239,7 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001301, source: /erp/eu-1/materials, type: com.example.erp.materials.material_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, description_language: en, descriptions: [{language: ar, description: دعامة مشغولة M10}], base_unit: EA, material_type: trading_good, material_group: BRACKETS, status: pending, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}], change: created, version: 1}
+          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, description_language: en, descriptions: [{language: ar, description: دعامة مشغولة M10}], base_unit: EA, base_unit_measures: {gtin: '036000291452', gross_weight: '0.12', weight_unit: KG}, material_type: trading_good, material_group: BRACKETS, status: pending, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1, measures: {gtin: '10036000291459', gross_weight: '2.5', weight_unit: KG}}], change: created, version: 1}
     MaterialChangeChanged:
       name: MaterialChangeChanged
       title: Material change changed
@@ -6967,6 +6968,7 @@ components:
               language: {type: string, description: 'The language, a BCP 47 tag.'}
               description: {type: string, description: What the material is, in that language.}
         base_unit: {type: string, description: The base unit of measure.}
+        base_unit_measures: {$ref: '#/components/schemas/MaterialUnitMeasuresV1', description: "One of the base unit's dimensions, weights and GTIN (S1a3); empty when it has none. Not required (ADR-0041)."}
         material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
         material_group: {type: string, description: The material group.}
         batch_managed: {type: boolean, description: 'Whether the material is managed in batches (S2f); it does not change. Not required (ADR-0041).'}
@@ -6995,8 +6997,23 @@ components:
               unit: {type: string, description: The alternative unit's code.}
               numerator: {type: integer, description: Base units per `denominator` of the alternative unit.}
               denominator: {type: integer, description: Alternative units the `numerator` base units are.}
+              measures: {$ref: '#/components/schemas/MaterialUnitMeasuresV1', description: "One of the unit's dimensions, weights and GTIN (S1a3); empty when it has none. Not required (ADR-0041)."}
         change: {type: string, description: 'What happened. Open enum: created, activated, changed, blocked, unblocked.'}
         version: {type: integer, description: "The material's version after the change."}
+    MaterialUnitMeasuresV1:
+      type: object
+      description: "A unit of measure's dimensions, weights and GTIN (ADR-0082 As built S1a3), each absent when unknown: decimal strings without trailing zeros in the unit beside them, unit codes of `ref.unit_of_measure`."
+      properties:
+        gtin: {type: string, description: "The unit's GTIN (8, 12, 13 or 14 digits), as given."}
+        gross_weight: {type: string, description: What one of the unit weighs with its packaging, in `weight_unit`.}
+        net_weight: {type: string, description: What it weighs without its packaging, in `weight_unit`.}
+        weight_unit: {type: string, description: The unit of mass of the weights.}
+        volume: {type: string, description: The space one of the unit takes, in `volume_unit`.}
+        volume_unit: {type: string, description: The unit of volume.}
+        length: {type: string, description: Its length, in `dimension_unit`.}
+        width: {type: string, description: Its width, in `dimension_unit`.}
+        height: {type: string, description: Its height, in `dimension_unit`.}
+        dimension_unit: {type: string, description: The unit of length of the length, width and height.}
     MaterialChangeChangedV1:
       type: object
       required: [material_change_id, number, kind, material_id, material_number, status, status_before, workflow_request_id, version]
