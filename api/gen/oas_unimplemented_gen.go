@@ -5715,24 +5715,27 @@ func (UnimplementedHandler) GetLegalEntityToday(ctx context.Context, params GetL
 // direction; a tax line follows the base lines of its tax code in proportion to their amounts, and a
 // self-assessed pair (`self_output`/`self_input` of a reverse charge or import code), which moves no
 // cash, is left out before the split. A down payment request, and a run's payment of one, has no lines
-// and takes its supplier's planning group's item or the default. Each split rounds once to minor units
-// by largest remainder (ties to the item named first), so an item's shares add up to the flow. Each
-// row gives the item's code, name, parent and level, its flows and its descendants' per bucket
-// (`buckets`, in the forecast's buckets' order), over the horizon (`total`) and after the last bucket
-// (`beyond`), counted as the buckets' totals count them, so the top rows add up to each bucket's
-// `total`, and the item's own flows by source and certainty; a row without `liquidity_item` holds what
-// no rule assigns and no default covers. `min_certainty` cuts the less certain flows (actual,
-// confirmed, expected, planned; default planned, every flow). T53e4 adds two sources, the opening
-// position, one grain over a range, conversion and drill-down. `in_transit` (`confirmed`): the
-// payments released from the company's active house banks whose line on the bank's clearing account is
-// still open and that no statement line up to the bank's opening statement matches, as in the cash
-// position (`getCashPosition`), on their run date plus the bank's value days moved to the next working
-// day, `late` before the read date. `memo`: the `active` memo records of the legal entity, with or
-// without a house bank, at their own certainty and liquidity item, each on its value date moved to the
-// next working day (`late` before the read date) and not after it expires; a series' occurrences up to
-// the last bucket's end, each once (an override replacing its occurrence), a one-off record also after
-// the last bucket (`beyond`). Each currency gives its `opening`, the cash position's opening of the
-// read date: the sum of its active house banks' latest statement closing balances before the read date
+// and takes its supplier's planning group's item or the default. A receipt from a customer
+// (`receivable`, `receivable_blocked`, `sales_order`, T53l1) has no lines and takes the inflows'
+// default (`cash.derivation.defaults.inflow`), whatever its document's revenue accounts, as the
+// actuals classify a statement line matched as incoming. Each split rounds once to minor units by
+// largest remainder (ties to the item named first), so an item's shares add up to the flow. Each row
+// gives the item's code, name, parent and level, its flows and its descendants' per bucket (`buckets`,
+// in the forecast's buckets' order), over the horizon (`total`) and after the last bucket (`beyond`),
+// counted as the buckets' totals count them, so the top rows add up to each bucket's `total`, and the
+// item's own flows by source and certainty; a row without `liquidity_item` holds what no rule assigns
+// and no default covers. `min_certainty` cuts the less certain flows (actual, confirmed, expected,
+// planned; default planned, every flow). T53e4 adds two sources, the opening position, one grain over
+// a range, conversion and drill-down. `in_transit` (`confirmed`): the payments released from the
+// company's active house banks whose line on the bank's clearing account is still open and that no
+// statement line up to the bank's opening statement matches, as in the cash position
+// (`getCashPosition`), on their run date plus the bank's value days moved to the next working day,
+// `late` before the read date. `memo`: the `active` memo records of the legal entity, with or without
+// a house bank, at their own certainty and liquidity item, each on its value date moved to the next
+// working day (`late` before the read date) and not after it expires; a series' occurrences up to the
+// last bucket's end, each once (an override replacing its occurrence), a one-off record also after the
+// last bucket (`beyond`). Each currency gives its `opening`, the cash position's opening of the read
+// date: the sum of its active house banks' latest statement closing balances before the read date
 // (zero without a bank; a currency with a bank and no flow is listed too), and each bucket its
 // `closing`, the opening plus the bucket's `total` and those of every bucket before it. `grain` with
 // `to` asks for one grain over a range instead of the company's buckets: periods of the grain from the
