@@ -369,6 +369,10 @@ type CreateCustomerSalesDataRes interface {
 	createCustomerSalesDataRes()
 }
 
+type CreateCycleCountAbcApplicationRes interface {
+	createCycleCountAbcApplicationRes()
+}
+
 type CreateCycleCountIndicatorRes interface {
 	createCycleCountIndicatorRes()
 }
@@ -975,6 +979,14 @@ type GetCustomerInvoiceRes interface {
 
 type GetCustomerSalesDataRes interface {
 	getCustomerSalesDataRes()
+}
+
+type GetCycleCountAbcAnalysisRes interface {
+	getCycleCountAbcAnalysisRes()
+}
+
+type GetCycleCountAbcApplicationRes interface {
+	getCycleCountAbcApplicationRes()
 }
 
 type GetCycleCountIndicatorRes interface {
@@ -1655,6 +1667,10 @@ type ListCustomerInvoicesRes interface {
 
 type ListCustomerSalesDataRes interface {
 	listCustomerSalesDataRes()
+}
+
+type ListCycleCountAbcApplicationsRes interface {
+	listCycleCountAbcApplicationsRes()
 }
 
 type ListCycleCountIndicatorsRes interface {
@@ -2407,6 +2423,10 @@ type ReleaseSupplierInvoiceRes interface {
 
 type RemoveControlLinkRes interface {
 	removeControlLinkRes()
+}
+
+type RemoveCycleCountMaterialRes interface {
+	removeCycleCountMaterialRes()
 }
 
 type RemoveHierarchyNodeRes interface {

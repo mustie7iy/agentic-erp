@@ -306,6 +306,11 @@ func TestPlanIndicators(t *testing.T) {
 	if !strings.Contains(model.Requests[0], want) {
 		t.Errorf("prompt: got %s, want %q", model.Requests[0], want)
 	}
+	// An indicator taken off (S2c3) is not read: the material falls back to
+	// its class's interval.
+	if got, want := a.calls, "GET /v1/cycle-count-materials?page_size=500&plant_id="+pl+"&status=active"; !slices.Contains(got, want) {
+		t.Errorf("calls: got %v, want %s among them", got, want)
+	}
 }
 
 // TestPlanMaxLines: a run lists the first MaxLines due materials and says

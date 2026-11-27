@@ -20005,6 +20005,219 @@ func (s *Server) handleCreateCustomerSalesDataRequest(args [0]string, argsEscape
 	}
 }
 
+// handleCreateCycleCountAbcApplicationRequest handles createCycleCountAbcApplication operation.
+//
+// Applies the ABC analysis `getCycleCountAbcAnalysis` previewed for the plant and window (ADR-0082 As
+// built S2c3; SAP MIBC's update, from memory): the analysis is computed again, and when it is the one
+// previewed (its `preview_token`), each line's change is made, and nothing else: a material given its
+// class's indicator at the plant, or the indicator it has changed to it, each audited as
+// `createCycleCountMaterial` and `updateCycleCountMaterial` are, naming the analysis. When anything
+// the preview showed has changed since (a consumption, a material's indicator, its version, the
+// materials listed or the shares), nothing is applied: 409 `inventory.abc_preview_stale`, and a new
+// preview shows the analysis as it is now. An apply never takes an indicator off. Applies of one plant
+// wait for each other. The application is kept, never changed: the analysis's plant, window, shares,
+// totals and token, and each change made with the material's indicator after it. The refusals of
+// `getCycleCountAbcAnalysis` apply. A retry with the same `Idempotency-Key` answers the application
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-abc-applications
+func (s *Server) handleCreateCycleCountAbcApplicationRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCycleCountAbcApplication"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/cycle-count-abc-applications"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateCycleCountAbcApplicationOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateCycleCountAbcApplicationOperation,
+			ID:   "createCycleCountAbcApplication",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateCycleCountAbcApplicationOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateCycleCountAbcApplicationParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateCycleCountAbcApplicationRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateCycleCountAbcApplicationRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateCycleCountAbcApplicationOperation,
+			OperationSummary: "Apply an ABC analysis as cycle counting indicators",
+			OperationID:      "createCycleCountAbcApplication",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *CycleCountAbcApply
+			Params   = CreateCycleCountAbcApplicationParams
+			Response = CreateCycleCountAbcApplicationRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateCycleCountAbcApplicationParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateCycleCountAbcApplication(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateCycleCountAbcApplication(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateCycleCountAbcApplicationResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateCycleCountIndicatorRequest handles createCycleCountIndicator operation.
 //
 // Creates a cycle counting indicator of a plant (ADR-0082 As built S2c2; SAP T159C, from memory): a
@@ -20222,10 +20435,10 @@ func (s *Server) handleCreateCycleCountIndicatorRequest(args [0]string, argsEsca
 // `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`), kept in stock (422
 // `inventory.material_not_stocked`), extended to the plant (422 `inventory.plant_not_extended`),
 // neither batch-managed (422 `inventory.batch_not_supported`) nor serial-managed (422
-// `inventory.serial_not_supported`), which counts do not take yet. A material has one indicator at a
-// plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it). Audited.
-// A retry with the same `Idempotency-Key` answers the material's indicator created. Human-only
-// (`x-agent: false`).
+// `inventory.serial_not_supported`), which counts do not take yet. A material has one active indicator
+// at a plant (409 `inventory.cycle_count_material_exists`; `updateCycleCountMaterial` changes it), and
+// may be given one again once it is taken off (`removeCycleCountMaterial`). Audited. A retry with the
+// same `Idempotency-Key` answers the material's indicator created. Human-only (`x-agent: false`).
 //
 // POST /v1/cycle-count-materials
 func (s *Server) handleCreateCycleCountMaterialRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -51713,6 +51926,409 @@ func (s *Server) handleGetCustomerSalesDataRequest(args [1]string, argsEscaped b
 	}
 
 	if err := encodeGetCustomerSalesDataResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetCycleCountAbcAnalysisRequest handles getCycleCountAbcAnalysis operation.
+//
+// The ABC analysis of a plant's materials for cycle counting (ADR-0082 As built S2c3; SAP MIBC, from
+// memory), computed on read from one database state and stored nowhere: each material's consumption
+// value at the plant from `from` to `to` (the posting dates of the material documents of movement
+// types `201`, `551` and `601` less their reversals `202`, `552` and `602`, in the company's currency;
+// a net return is none); in the order of that value, the greatest first (ties by material id), a
+// material is class A while the materials before it make up less than the company's
+// `cycle_count_abc_shares.a` percent of the plant's consumption value (default 80), B while less than
+// `a` + `b` percent (default 15 more), else C, as is one with none. The materials listed are those a
+// count document takes (`createCycleCountMaterial`'s rules) with stock at the plant now or consumption
+// in the window; the others' consumption is in `excluded_consumption`. Each line proposes the plant's
+// indicator of its class's code (A, B or C) and says what applying the analysis would do: give the
+// material that indicator (`create`), change the one it has (`change`) or nothing (`none`). The plant
+// has an indicator of each class code its lines need (422 `inventory.abc_indicator_missing`). The
+// window ends on or before the company's date today and spans at most 366 days (422
+// `inventory.abc_window_invalid`); at most 1,000 materials are listed (422
+// `inventory.abc_too_many_materials`). `preview_token` is what `createCycleCountAbcApplication`
+// applies. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`).
+//
+// GET /v1/cycle-count-abc-analysis
+func (s *Server) handleGetCycleCountAbcAnalysisRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCycleCountAbcAnalysis"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/cycle-count-abc-analysis"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetCycleCountAbcAnalysisOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetCycleCountAbcAnalysisOperation,
+			ID:   "getCycleCountAbcAnalysis",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetCycleCountAbcAnalysisOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetCycleCountAbcAnalysisParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetCycleCountAbcAnalysisRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetCycleCountAbcAnalysisOperation,
+			OperationSummary: "Preview the ABC analysis of a plant's materials",
+			OperationID:      "getCycleCountAbcAnalysis",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "plant_id",
+					In:   "query",
+				}: params.PlantID,
+				{
+					Name: "from",
+					In:   "query",
+				}: params.From,
+				{
+					Name: "to",
+					In:   "query",
+				}: params.To,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetCycleCountAbcAnalysisParams
+			Response = GetCycleCountAbcAnalysisRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetCycleCountAbcAnalysisParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetCycleCountAbcAnalysis(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetCycleCountAbcAnalysis(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetCycleCountAbcAnalysisResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetCycleCountAbcApplicationRequest handles getCycleCountAbcApplication operation.
+//
+// An ABC analysis applied at a plant (ADR-0082 As built S2c3): its plant and company by code, its
+// window, shares, consumption total and preview token, who applied it and when (by id and name as it
+// is now), and each change it made, its material by number and description, its consumption value and
+// class, the indicator given with the one it replaced, and the material's indicator after it. One of a
+// company the caller cannot act in is not found.
+//
+// GET /v1/cycle-count-abc-applications/{id}
+func (s *Server) handleGetCycleCountAbcApplicationRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCycleCountAbcApplication"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/cycle-count-abc-applications/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetCycleCountAbcApplicationOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetCycleCountAbcApplicationOperation,
+			ID:   "getCycleCountAbcApplication",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetCycleCountAbcApplicationOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetCycleCountAbcApplicationParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetCycleCountAbcApplicationRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetCycleCountAbcApplicationOperation,
+			OperationSummary: "Get an ABC analysis applied",
+			OperationID:      "getCycleCountAbcApplication",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetCycleCountAbcApplicationParams
+			Response = GetCycleCountAbcApplicationRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetCycleCountAbcApplicationParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetCycleCountAbcApplication(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetCycleCountAbcApplication(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetCycleCountAbcApplicationResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -86080,6 +86696,207 @@ func (s *Server) handleListCustomerSalesDataRequest(args [0]string, argsEscaped 
 	}
 }
 
+// handleListCycleCountAbcApplicationsRequest handles listCycleCountAbcApplications operation.
+//
+// The ABC analyses applied at the plants of the companies the caller may act in (ADR-0082 As built
+// S2c3), each as `getCycleCountAbcApplication` gives it, the latest first. Filtered by plant. Sortable
+// by: `created_at`.
+//
+// GET /v1/cycle-count-abc-applications
+func (s *Server) handleListCycleCountAbcApplicationsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCycleCountAbcApplications"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/cycle-count-abc-applications"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListCycleCountAbcApplicationsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListCycleCountAbcApplicationsOperation,
+			ID:   "listCycleCountAbcApplications",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListCycleCountAbcApplicationsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListCycleCountAbcApplicationsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListCycleCountAbcApplicationsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListCycleCountAbcApplicationsOperation,
+			OperationSummary: "List the ABC analyses applied",
+			OperationID:      "listCycleCountAbcApplications",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "plant_id",
+					In:   "query",
+				}: params.PlantID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListCycleCountAbcApplicationsParams
+			Response = ListCycleCountAbcApplicationsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListCycleCountAbcApplicationsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListCycleCountAbcApplications(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListCycleCountAbcApplications(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListCycleCountAbcApplicationsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListCycleCountIndicatorsRequest handles listCycleCountIndicators operation.
 //
 // The cycle counting indicators of the plants of the companies the caller may act in (ADR-0082 As
@@ -86289,7 +87106,8 @@ func (s *Server) handleListCycleCountIndicatorsRequest(args [0]string, argsEscap
 //
 // The cycle counting indicators of materials at the plants of the companies the caller may act in
 // (ADR-0082 As built S2c2; SAP MARC-ABCIN, from memory), each as `getCycleCountMaterial` gives it, in
-// the order they were created. Filtered by plant, material and indicator. Sortable by: `created_at`.
+// the order they were created, those taken off (`removed`, S2c3) among them. Filtered by plant,
+// material, indicator and status. Sortable by: `created_at`.
 //
 // GET /v1/cycle-count-materials
 func (s *Server) handleListCycleCountMaterialsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -86443,6 +87261,10 @@ func (s *Server) handleListCycleCountMaterialsRequest(args [0]string, argsEscape
 					In:   "query",
 				}: params.IndicatorID,
 				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
 					Name: "page_size",
 					In:   "query",
 				}: params.PageSize,
@@ -86497,15 +87319,16 @@ func (s *Server) handleListCycleCountMaterialsRequest(args [0]string, argsEscape
 // handleListCycleCountsDueRequest handles listCycleCountsDue operation.
 //
 // The counts due at a plant on its company's date today (ADR-0082 As built S2c2; SAP MICN, from
-// memory): each material with a cycle counting indicator at the plant, at each storage location of the
-// plant where it has stock now (as `listStock` lists it), that no open count document holds there and
-// that was never counted there (a posted count; a rejected or withdrawn one is none) or whose last
-// posted count there is its indicator's interval or more days before today. Each names its material,
-// storage location, indicator and interval, its last count and the day it fell due. Never counted
-// first, then the longest due. A count document of a storage location's materials as listed
-// (`createPhysicalInventoryDocument`, at most 100 a document) takes them off the list until it is
-// posted, an interval before they fall due again. The plant is an active plant of a company the caller
-// may act in (422 `inventory.plant_invalid`). Sortable by: `due_on`.
+// memory): each material with an active cycle counting indicator at the plant (one taken off,
+// `removeCycleCountMaterial`, is none), at each storage location of the plant where it has stock now
+// (as `listStock` lists it), that no open count document holds there and that was never counted there
+// (a posted count; a rejected or withdrawn one is none) or whose last posted count there is its
+// indicator's interval or more days before today. Each names its material, storage location, indicator
+// and interval, its last count and the day it fell due. Never counted first, then the longest due. A
+// count document of a storage location's materials as listed (`createPhysicalInventoryDocument`, at
+// most 100 a document) takes them off the list until it is posted, an interval before they fall due
+// again. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`). Sortable by: `due_on`.
 //
 // GET /v1/cycle-counts-due
 func (s *Server) handleListCycleCountsDueRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -126497,6 +127320,208 @@ func (s *Server) handleRemoveControlLinkRequest(args [2]string, argsEscaped bool
 	}
 }
 
+// handleRemoveCycleCountMaterialRequest handles removeCycleCountMaterial operation.
+//
+// Takes a material's cycle counting indicator at a plant off at the caller's version (`If-Match`, 412
+// otherwise; ADR-0082 As built S2c3; SAP MM02 clearing MARC-ABCIN, from memory), once (409
+// `inventory.cycle_count_material_removed` after). Nothing is deleted (04 §4.3): it is kept as
+// `removed`, its `updated_at` and `updated_by` saying when and by whom, and is never changed again.
+// From then on the material is no longer due by an indicator at the plant (`listCycleCountsDue` leaves
+// it out; the count planning agent counts it by its own class's interval), and it may be given an
+// indicator again (`createCycleCountMaterial`, a new one). One of a company the caller may not act in
+// is not found (404). Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/cycle-count-materials/{id}:remove
+func (s *Server) handleRemoveCycleCountMaterialRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("removeCycleCountMaterial"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/cycle-count-materials/{id}:remove"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), RemoveCycleCountMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: RemoveCycleCountMaterialOperation,
+			ID:   "removeCycleCountMaterial",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, RemoveCycleCountMaterialOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeRemoveCycleCountMaterialParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response RemoveCycleCountMaterialRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    RemoveCycleCountMaterialOperation,
+			OperationSummary: "Take a material's cycle counting indicator off",
+			OperationID:      "removeCycleCountMaterial",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = RemoveCycleCountMaterialParams
+			Response = RemoveCycleCountMaterialRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackRemoveCycleCountMaterialParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.RemoveCycleCountMaterial(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.RemoveCycleCountMaterial(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeRemoveCycleCountMaterialResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleRemoveHierarchyNodeRequest handles removeHierarchyNode operation.
 //
 // Removes a node without child nodes or centers; the root is not removed (422
@@ -141858,8 +142883,9 @@ func (s *Server) handleUpdateCycleCountIndicatorRequest(args [1]string, argsEsca
 //
 // Gives a material another indicator of its plant at the caller's version (`If-Match`, 412 otherwise;
 // ADR-0082 As built S2c2): one of the same plant (422 `inventory.indicator_invalid`); the indicator it
-// already has is 422 `inventory.nothing_to_change`. Its plant and material do not change. JSON Merge
-// Patch. Audited with the indicator before and after. Human-only (`x-agent: false`).
+// already has is 422 `inventory.nothing_to_change`; one taken off is not changed (409
+// `inventory.cycle_count_material_removed`). Its plant and material do not change. JSON Merge Patch.
+// Audited with the indicator before and after. Human-only (`x-agent: false`).
 //
 // PATCH /v1/cycle-count-materials/{id}
 func (s *Server) handleUpdateCycleCountMaterialRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

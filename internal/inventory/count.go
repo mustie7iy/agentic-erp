@@ -262,6 +262,9 @@ func countLocation(in CountInput, r refs) (tenancy.Unit, error) {
 // nor serial-managed. A count document's items and a material's cycle
 // counting indicator (S2c2) are checked by it.
 func (r refs) countable(id, plant uuid.UUID, field string) error {
+	if r.canCount(id, plant) {
+		return nil
+	}
 	m, ok := r.materials[id]
 	switch {
 	case !ok:
@@ -275,11 +278,18 @@ func (r refs) countable(id, plant uuid.UUID, field string) error {
 	case m.BatchManaged:
 		return problem.Invalid("inventory.batch_not_supported", field, "Material "+m.Number+" is managed in batches; a count by batch "+
 			"is not built yet.")
-	case m.SerialManaged:
+	default: // serial-managed, the one reason canCount has left
 		return problem.Invalid("inventory.serial_not_supported", field, "Material "+m.Number+" has a serial number profile; a count by "+
 			"serial number is not built yet.")
 	}
-	return nil
+}
+
+// canCount reports whether a count takes the material at the plant, as
+// countable checks it, without saying why not: the ABC analysis (S2c3)
+// leaves out what a count does not take rather than refusing it.
+func (r refs) canCount(id, plant uuid.UUID) bool {
+	m, ok := r.materials[id]
+	return ok && m.Status != materials.Pending && m.Stocked() && hasPlant(m, plant) && !m.BatchManaged && !m.SerialManaged
 }
 
 // countLines checks each material counted (countable at the document's

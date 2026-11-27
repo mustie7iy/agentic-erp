@@ -148,6 +148,9 @@ func TestValidationRules(t *testing.T) {
 		{"service posting limit negative", func(c *Config) { c.Companies[0].ServicePostingLimit = "-1.00" }, "companies[1000].service_posting_limit"},
 		{"service posting limit digits", func(c *Config) { c.Companies[0].ServicePostingLimit = "1000.001" }, "companies[1000].service_posting_limit"},
 		{"over delivery", func(c *Config) { c.Companies[0].OverDeliveryPercent = 101 }, "companies[1000].gr_over_delivery_percent"},
+		{"ABC share A none", func(c *Config) { c.Companies[0].CycleCountABCShares = &ABCShares{A: 0, B: 15} }, "companies[1000].cycle_count_abc_shares"},
+		{"ABC share B none", func(c *Config) { c.Companies[0].CycleCountABCShares = &ABCShares{A: 80, B: 0} }, "companies[1000].cycle_count_abc_shares"},
+		{"ABC shares leaving C none", func(c *Config) { c.Companies[0].CycleCountABCShares = &ABCShares{A: 80, B: 20} }, "companies[1000].cycle_count_abc_shares"},
 		{"iban", func(c *Config) { c.Companies[0].HouseBank.IBAN = "GB33BUKB20201555555556" }, "companies[1000].house_bank.iban"},
 		{"bic", func(c *Config) { c.Companies[0].HouseBank.BIC = "BUK" }, "companies[1000].house_bank.bic"},
 		{"main bank account not an asset", func(c *Config) { c.Companies[0].HouseBank.GLAccount = "211000" }, "companies[1000].house_bank.gl_account"},
@@ -1021,6 +1024,22 @@ func TestInventoryAccounts(t *testing.T) {
 	var none *Company
 	if got := none.InventoryTolerance(); got != "" {
 		t.Errorf("a company the configuration lacks: got tolerance %q, want none", got)
+	}
+	if got := none.ABC(); got != DefaultABCShares {
+		t.Errorf("a company the configuration lacks: got ABC shares %v, want %v", got, DefaultABCShares)
+	}
+	if got := cfg.Companies[0].ABC(); got != (ABCShares{A: 80, B: 15}) {
+		t.Errorf("a company naming no ABC shares: got %v, want 80 and 15", got)
+	}
+	cfg.Companies[0].CycleCountABCShares = &ABCShares{A: 70, B: 29}
+	if got := cfg.Companies[0].ABC(); got != (ABCShares{A: 70, B: 29}) {
+		t.Errorf("a company's ABC shares: got %v, want 70 and 29", got)
+	}
+	if fs := Validate(cfg, currency.Seeded()); hasPath(fs, "companies[1000].cycle_count_abc_shares") {
+		t.Errorf("ABC shares of 70 and 29: got %v, want no finding", fs)
+	}
+	if got := classify("companies[1000].cycle_count_abc_shares.b"); got != TierOperational {
+		t.Errorf("an ABC share's tier: got %v, want %v", got, TierOperational)
 	}
 	if _, ok := none.InventoryClass("3000"); ok {
 		t.Error("a company the configuration lacks: got a class, want none")
