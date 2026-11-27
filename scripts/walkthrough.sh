@@ -18615,6 +18615,13 @@ cost_object_order() {
     "$LE" "$SUPPLIER" "$1" "$2" "$(account 6000)" "$3"
 }
 
+# one_flow_page fails when the forecast flows just read have a further
+# page: step_cash_receipts reads one page of 100 flows over a few days,
+# and a check on it would otherwise pass without seeing the next.
+one_flow_page() {
+  [ "$(field '.next_page_token // ""')" = "" ] || fail "liquidity forecast flows: more than one page of 100; the check would not see them all"
+}
+
 # step_cash_receipts is T53l1 (ADR-0051 §4, §5, As built T53l1): the
 # liquidity forecast's receipts from customers. Ruth posts an invoice to
 # Northwind; Tom finds it in the forecast as a receivable on its due date
@@ -18644,6 +18651,7 @@ step_cash_receipts() {
   say "it, netted with whatever else Northwind owes that day, drilled down to its journal entry and to Northwind:"
   api 200 '.items[] | select(any(.documents[]; .id == "'"$entry"'")) | "  \(.date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency) from \(.customer.name // "-"): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", "))"' \
     listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  one_flow_page
   flow=$(field "[.items[] | select(any(.documents[]; .id == \"$entry\"))][0]")
   expect "the invoice's receipt" "$(jq -r '"\(.source) \(.certainty) \(.counted) \(.customer.id)"' <<<"$flow")" "receivable expected true $customer"
   expect "on or after its due date" "$(jq -r --arg d "$due" '.date >= $d' <<<"$flow")" true
@@ -18661,6 +18669,7 @@ step_cash_receipts() {
   say "blocked_receipts, and counted only with include_blocked, as what blocked suppliers are owed is:"
   api 200 '.items[] | select(any(.documents[]; .id == "'"$entry"'")) | "  \(.date) \(.source) counted \(.counted) \(.amount.amount) \(.amount.currency)"' \
     listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  one_flow_page
   flow=$(field "[.items[] | select(any(.documents[]; .id == \"$entry\"))][0]")
   expect "the receipt held back" "$(jq -r '"\(.source) \(.counted) \(.amount.amount)"' <<<"$flow")" "receivable_blocked false 800.00"
   api 200 '.currencies[] | select(.currency == "CAD") | "  CAD: total \(.total.amount), held back \(.blocked_receipts.amount.amount) (\(.blocked_receipts.count) flows)"' \
@@ -18671,6 +18680,7 @@ step_cash_receipts() {
   api 200 '"dunning block \(.status)"' releaseDunningBlock -p "id=$block" -if-match "$tag"
   as tom
   QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  one_flow_page
   expect "the receipt counted again" "$(field "[.items[] | select(any(.documents[]; .id == \"$entry\")) | \"\(.source) \(.counted)\"][0]")" "receivable true"
   as sally
   deliver=$(date_add "$TODAY" 10)
@@ -18686,6 +18696,7 @@ step_cash_receipts() {
     as tom
     say "Northwind is over its credit limit (the orders of the steps before): blocked for credit, the order is no receipt yet:"
     QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+    one_flow_page
     expect "the credit-blocked order's receipt" "$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))] | length")" 0
     as ruth
     say "Ruth releases the block, as in step 68:"
@@ -18697,6 +18708,7 @@ step_cash_receipts() {
   say "first working day after it, at its open value:"
   api 200 '.items[] | select(any(.documents[]; .id == "'"$order"'")) | "  \(.date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency) from \(.customer.name // "-"): \([.documents[] | "\(.kind) \(.number // "-")"] | join(", "))"' \
     listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+  one_flow_page
   flow=$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))][0]")
   expect "the order's receipt" "$(jq -r '"\(.source) \(.certainty) \(.amount.amount) \(.customer.id) \(.documents | length)"' <<<"$flow")" "sales_order planned 250.00 $customer 1"
   expect "on or after the delivery date plus NT30" "$(jq -r --arg d "$read" '.date >= $d' <<<"$flow")" true
@@ -18706,6 +18718,7 @@ step_cash_receipts() {
   api 200 '"sales order \(.document_number): \(.status)"' cancelSalesOrder -p "id=$order" -if-match "$ETAG" -body '{"reason": "Second training day called off"}'
   as tom
   QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+  one_flow_page
   expect "the cancelled order's receipt" "$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))] | length")" 0
   passed
 }
