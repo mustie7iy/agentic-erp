@@ -11,7 +11,7 @@ import (
 )
 
 // The asset history sheet's class totals per fiscal period (migration
-// 000473; ADR-0057 As built, the consolidated sheet): per company, ledger,
+// 000489; ADR-0057 As built, the consolidated sheet): per company, ledger,
 // fiscal year, period and class, the sums of the movements by the sheet's
 // columns.
 
@@ -24,13 +24,13 @@ const periodMovementSQL = `INSERT INTO assets.movement (tenant_id, id, asset_id,
 	SELECT $1, gen_random_uuid(), $2, 2, a.legal_entity_id, $3, a.class_code, $4, make_date($5, least($6, 12), 1), make_date($5, least($6, 12), 1), $5, $6,
 		$7, $8::bigint, $8::bigint * 2, $9, gen_random_uuid(), $10 FROM assets.asset a WHERE a.id = $2`
 
-// TestAssetClassPeriodTotalsBackfilled: 000473 totals the movements
+// TestAssetClassPeriodTotalsBackfilled: 000489 totals the movements
 // written before it, each kind in its column, per company, ledger, fiscal
 // year, period and class, the profit and loss columns with their group
 // amounts.
 func TestAssetClassPeriodTotalsBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
-	migrateBefore(t, conn, "000473_asset_class_period_totals")
+	migrateBefore(t, conn, "000489_asset_class_period_totals")
 	f := fixtureIDs()
 	mill, plot, ledger2 := id(), id(), id()
 	inTenant(t, conn, f.tenant, func(tx pgx.Tx) error {

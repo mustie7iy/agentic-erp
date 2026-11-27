@@ -2871,7 +2871,7 @@ through business combinations.
 
 **The consolidated sheet (net exchange differences on translation,
 po:2026-11-09, B14; IAS 16.73(e)(viii), from memory; ADR-0059 §7;
-migration 000473).** The B14 leaf after impairment.
+migration 000489).** The B14 leaf after impairment.
 `GET /v1/consolidation-groups/{code}/asset-history-sheet?fiscal_year`
 (`consolidation.read`, also `ledger.entry.read` and `assets.asset.read`;
 an agent tool, read) is the group's sheet in the group currency: per
