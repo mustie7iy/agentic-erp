@@ -19,7 +19,8 @@ ALTER TABLE mrp.sop_plan
 
 -- A version moves from draft to submitted or fixed, and from submitted to
 -- draft (rejected or withdrawn) or fixed (approved); a fixed one changes
--- no more. It names a new approval request only as it is submitted.
+-- no more. It names a new approval request only as it is submitted, and
+-- each submission a new one.
 CREATE OR REPLACE FUNCTION mrp.sop_plan_fixed() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -34,6 +35,10 @@ BEGIN
   END IF;
   IF OLD.status = 'submitted' AND NEW.status = 'submitted' THEN
     RAISE EXCEPTION 'S&OP plan %: it waits for its approval, so it changes no more until it is decided', OLD.number
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'sop_plan_fixed';
+  END IF;
+  IF NEW.status = 'submitted' AND NEW.approval_request_id IS NOT DISTINCT FROM OLD.approval_request_id THEN
+    RAISE EXCEPTION 'S&OP plan %: a submission names a new approval request', OLD.number
       USING ERRCODE = 'check_violation', CONSTRAINT = 'sop_plan_fixed';
   END IF;
   IF NEW.approval_request_id IS DISTINCT FROM OLD.approval_request_id AND NEW.status <> 'submitted' THEN

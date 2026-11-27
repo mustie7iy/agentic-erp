@@ -9,7 +9,7 @@ func TestSopApprovalTier(t *testing.T) {
 	base := withCash(t)
 	c := withCash(t)
 	c.Companies[0].SopApproval.Steps = []ApprovalStep{{Role: "controller", Approvals: 1}}
-	changes, _ := Diff(base, c)
+	changes, _ := Diff(base, c) // Diff never fails
 	if len(changes) == 0 {
 		t.Fatal("changes: got none, want the steps")
 	}

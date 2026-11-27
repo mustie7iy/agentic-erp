@@ -132,8 +132,9 @@ func TestSopPlanRules(t *testing.T) {
 		}, "permission denied"},
 		// S2n2, migration 000489: approval.
 		{"submitted", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted()} }, ""},
-		{"submitted without its request", func(s sopScene) []stmt {
-			return []stmt{s.planned(1), step(`UPDATE mrp.sop_plan SET status = 'submitted', version = version + 1`)}
+		{"submitted without its request", func(s sopScene) []stmt { // inserted: an update meets the trigger first
+			return []stmt{step(`INSERT INTO mrp.sop_plan (tenant_id, id, legal_entity_id, number, status, as_of, first_day, last_day, months, created_by,
+				updated_by) VALUES ($1, $2, $3, 1, 'submitted', '2026-11-22', '2026-11-23', '2026-12-31', 2, $1, $1)`, s.tenant, s.plan, s.company)}
 		}, "sop_plan_submitted"},
 		{"submitted, then fixed", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), s.fixed()} }, ""},
 		{"submitted, then a draft again", func(s sopScene) []stmt { return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan)} }, ""},
@@ -146,6 +147,13 @@ func TestSopPlanRules(t *testing.T) {
 		{"a line added to a submitted version", func(s sopScene) []stmt {
 			return []stmt{s.planned(1), s.submitted(), s.line("FASTENERS", "EA", "1", "0")}
 		}, "its plan version is submitted"},
+		{"submitted again naming the rejected request", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan),
+				step(`UPDATE mrp.sop_plan SET status = 'submitted', version = version + 1`)}
+		}, "a submission names a new approval request"},
+		{"submitted again", func(s sopScene) []stmt {
+			return []stmt{s.planned(1), s.submitted(), step(sopDraft, s.plan), s.submitted()}
+		}, ""},
 		{"a request named by a draft", func(s sopScene) []stmt {
 			return []stmt{s.planned(1), step(`UPDATE mrp.sop_plan SET approval_request_id = gen_random_uuid(), version = version + 1`)}
 		}, "only as it is submitted"},

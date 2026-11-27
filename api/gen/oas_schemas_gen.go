@@ -120601,9 +120601,11 @@ type SopPlan struct {
 	// Who fixed it: the planner who fixed or submitted it where the company's plans need no approval, else
 	// the approver of the approval's last step; absent until it is fixed.
 	FixedBy OptUUID `json:"fixed_by"`
-	// Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason):
-	// pending while it is `submitted`, approved once it is `fixed` by approval, rejected or cancelled
-	// after it went back to `draft`; absent while it was never submitted, or was fixed without approval.
+	// Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason,
+	// and its `status`, which says how it ended): pending while it is `submitted`, approved when it was
+	// `fixed` by that approval, rejected or cancelled after it went back to `draft`. A version fixed
+	// without approval (its company asking none any more) after a rejection or withdrawal keeps naming
+	// that rejected or cancelled request; absent while it was never submitted.
 	ApprovalRequestID OptUUID `json:"approval_request_id"`
 	// Per material group, unit and month, by group, unit and month.
 	Lines []SopPlanLine `json:"lines"`

@@ -17591,7 +17591,7 @@ company_account() {
 # plan.
 step_sop_review() {
   heading "Step 159 — S&OP review: Maple's demand forecast reviewed against supply by material group and month; the planner agrees the consensus and submits the plan version; the process owner rejects it, then approves it again submitted, and the controller's approval fixes it, so it changes no more; the forecasting agent's own review and submission refused"
-  local plan key1 key3 stock open3 balanced request carla
+  local plan key1 key3 stock open3 balanced request carla tag
   [ -n "${HINGE:-}" ] || fail "step 152's hinge is not there"
   as mira
   QUIET=1 api 200 '' listStock -p "material_id=$HINGE" -p page_size=500
@@ -17626,13 +17626,14 @@ step_sop_review() {
   say "Maple's plans are approved before they are fixed (companies[].sop_approval: the process owner, then the"
   say "controller, ADR-0084 As built S2n2), so Mira's fix is refused; she submits the version for approval:"
   QUIET=1 api 200 '' getSopPlan -p "id=$plan"
-  refused 409 mrp.sop_approval_required fixSopPlan -p "id=$plan" -if-match "$ETAG"
-  api 200 '"S&OP plan \(.number): \(.status), approval request \(.approval_request_id != null)"' submitSopPlan -p "id=$plan" -if-match "$ETAG"
-  request=$(field .approval_request_id)
+  tag=$ETAG # a refusal changes no version; the next call names the one read
+  refused 409 mrp.sop_approval_required fixSopPlan -p "id=$plan" -if-match "$tag"
+  api 200 '"S&OP plan \(.number): \(.status), approval request \(.approval_request_id != null)"' submitSopPlan -p "id=$plan" -if-match "$tag"
+  request=$(field .approval_request_id) tag=$ETAG
   say "While it waits, its consensus does not change, and the agent does not submit (x-agent: false):"
-  refused 409 mrp.sop_plan_submitted updateSopPlan -p "id=$plan" -if-match "$ETAG" -body "{\"consensus\": {\"$key3\": \"25\"}}"
+  refused 409 mrp.sop_plan_submitted updateSopPlan -p "id=$plan" -if-match "$tag" -body "{\"consensus\": {\"$key3\": \"25\"}}"
   as demand-agent
-  refused 403 identity.agent_not_allowed submitSopPlan -p "id=$plan" -if-match "$ETAG"
+  refused 403 identity.agent_not_allowed submitSopPlan -p "id=$plan" -if-match "$tag"
   as priya
   say "Priya, the process owner, rejects it: the third month is too low for the season. A draft again:"
   QUIET=1 api 200 '' getApprovalRequest -p "id=$request"

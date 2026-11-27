@@ -473,7 +473,9 @@ as requisitions, material changes and inventory differences use it):
   approver of that step (who decided it), audited `.fix` naming the
   request; rejected (`.reject`, the reason in the request and the audit)
   or withdrawn by its requester (`.withdraw`), it is a `draft` again, its
-  request kept as its latest, to change and submit anew. A version not
+  request kept as its latest, to change and submit anew; fixed later
+  without approval (its company's steps removed meanwhile), it keeps
+  naming that request, whose status says it was not approved. A version not
   waiting for the request called back is a fault (500), not a refusal.
 - **An approved plan is frozen.** Fixed, it changes no more, as S2n's
   fixed versions do; a change is a new review (`createSopPlan`), the next

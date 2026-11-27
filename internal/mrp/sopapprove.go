@@ -110,8 +110,8 @@ func decideSop(ctx context.Context, id, request uuid.UUID, outcome, comment stri
 		return fmt.Errorf("mrp: S&OP plan %d %s: %w", before.Number, outcome, err)
 	}
 	action := map[string]string{approvals.Rejected: "reject", approvals.Cancelled: "withdraw"}[outcome]
-	return audit.Record(ctx, "mrp.sop_plan."+action, "mrp.sop_plan", id, map[string]any{"number": before.Number, "approval_request_id": request,
-		"comment": comment})
+	return audit.Record(ctx, "mrp.sop_plan."+action, "mrp.sop_plan", id, map[string]any{"legal_entity_id": before.LegalEntityID,
+		"number": before.Number, "approval_request_id": request, "comment": comment})
 }
 
 // SopApprovals moves S&OP plan versions on when their approval requests

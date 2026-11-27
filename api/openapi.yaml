@@ -69541,7 +69541,7 @@ components:
             months: {type: integer, format: int32, description: "The months of the horizon.", readOnly: true}
             fixed_at: {type: string, format: date-time, description: "When it was fixed; absent while it is a draft.", readOnly: true}
             fixed_by: {type: string, format: uuid, description: "Who fixed it: the planner who fixed or submitted it where the company's plans need no approval, else the approver of the approval's last step; absent until it is fixed.", readOnly: true}
-            approval_request_id: {type: string, format: uuid, description: "Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason): pending while it is `submitted`, approved once it is `fixed` by approval, rejected or cancelled after it went back to `draft`; absent while it was never submitted, or was fixed without approval.", readOnly: true}
+            approval_request_id: {type: string, format: uuid, description: "Its latest approval request (`getApprovalRequest`: its steps, decisions and a rejection's reason, and its `status`, which says how it ended): pending while it is `submitted`, approved when it was `fixed` by that approval, rejected or cancelled after it went back to `draft`. A version fixed without approval (its company asking none any more) after a rejection or withdrawal keeps naming that rejected or cancelled request; absent while it was never submitted.", readOnly: true}
             lines:
               type: array
               items:
