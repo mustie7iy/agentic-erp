@@ -2588,9 +2588,12 @@ refused until the documents agree again.
   `procurement.reversal_below_invoiced`). Procurement reads the invoiced
   quantities through its `Invoices` port (`Invoiced`, payables'
   `invoicedQuantities`) after locking the order items, as every goods
-  movement does. A return (122) is not held to them: goods sent back after
-  their invoice are what the supplier's credit memo credits (ADR-0034), and
-  until it posts the position shows the difference.
+  movement does. A return (122) of an item that is no stock item is not
+  held to them: goods sent back after their invoice are what the
+  supplier's credit memo credits (ADR-0034), and until it posts the
+  position shows the difference. A return of a stock item is (409
+  `procurement.return_below_invoiced`; S1e2, ADR-0082 As built S1e2): the
+  credit memo comes first.
 - A credit memo's reversal may not invoice an order item past what was
   received (409 `payables.reversal_exceeds_received`), as a receipt's
   reversal since the memo may have left it.
@@ -7095,6 +7098,16 @@ erDiagram
   000444). It has no line in transit: the goods enter the receiving
   company's stock and valuation only with the order's goods receipt (a
   purchase order's `101`).
+- S1e2 (migrations 000494, 000495): `inventory.material_document` takes
+  the movement types `122`, a return of a purchase order's stock items to
+  the supplier, and `123`, its reversal, naming the 122 it reverses
+  (`material_document_reversal_check`; `material_document_reversal` pairs
+  them as every type with the next), both naming the goods movement's
+  number as their `reference` (`material_document_movement_type_check`,
+  `material_document_reference`, widened NOT VALID and validated by
+  000495). Procurement's goods movement of type 122 or 123 names the
+  document (`goods_movement.material_document_id`, `_number`) as a 101's
+  does.
 - S2f (migrations 000428, 000429): `materials.material.batch_managed`
   (SAP MARA's XCHPF, from memory), fixed once created (`material_fixed`).
   `inventory.batch` (SAP MCH1, batch level material): a batch of a

@@ -13975,7 +13975,7 @@ paths:
       tags:
         - procurement
       summary: Post a goods receipt
-      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it expires before it was made), audited as `createBatch` is; dates given for an existing batch are its own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1; 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are. Another material's item names neither (422 `inventory.batch_not_allowed`, `inventory.serial_not_allowed`), and an item that is no stock item neither (422 `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of stock again."
+      description: "Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122, with `reason`) of goods received on released or closed orders: never more than was received (409 `procurement.return_exceeds_receipts`). A return posts Dr GR/IR / Cr the order item's account at the item's valuation price on orders valued `gr_ir` (event `GoodsReturned`). Insert-only; corrections are reversals. A stock item of a batch-managed material names its batch (`batch`, ADR-0082 As built S2f1; 422 `inventory.batch_required`): one of the material's by its number, or a new one, which the receipt creates (SAP MIGO, from memory) with the manufacture date and the optional expiry date given (422 `inventory.batch_manufacture_date_required` without one; `inventory.batch_dates` when it expires before it was made), audited as `createBatch` is; dates given for an existing batch are its own (422 `inventory.batch_dates_differ`: a batch's dates do not change). A stock item of a serial-managed material names the serial number of each unit it receives (`serial_numbers`, S2g1; 422 `inventory.serial_required`, `inventory.serial_quantity`, `inventory.serial_repeated`), none in stock already (409 `inventory.serial_in_stock`), each created by the receipt as a `501`'s are. Another material's item names neither (422 `inventory.batch_not_allowed`, `inventory.serial_not_allowed`), and an item that is no stock item neither (422 `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of stock again. A return of a stock item (S1e2, ADR-0082 As built S1e2) takes its goods out of the order item's storage location (material document 122) at the value the stock holds them at, as the receipt's reversal does, its GR/IR debit at the order price and the difference on the valuation class's price difference account; it names the batch it gives back by number alone (422 `procurement.return_batch_dates` with dates) and the serial numbers of the units, in stock there (409 `inventory.serial_not_in_stock`); it is refused beyond what is in stock (409 `inventory.insufficient_stock`) and when it would leave the item received below what was invoiced (409 `procurement.return_below_invoiced`: post the credit memo first); an intercompany stock transport order's stock items are not returned (422 `procurement.stock_item_return`). What was returned is received again by a receipt."
       x-permission: procurement.receipt.post
       x-problem-codes:
         # inventory.batch_exists is the database's answer to a second batch of a number (batch_number_once), which TestProblemCodes
@@ -14086,6 +14086,8 @@ paths:
         - procurement.over_delivery
         - procurement.reason_not_allowed
         - procurement.reason_required
+        - procurement.return_batch_dates
+        - procurement.return_below_invoiced
         - procurement.return_exceeds_receipts
         - procurement.reversal_exceeds_receipts
         - procurement.stock_item_not_valued
@@ -25819,7 +25821,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
+            x-extensible-enum: ["101", "102", "122", "123", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -41588,6 +41590,8 @@ paths:
         - procurement.reason_required
         - procurement.requisition_mismatch
         - procurement.requisition_ordered
+        - procurement.return_batch_dates
+        - procurement.return_below_invoiced
         - procurement.return_exceeds_receipts
         - procurement.reversal_exceeds_receipts
         - procurement.stock_item_not_valued
@@ -58668,7 +58672,7 @@ components:
             material_document_id:
               type: string
               format: uuid
-              description: "The material document (`GET /v1/material-documents/{id}`, movement type 101 or 102) that moved the stock of the movement's stock items (S1e: items of order items naming a storage location), whose value the WE entry posts against GR/IR; absent when the movement has no stock items."
+              description: "The material document (`GET /v1/material-documents/{id}`, movement type 101, 102, 122 or 123) that moved the stock of the movement's stock items (S1e: items of order items naming a storage location), whose value the WE entry posts against GR/IR; absent when the movement has no stock items."
               readOnly: true
             material_document_number:
               type: string
@@ -58718,13 +58722,13 @@ components:
           description: "Quantity received; positive. Receipts above the ordered quantity plus tolerance are refused (409)."
         batch:
           $ref: "#/components/schemas/GoodsReceiptBatch"
-          description: "The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422 `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`, `procurement.not_stock_item`)."
+          description: "The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422 `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`, `procurement.not_stock_item`). A return (122) names the batch it gives back by its number alone (422 `procurement.return_batch_dates` with dates; 422 `inventory.batch_invalid` for a number the material has no batch of; ADR-0082 As built S1e2)."
         serial_numbers:
           type: array
           minItems: 1
           maxItems: 1000
           items: {type: string, pattern: "^[A-Z0-9_-]{1,18}$", description: "A serial number: 1 to 18 capitals, digits, `-` or `_`."}
-          description: "The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`) and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`)."
+          description: "The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`) and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`). A return (122) names the serial numbers of the units it gives back, each in stock at the order item's storage location (409 `inventory.serial_not_in_stock`; S1e2)."
       additionalProperties: false
       examples:
         - purchase_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d5c"
@@ -58747,7 +58751,7 @@ components:
           expiry_date: "2027-05-20"
     GoodsReceiptCreate:
       type: object
-      description: "Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive either way: a return's are stored negative."
+      description: "Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive either way: a return's are stored negative. A return of a stock item (S1e2, ADR-0082 As built S1e2) takes its goods out of the order item's storage location as a material document (122), valued as the receipt's reversal is, and debits GR/IR at the order price, the stock's difference on the price difference account; it is refused beyond what is still in stock (409 `inventory.insufficient_stock`) and below what was invoiced (409 `procurement.return_below_invoiced`: the credit memo first). The returned quantity can be received again."
       required:
         - legal_entity_id
         - document_date
@@ -68829,7 +68833,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
+          x-extensible-enum: ["101", "102", "122", "123", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "643", "701", "702"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}

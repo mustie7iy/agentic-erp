@@ -207,6 +207,11 @@ func TestOrderPorts(t *testing.T) {
 	if _, err := h.ReverseForOrder(ctx, uuid.New(), time.Now().UTC(), "GR2", s.post); err == nil {
 		t.Error("reverse outside a request: got nil, want an error")
 	}
+	back := inventory.OrderReturn{Company: e.DE, Day: time.Now().UTC(), Reference: "GR3", Items: []inventory.DeliveryItem{{MaterialID: uuid.MustParse(e.bracket),
+		PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}}}
+	if _, err := h.ReturnForOrder(ctx, back, s.post); err == nil {
+		t.Error("return outside a request: got nil, want an error")
+	}
 	if err := h.InvoiceDifferences(ctx, e.DE, items, src, s.post); err == nil {
 		t.Error("invoice outside a request: got nil, want an error")
 	}
@@ -223,6 +228,24 @@ func TestOrderPorts(t *testing.T) {
 			_, err := h.ReceiveForOrder(ctx, other, s.post)
 			return err
 		}, "inventory.mixed_companies"},
+		"another company's return": {func(ctx context.Context) error {
+			other := back
+			other.Company = e.US
+			_, err := h.ReturnForOrder(ctx, other, s.post)
+			return err
+		}, "inventory.mixed_companies"},
+		"a return of an unknown material": {func(ctx context.Context) error {
+			other := back
+			other.Items = []inventory.DeliveryItem{{MaterialID: uuid.New(), PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}}
+			_, err := h.ReturnForOrder(ctx, other, s.post)
+			return err
+		}, "inventory.material_invalid"},
+		"a return of a batch of an unknown material": {func(ctx context.Context) error {
+			other := back
+			other.Items = []inventory.DeliveryItem{{MaterialID: uuid.New(), PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA", Batch: "B1"}}
+			_, err := h.ReturnForOrder(ctx, other, s.post)
+			return err
+		}, "inventory.material_invalid"},
 		"an unknown material": {func(ctx context.Context) error {
 			other := in
 			other.Items = []inventory.OrderItem{{MaterialID: uuid.New(), PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}}
@@ -255,7 +278,7 @@ func TestOrderPorts(t *testing.T) {
 			d := e.post(t, "561", e.item("1", "EA", nil))
 			_, err := h.ReverseForOrder(ctx, uuid.MustParse(d["id"].(string)), time.Now().UTC(), "GR2", s.post)
 			return err
-		}, "no goods receipt to reverse"},
+		}, "no goods receipt or return to reverse"},
 		"an unknown document": {func(ctx context.Context) error {
 			_, err := h.ReverseForOrder(ctx, uuid.New(), time.Now().UTC(), "GR2", s.post)
 			return err
@@ -349,6 +372,9 @@ func TestStockReceiptDatabaseFailures(t *testing.T) {
 	ch, _ := e.Must(201, "POST", "/v1/purchase-orders/"+po.String()+"/changes", mustJSON(t, map[string]any{"reason": "Later delivery",
 		"order_date": "2026-11-02"}), "")
 	change, unchanged := uuid.MustParse(ch["id"].(string)), e.stockOrder(t, "PO-3", "EUR")
+	returning := e.stockOrder(t, "PO-4", "EUR")
+	e.receive(t, returning, 1, "5")
+	ret, _ := e.Must(201, "POST", "/v1/goods-receipts", e.receipt(t, returning, "122", 1, "1"), "")
 	for name, call := range map[string]func(ctx context.Context) error{
 		"order a stock item": func(ctx context.Context) error {
 			_, err := proc.CreatePurchaseOrder(ctx, &gen.PurchaseOrderCreate{LegalEntityID: e.DE, SupplierID: e.supplier, Currency: "EUR", OrderDate: day,
@@ -393,6 +419,16 @@ func TestStockReceiptDatabaseFailures(t *testing.T) {
 		},
 		"reverse a receipt into stock": func(ctx context.Context) error {
 			_, err := proc.ReverseGoodsReceipt(ctx, gen.OptGoodsReceiptReverse{}, gen.ReverseGoodsReceiptParams{ID: uuid.MustParse(gr["id"].(string)), IfMatch: "*"})
+			return err
+		},
+		"return stock items": func(ctx context.Context) error {
+			_, err := proc.PostGoodsReceipt(ctx, &gen.GoodsReceiptCreate{LegalEntityID: e.DE, DocumentDate: day, PostingDate: day,
+				MovementType: gen.NewOptString("122"), Reason: gen.NewOptString("Damaged"),
+				Items: []gen.GoodsReceiptItemInput{{PurchaseOrderID: returning, PoItemNo: 1, Quantity: gen.Quantity{Value: "1", Unit: "EA"}}}}, gen.PostGoodsReceiptParams{})
+			return err
+		},
+		"reverse a return of stock items": func(ctx context.Context) error {
+			_, err := proc.ReverseGoodsReceipt(ctx, gen.OptGoodsReceiptReverse{}, gen.ReverseGoodsReceiptParams{ID: uuid.MustParse(ret["id"].(string)), IfMatch: "*"})
 			return err
 		},
 		"post an invoice of stock": func(ctx context.Context) error {

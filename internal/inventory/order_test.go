@@ -282,8 +282,9 @@ func (e orderEnv) materialNumber(t *testing.T, id string) string {
 }
 
 // TestStockReceiptRefused (S1e): a stock item without a valuation is not
-// received, nothing of the receipt is; a stock item is not returned, nor
-// received on an order in another currency than the company's; a goods
+// received, nothing of the receipt is; a stock item is not received on
+// an order in another currency than the company's (its return, S1e2:
+// TestSupplierReturn); a goods
 // receipt's document is reversed through its goods receipt alone, and
 // only procurement posts a 101.
 func TestStockReceiptRefused(t *testing.T) {
@@ -297,7 +298,6 @@ func TestStockReceiptRefused(t *testing.T) {
 		}
 	}
 	gr := e.receive(t, po, 1, "5")
-	e.Problem(422, "procurement.stock_item_return", "POST", "/v1/goods-receipts", e.receipt(t, po, "122", 1, "1"), "")
 	d := e.document(t, gr)
 	_, tag := e.Must(200, "GET", docs+"/"+d["id"].(string), "", "")
 	e.Problem(409, "inventory.reverse_goods_receipt", "POST", docs+"/"+d["id"].(string)+":reverse", "", tag)

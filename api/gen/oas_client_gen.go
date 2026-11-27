@@ -8275,7 +8275,16 @@ type Invoker interface {
 	// `inventory.serial_not_allowed`), and an item that is no stock item neither (422
 	// `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial
 	// numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of
-	// stock again.
+	// stock again. A return of a stock item (S1e2, ADR-0082 As built S1e2) takes its goods out of the
+	// order item's storage location (material document 122) at the value the stock holds them at, as the
+	// receipt's reversal does, its GR/IR debit at the order price and the difference on the valuation
+	// class's price difference account; it names the batch it gives back by number alone (422
+	// `procurement.return_batch_dates` with dates) and the serial numbers of the units, in stock there
+	// (409 `inventory.serial_not_in_stock`); it is refused beyond what is in stock (409
+	// `inventory.insufficient_stock`) and when it would leave the item received below what was invoiced
+	// (409 `procurement.return_below_invoiced`: post the credit memo first); an intercompany stock
+	// transport order's stock items are not returned (422 `procurement.stock_item_return`). What was
+	// returned is received again by a receipt.
 	//
 	// POST /v1/goods-receipts
 	PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error)
@@ -113118,7 +113127,16 @@ func (c *Client) sendPostExpenseReport(ctx context.Context, request OptExpenseRe
 // `inventory.serial_not_allowed`), and an item that is no stock item neither (422
 // `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial
 // numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of
-// stock again.
+// stock again. A return of a stock item (S1e2, ADR-0082 As built S1e2) takes its goods out of the
+// order item's storage location (material document 122) at the value the stock holds them at, as the
+// receipt's reversal does, its GR/IR debit at the order price and the difference on the valuation
+// class's price difference account; it names the batch it gives back by number alone (422
+// `procurement.return_batch_dates` with dates) and the serial numbers of the units, in stock there
+// (409 `inventory.serial_not_in_stock`); it is refused beyond what is in stock (409
+// `inventory.insufficient_stock`) and when it would leave the item received below what was invoiced
+// (409 `procurement.return_below_invoiced`: post the credit memo first); an intercompany stock
+// transport order's stock items are not returned (422 `procurement.stock_item_return`). What was
+// returned is received again by a receipt.
 //
 // POST /v1/goods-receipts
 func (c *Client) PostGoodsReceipt(ctx context.Context, request *GoodsReceiptCreate, params PostGoodsReceiptParams) (PostGoodsReceiptRes, error) {

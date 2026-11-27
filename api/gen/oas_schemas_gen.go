@@ -58804,9 +58804,9 @@ type GoodsReceipt struct {
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// Fiscal year of the journal entry, set with `journal_entry_id`.
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
-	// The material document (`GET /v1/material-documents/{id}`, movement type 101 or 102) that moved the
-	// stock of the movement's stock items (S1e: items of order items naming a storage location), whose
-	// value the WE entry posts against GR/IR; absent when the movement has no stock items.
+	// The material document (`GET /v1/material-documents/{id}`, movement type 101, 102, 122 or 123) that
+	// moved the stock of the movement's stock items (S1e: items of order items naming a storage location),
+	// whose value the WE entry posts against GR/IR; absent when the movement has no stock items.
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// That material document's number; absent with it.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
@@ -59032,7 +59032,12 @@ func (s *GoodsReceiptBatch) SetExpiryDate(val OptDate) {
 }
 
 // Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive
-// either way: a return's are stored negative.
+// either way: a return's are stored negative. A return of a stock item (S1e2, ADR-0082 As built S1e2)
+// takes its goods out of the order item's storage location as a material document (122), valued as the
+// receipt's reversal is, and debits GR/IR at the order price, the stock's difference on the price
+// difference account; it is refused beyond what is still in stock (409 `inventory.insufficient_stock`)
+// and below what was invoiced (409 `procurement.return_below_invoiced`: the credit memo first). The
+// returned quantity can be received again.
 // Ref: #/components/schemas/GoodsReceiptCreate
 type GoodsReceiptCreate struct {
 	// Legal entity.
@@ -59287,13 +59292,17 @@ type GoodsReceiptItemInput struct {
 	Quantity Quantity `json:"quantity"`
 	// The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422
 	// `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`,
-	// `procurement.not_stock_item`).
+	// `procurement.not_stock_item`). A return (122) names the batch it gives back by its number alone (422
+	// `procurement.return_batch_dates` with dates; 422 `inventory.batch_invalid` for a number the material
+	// has no batch of; ADR-0082 As built S1e2).
 	Batch OptGoodsReceiptBatch `json:"batch"`
 	// The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for
 	// each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base
 	// units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`)
 	// and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none
-	// (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`).
+	// (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`). A return (122) names the serial
+	// numbers of the units it gives back, each in stock at the order item's storage location (409
+	// `inventory.serial_not_in_stock`; S1e2).
 	SerialNumbers []string `json:"serial_numbers"`
 }
 

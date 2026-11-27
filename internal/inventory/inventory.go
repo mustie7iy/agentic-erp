@@ -23,7 +23,8 @@
 // posts through the ledger's posting port, through the ports below, which
 // the composition root wires. Procurement posts its goods receipts of
 // stock items and their reversals through it (ReceiveForOrder,
-// ReverseForOrder), their value on the GR/IR entry procurement posts, and
+// ReverseForOrder), and their returns to the supplier (ReturnForOrder,
+// As built S1e2), their value on the GR/IR entry procurement posts, and
 // payables the price differences of their invoices on a moving-priced
 // stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e). Stock
 // transport orders move stock between a company's plants through it, the
@@ -69,8 +70,9 @@ type movementType struct {
 	costCenter bool
 	reversal   string
 	reverses   string
-	// order: a purchase order's goods receipt or its reversal, which
-	// procurement's goods movement posts (S1e), never a person here.
+	// order: a purchase order's goods receipt or its reversal, or a return
+	// to the supplier or its reversal, which procurement's goods movement
+	// posts (S1e, S1e2), never a person here.
 	order bool
 	// count: a physical inventory count's difference, which posting the
 	// count's differences posts (S2d), never a person here, and which is
@@ -91,7 +93,8 @@ type movementType struct {
 	// tracked: an item of a batch-managed material names its batch
 	// (S2f), and one of a serial-managed material the serial number of
 	// each unit (S2g); a purchase order's goods receipt and its reversal
-	// carry both since S2f1 and S2g1, a delivery's goods issue and its
+	// carry both since S2f1 and S2g1, a return to the supplier and its
+	// reversal since S1e2, a delivery's goods issue and its
 	// reversal since S2f2 and S2g2; the other movement types carry
 	// neither yet, and refuse such a material.
 	tracked bool
@@ -100,7 +103,9 @@ type movementType struct {
 // movementTypes are the forward movement types a person posts and their
 // reversals, which only reverseMaterialDocument posts, a purchase
 // order's goods receipt and its reversal, which procurement posts
-// (ReceiveForOrder, ReverseForOrder), a count's differences, which
+// (ReceiveForOrder, ReverseForOrder), a return of its stock items to the
+// supplier and the return's reversal, which procurement posts too
+// (ReturnForOrder, ReverseForOrder; S1e2), a count's differences, which
 // PostDifferences posts (S2d), and an outbound delivery's goods issue,
 // which shipping posts (IssueForDelivery; its reversal, 602, through
 // ReverseForDelivery, S2b3), and a
@@ -112,6 +117,8 @@ type movementType struct {
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true, tracked: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true, tracked: true},
+	"122": {name: "Return delivery to the supplier", sign: -1, reversal: "123", order: true, tracked: true},
+	"123": {name: "Reversal of a return delivery to the supplier", sign: 1, reverses: "122", order: true, tracked: true},
 	"501": {name: "Receipt without purchase order", sign: 1, reversal: "502", tracked: true},
 	"502": {name: "Reversal of a receipt without purchase order", sign: -1, reverses: "501", tracked: true},
 	"561": {name: "Initial entry of stock", sign: 1, reversal: "562", tracked: true},
