@@ -1545,9 +1545,10 @@ A later slice adds its row here and its section under "As built".
   source `contract <id> item <n>`, `catalog item <id>` or `purchase order
   <id>`, and a line `Why: ` gives the reasons (`ErrForm`); the quantity
   and unit are the proposal's (`ErrQuantity`); a proposal of several
-  lots (ADR-0084 As built S2k2) is refused (`ErrProposal`) and left to
-  the buyer, as the prompt says, before the check reads any supplier's
-  measures (batch 95S, `TestReviewLotsBeforeMeasures`); the day is the
+  lots (ADR-0084 As built S2k2) was refused (`ErrProposal`) and left to
+  the buyer, as the prompt said, before the check read any supplier's
+  measures (batch 95S; since S2k2a, below, it is ordered as one order of
+  its lots); the day is the
   one the proposal is needed by, the run's day when it names none
   (`ErrWhen`: lead times are Later); the source is one the run read of
   the proposal's material in its company, an `active` catalog item, an
@@ -1672,6 +1673,66 @@ A later slice adds its row here and its section under "As built".
   every count write, name it. The evaluation suite (version 2) still
   plans what it says on the merged tree with lot sizing and lead times
   (`TestEvalSuites/replenishment`): a run does not read the lead time.
+
+### S2k2a, the replenishment agent on a proposal of several lots (plan-supply-chain.md §S2k2, Later, 2026-11-27)
+
+The leaf "later: the replenishment agent recommends on a proposal of
+several lots" (review:batch95). A planning run that sizes a material in
+lots (ADR-0084 As built S2k2: fixed lots, or up to a maximum stock level
+within a maximum lot size) proposes one requisition of an item per lot;
+the agent's check refused it, so a material with a lot size got no
+recommendation. Decided by default:
+
+- **One order of the lots** (the leaf's "an order per lot or one order of
+  the lots"): ADR-0084 As built S2k2 keeps one requisition per material
+  and run, "its items one per lot, which a buyer orders as purchase order
+  items", so an order of the proposal is one order, from one supplier and
+  one source, of its lots. Its first line is S2l's, of the lots' sum (as
+  the run line's `proposed` writes it: `money.PlainQuantity`, the
+  database's `trim_scale`), then a line per lot, in its items' order:
+  `Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>`, the item's number
+  and quantity as `getRequisition` gives them, the proposal's unit and
+  the order's day. An order per lot, lots from several suppliers or on
+  several days, is Later: every lot of a run is needed by the run's day
+  (ADR-0084 §3, no period lot sizes yet), and splitting a need across
+  suppliers is a quota arrangement (S2l1's Later).
+- **Dates per lot**: each lot is by the order's day, the day the proposal
+  is needed by (the run's day when it names none), as S2l dates an order;
+  a lead time dating the order back from the need stays in "replenishment
+  agent variants" (S2l1's Later), so no lot is dated by a lead time here.
+- **The check** (`review.lotsNamed`, `ErrLots`) computes the lines from
+  its own read of the requisition (`getRequisition`, observed), never the
+  model's text: the lines beginning `Lot ` are exactly those, in order,
+  and the first line's quantity (`ErrQuantity`) is the check's own exact
+  sum of the items (`money.ParsePlain`, `big.Rat`); so the lots add up to
+  the order and each is the proposal's. A proposal of one lot may name
+  its lot or none (S2l's form stays valid). Every line beginning `Lot ` is
+  held whole, so the figures check (§4) skips them as it skips the
+  first line and the measures; a line beginning so that is not one of
+  the lots is refused. The refusal names the lines wanted. The lots are
+  checked after the quantity, day, source and supplier, and before the
+  check reads the supplier's measures, so a wrong lot costs no read.
+- **A proposal is of one material**: `ErrProposal` now refuses a
+  requisition with no item, items of different materials or units, or a
+  quantity that is no plain decimal (a buyer may have changed the run's
+  draft), instead of one of more than one item.
+- At most `mrp.MaxLots` (100) lots, about 3,500 characters of lot lines,
+  within `createRecommendation`'s 10,000.
+- It still only recommends: nothing happens on acceptance (orders created
+  on acceptance wait in "replenishment agent variants" for the product
+  owner); the never list and `TestNever` are unchanged.
+- `evals/replenishment`, version 3: two cases change the hinge's plan
+  (`updateMaterialPlan` in their setup) to fixed lots of 4 (three lots,
+  12) and to a maximum stock level of 25 in lots of at most 10 (10, 10,
+  5); the agent recommends one order of the lots from Tyrell's catalog
+  item, and each proposal stays the run's draft of three items.
+- Walkthrough `step_replenishment_agent` (step 153, `replenish_lots`):
+  Priya loads Tyrell's W8 washers (planned at Montreal in fixed lots of
+  40, step 152) into the catalog; Ben's rerun of Montreal proposes the
+  three lots of 40 for the 100 short; the agent's order of the 120
+  without its lots is refused by the run, and its order of the 120 naming
+  each lot is made; the proposal stays the run's draft.
+- No migration, no contract change, permission, event or problem code.
 
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
 
@@ -1958,8 +2019,8 @@ A later slice adds its row here and its section under "As built".
     completed run, as a `requisition`: `order` (the proposal's quantity,
     by the day it is needed, from a source the run read: a catalog item,
     a valid contract item or the purchasing history, and that source's
-    active supplier) or `source_needed`; lot sizes are Later (ADR-0084
-    §6), and a supplier's lead time and on-time share are read from
+    active supplier) or `source_needed`; a proposal of several lots
+    (ADR-0084 As built S2k2) is one order of its lots, each named (S2k2a), and a supplier's lead time and on-time share are read from
     procurement and named in the order (S2l1, ADR-0082 As built S2l1). `listPurchaseOrders` and `listContracts`
     filter by `material_id`, so the agent reads a material's orders and
     contracts without paging the company's.

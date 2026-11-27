@@ -3,6 +3,7 @@ package replenishmentagent
 import (
 	"fmt"
 	"maps"
+	"math/big"
 	"net/url"
 	"regexp"
 	"slices"
@@ -10,14 +11,26 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
-// proposal is a requisition as the run read it.
+// proposal is a requisition as the run read it: of one material in one
+// unit, its quantity what its items add up to and its lots the items, one
+// per lot of the plan's lot sizing (ADR-0084 As built S2k2); material is
+// empty for one that is not (no item, items of several materials or
+// units, or a quantity that is no plain decimal).
 type proposal struct {
 	legalEntity, status, neededBy string
 	material, quantity, unit      string
-	items                         int
+	lots                          []lot
+}
+
+// lot is an item of a proposal: its number and quantity as the
+// requisition gives them.
+type lot struct {
+	itemNo   int
+	quantity string
 }
 
 // source is a source of supply of a material the run read: its company,
@@ -72,19 +85,41 @@ func (rv *review) requisitionRead(resp apitools.Response) {
 		LegalEntityID string `json:"legal_entity_id"`
 		Status        string `json:"status"`
 		NeededBy      string `json:"needed_by"`
-		Items         []struct {
-			MaterialID string   `json:"material_id"`
-			Quantity   quantity `json:"quantity"`
-		} `json:"items"`
+		Items         []item `json:"items"`
 	}
 	if resp.Decode(&r) != nil {
 		return // a refused read shows no requisition
 	}
-	p := proposal{legalEntity: r.LegalEntityID, status: r.Status, neededBy: r.NeededBy, items: len(r.Items)}
-	if len(r.Items) > 0 {
-		p.material, p.quantity, p.unit = r.Items[0].MaterialID, r.Items[0].Quantity.Value, r.Items[0].Quantity.Unit
-	}
+	p := proposal{legalEntity: r.LegalEntityID, status: r.Status, neededBy: r.NeededBy}
+	p.material, p.quantity, p.unit, p.lots = lotsOf(r.Items)
 	rv.proposals[r.ID] = p
+}
+
+// item is a requisition's item as an answer gives it.
+type item struct {
+	ItemNo     int      `json:"item_no"`
+	MaterialID string   `json:"material_id"`
+	Quantity   quantity `json:"quantity"`
+}
+
+// lotsOf is the material, total quantity, unit and lots of a proposal's
+// items, the total written as the run line's proposed is (trim_scale,
+// money.PlainQuantity); no material when they are not lots of one
+// material in one unit.
+func lotsOf(items []item) (material, total, unit string, lots []lot) {
+	sum := new(big.Rat)
+	for _, it := range items {
+		q, err := money.ParsePlain(it.Quantity.Value)
+		if err != nil || it.MaterialID == "" || it.MaterialID != items[0].MaterialID || it.Quantity.Unit != items[0].Quantity.Unit {
+			return "", "", "", nil
+		}
+		sum.Add(sum, q)
+		lots = append(lots, lot{itemNo: it.ItemNo, quantity: it.Quantity.Value})
+	}
+	if len(lots) == 0 {
+		return "", "", "", nil
+	}
+	return items[0].MaterialID, money.PlainQuantity(sum), items[0].Quantity.Unit, lots
 }
 
 // catalogRead keeps the active catalog items of a material in an answer.
@@ -258,16 +293,17 @@ var orderLine = regexp.MustCompile(`^Order (\d+(?:\.\d+)?) ([A-Z0-9]{1,6}) from 
 
 // check is the agent's rule on a recommendation the pattern admits
 // (ADR-0072, S2l): on a proposal the run read that is still to be ordered,
-// of one material; every number it writes but in an order's first line
-// and its measures, which are checked whole, is one the run read; an
-// order in the form a buyer orders from, of the proposal's quantity by
-// its day from a source of its material the run read and that source's
-// active supplier, naming the supplier's measures as the check reads
+// of one material; every number it writes but in an order's first line,
+// its lots and its measures, which are checked whole, is one the run
+// read; an order in the form a buyer orders from, of the proposal's
+// quantity (its lots' sum) by its day from a source of its material the
+// run read and that source's active supplier, naming each of its lots
+// when it has several and the supplier's measures as the check reads
 // them; a source_needed only when the run read no source of the
 // material.
 func (rv *review) check(r recommend.Proposed, f *recommend.Figures) error {
 	p, read := rv.proposals[r.ObjectID]
-	if !read || !slices.Contains(open, p.status) || p.items != 1 || p.material == "" {
+	if !read || !slices.Contains(open, p.status) || p.material == "" {
 		return fmt.Errorf("%w: not %s", ErrProposal, r.ObjectID)
 	}
 	lines := strings.Split(r.Content, "\n")
@@ -285,7 +321,37 @@ func (rv *review) check(r recommend.Proposed, f *recommend.Figures) error {
 	if err := rv.ordered(p, m[1], m[2], m[3], m[4], m[5]); err != nil {
 		return err
 	}
+	if err := rv.lotsNamed(p, lines[1:]); err != nil {
+		return err
+	}
 	return rv.measuresNamed(p, m[3], lines[1:])
+}
+
+// lotPrefix begins a line naming one of an order's lots.
+const lotPrefix = "Lot "
+
+// lotsNamed checks the lines naming an order's lots (S2k2): they are the
+// proposal's lots in its items' order, each "Lot <item_no>: <quantity>
+// <unit> by <YYYY-MM-DD>" with the item's number and quantity as the
+// requisition gives them, its unit and the order's day, so that the lots
+// add up to the order's quantity. A proposal of several lots names them
+// all; one of one lot may name it or none. The refusal tells the lines
+// wanted.
+func (rv *review) lotsNamed(p proposal, lines []string) error {
+	want := make([]string, len(p.lots))
+	for i, l := range p.lots {
+		want[i] = fmt.Sprintf("%s%d: %s %s by %s", lotPrefix, l.itemNo, l.quantity, p.unit, rv.day(p))
+	}
+	var named []string
+	for _, l := range lines {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, lotPrefix) {
+			named = append(named, l)
+		}
+	}
+	if slices.Equal(named, want) || (len(named) == 0 && len(want) == 1) {
+		return nil
+	}
+	return fmt.Errorf("%w: want %q", ErrLots, strings.Join(want, "\n"))
 }
 
 // measuresNamed checks that an order names its supplier's measures, in
@@ -312,12 +378,12 @@ func (rv *review) measuresNamed(p proposal, supplier string, lines []string) err
 }
 
 // figured is a content's lines whose numbers must be ones the run read:
-// every line but an order's first and its measures, which the check
-// holds whole to what it read.
+// every line but an order's first, its lots and its measures, which the
+// check holds whole to what it read.
 func figured(lines []string) string {
 	rest := make([]string, 0, len(lines))
 	for _, l := range lines[1:] {
-		if !strings.HasPrefix(strings.TrimSpace(l), measuresPrefix) {
+		if t := strings.TrimSpace(l); !strings.HasPrefix(t, measuresPrefix) && !strings.HasPrefix(t, lotPrefix) {
 			rest = append(rest, l)
 		}
 	}

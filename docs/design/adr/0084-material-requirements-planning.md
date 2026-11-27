@@ -425,10 +425,10 @@ specialist):
 - **Rolling upgrade** (expand only): a plan written by a server before
   is lot for lot (the column's default); a run line it wrote names no
   `proposed` or `lots`, read as its shortage in one lot.
-- **The replenishment agent** reads a proposal of one item (ADR-0072 As
-  built S2l), so it refuses to recommend on a proposal of several lots
-  and leaves it to the buyer; recommending on one is Later (plan
-  §S2k2).
+- **The replenishment agent** read a proposal of one item (ADR-0072 As
+  built S2l), so it refused to recommend on a proposal of several lots
+  and left it to the buyer; since S2k2a (ADR-0072 As built S2k2a) it
+  recommends one order of the lots, each named by its item.
 - API (additive): `MaterialPlan`, `MaterialPlanCreate` and
   `MaterialPlanUpdate` (merge patch; `null` removes a quantity) gain the
   six fields, `MrpRunLine` `lot_size`, `proposed` and `lots`; problems

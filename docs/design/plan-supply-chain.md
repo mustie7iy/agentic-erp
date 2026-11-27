@@ -1218,8 +1218,30 @@ pack size.
   rounded; the run's lines say what was proposed and in how many lots.
 - **Later:** period lot sizes (daily, weekly, monthly), optimising
   procedures (part period, least unit cost, Groff), scrap, firming in a
-  planning time fence; the replenishment agent recommending on a
-  proposal of several lots.
+  planning time fence; the replenishment agent recommending an order per
+  lot (lots from several suppliers or on several days).
+- **S2k2a The replenishment agent on a proposal of several lots** (lane
+  repllots, 2026-11-27; the Later item "the replenishment agent
+  recommending on a proposal of several lots", review:batch95; ADR-0072
+  As built S2k2a, decided by default).
+  - **Adds:** the agent recommends one order of a proposal's lots from
+    one supplier and source: its first line orders their sum, then a line
+    `Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>` per item, by the
+    proposal's day; its check holds the lines to the requisition's items
+    (`ErrLots`) and the sum to its own exact total (`ErrQuantity`), and
+    the supplier's measures as S2l1 does. No migration, no contract
+    change; suite `evals/replenishment` version 3.
+  - **Acceptance:** an order of the lots' sum naming each lot in order is
+    made; one without the lots, with one missing, out of order, split
+    otherwise, on another day or naming a lot twice is refused before the
+    measures are read, telling the lines wanted; a requisition not of one
+    material in one unit is no proposal; the suite's two lot cases pass
+    replayed.
+  - **Walkthrough:** `step_replenishment_agent` (step 153): the W8
+    washer at Montreal, in fixed lots of 40: the agent's order of the 120
+    without its lots refused, its order naming the three lots made.
+  - **Later:** an order per lot (lots from several suppliers, with quota
+    arrangements; lots on several days, with period lot sizes).
 
 ### S2l Replenishment agent
 

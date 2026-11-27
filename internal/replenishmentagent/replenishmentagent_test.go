@@ -36,6 +36,11 @@ const (
 	rc      = "01a1aa00-0000-7000-8000-000000000d03" // a proposal a later run replaced: cancelled
 	rd      = "01a1aa00-0000-7000-8000-000000000d04" // a proposal never read
 	re      = "01a1aa00-0000-7000-8000-000000000d05" // a proposal of two lots (ADR-0084 As built S2k2), a draft
+	rf      = "01a1aa00-0000-7000-8000-000000000d06" // a proposal of lots with fractions
+	rg      = "01a1aa00-0000-7000-8000-000000000d07" // items of two materials: no proposal of one
+	rh      = "01a1aa00-0000-7000-8000-000000000d08" // items in two units: no proposal of one
+	ri      = "01a1aa00-0000-7000-8000-000000000d09" // no item
+	rj      = "01a1aa00-0000-7000-8000-000000000d0a" // a quantity that is no plain decimal
 	s1      = "01a1aa00-0000-7000-8000-000000000e01" // an active supplier, of the catalog
 	s2      = "01a1aa00-0000-7000-8000-000000000e02" // an active supplier, of the contract
 	s3      = "01a1aa00-0000-7000-8000-000000000e03" // a blocked supplier, last ordered from
@@ -63,13 +68,22 @@ var answers = map[string]string{
 		{"material_number": "MA-GASKET", "shortage": {"value": "2.5", "unit": "KG"}, "requisition_id": "` + rb + `", "requisition_number": "PR2"},
 		{"material_number": "MA-HINGE", "requisition_id": "` + rc + `", "requisition_number": "PR3"},
 		{"material_number": "MA-OTHER", "requisition_id": "` + rd + `", "requisition_number": "PR4"},
-		{"material_number": "MA-HINGE", "lot_size": "fixed", "lots": 2, "requisition_id": "` + re + `", "requisition_number": "PR5"},
+		{"material_number": "MA-HINGE", "lot_size": "replenish_to_maximum", "lots": 2, "requisition_id": "` + re + `", "requisition_number": "PR5"},
+		{"material_number": "MA-HINGE", "lot_size": "replenish_to_maximum", "lots": 3, "requisition_id": "` + rf + `", "requisition_number": "PR6"},
+		{"material_number": "MA-HINGE", "requisition_id": "` + rg + `", "requisition_number": "PR7"},
+		{"material_number": "MA-HINGE", "requisition_id": "` + rh + `", "requisition_number": "PR8"},
+		{"material_number": "MA-HINGE", "requisition_id": "` + ri + `", "requisition_number": "PR9"},
+		{"material_number": "MA-HINGE", "requisition_id": "` + rj + `", "requisition_number": "PR10"},
 		{"material_number": "MA-NONE", "shortage": {"value": "0", "unit": "EA"}}]}`,
 	"/v1/requisitions/" + ra: requisition(ra, "draft", `"needed_by": "2026-11-21", `, hinge, "30", "EA"),
 	"/v1/requisitions/" + rb: requisition(rb, "draft", "", gasket, "2.5", "KG"),
 	"/v1/requisitions/" + rc: requisition(rc, "cancelled", "", hinge, "30", "EA"),
-	"/v1/requisitions/" + re: `{"id": "` + re + `", "legal_entity_id": "` + le + `", "status": "draft", "needed_by": "2026-11-21", "items": [
-		{"material_id": "` + hinge + `", "quantity": {"value": "20", "unit": "EA"}}, {"material_id": "` + hinge + `", "quantity": {"value": "20", "unit": "EA"}}]}`,
+	"/v1/requisitions/" + re: lots(re, lot{1, hinge, "25", "EA"}, lot{2, hinge, "15", "EA"}),
+	"/v1/requisitions/" + rf: lots(rf, lot{1, hinge, "12.5", "EA"}, lot{2, hinge, "7.5", "EA"}, lot{3, hinge, "0.25", "EA"}),
+	"/v1/requisitions/" + rg: lots(rg, lot{1, hinge, "20", "EA"}, lot{2, gasket, "20", "EA"}),
+	"/v1/requisitions/" + rh: lots(rh, lot{1, hinge, "20", "EA"}, lot{2, hinge, "20", "BOX"}),
+	"/v1/requisitions/" + ri: lots(ri),
+	"/v1/requisitions/" + rj: lots(rj, lot{1, hinge, "-3", "EA"}),
 	"/v1/catalog-items": `{"items": [` + catalog(cat1, le, s1, hinge, "active") + `, ` + catalog(cat2, le, s1, hinge, "retired") + `, ` +
 		catalog(cat3, otherLE, s1, hinge, "active") + `, ` + catalog(cat5, le, s5, hinge, "active") +
 		`, {"id": "01a1aa00-0000-7000-8000-000000000f06", "legal_entity_id": "` + le + `", "supplier_id": "` + s1 + `", "status": "active"}]}`,
@@ -88,8 +102,25 @@ var answers = map[string]string{
 }
 
 func requisition(id, status, day, material, value, unit string) string {
-	return fmt.Sprintf(`{"id": %q, "legal_entity_id": %q, "status": %q, %s"items": [{"material_id": %q, "quantity": {"value": %q, "unit": %q},
+	return fmt.Sprintf(`{"id": %q, "legal_entity_id": %q, "status": %q, %s"items": [{"item_no": 1, "material_id": %q, "quantity": {"value": %q, "unit": %q},
 		"unit_price": {"amount": "1.20", "currency": "CAD"}}]}`, id, le, status, day, material, value, unit)
+}
+
+// lot is a requisition's item: its number, material and quantity.
+type lot struct {
+	no              int
+	material, value string
+	unit            string
+}
+
+// lots is a draft requisition needed by the day after the run's, of the
+// items.
+func lots(id string, items ...lot) string {
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = fmt.Sprintf(`{"item_no": %d, "material_id": %q, "quantity": {"value": %q, "unit": %q}}`, it.no, it.material, it.value, it.unit)
+	}
+	return fmt.Sprintf(`{"id": %q, "legal_entity_id": %q, "status": "draft", "needed_by": "2026-11-21", "items": [%s]}`, id, le, strings.Join(out, ", "))
 }
 
 func catalog(id, company, supplier, material, status string) string {
@@ -332,7 +363,8 @@ func TestReview(t *testing.T) {
 		{rb, "order", ordered("2.5", "KG", s2, "2026-11-20", "contract "+con4+" item 1"), replenishmentagent.ErrSource},
 		{rc, "order", ordered("30", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrProposal},
 		{rd, "source_needed", none, replenishmentagent.ErrProposal},
-		{re, "order", ordered("20", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrProposal},
+		{re, "order", ordered("40", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrLots},
+		{rg, "order", ordered("40", "EA", s1, "2026-11-21", "catalog item "+cat1), replenishmentagent.ErrProposal},
 		{ra, "order", first + why, replenishmentagent.ErrMeasures},
 		{ra, "order", first + "\nMeasures: no receipts" + why, replenishmentagent.ErrMeasures},
 		{ra, "order", first + "\nMeasures: 1 receipts (thin), lead time 9 days" + why, replenishmentagent.ErrMeasures},
@@ -636,30 +668,90 @@ func TestReviewMeasuresRetried(t *testing.T) {
 	}
 }
 
-// TestReviewLotsBeforeMeasures: an order on a proposal of several lots
-// (ADR-0084 As built S2k2), otherwise one a buyer could order from and
-// naming its supplier's measures, is refused as no proposal of one item
-// before the check reads any measures: the lots are the buyer's, so the
-// check spends no read on them and the model is told the proposal, not a
-// measures line.
-func TestReviewLotsBeforeMeasures(t *testing.T) {
-	order := rec(re, "order", "Order 20 EA from supplier "+s2+" by 2026-11-21: contract "+con1+" item 1\n"+measures+"\nWhy: the contract's 1.05 CAD.")
-	a := &fakeAPI{}
-	model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": re}), llmtest.Tool("getContract", map[string]any{"id": con1}),
-		llmtest.Tool("getBusinessPartner", map[string]any{"id": s2}), order, llmtest.Final("PR5 is planned in two lots: left to the buyer."))
-	res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), run)
-	if err != nil {
-		t.Fatal(err)
+// TestReviewLots: an order of a proposal of several lots (ADR-0084 As
+// built S2k2) is one order of its lots: of their sum, written as the run
+// line's proposed is, naming each lot in its items' order by the order's
+// day; a proposal of one lot may name it. Anything else is refused, the
+// lots before the check spends a read on the supplier's measures, and
+// the refusal tells the lines wanted. A requisition that is not of one
+// material in one unit is no proposal to order.
+func TestReviewLots(t *testing.T) {
+	first := func(qty string) string {
+		return "Order " + qty + " EA from supplier " + s2 + " by 2026-11-21: contract " + con1 + " item 1\n"
 	}
+	tail := measures + "\nWhy: the contract's 1.05 CAD."
+	both := "Lot 1: 25 EA by 2026-11-21\nLot 2: 15 EA by 2026-11-21\n"
+	for name, c := range map[string]struct {
+		on, content string
+		want        error  // nil: made
+		tells       string // the lines a lots refusal wants
+	}{
+		"one order of the lots":            {re, first("40") + both + tail, nil, ""},
+		"indented lot lines":               {re, first("40") + "  Lot 1: 25 EA by 2026-11-21\n  Lot 2: 15 EA by 2026-11-21\n" + tail, nil, ""},
+		"lots with fractions":              {rf, first("20.25") + "Lot 1: 12.5 EA by 2026-11-21\nLot 2: 7.5 EA by 2026-11-21\nLot 3: 0.25 EA by 2026-11-21\n" + tail, nil, ""},
+		"a proposal of one lot naming it":  {ra, first("30") + "Lot 1: 30 EA by 2026-11-21\n" + tail, nil, ""},
+		"the sum written otherwise":        {re, first("40.0") + both + tail, replenishmentagent.ErrQuantity, ""},
+		"one lot's quantity":               {re, first("25") + both + tail, replenishmentagent.ErrQuantity, ""},
+		"no lot named":                     {re, first("40") + tail, replenishmentagent.ErrLots, both},
+		"one of two named":                 {re, first("40") + "Lot 1: 25 EA by 2026-11-21\n" + tail, replenishmentagent.ErrLots, both},
+		"out of order":                     {re, first("40") + "Lot 2: 15 EA by 2026-11-21\nLot 1: 25 EA by 2026-11-21\n" + tail, replenishmentagent.ErrLots, both},
+		"another split":                    {re, first("40") + "Lot 1: 20 EA by 2026-11-21\nLot 2: 20 EA by 2026-11-21\n" + tail, replenishmentagent.ErrLots, both},
+		"a lot on another day":             {re, first("40") + "Lot 1: 25 EA by 2026-11-21\nLot 2: 15 EA by 2026-11-28\n" + tail, replenishmentagent.ErrLots, both},
+		"a lot named twice":                {re, first("40") + both + "Lot 2: 15 EA by 2026-11-21\n" + tail, replenishmentagent.ErrLots, both},
+		"a wrong lot of a proposal of one": {ra, first("30") + "Lot 2: 30 EA by 2026-11-21\n" + tail, replenishmentagent.ErrLots, "Lot 1: 30 EA by 2026-11-21\n"},
+		"a line beginning as a lot":        {re, first("40") + both + "Lot sizes 99 EA\n" + tail, replenishmentagent.ErrLots, both},
+		"items of two materials":           {rg, first("40") + tail, replenishmentagent.ErrProposal, ""},
+		"items in two units":               {rh, first("40") + tail, replenishmentagent.ErrProposal, ""},
+		"no item":                          {ri, first("40") + tail, replenishmentagent.ErrProposal, ""},
+		"a quantity that is no plain one":  {rj, first("40") + tail, replenishmentagent.ErrProposal, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := &fakeAPI{}
+			model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": c.on}), llmtest.Tool("getContract", map[string]any{"id": con1}),
+				llmtest.Tool("getBusinessPartner", map[string]any{"id": s2}), rec(c.on, "order", c.content), llmtest.Final("Done."))
+			res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.want == nil {
+				made(t, res, a, c.on)
+				return
+			}
+			refusedFirst(t, res, a, model.Requests, c.want, c.tells)
+		})
+	}
+}
+
+// made checks that one order on the proposal was made, after the check
+// read its supplier's measures once.
+func made(t *testing.T, res recommend.Result, a *fakeAPI, on string) {
+	t.Helper()
+	if want := []recommend.Made{{ID: "r1", ObjectType: "requisition", ObjectID: on, Kind: "order"}}; !slices.Equal(res.Recommendations, want) || res.Refused != 0 {
+		t.Errorf("got %v, refused %d, want %v and none refused", res.Recommendations, res.Refused, want)
+	}
+	if !slices.Equal(a.queries, []string{checked}) {
+		t.Errorf("the check's reads: got %v, want one of %s", a.queries, checked)
+	}
+}
+
+// refusedFirst checks that the order was refused with want, telling the
+// lines wanted when a lots refusal names them, before the check read any
+// supplier's measures, and that nothing reached the API.
+func refusedFirst(t *testing.T, res recommend.Result, a *fakeAPI, requests []string, want error, tells string) {
+	t.Helper()
 	if len(res.Recommendations) != 0 || res.Refused != 1 {
 		t.Errorf("got %v, refused %d, want none made and one refused", res.Recommendations, res.Refused)
 	}
-	told, _ := json.Marshal(replenishmentagent.ErrProposal.Error()) // the model reads the refusal as JSON text
-	if last, want := model.Requests[len(model.Requests)-1], strings.Trim(string(told), `"`)+": not "+re; !strings.Contains(last, want) {
-		t.Errorf("the refusal: got %s, want it to tell %q", last, want)
+	msg := want.Error()
+	if tells != "" {
+		msg += fmt.Sprintf(": want %q", strings.TrimSuffix(tells, "\n"))
+	}
+	told, _ := json.Marshal(msg) // the model reads the refusal as JSON text
+	if last := requests[len(requests)-1]; !strings.Contains(last, strings.Trim(string(told), `"`)) {
+		t.Errorf("the refusal: got %s, want it to tell %s", last, msg)
 	}
 	if len(a.queries) != 0 {
-		t.Errorf("delivery performance reads: got %v, want none: the lots are refused first", a.queries)
+		t.Errorf("delivery performance reads: got %v, want none: the refusal comes first", a.queries)
 	}
 	if got := len(a.sent("recommendations")); got != 0 {
 		t.Errorf("recommendations sent: got %d, want none", got)
