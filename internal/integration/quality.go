@@ -384,6 +384,9 @@ func (q *qualityCheck) journal() {
 	for _, l := range q.e.ACDOCA {
 		q.journalLine(l, &s)
 	}
+	for _, l := range q.e.ClearedEarlier { // earlier years' documents the year's clearings clear, loaded with them
+		q.lineOnce(l, &s)
+	}
 	for _, key := range sortedKeys(s.docLines) {
 		if total, err := money.Sum(s.docLines[key]...); err != nil || total != 0 {
 			q.add(SevError, "ACDOCA", key, "document does not balance (%s)", offBy(total, err))
@@ -408,14 +411,19 @@ func (q *qualityCheck) journal() {
 	}
 }
 
-func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
-	key := l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR
-	// A line twice would post twice, or name one opening item twice
-	// (integration.opening_item's key): refused, as SAP keys a line once.
+// lineOnce refuses a journal line the extract holds twice: it would post
+// twice, or name one opening item twice (integration.opening_item's key),
+// and SAP keys a line once (review:batch98).
+func (q *qualityCheck) lineOnce(l sap.ACDOCA, s *journalScan) {
 	if s.lines[sapItemKey(l)] {
 		q.add(SevError, "ACDOCA", sapItemKey(l), "the journal line is in the extract twice (company code, fiscal year, document and line); export each line once")
 	}
 	s.lines[sapItemKey(l)] = true
+}
+
+func (q *qualityCheck) journalLine(l sap.ACDOCA, s *journalScan) {
+	key := l.RBUKRS + "/" + l.GJAHR + "/" + l.BELNR
+	q.lineOnce(l, s)
 	amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
 	if err != nil {
 		q.add(SevError, "ACDOCA", key+"/"+l.DOCLN, "%v", err)

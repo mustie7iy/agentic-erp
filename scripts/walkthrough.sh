@@ -18680,9 +18680,19 @@ step_cash_receipts() {
     createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"requested_delivery_date\": \"$deliver\", \"items\": [{\"description\": \"Training day\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\"}]}"
   order=$(field .id)
   api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
-  expect "the order confirmed, not blocked for credit" "$(field '"\(.status) \(.credit_block)"')" "confirmed none"
-  as tom
   read=$(date_add "$deliver" 30)
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as tom
+    say "Northwind is over its credit limit (the orders of the steps before): blocked for credit, the order is no receipt yet:"
+    QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+    expect "the credit-blocked order's receipt" "$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))] | length")" 0
+    as ruth
+    say "Ruth releases the block, as in step 68:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  expect "the order confirmed, not blocked for credit" "$(field '"\(.status) \(.credit_block != "blocked")"')" "confirmed true"
+  as tom
   say "Tom sees it as a planned sales_order receipt: billed on the delivery date and paid on NT30, so on $read or the"
   say "first working day after it, at its open value:"
   api 200 '.items[] | select(any(.documents[]; .id == "'"$order"'")) | "  \(.date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency) from \(.customer.name // "-"): \([.documents[] | "\(.kind) \(.number // "-")"] | join(", "))"' \

@@ -88,7 +88,8 @@ func TestDownsRevert(t *testing.T) {
 		{[]string{"000492_mrp_lead_time"}, "mrp", "material_plan", "replenishment_lead_time_days", ""},
 		{[]string{"000485_validate_material_descriptions", "000484_material_descriptions"}, "materials", "material", "description_language", ""},
 		{names: []string{"000498_house_bank_code_per_account_validate", "000497_house_bank_code_per_account"}, schema: "payments", table: "house_bank", column: "code",
-			check: `SELECT EXISTS (SELECT FROM pg_constraint WHERE conname = 'house_bank_code_check' AND pg_get_constraintdef(oid) LIKE '%{1,10}%')`},
+			check: `SELECT EXISTS (SELECT FROM pg_constraint WHERE conrelid = 'payments.house_bank'::regclass AND conname = 'house_bank_code_check'
+				AND pg_get_constraintdef(oid) LIKE '%{1,10}%')`},
 		{[]string{"000499_opening_item"}, "integration", "opening_item", "external_key", ""},
 		{[]string{"000501_validate_cash_receipts", "000500_cash_receipts"}, "cash", "snapshot_flow", "customer_id", ""},
 	} {

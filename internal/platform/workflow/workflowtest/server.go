@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/client"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/backoff"
 )
 
 var (
@@ -102,26 +104,36 @@ func startOn(bin string, port int) (string, func(), error) {
 	return addr, func() { _ = cmd.Process.Kill(); <-exited }, nil
 }
 
-// dial waits until a client dials addr, or the server exits.
+// errExited is a server that exited while a client dialed it.
+var errExited = errors.New("it exited")
+
+// dial waits until a client dials addr, every 200 ms for a minute at most,
+// or until the server exits: its exit cancels the dial, which then ends at
+// once rather than waiting out the client's own timeout.
 func dial(addr string, exited <-chan struct{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		c, err := client.DialContext(ctx, client.Options{HostPort: addr})
-		if err == nil {
-			c.Close()
-			return nil
-		}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	go func() {
 		select {
 		case <-exited:
-			return fmt.Errorf("it exited while dialing %s: %w", addr, err)
+			cancel(errExited)
 		case <-ctx.Done():
-			return fmt.Errorf("dialing %s: %w", addr, err)
-		case <-tick.C:
 		}
+	}()
+	timed, stop := context.WithTimeout(ctx, time.Minute)
+	defer stop()
+	err := backoff.Retry(timed, 300, backoff.Constant(200*time.Millisecond), func() error {
+		c, err := client.DialContext(timed, client.Options{HostPort: addr})
+		if err != nil {
+			return fmt.Errorf("dialing %s: %w", addr, err)
+		}
+		c.Close()
+		return nil
+	})
+	if err != nil && errors.Is(context.Cause(ctx), errExited) {
+		return fmt.Errorf("%w while dialing %s: %w", errExited, addr, err)
 	}
+	return err
 }
 
 // syncBuffer is a buffer the server's output is copied into while it runs.

@@ -194,14 +194,20 @@ func TestForeignDocumentQuality(t *testing.T) {
 
 // TestJournalLineTwice: a journal line in the extract twice is refused by
 // the quality gate, naming its key, even when its whole document is
-// repeated and still balances: it would post twice, or name one opening
-// item twice (review:batch98, integration.opening_item's key).
+// repeated and still balances, and so is an earlier year's line the
+// year's clearings clear: it would post twice, or name one opening item
+// twice (review:batch98, integration.opening_item's key).
 func TestJournalLineTwice(t *testing.T) {
 	runDocumentCurrencyCases(t, []documentCurrencyCase{
 		{"a document repeated", func(e *sap.Extract, _ *target) {
 			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", LIFNR: "0000000001"})
 			e.ACDOCA = append(e.ACDOCA, e.ACDOCA[len(e.ACDOCA)-2:]...)
 		}, []string{"2000/2026/0100000011/000001: the journal line is in the extract twice", "2000/2026/0100000011/000002: the journal line is in the extract twice"}},
+		{"an earlier year's line repeated", func(e *sap.Extract, _ *target) {
+			l := sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", GJAHR: "2025", BELNR: "0100000099", DOCLN: "000001", RACCT: "0000211000", HSL: "-50.00",
+				LIFNR: "0000000001", AUGBL: "0100000013", AUGGJ: "2027", BUDAT: "20251210", BLART: "KR"}
+			e.ClearedEarlier = append(e.ClearedEarlier, l, l)
+		}, []string{"2000/2025/0100000099/000001: the journal line is in the extract twice"}},
 		{"each line once", func(e *sap.Extract, _ *target) {
 			withDocument(e, "0100000011", "EUR", sap.ACDOCA{RACCT: "0000211000", HSL: "-50.00", LIFNR: "0000000001"})
 		}, nil},
