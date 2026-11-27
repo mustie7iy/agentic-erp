@@ -1,0 +1,16 @@
+# Dataset contract (ADR-0044). Additive changes only (a new nullable
+# column); a removed, renamed or retyped column or a changed grain is a new
+# version under ../v2. Columns are what the extractor writes to Parquet;
+# internal/analytics/datasets_test.go checks them against semantic.yaml.
+dataset: segments
+version: 1
+kind: dimension
+# A segment (IFRS 8) is the tenant's, its code unique in the tenant
+# (ADR-0050 §3). Segments form no hierarchy. Joined at read time (ADR-0044
+# As built T56i2).
+grain: One row per segment of the tenant, as /v1/segments lists them.
+load: snapshot
+columns:
+  - {name: tenant_id, type: uuid, role: tenant}
+  - {name: segment, type: string, role: key}
+  - {name: segment_name, type: string, role: dimension}

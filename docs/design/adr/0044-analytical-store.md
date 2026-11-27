@@ -1354,6 +1354,90 @@ T56i2 and the plan metrics (`plan_amount`, `plan_variance`) T56i3.
   (the dimensions in every journal metric's breakdowns, and a reposting's
   50.00 under CC100, PC10 and its 25.00 of revenue under SEG1).
 
+**The centers' snapshots (T56i2, ADR-0050 §7; decided by default).**
+Three dimension datasets, snapshots rewritten by every run as `accounts`
+and `partners` are, join the journal's lines at read time:
+`cost_centers` (company, cost center code; `cost_center_name`,
+`cost_center_node`), `profit_centers` (profit center code;
+`profit_center_name`, `profit_center_node`) and `segments` (segment code;
+`segment_name`). They are the semantic dimensions of the same names, of
+`revenue`, `income` and `expenses` (so of `operating_profit` and
+`operating_margin` too), on the database path and the store path alike;
+parity covers them. The second of T56i's three slices; the plan metrics
+are T56i3.
+- *A code is resolved within its company.* A cost center's code is unique
+  within its company alone (`cost_center_code_once`), so `cost_centers` is
+  keyed, and a line joined, by the company and the code, the line's own
+  company: two companies' centers of one code keep their own names and
+  nodes, and are never joined into one (reader `TestCenterSnapshots`,
+  extract `TestCenterSnapshots`). A profit center and a segment are the
+  tenant's, their codes unique in it, so they are joined by code. A
+  scope's companies limit `cost_centers` as every dataset with a company
+  (the reader's view), so a principal of one company is shown no other
+  company's centers. The database path finds the same centers by the
+  line's ids (`cost_center_id`, `profit_center_id`, `segment_id` of
+  `/v1/journal-entries`).
+- *Active centers only.* A line carries an active center; a pending one
+  carries none yet, and a rejected one's code is free for another (ADR-0050
+  §3), so the codes are unique among the active ones, as the key needs.
+  The database path reads `/v1/cost-centers` and `/v1/profit-centers` with
+  `status=active` and `/v1/segments`.
+- *Today's names, today's tree* (decision P7). A name is the center's
+  now: texts change at once (ADR-0050 §3), so a renamed center is under
+  its new name in every period, as an account is. The node is the code of
+  the node of the kind's standard hierarchy the center is placed at today
+  (its place and node not removed, as `GET /v1/hierarchies/{id}` lists
+  them); a tenant without a standard hierarchy has no node. Alternative
+  hierarchies are not dimensions.
+- *A node's figure is its own centers'.* A semantic dimension holds one
+  value per line, so a line is under the node its center is placed at,
+  not also under that node's ancestors: grouped by `cost_center_node`, a
+  node holds the centers placed at it (centers may sit on inner nodes,
+  ADR-0050 §3 as amended), and a parent's figure is not the sum of its
+  subtree's. The center reports' node filter (`hierarchy_node_id`) does sum
+  the subtree. Roll-up by level is not built: it needs a dimension per
+  level or a node's ancestors per line, a contract decision of its own.
+- *Periods are not extracted.* A line carries the profit center and the
+  segment its cost center's period gave it on the posting date (T56i1's
+  columns), which is what reporting by them needs; no dimension the ADR
+  names reads a period's category or locks, so a snapshot of the periods
+  would answer nothing. Left until a metric needs one.
+- *Permissions: the centers' read when named.* The names and nodes are
+  read from the centers (`ledger.cost_center.read`), not from the journal
+  lines, so a query that breaks down or filters by one of them
+  (`analytics.NamesCenters`) needs that permission beside the journal's,
+  on both paths: the database path reads the centers only then
+  (`Source.Centers`), and the store requires it then (`Requires`, in the
+  database path's read order: after `ledger.account.read`). A journal
+  query by the centers' codes alone needs no more than before (parity
+  `permissions`, "center codes" and "centers"). A kept result's and a
+  watcher alert's permissions include it the same way (endpoint
+  `Permissions`, watchers `readPermissions`). Facts read without the
+  centers refuse a query naming them (`Facts.Centers`), never answering
+  as though every line had none.
+- *Older manifests.* A manifest written before the snapshots lists none
+  of them, so a plan naming one is refused by the reader and answered
+  from the database until the next run, which writes them; the journal is
+  not extracted again (its columns are unchanged), and a plan naming no
+  center's name or node joins none of them.
+- *No personal data.* The datasets hold codes, names and node codes; the
+  center's person responsible (a name, ADR-0050 §3) is not extracted.
+- *Isolation.* The reader's and parity's isolation tests are unchanged
+  and pass; each new dataset's view filters by the tenant's id and, for
+  `cost_centers`, the scope's companies, as every view does.
+- *Walkthrough.* Step 79 (`step_plan_version`, `center_node_analytics`)
+  asks this year's expenses by cost center node, name and account of node
+  ADMIN and finds each account's figure equal to the cost center report of
+  that node (`GET /v1/cost-center-balances` with `hierarchy_node_id`, its
+  rows summed): ADMIN holds CC-1100 alone and no node below it.
+- *Evidence.* extract `TestCenterSnapshots`, `TestColumnsAreTheContract`;
+  reader `TestCenterSnapshots`; analytics `TestSourceReadsCenters`,
+  `TestSourceWithoutCenters`, `TestSourceCenterErrors`, `TestNamesCenters`,
+  `TestSourcePermissionsOfCenters`; endpoint `TestPermissionsOfCenters`;
+  watchers `TestReadPermissions`; store `TestParity` (every journal metric
+  by the five dimensions, CC100's reposting under "Cost center hundred"
+  and LEAF, and the permissions).
+
 **Steps.** T55a this ADR and the dataset contract; T55b the snapshot
 migration, extractor and Parquet writer for journal lines; T55c the other
 datasets and the scheduler (migration 000115); T55d `erp-analytics`, the guard and the

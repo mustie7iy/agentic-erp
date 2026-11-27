@@ -39,6 +39,11 @@ dimensions:
   - {name: cost_center, label: Cost center, description: "The cost center's code, unique within its company; empty for an item or a journal line assigned to none"}
   - {name: profit_center, label: Profit center, description: "The profit center's code a journal line is assigned to; empty for a line assigned to none"}
   - {name: segment, label: Segment, description: "The segment (IFRS 8) of a journal line's profit center, by its code; empty for a line without one"}
+  - {name: cost_center_name, label: Cost center name, description: "The name of a journal line's cost center today, found by the line's company and the center's code; empty for a line assigned to none"}
+  - {name: cost_center_node, label: Cost center node, description: "The code of the node of today's standard cost center hierarchy the line's cost center is placed at, so a node's figure is that of the centers placed at it, not of those below it; empty for a line assigned to none"}
+  - {name: profit_center_name, label: Profit center name, description: "The name of a journal line's profit center today; empty for a line assigned to none"}
+  - {name: profit_center_node, label: Profit center node, description: "The code of the node of today's standard profit center hierarchy the line's profit center is placed at, so a node's figure is that of the centers placed at it, not of those below it; empty for a line assigned to none"}
+  - {name: segment_name, label: Segment name, description: "The name of a journal line's segment; empty for a line without one"}
   - {name: contract, label: Contract, description: "The document number of the contract the item's purchase order was made on; empty for spend off contract"}
   - {name: customer, label: Customer, description: "The customer's business partner number"}
   - {name: customer_name, label: Customer name}
@@ -65,7 +70,8 @@ metrics:
     aggregate: sum
     sign: -1
     filter: {account_type: [revenue], determination: [none]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, tax_jurisdiction, cost_center, profit_center, segment]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, tax_jurisdiction, cost_center, profit_center, segment,
+      cost_center_name, cost_center_node, profit_center_name, profit_center_node, segment_name]
 
   - name: income
     label: Income
@@ -76,7 +82,8 @@ metrics:
     aggregate: sum
     sign: -1
     filter: {account_type: [revenue]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, determination, document_type, tax_jurisdiction, cost_center, profit_center, segment]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, determination, document_type, tax_jurisdiction, cost_center, profit_center, segment,
+      cost_center_name, cost_center_node, profit_center_name, profit_center_node, segment_name]
 
   - name: expenses
     label: Operating expenses
@@ -87,7 +94,8 @@ metrics:
     aggregate: sum
     sign: 1
     filter: {account_type: [expense]}
-    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, cost_center, profit_center, segment]
+    dimensions: [company, fiscal_year, fiscal_quarter, fiscal_month, posting_date, account, account_name, document_type, cost_center, profit_center, segment,
+      cost_center_name, cost_center_node, profit_center_name, profit_center_node, segment_name]
 
   - name: operating_profit
     label: Operating profit

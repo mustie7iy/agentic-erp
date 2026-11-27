@@ -205,7 +205,9 @@ func (s *Source) fromStore(ctx context.Context, m *analytics.Model, p analytics.
 		return nil, err
 	}
 	scope := wire.Scope{AllCompanies: p.Companies == nil, Companies: p.Companies, Datasets: s.Datasets}
-	f := &analytics.Facts{Aggregated: map[string][]analytics.Fact{}, Exponents: map[string]int{}, Companies: map[string]string{}, Source: analytics.SourceStore}
+	// The reader answers the centers' names and nodes from its snapshots.
+	f := &analytics.Facts{Aggregated: map[string][]analytics.Fact{}, Exponents: map[string]int{}, Companies: map[string]string{}, Source: analytics.SourceStore,
+		Centers: true}
 	for _, name := range slices.Sorted(maps.Keys(plans)) {
 		res, err := s.Reader.Query(ctx, wire.Request{TenantID: snap.TenantID, ManifestKey: snap.ManifestKey, Scope: scope, Plan: plans[name]})
 		if err != nil {

@@ -108,6 +108,9 @@ func Execute(m *Model, f *Facts, p Principal, q Query) (*Result, error) {
 	if err := validateQuery(m, q); err != nil {
 		return nil, err
 	}
+	if err := f.withCenters(q); err != nil {
+		return nil, err
+	}
 	agg, err := aggregateMetrics(m, f, p, q)
 	if err != nil {
 		return nil, err

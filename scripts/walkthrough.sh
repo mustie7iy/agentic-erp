@@ -10073,6 +10073,7 @@ step_plan_version() {
     "$(printf '%s\n' "$admin 1050.00" "$sales 350.00" | sort | paste -sd';' - | sed 's/;/; /g')"
   say "FC plans 1050.00 CAD for CC-1100 and 350.00 CAD for CC-1300, copied from PLAN at 105 percent."
   center_actuals_analytics "$admin"
+  center_node_analytics
   passed
 }
 
@@ -10099,6 +10100,47 @@ center_actuals_analytics() {
   expect "expenses by cost center, the cost center report's actuals" "$got" "$want"
   say "The governed metric expenses by cost center agrees with the report: CC-1100 $got CAD."
 }
+# center_node_analytics is T56i2 (ADR-0044 As built T56i2): the actual
+# costs of this year by node of the standard cost center hierarchy, asked of
+# the semantic layer as the governed metric expenses by cost center node,
+# name and account (the centers' snapshots joined to the journal's lines),
+# agree on every account with the cost center report of node ADMIN
+# (GET /v1/cost-center-balances by hierarchy_node_id, the authoritative
+# read, its rows summed: a node's total is its centers'). ADMIN holds
+# CC-1100 alone and no node below it, so the report's subtree is the
+# node's own centers, which the dimension names.
+center_node_analytics() {
+  local hierarchy node got want number
+  say "Carla asks for the same actuals by node of the standard cost center hierarchy, today's tree (decision P7): the"
+  say "governed metric expenses by cost center node, name and account (ADR-0044 As built T56i2):"
+  QUIET=1 api 200 '' listHierarchies -p kind=cost_center -p is_standard=true
+  hierarchy=$(field '.items[0].id')
+  QUIET=1 api 200 '' getHierarchy -p "id=$hierarchy"
+  node=$(field '.nodes[] | select(.code == "ADMIN") | .id')
+  [ -n "$node" ] || fail "the standard cost center hierarchy has no node ADMIN: step 12 placed CC-1100 there"
+  api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value) \(.[1].value) on \(.[2].value): \(.[3].value) \(.[3].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"expenses\"], \"by\": [\"cost_center_node\", \"cost_center_name\", \"account\"], \"where\": [{\"dim\": \"cost_center_node\", \"op\": \"in\", \"values\": [\"ADMIN\"]}, {\"dim\": \"fiscal_year\", \"op\": \"in\", \"values\": [\"$YEAR\"]}], \"companies\": [\"$CC\"], \"order_by\": \"account\"}"
+  expect "the centers at ADMIN" "$(field '[.rows[] | .[1].value] | unique | join(", ")')" "Finance office"
+  got=$(field '[.rows[] | "\(.[2].value) \(.[3].value)"] | join("; ")')
+  [ -n "$got" ] || fail "no actual costs at node ADMIN in $YEAR: the earlier steps' postings are not there"
+  want=''
+  for number in $(field '[.rows[] | .[2].value] | join(" ")'); do
+    want="${want:+$want; }$number $(amount "$(node_costs "$node" "$(account "$number")")")"
+  done
+  say "The cost center report of node ADMIN, its centers' rows summed account by account (GET /v1/cost-center-balances):"
+  expect "expenses by cost center node, the node's report" "$got" "$want"
+  say "The governed metric expenses by hierarchy node agrees with the report: ADMIN $got CAD."
+}
+
+# node_costs NODE ACCOUNT is this year's actual on ACCOUNT of the cost
+# centers at NODE of a cost center hierarchy and below it, in cents, as the
+# cost center report gives it by hierarchy_node_id: its rows summed.
+node_costs() {
+  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "hierarchy_node_id=$1" -p page_size=100
+  [ "$(field '.next_page_token // ""')" = "" ] || fail "the node's report has more than one page"
+  field "[.items[] | select(.account_id == \"$2\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
+}
+
 # step_planning_agent is T105e (ADR-0072, As built T105e): the planning
 # agent, erp agent plan through the model stand-in answering from a script
 # of turns (its suite's replay, evals/planning), reads the forecast FC of

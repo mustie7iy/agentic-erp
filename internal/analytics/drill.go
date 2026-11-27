@@ -151,6 +151,9 @@ func RowQuery(m *Model, d Drill) (Query, error) {
 // document whose lines add up to more than an amount can hold refuses the
 // drill-through.
 func DocumentsOf(m *Model, f *Facts, p Principal, q Query) ([]Document, error) {
+	if err := f.withCenters(q); err != nil {
+		return nil, err
+	}
 	met := m.Metric(q.Measures[0])
 	terms := map[Document][]money.Minor{}
 	for _, fact := range f.Tables[met.Source] {

@@ -1,0 +1,19 @@
+# Dataset contract (ADR-0044). Additive changes only (a new nullable
+# column); a removed, renamed or retyped column or a changed grain is a new
+# version under ../v2. Columns are what the extractor writes to Parquet;
+# internal/analytics/datasets_test.go checks them against semantic.yaml.
+dataset: profit_centers
+version: 1
+kind: dimension
+# A profit center is the tenant's (the controlling area), its code unique
+# in the tenant (ADR-0050 §3): keyed by the code alone. Joined at read time
+# (ADR-0044 As built T56i2).
+grain: One row per active profit center of the tenant, as /v1/profit-centers lists them with status active.
+load: snapshot
+columns:
+  - {name: tenant_id, type: uuid, role: tenant}
+  - {name: profit_center, type: string, role: key}
+  - {name: profit_center_name, type: string, role: dimension}
+  # The code of the node of the tenant's standard profit center hierarchy
+  # the center is placed at today (decision P7); null without one.
+  - {name: profit_center_node, type: string, role: dimension, nullable: true}

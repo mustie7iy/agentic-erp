@@ -158,16 +158,18 @@ func (e *Endpoints) evaluate(ctx context.Context, tx pgx.Tx, p reqctx.Principal,
 		return Evaluation{Watcher: w, Series: []Judged{}}, nil
 	}
 	ev := Evaluation{Watcher: w, At: &at, Series: w.judge(f, at)}
-	ev.Alert, ev.Raised, err = raise(ctx, tx, p, w, at, ev.Series, readPermissions(m, w.Metric))
+	ev.Alert, ev.Raised, err = raise(ctx, tx, p, w, at, ev.Series, readPermissions(m, w))
 	return ev, err
 }
 
-// readPermissions are the permissions the metric's data is read with, as
-// the database path reads it (analytics.Source.Permissions), sorted: an
-// alert is shown only to a caller holding them (ADR-0077 §5).
-func readPermissions(m *analytics.Model, metric string) []string {
+// readPermissions are the permissions the watcher's metric's data is read
+// with, as the database path reads it (analytics.Source.Permissions), the
+// centers' read too when its filters name a center's name or node
+// (analytics.NamesCenters), sorted: an alert is shown only to a caller
+// holding them (ADR-0077 §5).
+func readPermissions(m *analytics.Model, w Watcher) []string {
 	needed := map[string]bool{}
-	for _, b := range m.BaseMetrics(metric) {
+	for _, b := range m.BaseMetrics(w.Metric) {
 		needed[m.Metric(b).Source] = true
 	}
 	datasets := []string{} // not nil: nil builds every dataset
@@ -176,7 +178,7 @@ func readPermissions(m *analytics.Model, metric string) []string {
 			datasets = append(datasets, f.Dataset)
 		}
 	}
-	perms := analytics.Source{Datasets: datasets}.Permissions()
+	perms := analytics.Source{Datasets: datasets, Centers: analytics.NamesCenters(analytics.Query{Where: w.Filters})}.Permissions()
 	slices.Sort(perms)
 	return perms
 }

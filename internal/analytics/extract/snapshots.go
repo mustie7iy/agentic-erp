@@ -124,7 +124,8 @@ const (
 
 // snapshots reads every snapshot dataset.
 func (r *run) snapshots(ctx context.Context, tx pgx.Tx) error {
-	for _, read := range []func(context.Context, pgx.Tx) error{r.poLines, r.apInvoices, r.spendLines, r.salesLines, r.openItems, r.accounts, r.partners, r.cashActuals, r.cashForecast, r.cashAccuracy} {
+	for _, read := range []func(context.Context, pgx.Tx) error{r.poLines, r.apInvoices, r.spendLines, r.salesLines, r.openItems, r.accounts, r.partners,
+		r.costCenters, r.profitCenters, r.segments, r.cashActuals, r.cashForecast, r.cashAccuracy} {
 		if err := read(ctx, tx); err != nil {
 			return err
 		}
