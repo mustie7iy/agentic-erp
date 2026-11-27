@@ -512,19 +512,37 @@ product owner):
   (SAP's return delivery takes the original's cost when it references
   the outbound delivery, from memory: specialist list); a receipt naming
   its delivery is Later.
-- **Locks.** The receipt locks the returns order (ADR-0008), then
+- **Locks.** The receipt locks the returns order (ADR-0008), then the
+  sales order's receipts into stock (`database.LockTenant`
+  `sales.return_stock` on the order's id, review round 1: two receipts
+  of one order item into two plants share no valuation lock), then
   inventory the valuations of the materials at their plants, the lock
-  every movement of them takes first (the goods issue, its reversal and
-  every other receipt into stock); only then does sales read what the
-  goods issues took and earlier receipts took back (`ReceiveForReturn`
-  asks `Costs`), so two receipts of one order item, or a receipt and a
-  goods issue's reversal, wait for one another and the second is judged
-  on what the first left (`TestCustomerReturnsAtOnce`); then the stock,
-  batch stock and serial numbers, as any posting. The order is not
-  locked: nothing the receipt reads of it changes once it is billed.
-  No lock is taken the other way round: the goods issue and its reversal
-  take delivery, valuations, stock, then order; the receipt returns
-  order, valuations, stock.
+  every goods issue and its reversal of them take first; only then does
+  sales read what the goods issues took and earlier receipts took back
+  (`ReceiveForReturn` asks `Costs`), so two receipts of one order, in
+  one plant or two, or a receipt and a goods issue's reversal, wait for
+  one another and the second is judged on what the first left
+  (`TestCustomerReturnsAtOnce`, `TestCustomerReturnsAtOnceInTwoPlants`);
+  then the stock, batch stock and serial numbers, as any posting. The
+  sales order's row is not locked: a goods issue of the same order holds
+  the valuations and then waits for it, and nothing the receipt reads of
+  it changes once it is billed. No lock is taken the other way round:
+  the goods issue and its reversal take delivery, valuations, stock,
+  then order and never the receipts' lock; the receipt returns order,
+  receipts' lock, valuations, stock.
+- **The receipt's date** stays T85b's: any day up to the company's
+  today, also one before the goods issue (T85b default 3); the 653 posts
+  on it, so its cost of sales counts in that period. Refusing a date
+  before the goods issue is not built (listed for the product owner).
+- **Delivered partly by hand.** An order item delivered in part by a
+  goods issue and in part by hand (before S2b1) takes back at most what
+  the goods issue delivered; its hand-delivered rest is refused (422
+  `sales.exceeds_issued_quantity`) rather than valued at the price,
+  which would mix two bases in one item. Such items predate goods
+  issues; accepted, listed for the product owner.
+- **The movement type list** of the contract's open enumerations gains
+  `653` at its end: values are added there, never reordered (an open
+  enumeration, ADR-0041), as `643` was.
 - **What is recorded.** `sales.return_receipt_posting` names the 653,
   once per receipt and once per document, with the company's currency;
   `sales.return_receipt_item_cost` each stock item's cost (both

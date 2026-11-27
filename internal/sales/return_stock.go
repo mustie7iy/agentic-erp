@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -165,6 +166,14 @@ func (e *Endpoints) receiveStock(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if len(lines) == 0 {
 		return nil
 	}
+	// The receipts into stock of one sales order wait for one another,
+	// whatever plants they go into, so each reads what the ones before it
+	// took back (issuedCosts). Goods issues and their reversals never take
+	// this lock; it comes after the returns order's and before
+	// inventory's valuations, as nothing takes them the other way round.
+	if err := database.LockTenant(ctx, tx, "sales.return_stock", r.OrderID.String()); err != nil {
+		return fmt.Errorf("sales: lock the receipts into stock of sales order %s: %w", r.OrderNumber, err)
+	}
 	in := StockReturn{Reference: r.DocumentNumber, Day: day, Items: make([]StockReturnItem, len(lines))}
 	for k, l := range lines {
 		in.Items[k] = l.item
@@ -223,11 +232,12 @@ type issueBasis struct {
 	cost, costBack money.Minor
 }
 
-// issuedCosts is what each line is worth, read once inventory holds the
-// locks of the lines' materials' valuations at their plants, which every
-// goods issue, its reversal and every receipt into stock of them take
-// first, so nothing changes what is read here before the transaction
-// ends: the line's share, by quantity, of what its order item's goods
+// issuedCosts is what each line is worth, read under the lock of the
+// sales order's receipts into stock (receiveStock) once inventory holds
+// the locks of the lines' materials' valuations at their plants, which
+// every goods issue and its reversal of them take first, so nothing
+// changes what is read here before the transaction ends: the line's
+// share, by quantity, of what its order item's goods
 // issues took out that the receipts before it did not give back, its
 // remainder at the last, rounded half away from zero; nil for an order
 // item no goods issue delivered. A line beyond what the goods issues
@@ -246,7 +256,9 @@ func issuedCosts(ctx context.Context, tx pgx.Tx, r ReturnsOrder, lines []stockLi
 		}
 		q, left := money.ParseRat(l.item.Quantity), new(big.Rat).Sub(b.issued, b.back)
 		if q.Cmp(left) > 0 {
-			return nil, problem.Invalid("sales.exceeds_issued_quantity", fmt.Sprintf("items[%d].quantity.value", l.at), fmt.Sprintf(
+			// Named by the line's index k, as inventory names its items:
+			// asReceipt names the request's item once.
+			return nil, problem.Invalid("sales.exceeds_issued_quantity", fmt.Sprintf("items[%d].quantity", k), fmt.Sprintf(
 				"Item %d of returns order %s: its goods issues delivered %s %s of sales order %s's item %d that is not back in stock; %s is more.",
 				l.itemNo, r.DocumentNumber, money.PlainQuantity(left), l.item.Unit, r.OrderNumber, l.orderItemNo, l.item.Quantity))
 		}

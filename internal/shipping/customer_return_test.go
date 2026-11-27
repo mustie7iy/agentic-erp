@@ -12,6 +12,8 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
+	gomoney "github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -166,6 +168,8 @@ func TestCustomerReturnRefused(t *testing.T) {
 	e.Must(201, "POST", "/v1/sales-orders/"+order+"/deliveries", `{"delivery_date": "2026-01-02", "items": [{"item_no": 2, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
 	ret, _ := e.returning(t, e.posted(t, order), "1 2 BOX", "2 1 EA")
 	before := e.valuationOf(t, e.bracket)
+	p3 := e.orgUnit(t, e.DE, "plant", "P3", nil)
+	s3 := e.orgUnit(t, e.DE, "storage_location", "S3", &p3)
 	free := func(more map[string]any) map[string]any { return received("2 1 EA", more) }
 	bracket := func(more map[string]any) map[string]any { return received("1 2 BOX", more) }
 	for _, c := range []struct {
@@ -181,6 +185,8 @@ func TestCustomerReturnRefused(t *testing.T) {
 		{"a plant for a storage location", "sales.storage_location_invalid", "items[0].storage_location_id", []map[string]any{bracket(at(e.p1))}},
 		{"a storage location the bracket is not kept at", "inventory.storage_location_not_extended", "items[1].storage_location_id",
 			[]map[string]any{free(nil), bracket(at(e.s2))}},
+		{"a plant the bracket is not extended to", "inventory.plant_not_extended", "items[1].storage_location_id",
+			[]map[string]any{free(nil), bracket(at(s3))}},
 		{"a batch of a material not managed in batches", "inventory.batch_not_allowed", "items[1].batch_number",
 			[]map[string]any{free(nil), bracket(map[string]any{"storage_location_id": e.s1, "batch_number": "L1"})}},
 		{"serial numbers of a material without a profile", "inventory.serial_not_allowed", "items[0].serial_numbers",
@@ -245,6 +251,16 @@ func TestCustomerReturnWithoutGoodsIssue(t *testing.T) {
 		t.Errorf("the box the goods issue delivered: got %s, want 40.00 EUR", c)
 	}
 	e.Problem(422, "sales.exceeds_issued_quantity", "POST", returnsOrders+"/"+ret+"/receipts", receipt(t, day, received("1 1 BOX", at(e.s1))), "")
+	behind := e.order(t, false, e.freeText(), e.ofMaterial(e.bracket, "2 BOX"))
+	e.shipped(t, behind, "2 1 BOX")
+	e.handDelivered(t, behind, 2, "1")
+	e.Must(201, "POST", "/v1/sales-orders/"+behind+"/deliveries", `{"delivery_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
+	ret, _ = e.returning(t, e.posted(t, behind), "1 1 EA", "2 2 BOX")
+	m = e.Problem(422, "sales.exceeds_issued_quantity", "POST", returnsOrders+"/"+ret+"/receipts", receipt(t, day, received("1 1 EA", nil),
+		received("2 2 BOX", at(e.s1))), "")
+	if f := field(m); f != "items[1].quantity.value" {
+		t.Errorf("the refusal behind a free-text item: got %v, want items[1].quantity.value", f)
+	}
 	byHand := e.order(t, false, e.ofMaterial(e.bracket, "1 BOX"))
 	e.handDelivered(t, byHand, 1, "1")
 	ret, _ = e.returning(t, e.posted(t, byHand), "1 1 BOX")
@@ -299,6 +315,16 @@ func TestCustomerReturnAvailable(t *testing.T) {
 	}
 }
 
+// receiving is a receipt of one unit of the returns order's item 1 in
+// the unit into the storage location, through the endpoints.
+func receiving(h *sales.Endpoints, id string, day time.Time, unit string, location uuid.UUID) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := h.ConfirmReceipt(ctx, uuid.MustParse(id), sales.ReceiptInput{Date: day, Items: []sales.ReceiptItemInput{{
+			ItemQuantity: sales.ItemQuantity{ItemNo: 1, Quantity: "1", Unit: unit}, StorageLocationID: &location}}})
+		return err
+	}
+}
+
 // TestCustomerReturnsAtOnce: two receipts of two returns orders of one
 // order item, of which a goods issue delivered one box and a person the
 // other, wait for one another on the bracket's valuation, so the second
@@ -315,23 +341,87 @@ func TestCustomerReturnsAtOnce(t *testing.T) {
 	doc := e.posted(t, order)
 	first, _ := e.returning(t, doc, "1 1 BOX")
 	second, _ := e.returning(t, doc, "1 1 BOX")
-	pages, err := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := app.Sales(app.Config{Pages: pages, Now: time.Now})
-	receive := func(id string) func(ctx context.Context) error {
-		return func(ctx context.Context) error {
-			_, err := h.ConfirmReceipt(ctx, uuid.MustParse(id), sales.ReceiptInput{Date: day, Items: []sales.ReceiptItemInput{{
-				ItemQuantity: sales.ItemQuantity{ItemNo: 1, Quantity: "1", Unit: "BOX"}, StorageLocationID: &e.s1}}})
-			return err
-		}
-	}
-	a, b := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, receive(first), receive(second))
+	h := salesEndpoints(t)
+	a, b := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, receiving(h, first, day, "BOX", e.s1), receiving(h, second, day, "BOX", e.s1))
 	if a != nil {
 		t.Fatalf("the first receipt: got %v, want it posted", a)
 	}
 	if code := problem.From(b).Code; code != "sales.exceeds_issued_quantity" {
 		t.Errorf("the second receipt: got %v, want sales.exceeds_issued_quantity", b)
+	}
+}
+
+// TestCustomerReturnsAtOnceInTwoPlants: receipts of one order item into
+// two plants take no valuation lock in common, so the sales order's lock
+// of its receipts into stock makes the second wait and find the first's
+// return: of a part goods-issued at P1 and a part delivered by hand, the
+// second, into P3, is refused.
+func TestCustomerReturnsAtOnceInTwoPlants(t *testing.T) {
+	e := setup(t)
+	p3 := e.orgUnit(t, e.DE, "plant", "P3", nil)
+	s3 := e.orgUnit(t, e.DE, "storage_location", "S3", &p3)
+	m, _ := e.Must(201, "POST", "/v1/materials", mustJSON(t, map[string]any{"legal_entity_id": e.DE, "description": "Spacer", "base_unit": "EA",
+		"material_type": "trading_good", "material_group": "PARTS", "confirm_duplicate": true, "plants": []any{
+			map[string]any{"plant_id": e.p1, "storage_location_ids": []any{e.s1}}, map[string]any{"plant_id": p3, "storage_location_ids": []any{s3}}}}), "")
+	e.Approve(t, m["pending_change_id"].(string))
+	spacer := m["id"].(string)
+	e.value(t, spacer, "3000", "moving_average", "2.00")
+	e.Must(201, "POST", "/v1/material-valuations", mustJSON(t, map[string]any{"material_id": spacer, "plant_id": p3, "valuation_class": "3000",
+		"price_control": "moving_average", "price": map[string]any{"amount": "2.00", "currency": "EUR"}}), "")
+	e.receiveOf(t, spacer, "5")
+	order := e.order(t, false, e.ofMaterial(spacer, "2 EA"))
+	d, _ := e.shipped(t, order, "1 1 EA")
+	day, err := time.Parse(time.DateOnly, d["goods_issue_date"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.handDelivered(t, order, 1, "1")
+	doc := e.posted(t, order)
+	first, _ := e.returning(t, doc, "1 1 EA")
+	second, _ := e.returning(t, doc, "1 1 EA")
+	h := salesEndpoints(t)
+	a, b := apitest.Race(t, e.Tenant, e.Tenant.Human, e.Tenant.Human, receiving(h, first, day, "EA", e.s1), receiving(h, second, day, "EA", s3))
+	if a != nil {
+		t.Fatalf("the first receipt: got %v, want it posted", a)
+	}
+	if code := problem.From(b).Code; code != "sales.exceeds_issued_quantity" {
+		t.Errorf("the second receipt: got %v, want sales.exceeds_issued_quantity", b)
+	}
+}
+
+// TestCustomerReturnDatabaseFailures: every database statement of a
+// receipt into stock that fails fails the receipt (pgtest.FailingTx).
+func TestCustomerReturnDatabaseFailures(t *testing.T) {
+	e := setup(t)
+	order := e.order(t, false, e.ofMaterial(e.bracket, "2 BOX"))
+	d, _ := e.shipped(t, order, "1 2 BOX")
+	day, err := time.Parse(time.DateOnly, d["goods_issue_date"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ret, _ := e.returning(t, e.posted(t, order), "1 2 BOX")
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "receive into stock", receiving(salesEndpoints(t), ret, day, "BOX", e.s1))
+}
+
+// TestReceiveForReturnRefused: inventory's ReceiveForReturn runs in a
+// request, and refuses costs that do not give each item one.
+func TestReceiveForReturnRefused(t *testing.T) {
+	e := setup(t)
+	pages, err := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := app.Inventory(app.Config{Pages: pages, Now: time.Now})
+	items := []inventory.DeliveryItem{{MaterialID: uuid.MustParse(e.bracket), PlantID: e.p1, StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}}
+	none := func(context.Context) ([]*gomoney.Minor, error) { return nil, nil }
+	if _, err := h.ReceiveForReturn(context.Background(), "RO1", time.Now().UTC(), items, none); err == nil {
+		t.Error("outside a request: got no error, want one")
+	}
+	err = e.inRequest(t, func(ctx context.Context) error {
+		_, err := h.ReceiveForReturn(ctx, "RO1", time.Now().UTC(), items, none)
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "0 costs asked for the 1 items") {
+		t.Errorf("costs for no item: got %v, want them refused", err)
 	}
 }

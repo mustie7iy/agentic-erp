@@ -41,7 +41,7 @@ func deliveryBatches(ctx context.Context, tx pgx.Tx, mt movementType, in []Deliv
 		case !m.BatchManaged && it.Batch != "":
 			return problem.Invalid("inventory.batch_not_allowed", at, "Material "+m.Number+" is not managed in batches; the item names no batch.")
 		case m.BatchManaged && it.Batch == "" && mt.tracked:
-			return problem.Invalid("inventory.batch_required", at, "Material "+m.Number+" is managed in batches; the item names the batch it issues from.")
+			return problem.Invalid("inventory.batch_required", at, "Material "+m.Number+" is managed in batches; the item names its batch by number.")
 		}
 		if n := (batchName{it.MaterialID, it.Batch}); it.Batch != "" && !slices.Contains(names, n) {
 			names = append(names, n)
