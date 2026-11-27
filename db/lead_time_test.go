@@ -101,15 +101,15 @@ func TestLeadTimeDownsRefused(t *testing.T) {
 		payment_term_code, net_amount, status, created_by, updated_by, plant_id)
 		VALUES ($1, $2, 'SO8', gen_random_uuid(), gen_random_uuid(), '2099-01-01', 'EUR', 'NT30', 600, 'confirmed', $1, $1, gen_random_uuid())`
 	const line = `INSERT INTO sales.sales_order_item (tenant_id, sales_order_id, item_no, item_key, material_id, description, quantity, uom_code,
-		unit_price, price_unit, net_amount, account_id, confirmed_quantity, lead_time_quantity, lead_time_date)
-		VALUES ($1, $2, 1, 'M8', gen_random_uuid(), 'Hinge', 6, 'EA', 100, 1, 600, gen_random_uuid(), 5, 2, '2099-01-11')`
+		unit_price, price_unit, net_amount, account_id) VALUES ($1, $2, 1, 'M8', gen_random_uuid(), 'Hinge', 6, 'EA', 100, 1, 600, gen_random_uuid())`
+	const confirm = `UPDATE sales.sales_order_item SET confirmed_quantity = 5, lead_time_quantity = 2, lead_time_date = '2099-01-11' WHERE sales_order_id = $1`
 	days := "10"
 	for _, c := range []struct {
 		name, migration, want string
 		rows                  func(s leadScene) []stmt
 	}{
 		{"an item on the lead time", "000493_sales_lead_time", "sales order items are confirmed in part on the lead time",
-			func(s leadScene) []stmt { return s.item(order, line) }},
+			func(s leadScene) []stmt { return s.item(order, line, step(confirm, s.order)) }},
 		{"a plan's lead time", "000492_mrp_lead_time", "material plans name replenishment lead times",
 			func(s leadScene) []stmt { return s.leadDays(&days) }},
 	} {
