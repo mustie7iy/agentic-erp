@@ -57,7 +57,8 @@ var AccrualTools = []string{"getPeriodClose", "listAccrualProposals", "listBalan
 // entry, parked or posted (it proposes an accrual through proposeAccrual
 // alone, whose evidence and duplicate rules parkJournalEntry does not
 // apply); every fiscal period action; the postings of the documents it
-// reads (a supplier invoice, its down payments cleared, a goods receipt)
+// reads (a supplier invoice, its down payments cleared, a goods receipt,
+// and their reversals)
 // and the resolutions of a held e-invoice behind a supplier invoice
 // (retried, linked, dismissed); the period-end runs and valuations that
 // post (carry-forward, revaluation, depreciation, an asset's impairment,
@@ -71,8 +72,8 @@ var Never = []string{
 	"createYearClose", "updateYearCloseTask", "completeYearCloseTask", "reopenYearCloseTask", "checkYearCloseTask", "signOffYearClose",
 	"postJournalEntry", "reverseJournalEntry", "parkJournalEntry", "updateParkedJournalEntry", "postParkedJournalEntry",
 	"cancelParkedJournalEntry", "openFiscalPeriod", "closeFiscalPeriod", "lockFiscalPeriod", "unlockFiscalPeriod",
-	"postSupplierInvoice", "clearSupplierInvoiceDownPayments", "postGoodsReceipt", "retryEInvoice", "linkEInvoice", "dismissEInvoice",
-	"impairAsset",
+	"postSupplierInvoice", "reverseSupplierInvoice", "clearSupplierInvoiceDownPayments", "postGoodsReceipt", "reverseGoodsReceipt",
+	"retryEInvoice", "linkEInvoice", "dismissEInvoice", "impairAsset",
 	"runBalanceCarryForward", "postRevaluationRun", "cancelRevaluationRun", "startDepreciationRun", "runAllocationCycle",
 	"reverseAllocationRun", "settleInternalOrder", "reverseInternalOrderSettlement", "createLeaseRun",
 	"createRevenueRecognitionRun", "createConsolidationRun", "finalizeConsolidationRun", "createClearing", "createGrIrClearing",

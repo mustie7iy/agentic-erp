@@ -1983,7 +1983,11 @@ default, for the product owner to overrule:
   T65f), which enter or attach the supplier invoice the agent reads, and
   `impairAsset` (ADR-0057 As built, impairment), a period-end valuation
   that posts as the depreciation run does. All four are `x-agent: false`.
-  `TestNever` names them, with the documents' postings and the
+  It also added the reversals of the documents the agent reads,
+  `reverseSupplierInvoice` and `reverseGoodsReceipt` (open to an agent at
+  level 2 holding their permissions, kept from the close agent by its
+  tools, role and level, as their postings are; integration review round
+  1). `TestNever` names them, with the documents' postings and the
   depreciation run, so dropping one fails it.
 - **Walkthrough.** `close_accrual_decisions` (step_close) has the agent,
   after proposing its second accrual, refused rejecting it and signing

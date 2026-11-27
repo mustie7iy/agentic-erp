@@ -11,7 +11,7 @@ import (
 )
 
 // closingPaths are the paths of the closing context's operations (ADR-0058
-// §13), each followed in the contract by "/", "?", ":" or nothing.
+// §13), each followed in the contract by "/", ":" or nothing.
 var closingPaths = []string{"/v1/period-closes", "/v1/year-closes", "/v1/close-tasks", "/v1/close-calendar",
 	"/v1/accrual-proposals", "/v1/variance-comment-proposals", "/v1/variance-comments"}
 
@@ -65,7 +65,8 @@ func TestNever(t *testing.T) {
 	// The writes the rule above does not find by path or name: the postings
 	// of the documents it reads, a held e-invoice's resolutions (T65f) and
 	// an asset's impairment (ADR-0057 As built), a valuation of the close.
-	for _, id := range []string{"postSupplierInvoice", "clearSupplierInvoiceDownPayments", "postGoodsReceipt", "retryEInvoice",
+	for _, id := range []string{"postSupplierInvoice", "reverseSupplierInvoice", "clearSupplierInvoiceDownPayments", "postGoodsReceipt",
+		"reverseGoodsReceipt", "retryEInvoice",
 		"linkEInvoice", "dismissEInvoice", "startDepreciationRun", "impairAsset"} {
 		if !slices.Contains(closeagent.Never, id) {
 			t.Errorf("never list: got %v, want it to hold %s", closeagent.Never, id)

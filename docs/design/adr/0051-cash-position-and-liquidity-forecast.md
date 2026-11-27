@@ -2488,13 +2488,15 @@ reconciliation and close agents leave it open):
   integration, which found the agent without the never list the later
   agents have, ADR-0072): `cashagent.Never` names them, every write of
   cash but the two proposals, of a payment run, a bank statement, a bank
-  file, a dunning block and a configuration change request, and
+  file, a dunning block, a business partner's block and a configuration
+  change request, and
   `cashagent.TestNever` holds the list to the contract, a new write of any
   of those kinds failing it until it is listed. Every write of cash but
   the proposals is `x-agent: false`; `proposePaymentRun`,
   `importBankStatements`, `matchBankStatement`, `proposeBankStatementLine`,
-  `transmitBankFile`, `reportBankFileStatus` and the change requests are
-  not, and are kept from the agent by its tools, its role and its level
+  `transmitBankFile`, `reportBankFileStatus`, `blockBusinessPartner`,
+  `unblockBusinessPartner` and the change requests but
+  `activateChangeRequest` are not, and are kept from the agent by its tools, its role and its level
   (decided by default: the list, not the contract, as for the close
   agent).
 - **Evaluation** (`evals/cash`, ADR-0039), replayed in CI to level 2 with

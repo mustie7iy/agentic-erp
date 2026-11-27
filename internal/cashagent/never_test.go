@@ -11,7 +11,7 @@ import (
 )
 
 // cashPaths are the paths of the cash context's operations (ADR-0051), each
-// followed in the contract by "/", "?", ":" or nothing.
+// followed in the contract by "/", ":" or nothing.
 var cashPaths = []string{"/v1/cash-actuals", "/v1/cash-actual-lines", "/v1/cash-position", "/v1/cash-snapshots",
 	"/v1/cash-exports", "/v1/group-liquidity-forecast", "/v1/liquidity-forecast", "/v1/liquidity-forecast-flows",
 	"/v1/liquidity-forecast-variance", "/v1/memo-records", "/v1/memo-record-proposals", "/v1/memo-record-uploads"}
@@ -27,17 +27,18 @@ func cash(op contract.Operation) bool {
 }
 
 // moving tells whether an operation is one of the writes that pay, post a
-// bank statement, block an item or change configuration, which ADR-0051
+// bank statement, block an item or a partner or change configuration, which ADR-0051
 // §13 says the agent never performs.
 func moving(id string) bool {
 	return strings.Contains(id, "PaymentRun") || strings.Contains(id, "BankStatement") ||
-		strings.Contains(id, "BankFile") || strings.Contains(id, "DunningBlock") || strings.Contains(id, "ChangeRequest")
+		strings.Contains(id, "BankFile") || strings.Contains(id, "DunningBlock") || strings.Contains(id, "ChangeRequest") ||
+		strings.HasSuffix(id, "blockBusinessPartner")
 }
 
 // TestNever: the agent's tools are reads and its two proposals; its never
 // list holds every other write of cash, every write of a payment run, a
-// bank statement, a bank file, a dunning block and a configuration change
-// request, none of them a tool;
+// bank statement, a bank file, a dunning block, a business partner's block
+// and a configuration change request, none of them a tool;
 // and every write of cash but the proposals is x-agent: false, so the API
 // refuses the agent whatever its level (ADR-0051 §13, As built T53i).
 func TestNever(t *testing.T) {
