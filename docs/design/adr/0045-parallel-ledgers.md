@@ -178,7 +178,20 @@ the filter, which is now a plain condition on the ledger asked for or the
 leading one, resolved before the list's query (as `coalesce($10, the
 leading ledger)` in the query, the cached statement's generic plan took
 the ledger-less index), so a page reads its entries alone
-(`TestListReadsOnlyItsLedgersPage`). **Decided by default** (for the
+(`TestListReadsOnlyItsLedgersPage`). The list chooses the page in a
+subquery and reads the lines, names and currencies of its entries only
+(batch 95F fix): in one query the lines' subquery, costed per entry the
+scan returns, made the scans along the ledger page index and along the
+ledger-less one cost the same within the planner's 1% margin, and where
+the ledger page index is a level deeper (a wider key; GitHub's race run
+of PR #147, a journal many tenants share) the ledger-less one won on its
+start-up cost and a page read its copies too. One case is left: when the
+statistics put the company at about one entry (a company they have not
+yet seen, as in a journal shared by more companies than the statistics
+keep values of), both scans cost one entry and the shallower ledger-less
+index still wins, reading at most the page's copies in the company's
+other ledgers besides; dropping the ledger-less page indexes, the
+contract step below, closes it. **Decided by default** (for the
 product owner's review): no extended statistics object. The planner's
 misestimate of the ledger's selectivity (across every tenant's ledgers)
 is harmless once the ledger is a column of the index the page follows,
