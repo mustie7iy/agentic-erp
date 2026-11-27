@@ -27,8 +27,8 @@ func cash(op contract.Operation) bool {
 }
 
 // moving tells whether an operation is one of the writes that pay, post a
-// bank statement, block an item or a partner or change configuration, which ADR-0051
-// §13 says the agent never performs.
+// bank statement, block an item or a partner or change configuration,
+// which ADR-0051 §13 says the agent never performs.
 func moving(id string) bool {
 	return strings.Contains(id, "PaymentRun") || strings.Contains(id, "BankStatement") ||
 		strings.Contains(id, "BankFile") || strings.Contains(id, "DunningBlock") || strings.Contains(id, "ChangeRequest") ||

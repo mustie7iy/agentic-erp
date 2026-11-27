@@ -58,12 +58,12 @@ var AccrualTools = []string{"getPeriodClose", "listAccrualProposals", "listBalan
 // alone, whose evidence and duplicate rules parkJournalEntry does not
 // apply); every fiscal period action; the postings of the documents it
 // reads (a supplier invoice, its down payments cleared, a goods receipt,
-// and their reversals)
-// and the resolutions of a held e-invoice behind a supplier invoice
-// (retried, linked, dismissed); the period-end runs and valuations that
-// post (carry-forward, revaluation, depreciation, an asset's impairment,
-// allocation, order settlement, leases, revenue recognition,
-// consolidation) and the clearings; and every decision of an approval.
+// and their reversals) and the resolutions of a held e-invoice behind a
+// supplier invoice (retried, linked, dismissed); the period-end runs and
+// valuations that post (carry-forward, revaluation, depreciation, an
+// asset's impairment, allocation, order settlement, leases, revenue
+// recognition, consolidation) and the clearings; and every decision of an
+// approval.
 // None is among its tools; the API refuses an agent each of closing's
 // (x-agent: false), not each of the others.
 var Never = []string{

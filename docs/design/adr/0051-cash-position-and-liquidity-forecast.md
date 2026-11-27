@@ -2496,9 +2496,9 @@ reconciliation and close agents leave it open):
   `importBankStatements`, `matchBankStatement`, `proposeBankStatementLine`,
   `transmitBankFile`, `reportBankFileStatus`, `blockBusinessPartner`,
   `unblockBusinessPartner` and the change requests but
-  `activateChangeRequest` are not, and are kept from the agent by its tools, its role and its level
-  (decided by default: the list, not the contract, as for the close
-  agent).
+  `activateChangeRequest` are not, and are kept from the agent by its
+  tools, its role and its level (decided by default: the list, not the
+  contract, as for the close agent).
 - **Evaluation** (`evals/cash`, ADR-0039), replayed in CI to level 2 with
   the scripted model: each case on company 2000's variance of today at
   lag 0, against a snapshot taken on demand after the case's documents:
