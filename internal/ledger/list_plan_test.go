@@ -98,7 +98,13 @@ func seedCopies(t *testing.T, id string, n int) {
 // document numbers and so lie among them in a page index without the
 // ledger. 2,000 entries in each ledger, of one posting date; each sort,
 // the leading ledger by default and 2L by its id, after six runs, as
-// TestListReadsOnlyItsPage.
+// TestListReadsOnlyItsPage. Twice: on a journal of the company alone, and
+// on one grown by 6,000 entries of the other company with the statistics
+// of a journal many tenants share (tenant_id's n_distinct set to 150, as
+// the package's whole run leaves it), where the ledger page indexes are a
+// level deeper than those without the ledger. There a list that read the
+// page in the same scan as the entries' lines took the shallower index
+// (GitHub's race run of PR #147; ADR-0045 As built finfix).
 func TestListReadsOnlyItsLedgersPage(t *testing.T) {
 	e := setup(t)
 	if err := e.applyTax(t, parallel(t)); err != nil {
@@ -113,6 +119,23 @@ func TestListReadsOnlyItsLedgersPage(t *testing.T) {
 		AND c.posting_group_id = e.posting_group_id AND c.id <> e.id WHERE e.id = $1`, []any{je["id"]}, &copyID, &local)
 	seedCopies(t, je["id"].(string), 1999)
 	seedCopies(t, copyID, 1999)
+	t.Run("company alone", func(t *testing.T) { readsLedgersPage(t, e, local) })
+	usBank, usRevenue := e.account(t, "1000", "100000"), e.account(t, "1000", "400000")
+	e.rate(t, "USD", "EUR", "2026-01-01", "0.9")
+	us, _ := e.Must(201, "POST", "/v1/journal-entries", entry(e.us, "2026-03-10", "USD", line{usBank, "1.00", ""}, line{usRevenue, "-1.00", ""}), "")
+	pgtest.Exec(t, `ALTER TABLE ledger.journal_entry_y2026 ALTER COLUMN tenant_id SET (n_distinct = 150)`)
+	t.Cleanup(func() { // the package's other tests plan with the statistics its data gives
+		pgtest.Exec(t, `ALTER TABLE ledger.journal_entry_y2026 ALTER COLUMN tenant_id RESET (n_distinct)`)
+		pgtest.Exec(t, `ANALYZE ledger.journal_entry`)
+	})
+	seedCopies(t, us["id"].(string), 5999) // its ANALYZE takes the setting
+	t.Run("larger journal", func(t *testing.T) { readsLedgersPage(t, e, local) })
+}
+
+// readsLedgersPage lists a page of company 2000's entries in each sort,
+// of the leading ledger and of local (2L), and checks it read the page.
+func readsLedgersPage(t *testing.T, e env, local string) {
+	t.Helper()
 	const size = 50
 	for _, c := range []struct{ ledger, order string }{
 		{"", "posting_date"}, {"", "document_number desc"}, {local, "posting_date desc"}, {local, "document_number"},

@@ -180,7 +180,9 @@ type Line struct {
 	notRecovered money.Minor
 }
 
-const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
+// entryColumns is what an entry is read as, from an entry e joined as
+// entryJoins joins it; entrySelect reads it from the journal.
+const entryColumns = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 		(SELECT g.is_leading FROM ledger.ledger g WHERE g.tenant_id = e.tenant_id AND g.id = e.ledger_id), e.fiscal_year, e.fiscal_period, e.document_type, e.document_number,
 		e.document_date, e.posting_date, e.tax_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
 		e.reference, e.header_text, e.source_context, e.source_document_id, e.reversal_of_id, e.reversal_of_year, r.reversal_entry_id,
@@ -194,12 +196,17 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 			'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code, 'trading_partner_id', l.trading_partner_id,
 			'internal_order_id', l.internal_order_id)
 			ORDER BY l.line_no)
-		 FROM ledger.journal_line l` + centerJoins + ` WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)
-	FROM ledger.journal_entry e
+		 FROM ledger.journal_line l` + centerJoins + ` WHERE l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id)`
+
+// entryJoins joins an entry e's currencies and its reversal.
+const entryJoins = `
 	JOIN ref.currency ctc ON ctc.code = e.currency_tc
 	JOIN ref.currency clc ON clc.code = e.currency_lc
 	JOIN ref.currency cgc ON cgc.code = e.currency_gc
 	LEFT JOIN ledger.reversal r ON r.tenant_id = e.tenant_id AND r.original_entry_id = e.id`
+
+const entrySelect = entryColumns + `
+	FROM ledger.journal_entry e` + entryJoins
 
 // centerJoins joins a line l's cost center cc, profit center pc and
 // segment sg, for their codes.

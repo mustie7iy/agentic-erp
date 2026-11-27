@@ -320,8 +320,12 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 		return &gen.JournalEntryPage{Items: []gen.JournalEntry{}}, nil
 	}
 	where, args := entryFilter(params, ledgerID)
-	q, args := ks.SQL(entrySelect+` WHERE ($1 OR e.legal_entity_id = ANY($2))`+where, append([]any{access.All, access.IDs}, args...))
-	rows, _ := tx.Query(ctx, q, args...)
+	// The page is chosen in a subquery, so the lines' per-entry cost does
+	// not reach the scan's choice of index, which it once tipped to the page
+	// index without the ledger (ADR-0045 As built finfix).
+	pageSQL, args := ks.SQL(`SELECT e.* FROM ledger.journal_entry e WHERE ($1 OR e.legal_entity_id = ANY($2))`+where,
+		append([]any{access.All, access.IDs}, args...))
+	rows, _ := tx.Query(ctx, entryColumns+` FROM (`+pageSQL+`) e`+entryJoins+` ORDER BY `+ks.Order(), args...)
 	entries, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Entry, error) { return scanEntry(r) })
 	if err != nil {
 		return nil, fmt.Errorf("ledger: list journal entries: %w", err)

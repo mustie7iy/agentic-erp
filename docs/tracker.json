@@ -2411,7 +2411,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "D",
+      "s": "P",
       "t": "Leading and non-leading ledgers",
       "r": "T52",
       "c": [
@@ -2453,8 +2453,15 @@
        {
         "s": "D",
         "t": "Ledger-aware list index and planner statistics for the journal list's ledger filter",
-        "r": "T52 · done (finfix): 000477-000479 ledger page indexes, plain ledger condition on the resolved ledger, no extended statistics (ADR-0045 As built finfix); TestListReadsOnlyItsLedgersPage, db TestJournalEntryLedgerPageIndexes",
+        "r": "T52 · done (finfix): 000477-000479 ledger page indexes, plain ledger condition on the resolved ledger, the page chosen in a subquery before the entries' lines (batch 95F fix), no extended statistics (ADR-0045 As built finfix); TestListReadsOnlyItsLedgersPage, db TestJournalEntryLedgerPageIndexes",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Contract step of the ledger page indexes: drop the page indexes without the ledger (journal_entry_page_posting and _number, 000055; journal_entry_page_period, 000186) in a release after the one shipping 000477-000479, once a check finds no read of the journal by company and posting date, document number or period that does not name the ledger; closes the case ADR-0045 As built finfix leaves, statistics that put a company at about one entry, where the shallower ledger-less index wins and a page reads about the page again per other ledger",
+        "r": "ADR-0045 As built finfix · TestListReadsOnlyItsLedgersPage · 06 §6.4",
+        "src": "review:batch95",
         "c": []
        }
       ]
