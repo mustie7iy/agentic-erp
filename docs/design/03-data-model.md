@@ -2816,7 +2816,7 @@ erDiagram
     text reason_code }
   house_bank { uuid id PK
     uuid legal_entity_id
-    text code "1-10 upper-case letters or digits: SAP's HBKID, or HBKID + HKTID per account of a bank of several (000490)"
+    text code "1-10 upper-case letters or digits: SAP's HBKID, or HBKID + HKTID per account of a bank of several (000497)"
     bytea iban_cipher "the IBAN, or a Canadian bank's account number (T45d)"
     text bic
     text institution_number "Canadian bank: 3 digits; null for an IBAN"

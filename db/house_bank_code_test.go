@@ -9,7 +9,7 @@ import (
 )
 
 // TestHouseBankCodePerAccount: a house bank's code is up to ten upper-case
-// letters or digits (000490-000491; ADR-0038 As built, a house bank's
+// letters or digits (000497-000498; ADR-0038 As built, a house bank's
 // account by payment method): SAP's house bank and account ID (HBKID +
 // HKTID) for an account of a house bank of several (product owner
 // 2026-11-10).
@@ -46,13 +46,13 @@ func TestHouseBankCodePerAccount(t *testing.T) {
 	}
 }
 
-// TestHouseBankCodePerAccountDown: 000490's down refuses, rather than
+// TestHouseBankCodePerAccountDown: 000497's down refuses, rather than
 // drops, a house bank coded longer than the previous version holds (06
 // §6.4), and a role held to row-level security that would see none fails
 // rather than narrows the check over it.
 func TestHouseBankCodePerAccountDown(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000490_house_bank_code_per_account").Down
+	down := migrationNamed(t, "000497_house_bank_code_per_account").Down
 	ctx := context.Background()
 	tx, err := testDB.Begin(ctx)
 	if err != nil {

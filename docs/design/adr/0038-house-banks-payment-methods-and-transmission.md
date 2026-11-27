@@ -1612,8 +1612,8 @@ guessed", above):
   was 1-5 upper-case letters or digits (SAP's HBKID); HBKID and HKTID are
   each at most five characters (from memory, on the specialist list), so
   the code now takes 1-10 (`payments.house_bank` `house_bank_code_check`,
-  widened by 000490 NOT VALID and validated by 000491; the activation's
-  check in `payments.HouseBanks`). A down to 000489 refuses while a code
+  widened by 000497 NOT VALID and validated by 000498; the activation's
+  check in `payments.HouseBanks`). A down to 000496 refuses while a code
   longer than five exists. Two banks whose codes join to the same string
   (AB + C1, ABC + 1) are refused by validation as a duplicate house bank.
   No contract change: no response or request declares the code's length.

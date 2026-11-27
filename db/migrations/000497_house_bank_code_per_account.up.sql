@@ -4,7 +4,7 @@
 -- account of a house bank of several is coded house bank and account ID
 -- (HBKID + HKTID), which T042I names per payment method and currency. So
 -- the code takes up to ten upper-case letters or digits.
--- Expand only: the check is widened NOT VALID (validated by 000491); every
+-- Expand only: the check is widened NOT VALID (validated by 000498); every
 -- code the previous version wrote holds under it.
 ALTER TABLE payments.house_bank
   DROP CONSTRAINT house_bank_code_check,

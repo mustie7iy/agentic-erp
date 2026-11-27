@@ -51,7 +51,7 @@ func init() {
 // bank of one account, or house bank and account ID (HBKID + HKTID) for
 // an account of a bank of several, the code being per account (product
 // owner 2026-11-10; ADR-0038 As built, a house bank's account by payment
-// method), so up to ten characters (000490).
+// method), so up to ten characters (000497).
 var houseBankCode = regexp.MustCompile(`^[A-Z0-9]{1,10}$`)
 
 // Check refuses names that are not house bank codes, new bank details or
