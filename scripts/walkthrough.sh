@@ -18540,8 +18540,9 @@ close_accrual_agent() {
 
 # close_accrual_decisions is T64f's part of step_close (ADR-0058 §6, §8):
 # the proposal Carla posted reads posted with its journal entry's number,
-# derived from its parked entry; the agent proposes a second accrual, which
-# Carla rejects with a reason, cancelling its parked entry; the close's
+# derived from its parked entry; the agent proposes a second accrual, may
+# neither reject it nor sign the close off (its never list), and Carla
+# rejects it with a reason, cancelling its parked entry; the close's
 # proposals are summed per status in CAD; and the check that every
 # proposal is decided passes.
 close_accrual_decisions() {
@@ -18564,8 +18565,15 @@ close_accrual_decisions() {
     proposeAccrual -body "{\"session_id\": \"$session\", \"close_id\": \"$close\", \"account_id\": \"$(account 6100)\", \"supplier_id\": \"$SUPPLIER\", \"amount\": {\"amount\": \"45.00\", \"currency\": \"CAD\"}, \"description\": \"Implementation services of ${TODAY:0:7}\", \"reason\": \"Tyrell billed implementation services before; more may be owed for this month.\", \"evidence\": [{\"kind\": \"supplier_invoice\", \"document_id\": \"$invoice\"}]}"
   second=$(field .id)
   tag=$ETAG
+  say "It decides nothing (its never list, ADR-0058 §12): rejecting its own proposal and signing the close off are a"
+  say "person's, refused to an agent whatever its level."
+  refused 403 identity.agent_not_allowed rejectAccrualProposal -p "id=$second" -if-match "$tag" -body '{"reason": "Not needed after all."}'
+  refused 403 identity.agent_not_allowed signOffPeriodClose -p "id=$close" -if-match '"1"' -body '{}'
   QUIET=1 api 200 '' endAgentSession -p "id=$session" -if-match '*' -body '{"status": "completed", "input_tokens": 0, "output_tokens": 0}'
   as carla
+  QUIET=1 api 200 '' getAccrualProposal -p "id=$second"
+  expect "the proposal after the agent's refused rejection" "$(field .status)" proposed
+  tag=$ETAG
   say "The implementation was invoiced in full: Carla rejects the proposal with her reason, which cancels its parked entry."
   api 200 '"  proposal \(.id[0:8])…: \(.status) by \(.decided_by_name): \(.decision_reason)"' \
     rejectAccrualProposal -p "id=$second" -if-match "$tag" -body '{"reason": "The implementation was invoiced in full; nothing more is owed."}'
