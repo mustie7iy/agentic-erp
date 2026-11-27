@@ -1,0 +1,14 @@
+-- migrate:partitioned-index
+-- A ledger's page of journal entries (T52, ADR-0045 As built finfix): the
+-- journal list filters one ledger, the leading one by default, but the
+-- page indexes (000055, 000186) lead with the company alone, so in a
+-- company keeping a second ledger a page read its entries' copies in the
+-- other ledger too, which share their posting dates and document numbers
+-- (TestListReadsOnlyItsLedgersPage). These indexes put the ledger after
+-- the company in each page order: posting date (this one), document
+-- number (000478) and a period's posting date (000479). The list's ledger
+-- condition is then a plain one the index serves, no longer a CASE kept
+-- out of the planner's estimate. Built per partition and attached (06
+-- §6.4), postings going on meanwhile; the page indexes stay for the reads
+-- across ledgers.
+CREATE INDEX journal_entry_page_ledger_posting ON ledger.journal_entry (tenant_id, legal_entity_id, ledger_id, posting_date, id);

@@ -35,6 +35,9 @@ type Dataset struct {
 	Rows      int64     `json:"rows"`
 	AsOf      time.Time `json:"as_of"`
 	Files     []File    `json:"files"`
+	// Columns are the columns the journal's files hold (gl_lines alone):
+	// a run that writes others extracts the journal again (glLines).
+	Columns []string `json:"columns,omitempty"`
 }
 
 // File is one Parquet file of a dataset.

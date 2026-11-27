@@ -576,3 +576,55 @@ func TestLockTenant(t *testing.T) {
 		pgtest.CheckErr(t, err, "no tenant scope")
 	})
 }
+
+// TestLockTenantShared: holders of the lock shared do not wait for each
+// other, and the exclusive holder waits for them, as they wait for it,
+// under LockTenant's key; a transaction holding it takes it again; a
+// failed statement says which lock, shared.
+func TestLockTenantShared(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	ten := pgtest.NewTenant(t)
+	le := uuid.Must(uuid.NewV7()).String()
+	begin := func(t *testing.T) pgx.Tx {
+		t.Helper()
+		tx, err := pool.Begin(ctx, database.Scope{Role: "erp_app", TenantID: ten.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = tx.Rollback(ctx) }) // a transaction the test committed or rolled back already answers ErrTxClosed
+		if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '100ms'`); err != nil {
+			t.Fatal(err)
+		}
+		return tx
+	}
+	const name = "ledger.account_determination"
+	reader := begin(t)
+	if err := database.LockTenantShared(ctx, reader, name, le); err != nil {
+		t.Fatalf("first shared lock: got %v, want nil", err)
+	}
+	t.Run("another reader does not wait", func(t *testing.T) {
+		if err := database.LockTenantShared(ctx, begin(t), name, le); err != nil {
+			t.Errorf("got %v, want nil", err)
+		}
+	})
+	t.Run("the writer waits for the reader", func(t *testing.T) {
+		err := database.LockTenant(ctx, begin(t), name, le)
+		pgtest.CheckErr(t, err, "database: advisory lock "+name+":"+le)
+	})
+	t.Run("a reader waits for the writer and says which lock", func(t *testing.T) {
+		if err := reader.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		writer := begin(t)
+		if err := database.LockTenant(ctx, writer, name, le); err != nil {
+			t.Fatalf("writer: got %v, want nil", err)
+		}
+		if err := database.LockTenantShared(ctx, writer, name, le); err != nil {
+			t.Errorf("the writer again, shared: got %v, want nil", err)
+		}
+		err := database.LockTenantShared(ctx, begin(t), name, le)
+		pgtest.CheckErr(t, err, "database: advisory lock "+name+":"+le+" shared")
+		pgtest.CheckErr(t, err, "lock timeout")
+	})
+}

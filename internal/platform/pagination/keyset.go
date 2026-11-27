@@ -123,17 +123,27 @@ const PlanPerCall = pgx.QueryExecModeCacheDescribe
 // more than the page so Page can tell whether another page follows. The
 // arguments it returns start with PlanPerCall, for pgx's Query.
 func (k *Keyset) SQL(query string, args []any) (string, []any) {
-	cmp, dir := ">", "ASC"
+	cmp := ">"
 	if k.desc {
-		cmp, dir = "<", "DESC"
+		cmp = "<"
 	}
-	col := k.field.Column
 	if k.after != nil {
 		args = append(args, k.after.V, k.after.ID)
-		query += fmt.Sprintf(" AND (%s, id) %s (CAST($%d::text AS %s), $%d)", col, cmp, len(args)-1, k.field.Type, len(args))
+		query += fmt.Sprintf(" AND (%s, id) %s (CAST($%d::text AS %s), $%d)", k.field.Column, cmp, len(args)-1, k.field.Type, len(args))
 	}
 	args = append(args, k.size+1)
-	return query + fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", col, dir, dir, len(args)), append([]any{PlanPerCall}, args...)
+	return query + fmt.Sprintf(" ORDER BY %s LIMIT $%d", k.Order(), len(args)), append([]any{PlanPerCall}, args...)
+}
+
+// Order is the page's order, the sort column then id, both in the
+// keyset's direction: SQL's ORDER BY, for a query that selects the page
+// in a subquery and orders the rows it adds to them again.
+func (k *Keyset) Order() string {
+	dir := "ASC"
+	if k.desc {
+		dir = "DESC"
+	}
+	return fmt.Sprintf("%s %s, id %s", k.field.Column, dir, dir)
 }
 
 // Instant is a timestamptz sort value as a cursor holds it: RFC 3339 in

@@ -6300,7 +6300,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse` (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409 `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own entry, and a price change's (document type `PR`) is not reversed but corrected by another price change: the detail names the material by its number, whose plant's valuation (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse` (a depreciation run's entries never one by one; an impairment's entry is not reversed: a reversal of its loss is posted with `POST /v1/assets/{id}:impair`, kind `reversal`); an accounts receivable entry (`receivables`) is 409 `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own entry, and a price change's (document type `PR`) is not reversed but corrected by another price change: the detail names the material by its number, whose plant's valuation (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       x-problem-codes:
@@ -33385,6 +33385,128 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/assets/{id}:impair":
+    post:
+      operationId: impairAsset
+      tags:
+        - assets
+      summary: Post an impairment loss on an asset, or its reversal, in one ledger
+      description: "Recognises an impairment loss on an active asset (`kind` `loss`), or reverses earlier ones (`kind` `reversal`), in one ledger the company keeps (`ledger_id`, default the leading ledger; 422 `ledger.ledger_not_kept` for another), for the amount a person gives in the company's local currency, above zero (IAS 36.59-60, 36.114-119; po:2026-11-09, B14; ADR-0057 As built, impairment). Testing for impairment and measuring the recoverable amount happen outside the system. The posting date defaults to the company's date today and the value date to the posting date; an impairment is not backdated: its value date lies in its posting date's period, on or before the posting date (422 `assets.value_date_outside_period`), on or after the asset's capitalisation date (422 `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment valued in a later period nor depreciation booked through a later period in any ledger (409 `assets.later_value_date`); a change in estimate from a later period is allowed. The impairment takes effect at the end of its value date's period, after that period's depreciation: the carrying amount it is measured against is the asset's net book value in that ledger at the end of the period as its schedule plans it (`carrying_amount`), and every later period depreciates the carrying amount then over the useful life left (IAS 36.63), so the next depreciation run posts the difference. A loss takes at most the carrying amount (422 `assets.impairment_exceeds_carrying_amount`). A reversal restores at most the carrying amount the asset would have had without any impairment, net of the depreciation since (`unimpaired_amount`), less the carrying amount (IAS 36.117; 422 `assets.reversal_exceeds_impairment`); once a retirement or asset transfer has taken a share of the asset in that ledger after its first impairment there, a reversal is refused (409 `assets.impairment_reversal_after_retirement`), since what was taken is not split between depreciation and impairment. It posts one entry to that ledger alone (document type AA, source context `assets`): a loss Dr the class's impairment loss account (on the asset's cost center and profit center) / Cr accumulated depreciation (on its profit center), which holds accumulated impairment with it (IAS 16.73(d)); a reversal Dr accumulated depreciation / Cr the class's impairment reversal account (on its profit center); in group currency at the posting date's rate (422 `ledger.no_exchange_rate` without one). The company's accounts of the asset's class must name the account (`companies[].asset_accounts[].impairment_loss`, `impairment_reversal`; 422 `assets.impairment_account_missing`). The If-Match is the asset's ETag (`GET /v1/assets/{id}`): its version moves with its values. A planned asset is 422 `assets.asset_not_capitalised`; a retired or cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; one without terms in the ledger 422 `assets.ledger_terms_missing`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted. Human-only."
+      x-permission: assets.asset.post
+      x-agent: false
+      x-problem-codes:
+        - assets.asset_cancelled
+        - assets.asset_not_capitalised
+        - assets.asset_retired
+        - assets.class_not_in_company
+        - assets.class_unknown
+        - assets.impairment_account_missing
+        - assets.impairment_exceeds_carrying_amount
+        - assets.impairment_reversal_after_retirement
+        - assets.later_value_date
+        - assets.ledger_terms_missing
+        - assets.reversal_exceeds_impairment
+        - assets.value_date_before_capitalisation
+        - assets.value_date_outside_period
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The impairment loss or its reversal.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssetImpairmentCreate"
+      responses:
+        "201":
+          description: "Posted; the impairment with the carrying amounts it was measured against and its journal entry (`GET /v1/asset-impairments/{id}`)."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetImpairment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/cash-actuals:
     get:
       operationId: getCashActuals
@@ -33625,7 +33747,7 @@ paths:
           schema:
             type: string
             description: "Movement kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in]
+            x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in, impairment, impairment_reversal]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -34034,7 +34156,7 @@ paths:
       tags:
         - assets
       summary: Retire an asset, in full or in part, by sale or scrapping
-      description: "Retires a share of an active asset (ADR-0057 §8, T57g; SAP's retirement with revenue or scrapping): `kind` `sale` with its `proceeds` (required, zero or more, in the company's local currency) or `scrapping` (no proceeds). `share` is the share of cost retired, as a `percent` (above 0, at most 100, up to four decimals) or as a `cost` in local currency (at most the asset's cost: 422 `assets.share_exceeds`), one of the two; without it, all of it (a full retirement). The posting date defaults to the company's date today and the value date to the posting date; a retirement is not backdated: its value date lies in its posting date's period, on or before the posting date (422 `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422 `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment valued in a later period nor depreciation booked through a later period in any ledger, a depreciation run of a later period included, even one that posted nothing for it (409 `assets.later_value_date`). Per ledger the company keeps (the leading ledger first, then by code) it first catches up the depreciation through the period before the posting period: the planned depreciation through that period less what is booked, negative when the posting period's run already posted (its depreciation is posted back: the share retired depreciates for none of its period); the asset is then booked through that period, unless it is already booked through the posting period. It then takes the share of the asset's balances in that ledger as posted so far, the catch-up included: the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA, source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for the cost taken, Dr the sale clearing account for the proceeds, and the difference, Cr gain or Dr loss (the gain on the asset's profit center, the depreciation and loss on its cost center and profit center, the balance sheet lines on its profit center). In group currency the catch-up and the proceeds are translated at the posting date's rate (422 `ledger.no_exchange_rate` without one), the cost and accumulated depreciation taken carry their booked group amounts (all of them when nothing is left locally; the translated amount when the booked group amount has the other sign; else in proportion), and the gain or loss takes the group difference, so each entry balances in both currencies; a ledger in which every amount is zero gets no entry. Proceeds are the same in every ledger; the gain or loss differs as the book values do. A share that leaves no cost in every ledger, or a full one, retires the asset; the buyer's invoice and any tax on the sale are posted as a manual entry that clears the sale clearing account. A planned asset is 422 `assets.asset_not_capitalised`; a retired or cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company keeps 422 `assets.ledger_terms_missing`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted (and AssetChanged `retired` when it retires the asset). Human-only."
+      description: "Retires a share of an active asset (ADR-0057 §8, T57g; SAP's retirement with revenue or scrapping): `kind` `sale` with its `proceeds` (required, zero or more, in the company's local currency) or `scrapping` (no proceeds). `share` is the share of cost retired, as a `percent` (above 0, at most 100, up to four decimals) or as a `cost` in local currency (at most the asset's cost: 422 `assets.share_exceeds`), one of the two; without it, all of it (a full retirement). The posting date defaults to the company's date today and the value date to the posting date; a retirement is not backdated: its value date lies in its posting date's period, on or before the posting date (422 `assets.value_date_outside_period`), and on or after the asset's capitalisation date (422 `assets.value_date_before_capitalisation`), and the asset may have no movement or center assignment valued in a later period nor depreciation booked through a later period in any ledger, a depreciation run of a later period included, even one that posted nothing for it, nor an impairment or its reversal valued in its own period (409 `assets.later_value_date`; it is then valued in the next period). Per ledger the company keeps (the leading ledger first, then by code) it first catches up the depreciation through the period before the posting period: the planned depreciation through that period less what is booked, negative when the posting period's run already posted (its depreciation is posted back: the share retired depreciates for none of its period); the asset is then booked through that period, unless it is already booked through the posting period. It then takes the share of the asset's balances in that ledger as posted so far, the catch-up included: the cost, accumulated depreciation and residual value, each rounded half away from zero, all of them for a full share; with no cost left in a ledger (a credit memo took it all) only a full share is accepted (422 `assets.share_of_zero_cost`). Each ledger gets one entry of its own (document type AA, source context `assets`): Dr depreciation / Cr accumulated depreciation for the catch-up (the other way round when negative), Dr accumulated depreciation for the share taken, Cr acquisition cost for the cost taken, Dr the sale clearing account for the proceeds, and the difference, Cr gain or Dr loss (the gain on the asset's profit center, the depreciation and loss on its cost center and profit center, the balance sheet lines on its profit center). In group currency the catch-up and the proceeds are translated at the posting date's rate (422 `ledger.no_exchange_rate` without one), the cost and accumulated depreciation taken carry their booked group amounts (all of them when nothing is left locally; the translated amount when the booked group amount has the other sign; else in proportion), and the gain or loss takes the group difference, so each entry balances in both currencies; a ledger in which every amount is zero gets no entry. Proceeds are the same in every ledger; the gain or loss differs as the book values do. A share that leaves no cost in every ledger, or a full one, retires the asset; the buyer's invoice and any tax on the sale are posted as a manual entry that clears the sale clearing account. A planned asset is 422 `assets.asset_not_capitalised`; a retired or cancelled one 422 `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company keeps 422 `assets.ledger_terms_missing`; an asset the caller cannot act in is 404. Audited, and published as AssetMovementPosted (and AssetChanged `retired` when it retires the asset). Human-only."
       x-permission: assets.asset.post
       x-agent: false
       x-problem-codes:
@@ -34345,7 +34467,7 @@ paths:
       tags:
         - assets
       summary: Transfer an asset to other centers, or a share of it to another asset
-      description: "Transfers an asset (ADR-0057 §8, T57h; SAP's transfer within a company code). `kind` `center` moves the asset to another cost center (`cost_center_id`; its profit center is the cost center's on the value date, a different `profit_center_id` given is 422 `ledger.profit_center_mismatch`) or, for an asset without a cost center, to another profit center (`profit_center_id`); the centers are checked as a posting on the class's depreciation account on the value date would check them (422 `ledger.cost_center_invalid`, `ledger.profit_center_invalid`, `assets.cost_center_required`), and must differ from the asset's (422 `request.validation_failed`). It is valued on the first day of its posting period (the default; another day of the period is 422 `assets.transfer_mid_period`, another period 422 `assets.value_date_outside_period`). Per ledger the company keeps (the leading ledger first, then by code) it first catches up the depreciation through the period before on the asset's previous centers, as a retirement does (negative when the posting period's run already posted), and books the asset through that period; the catch-up is an entry of its own (`part` `catch_up`) dated that period's last day when that period is open in the ledger, the asset is not booked through the transfer's period and its previous centers were already in force then; otherwise it is posted in the transfer's entry, on the previous centers, which must still be valid then. When the profit center changes, the transfer moves all the asset's booked cost and accumulated depreciation in each ledger, after the catch-up, at their local and group amounts from the previous profit center to the new one on the same accounts (`part` `main`). It writes no movement but the catch-up's; from then on every posting for the asset takes the new centers, a depreciation run of an earlier period passes over the asset and an acquisition is posted on or after the transfer's value date (409 `assets.posting_before_center_transfer`). `kind` `asset` moves a share of the asset's balances (`share`, as for a retirement; default all of it) to another asset of the same company (`to_asset_id`; another company's is 422 `assets.transfer_other_company`, the asset itself 422 `assets.transfer_same_asset`), possibly of another class (a reclassification): valued in its posting period on or before its posting date (default the posting date, 422 `assets.value_date_outside_period`) and not before the asset's capitalisation date (422 `assets.value_date_before_capitalisation`), posted on or after the receiver's latest center assignment (409 `assets.posting_before_center_transfer`), it catches up the asset's depreciation as a retirement does, then per ledger posts one entry: Cr the asset's acquisition cost and Dr the receiver's for the cost taken, Dr the asset's accumulated depreciation and Cr the receiver's for the accumulated depreciation taken, each on its asset's profit center, at their booked group amounts; the residual value taken goes to the receiver, which depreciates the net value received over its own remaining life. A planned receiver becomes active with the transfer's value date as its capitalisation date; a full transfer retires the asset. For either kind, the asset (and the receiver) may have no movement or center assignment valued in a later period nor depreciation booked through a later period in any ledger (409 `assets.later_value_date`); a planned asset is 422 `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422 `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A ledger with nothing to post gets no entry. Audited, and published as AssetMovementPosted (and AssetChanged `retired` when a full transfer retires the asset). Human-only."
+      description: "Transfers an asset (ADR-0057 §8, T57h; SAP's transfer within a company code). `kind` `center` moves the asset to another cost center (`cost_center_id`; its profit center is the cost center's on the value date, a different `profit_center_id` given is 422 `ledger.profit_center_mismatch`) or, for an asset without a cost center, to another profit center (`profit_center_id`); the centers are checked as a posting on the class's depreciation account on the value date would check them (422 `ledger.cost_center_invalid`, `ledger.profit_center_invalid`, `assets.cost_center_required`), and must differ from the asset's (422 `request.validation_failed`). It is valued on the first day of its posting period (the default; another day of the period is 422 `assets.transfer_mid_period`, another period 422 `assets.value_date_outside_period`). Per ledger the company keeps (the leading ledger first, then by code) it first catches up the depreciation through the period before on the asset's previous centers, as a retirement does (negative when the posting period's run already posted), and books the asset through that period; the catch-up is an entry of its own (`part` `catch_up`) dated that period's last day when that period is open in the ledger, the asset is not booked through the transfer's period and its previous centers were already in force then; otherwise it is posted in the transfer's entry, on the previous centers, which must still be valid then. When the profit center changes, the transfer moves all the asset's booked cost and accumulated depreciation in each ledger, after the catch-up, at their local and group amounts from the previous profit center to the new one on the same accounts (`part` `main`). It writes no movement but the catch-up's; from then on every posting for the asset takes the new centers, a depreciation run of an earlier period passes over the asset and an acquisition is posted on or after the transfer's value date (409 `assets.posting_before_center_transfer`). `kind` `asset` moves a share of the asset's balances (`share`, as for a retirement; default all of it) to another asset of the same company (`to_asset_id`; another company's is 422 `assets.transfer_other_company`, the asset itself 422 `assets.transfer_same_asset`), possibly of another class (a reclassification): valued in its posting period on or before its posting date (default the posting date, 422 `assets.value_date_outside_period`) and not before the asset's capitalisation date (422 `assets.value_date_before_capitalisation`), posted on or after the receiver's latest center assignment (409 `assets.posting_before_center_transfer`), it catches up the asset's depreciation as a retirement does, then per ledger posts one entry: Cr the asset's acquisition cost and Dr the receiver's for the cost taken, Dr the asset's accumulated depreciation and Cr the receiver's for the accumulated depreciation taken, each on its asset's profit center, at their booked group amounts; the residual value taken goes to the receiver, which depreciates the net value received over its own remaining life. A planned receiver becomes active with the transfer's value date as its capitalisation date; a full transfer retires the asset. For either kind, the asset (and the receiver) may have no movement or center assignment valued in a later period nor depreciation booked through a later period in any ledger, nor an impairment or its reversal valued in the transfer's period (409 `assets.later_value_date`; it is then valued in the next period); a planned asset is 422 `assets.asset_not_capitalised` for an asset transfer; a retired or cancelled asset or receiver 422 `assets.asset_retired` or `assets.asset_cancelled`; an asset without terms in a ledger its company keeps 422 `assets.ledger_terms_missing`; an asset or receiver the caller cannot act in is 404. A ledger with nothing to post gets no entry. Audited, and published as AssetMovementPosted (and AssetChanged `retired` when a full transfer retires the asset). Human-only."
       x-permission: assets.asset.post
       x-agent: false
       x-problem-codes:
@@ -34855,6 +34977,104 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-impairments:
+    get:
+      operationId: listAssetImpairments
+      tags:
+        - assets
+      summary: List asset impairments
+      description: "The impairment losses and their reversals of the legal entities the caller may act in (ADR-0057 As built, impairment), each with its asset, ledger, carrying amounts and journal entry. Filters: company, asset, ledger, kind and posting dates. Sortable by: `posting_date` (default), `created_at`."
+      x-permission: assets.asset.read
+      x-snapshot: true
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: asset_id
+          in: query
+          required: false
+          description: Only this asset's impairments.
+          schema:
+            type: string
+            format: uuid
+        - name: ledger_id
+          in: query
+          required: false
+          description: Only the impairments in this ledger.
+          schema:
+            type: string
+            format: uuid
+        - name: kind
+          in: query
+          required: false
+          description: Only impairments of this kind.
+          schema:
+            type: string
+            description: "Impairment kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [loss, reversal]
+        - name: posting_date_from
+          in: query
+          required: false
+          description: Only impairments posted on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: posting_date_to
+          in: query
+          required: false
+          description: Only impairments posted on or before this date.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of impairments.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetImpairmentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/asset-impairments/{id}":
+    get:
+      operationId: getAssetImpairment
+      tags:
+        - assets
+      summary: Get an asset impairment
+      description: "One impairment loss or reversal with its asset, ledger, the carrying amounts it was measured against and its journal entry (ADR-0057 As built, impairment). One of a legal entity the caller cannot act in is not found. An impairment is never changed, so it has no version."
+      x-permission: assets.asset.read
+      x-snapshot: true
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The impairment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetImpairment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/asset-history-sheet:
@@ -71662,6 +71882,12 @@ components:
         sale_clearing:
           $ref: "#/components/schemas/AssetAccountRef"
           description: "The clearing account a sale's proceeds wait on until they are billed."
+        impairment_loss:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The impairment loss (an expense); absent when the company does not impair the class's assets."
+        impairment_reversal:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The reversal of impairment losses (a revenue); absent when the company does not reverse impairments of the class's assets."
       examples:
         - acquisition_cost: {number: "1600", name: Machinery}
           accumulated_depreciation: {number: "1609", name: "Machinery, accumulated depreciation"}
@@ -72727,10 +72953,10 @@ components:
         ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
         kind:
           type: string
-          x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in]
+          x-extensible-enum: [acquisition, depreciation, retirement, transfer_out, transfer_in, impairment, impairment_reversal]
           description: "What it is. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
-        value_date: {type: string, format: date, description: "The value date; the schedule applies the movement from its period.", readOnly: true}
+        value_date: {type: string, format: date, description: "The value date; the schedule applies the movement from its period, an impairment or its reversal from the end of its period.", readOnly: true}
         posting_date: {type: string, format: date, description: The posting date., readOnly: true}
         fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
         fiscal_period: {type: integer, format: int32, description: "The posting date's period.", readOnly: true}
@@ -72743,10 +72969,10 @@ components:
         share: {type: string, description: "The fraction of cost a retirement or transfer out took, as a plain decimal.", readOnly: true}
         document_kind:
           type: string
-          x-extensible-enum: [acquisition, retirement, transfer, depreciation_run]
+          x-extensible-enum: [acquisition, retirement, transfer, depreciation_run, impairment]
           description: "The kind of document it belongs to. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
-        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a retirement: `GET /v1/asset-retirements/{id}`; a transfer: `GET /v1/asset-transfers/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`).", readOnly: true}
+        document_id: {type: string, format: uuid, description: "The document (an acquisition: `GET /v1/asset-acquisitions/{id}`; a retirement: `GET /v1/asset-retirements/{id}`; a transfer: `GET /v1/asset-transfers/{id}`; a depreciation run: `GET /v1/depreciation-runs/{id}`; an impairment: `GET /v1/asset-impairments/{id}`).", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "That ledger's journal entry (`GET /v1/journal-entries/{id}`); absent for a catch-up of zero.", readOnly: true}
         journal_entry_fiscal_year: {type: integer, format: int32, description: "The journal entry's fiscal year.", readOnly: true}
         document_number: {type: string, description: "The journal entry's document number: an acquisition's, retirement's or transfer's entry, or a depreciation run's batch entry.", readOnly: true}
@@ -73292,6 +73518,108 @@ components:
           maxLength: 2048
       examples:
         - items: []
+    AssetImpairmentCreate:
+      type: object
+      description: "An impairment loss on an asset, or the reversal of earlier ones, in one ledger (ADR-0057 As built, impairment)."
+      required: [kind, amount]
+      properties:
+        ledger_id: {type: string, format: uuid, description: "The ledger (a depreciation area) it is posted to; default the leading ledger."}
+        kind:
+          type: string
+          x-extensible-enum: [loss, reversal]
+          description: "`loss`, an impairment loss recognised (IAS 36.59), or `reversal`, earlier losses reversed (IAS 36.114). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The loss, or the reversal, above zero, in the company's local currency: the carrying amount less the recoverable amount measured outside the system."
+        value_date: {type: string, format: date, description: "The date the carrying amount is measured at: the impairment takes effect at the end of its period, after that period's depreciation; default the posting date. In the posting date's period, on or before the posting date."}
+        posting_date: {type: string, format: date, description: "The impairment's posting date; default the company's date today."}
+        text: {type: string, minLength: 1, maxLength: 200, description: "A text for the impairment and its entry."}
+      additionalProperties: false
+      examples:
+        - kind: loss
+          amount: {amount: "1000.00", currency: CAD}
+    AssetImpairment:
+      type: object
+      description: "An impairment loss recognised on an asset, or the reversal of earlier ones, in one ledger (ADR-0057 As built, impairment; IAS 36.59-63, 36.114-119), with the carrying amounts it was measured against and its journal entry. Never changed: a loss is undone by a reversal. Amounts in local currency are in the company's currency (`amount.currency`), `amount_gc` in the tenant's group currency."
+      required: [id, legal_entity_id, company_code, asset_id, asset_number, asset_description, ledger_id, ledger_code, ledger_name, kind, value_date, posting_date, fiscal_year, period, amount, amount_gc, carrying_amount, carrying_amount_after, unimpaired_amount, entries, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: The impairment., readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: The company code., readOnly: true}
+        asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}`).", readOnly: true}
+        asset_number: {type: string, description: "The asset's number in its company.", readOnly: true}
+        asset_description: {type: string, description: "The asset's description.", readOnly: true}
+        ledger_id: {type: string, format: uuid, description: The ledger it was posted to., readOnly: true}
+        ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
+        ledger_name: {type: string, description: "The ledger's name.", readOnly: true}
+        kind:
+          type: string
+          description: "`loss` or `reversal`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [loss, reversal]
+          readOnly: true
+        value_date: {type: string, format: date, description: "The date the carrying amount was measured at; the impairment took effect at the end of its period.", readOnly: true}
+        posting_date: {type: string, format: date, description: The posting date of its entry., readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The posting date's fiscal year.", readOnly: true}
+        period: {type: integer, format: int32, description: "The posting date's regular period.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The loss or the reversal, positive, in local currency."}
+        amount_gc: {$ref: "#/components/schemas/Money", description: "The same in group currency, at the posting date's rate."}
+        carrying_amount: {$ref: "#/components/schemas/Money", description: "The asset's net book value in the ledger at the end of the value date's period as its schedule planned it before this impairment, in local currency."}
+        carrying_amount_after: {$ref: "#/components/schemas/Money", description: "The carrying amount after it: less the loss, or plus the reversal."}
+        unimpaired_amount: {$ref: "#/components/schemas/Money", description: "The carrying amount the asset would have had there without any impairment, net of the depreciation since (IAS 36.117): a reversal restores at most this less `carrying_amount`."}
+        text: {type: string, description: "The impairment's text.", readOnly: true}
+        entries:
+          type: array
+          description: "Its journal entry in the ledger."
+          items: {$ref: "#/components/schemas/AssetDocumentEntry"}
+        created_at: {type: string, format: date-time, description: When it was posted., readOnly: true}
+        created_by: {type: string, format: uuid, description: Who posted it., readOnly: true}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000e01
+          legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          asset_id: 0192a000-0000-7000-8000-000000000f01
+          asset_number: "100001"
+          asset_description: CNC lathe
+          ledger_id: 0192a000-0000-7000-8000-000000000301
+          ledger_code: 0L
+          ledger_name: Leading ledger
+          kind: loss
+          value_date: "2026-11-24"
+          posting_date: "2026-11-24"
+          fiscal_year: 2026
+          period: 11
+          amount: {amount: "1000.00", currency: CAD}
+          amount_gc: {amount: "1000.00", currency: CAD}
+          carrying_amount: {amount: "4958.33", currency: CAD}
+          carrying_amount_after: {amount: "3958.33", currency: CAD}
+          unimpaired_amount: {amount: "4958.33", currency: CAD}
+          entries:
+            - ledger_id: 0192a000-0000-7000-8000-000000000301
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              part: main
+              fiscal_year: 2026
+              journal_entry_id: 0192a000-0000-7000-8000-000000000a01
+              document_number: AA-2026-000012
+          created_at: "2026-11-24T10:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+    AssetImpairmentPage:
+      type: object
+      description: One page of asset impairments.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetImpairment"
+          description: The impairments on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     AssetSupplierInvoiceRef:
       type: object
       description: "A supplier invoice as an asset's acquisition names it."
@@ -73656,6 +73984,8 @@ components:
               closing_cost: {amount: "12000.00", currency: CAD}
               opening_accumulated: {amount: "0.00", currency: CAD}
               depreciation: {amount: "-100.00", currency: CAD}
+              impairment_losses: {amount: "0.00", currency: CAD}
+              impairment_reversals: {amount: "0.00", currency: CAD}
               retirements_accumulated: {amount: "0.00", currency: CAD}
               transfers_accumulated: {amount: "0.00", currency: CAD}
               closing_accumulated: {amount: "-100.00", currency: CAD}
@@ -73669,6 +73999,8 @@ components:
             closing_cost: {amount: "12000.00", currency: CAD}
             opening_accumulated: {amount: "0.00", currency: CAD}
             depreciation: {amount: "-100.00", currency: CAD}
+            impairment_losses: {amount: "0.00", currency: CAD}
+            impairment_reversals: {amount: "0.00", currency: CAD}
             retirements_accumulated: {amount: "0.00", currency: CAD}
             transfers_accumulated: {amount: "0.00", currency: CAD}
             closing_accumulated: {amount: "-100.00", currency: CAD}
@@ -73676,8 +74008,8 @@ components:
             closing_net_book_value: {amount: "11900.00", currency: CAD}
     AssetHistorySheetRow:
       type: object
-      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values, the columns of `AssetHistorySheetValues` with the same signs. The row reconciles: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`; `opening_net_book_value` = `opening_cost` + `opening_accumulated`; `closing_net_book_value` = `closing_cost` + `closing_accumulated`."
-      required: [class_code, opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
+      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values, the columns of `AssetHistorySheetValues` with the same signs. The row reconciles: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` = `opening_accumulated` + `depreciation` + `impairment_losses` + `impairment_reversals` + `retirements_accumulated` + `transfers_accumulated`; `opening_net_book_value` = `opening_cost` + `opening_accumulated`; `closing_net_book_value` = `closing_cost` + `closing_accumulated`."
+      required: [class_code, opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, impairment_losses, impairment_reversals, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
       properties:
         class_code: {type: string, description: "The asset class (`GET /v1/asset-classes`).", readOnly: true}
         class_name: {type: string, description: "The class's name; absent when the active configuration no longer has the class.", readOnly: true}
@@ -73696,6 +74028,8 @@ components:
         closing_cost: {$ref: "#/components/schemas/Money"}
         opening_accumulated: {$ref: "#/components/schemas/Money"}
         depreciation: {$ref: "#/components/schemas/Money"}
+        impairment_losses: {$ref: "#/components/schemas/Money"}
+        impairment_reversals: {$ref: "#/components/schemas/Money"}
         retirements_accumulated: {$ref: "#/components/schemas/Money"}
         transfers_accumulated: {$ref: "#/components/schemas/Money"}
         closing_accumulated: {$ref: "#/components/schemas/Money"}
@@ -73703,8 +74037,8 @@ components:
         closing_net_book_value: {$ref: "#/components/schemas/Money"}
     AssetHistorySheetValues:
       type: object
-      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; opening and closing net book value. They reconcile as each row does: a closing value is its opening value plus the year's columns, and a net book value is its cost plus its accumulated depreciation."
-      required: [opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
+      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the impairment losses recognised (negative) and reversed (positive) in the year (IAS 16.73(e)(v), (vi)), the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; accumulated depreciation holds accumulated impairment with it (IAS 16.73(d): aggregated); opening and closing net book value. They reconcile as each row does: a closing value is its opening value plus the year's columns, and a net book value is its cost plus its accumulated depreciation."
+      required: [opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, impairment_losses, impairment_reversals, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
       properties:
         opening_cost: {$ref: "#/components/schemas/Money"}
         acquisitions: {$ref: "#/components/schemas/Money"}
@@ -73713,6 +74047,8 @@ components:
         closing_cost: {$ref: "#/components/schemas/Money"}
         opening_accumulated: {$ref: "#/components/schemas/Money"}
         depreciation: {$ref: "#/components/schemas/Money"}
+        impairment_losses: {$ref: "#/components/schemas/Money"}
+        impairment_reversals: {$ref: "#/components/schemas/Money"}
         retirements_accumulated: {$ref: "#/components/schemas/Money"}
         transfers_accumulated: {$ref: "#/components/schemas/Money"}
         closing_accumulated: {$ref: "#/components/schemas/Money"}

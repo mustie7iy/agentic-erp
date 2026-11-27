@@ -169,9 +169,38 @@ the number range), so dropping it is safe during a rolling deploy. The copies ar
 T52b lists a copy's supplier lines as open items and reverses a copy
 alone, so no company is assigned a parallel ledger until every replica
 runs T52b. The journal
-list's ledger filter needs no index: a page follows the page indexes
-(000055) and reads at most its entries' copies besides (the filter is
-written so the planner does not underestimate it, T52c). Nothing
+list's ledger filter first needed no index: a page followed the page
+indexes (000055) and read at most its entries' copies besides (the filter
+written as a CASE so the planner did not underestimate it, T52c). As built
+(finfix, T52): the ledger page indexes 000477–000479 (company, ledger, then
+posting date, document number, or period and posting date, with id) serve
+the filter, which is now a plain condition on the ledger asked for or the
+leading one, resolved before the list's query (as `coalesce($10, the
+leading ledger)` in the query, the cached statement's generic plan took
+the ledger-less index), so a page reads its entries alone
+(`TestListReadsOnlyItsLedgersPage`). The list chooses the page in a
+subquery and reads the lines, names and currencies of its entries only
+(batch 95F fix): in one query the lines' subquery, costed per entry the
+scan returns, made the scans along the ledger page index and along the
+ledger-less one cost the same within the planner's 1% margin, and where
+the ledger page index is a level deeper (a wider key; GitHub's race run
+of PR #147, a journal many tenants share) the ledger-less one won on its
+start-up cost and a page read its copies too. One case is left: when the
+statistics put the company at about one entry (a company they have not
+yet seen, as in a journal shared by more companies than the statistics
+keep values of), both scans cost one entry and the shallower ledger-less
+index still wins, reading about the page again per other ledger of the
+company (the rows stay right); dropping the ledger-less page indexes, the
+contract step below, closes it. **Decided by default** (for the
+product owner's review): no extended statistics object. The planner's
+misestimate of the ledger's selectivity (across every tenant's ledgers)
+is harmless once the ledger is a column of the index the page follows,
+and a cached statement's generic plan, the one a list ends up with,
+compares the ledger with a parameter, whose selectivity no statistics
+object can give; the tests measure that plan (each list run six times
+first, and `TestJournalEntryLedgerPageIndexes` forcing it).
+The ledger-less page indexes stay for reads across ledgers; dropping them
+is a contract step for when none uses them. Nothing
 is backfilled: a company is assigned its ledgers by the next activation, so
 until then `GET /v1/ledgers` lists 0L without legal entities. Until T52b a
 posting may still name any ledger of the tenant; T52b limits it to the

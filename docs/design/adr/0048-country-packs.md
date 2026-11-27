@@ -497,10 +497,9 @@ settings cannot simply overwrite their document.
      key. The alternative, a port asking inventory whether a class has
      material documents, would add a dependency the ledger does not have;
      reverse by relaxing `movedStock` and `removedDetermination`. `retained_earnings` stays as ADR-0060 §4 decided. A movement
-     in flight while the activation runs reads the key unlocked, as
-     `applyOpenItems` reasons: its reversal is refused (422
-     `inventory.no_inventory_account`) until a configuration names the
-     key again, and nothing is posted to a wrong account.
+     in flight while the activation runs holds the determination lock, so
+     the activation waits for it and its checks see its postings (As built
+     finfix, below).
   3. *What a removal does to postings.* A key with a fallback
      (`ledger.determinationFallbacks`) posts to the fallback's account
      again; one without is not determined, and what needs it is refused
@@ -514,6 +513,54 @@ settings cannot simply overwrite their document.
   Tests: `TestDeterminationKeysRemoved`, `TestDeterminationKeyPostedKept`
   (internal/ledger), `TestAccountDeterminationRemovalRules`,
   `TestAccountDeterminationRemovalDown` (db).
+- **As built (the determination lock, finfix; tracker leaf src
+  review:batch93).** A goods movement read its account determination key
+  with no lock, so a movement posting while an activation changed a
+  valuation class's stock account could post to the replaced account after
+  the change committed, and an activation whose `movedStock` check ran
+  before a class's first movement committed could move a stock account
+  that then had postings. `Accounts.Determination` now holds the tenant's
+  account determination lock shared to the end of its transaction, and
+  `Setup.Apply` takes it exclusively before any row of the ledger's
+  (`database.LockTenantShared`, `database.LockTenant`, key
+  `ledger.account_determination:<tenant>`, ADR-0008): an activation waits
+  for the postings under way and then checks them, and a posting waits for
+  an activation under way and reads the keys it left
+  (`TestDeterminationAndActivationSerialize`, both orders, two
+  transactions). **Decided by default** (for the product owner's review):
+  one advisory lock per tenant rather than the leaf's row lock `FOR SHARE`
+  on each key read. A posting reads several keys in an order of its own (a
+  movement's stock account, then its offsetting one, `gr_ir`), so row
+  locks against an activation changing two of them in key order could
+  wait on each other in a cycle; shared holders of one lock never wait for
+  each other, and the activation takes it before its checks, which a row
+  lock taken by its upsert would come after. Activations are rare and
+  short; every posting of the tenant waits for one under way. Per legal
+  entity would let other companies post meanwhile, at the price of an
+  ordering rule for a posting reading two companies' keys; reverse by
+  passing the legal entity as the lock's part in both places. An activation's
+  number ranges (`configuration.applyRanges`, before any section) lock
+  only the ranges it inserts or raises: an `INSERT ... ON CONFLICT DO
+  UPDATE ... WHERE` locked every existing range the document lists, so a
+  posting that had read a key and then drew its number waited on any
+  activation as the activation waited for it (found in review); now a
+  range is inserted only when the activation's snapshot has none (an
+  `ON CONFLICT` probe alone waits for a posting that drew from the
+  existing range) and a raised one updated where its last number differs
+  (`TestApplyRangesLocksOnlyChanged`, the posting holding a drawn number).
+  Left as it is: once an activation has raised a range, a posting that
+  already read a key and then draws from a range the activation raised
+  waits in a cycle PostgreSQL breaks (40P01, nothing written), as does a
+  transaction drawing from an earlier range and then a raised one, which
+  the base's activation had too; a posting draws its numbers before or after
+  its keys depending on its path, so no order of the two locks avoids it.
+  And while an activation waits for the lock, PostgreSQL queues the
+  postings that ask for it after, so one long transaction holding it
+  shared (a revenue run, a payment proposal) holds the tenant's postings
+  until it ends or their lock timeout, an activation being rare. Reads of
+  determination rows outside `Accounts.Determination` (GR/IR order reads,
+  the price difference join) take no lock; they are listed for a later
+  fix.
 - **As built (SAP T030 SKT and BO1, batch 93; the acctkeys backlog).**
   `erp config generate` (internal/delivery/sapconfig) takes a company's
   T030 SKT row as `cash_discount_granted` and its BO1 row as
