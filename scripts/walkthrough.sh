@@ -18198,6 +18198,91 @@ wms_acknowledged() {
   fail "the exchange did not acknowledge $1 (after $i checks)"
 }
 
+# step_cash_receipts is T53l1 (ADR-0051 §4, §5, As built T53l1): the
+# liquidity forecast's receipts from customers. Ruth posts an invoice to
+# Northwind; Tom finds it in the forecast as a receivable on its due date
+# (the first working day on or after it), drilled down to its journal
+# entry and its customer. While a dunning block holds the invoice back it
+# is receivable_blocked, apart from the totals and summed in
+# blocked_receipts; released, it counts again. Sally's sales order for a
+# delivery date, not yet billed, is a planned sales_order receipt on the
+# delivery date plus NT30. The order is cancelled at the end; the
+# invoice stays Northwind's open item.
+step_cash_receipts() {
+  heading "Step 163 — Receipts from customers in the liquidity forecast: an open customer invoice on its due date, held back apart while a dunning block holds it, and a sales order not yet billed on its delivery date plus its term"
+  local customer=$CUSTOMER sales invoice entry due item year line block tag deliver order flow read
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  sales=$(account 4000)
+  as ruth
+  say "Ruth invoices Northwind CAD 800.00 for a training day; posted, it is Northwind's open item on NT30:"
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.status), gross \(.gross_amount.amount) \(.currency)"' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Training day\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"800.00\", \"currency\": \"CAD\"}}]}"
+  invoice=$(field .id)
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  api 200 '"customer invoice \(.document_number): \(.status), journal entry \(.journal_entry_number), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id) due=$(field .net_due_date)
+  as tom
+  say "Tom finds it in the forecast (T53l1): a receivable, expected, on its net due date or the first working day after"
+  say "it, netted with whatever else Northwind owes that day, drilled down to its journal entry and to Northwind:"
+  api 200 '.items[] | select(any(.documents[]; .id == "'"$entry"'")) | "  \(.date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency) from \(.customer.name // "-"): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", "))"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  flow=$(field "[.items[] | select(any(.documents[]; .id == \"$entry\"))][0]")
+  expect "the invoice's receipt" "$(jq -r '"\(.source) \(.certainty) \(.counted) \(.customer.id)"' <<<"$flow")" "receivable expected true $customer"
+  expect "on or after its due date" "$(jq -r --arg d "$due" '.date >= $d' <<<"$flow")" true
+  expect "what it receives of the invoice" "$(jq -r --arg e "$entry" '[.documents[] | select(.id == $e) | .amount.amount][0]' <<<"$flow")" "800.00"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  item=$(field "[.items[] | select(.journal_entry_id == \"$entry\")][0]")
+  year=$(jq -r .fiscal_year <<<"$item") line=$(jq -r .line_no <<<"$item")
+  say "Northwind queries the training day's attendance. Ruth blocks the invoice from dunning until $(date_add "$TODAY" 60):"
+  api 201 '"dunning block of \(.customer_name): \(.status), entry \(.document_number), until \(.valid_to)"' \
+    createDunningBlock -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"fiscal_year\": $year, \"journal_entry_id\": \"$entry\", \"line_no\": $line, \"reason\": \"Attendance being checked\", \"valid_to\": \"$(date_add "$TODAY" 60)\"}"
+  block=$(field .id) tag=$ETAG
+  as tom
+  say "Held back, the invoice's receipt is receivable_blocked: listed on its due date, counted in no total, summed in"
+  say "blocked_receipts, and counted only with include_blocked, as what blocked suppliers are owed is:"
+  api 200 '.items[] | select(any(.documents[]; .id == "'"$entry"'")) | "  \(.date) \(.source) counted \(.counted) \(.amount.amount) \(.amount.currency)"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  flow=$(field "[.items[] | select(any(.documents[]; .id == \"$entry\"))][0]")
+  expect "the receipt held back" "$(jq -r '"\(.source) \(.counted) \(.amount.amount)"' <<<"$flow")" "receivable_blocked false 800.00"
+  api 200 '.currencies[] | select(.currency == "CAD") | "  CAD: total \(.total.amount), held back \(.blocked_receipts.amount.amount) (\(.blocked_receipts.count) flows)"' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  expect "held back at least the invoice" "$(field '[.currencies[] | select(.currency == "CAD") | .blocked_receipts.amount.amount | sub("\\."; "") | tonumber >= 80000][0]')" true
+  as ruth
+  say "Attendance confirmed, Ruth releases the block; the receipt counts again:"
+  api 200 '"dunning block \(.status)"' releaseDunningBlock -p "id=$block" -if-match "$tag"
+  as tom
+  QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  expect "the receipt counted again" "$(field "[.items[] | select(any(.documents[]; .id == \"$entry\")) | \"\(.source) \(.counted)\"][0]")" "receivable true"
+  as sally
+  deliver=$(date_add "$TODAY" 10)
+  say "Sally takes Northwind's order for a second training day, to be delivered on $deliver, and confirms it; nothing is"
+  say "billed yet:"
+  api 201 '"sales order \(.document_number) of \(.customer_name): \(.status), net \(.net_amount.amount) \(.net_amount.currency), deliver by \(.requested_delivery_date), terms \(.payment_term_code)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"requested_delivery_date\": \"$deliver\", \"items\": [{\"description\": \"Training day\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\"}]}"
+  order=$(field .id)
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  expect "the order confirmed, not blocked for credit" "$(field '"\(.status) \(.credit_block)"')" "confirmed none"
+  as tom
+  read=$(date_add "$deliver" 30)
+  say "Tom sees it as a planned sales_order receipt: billed on the delivery date and paid on NT30, so on $read or the"
+  say "first working day after it, at its open value:"
+  api 200 '.items[] | select(any(.documents[]; .id == "'"$order"'")) | "  \(.date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency) from \(.customer.name // "-"): \([.documents[] | "\(.kind) \(.number // "-")"] | join(", "))"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+  flow=$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))][0]")
+  expect "the order's receipt" "$(jq -r '"\(.source) \(.certainty) \(.amount.amount) \(.customer.id) \(.documents | length)"' <<<"$flow")" "sales_order planned 250.00 $customer 1"
+  expect "on or after the delivery date plus NT30" "$(jq -r --arg d "$read" '.date >= $d' <<<"$flow")" true
+  as sally
+  say "Northwind calls the second day off: Sally cancels the order, and its receipt leaves the forecast."
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status)"' cancelSalesOrder -p "id=$order" -if-match "$ETAG" -body '{"reason": "Second training day called off"}'
+  as tom
+  QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+  expect "the cancelled order's receipt" "$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))] | length")" 0
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -20257,7 +20342,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_cash_receipts step_close'
 
 main() {
   stop_unseen

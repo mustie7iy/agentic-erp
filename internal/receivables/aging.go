@@ -62,6 +62,10 @@ type OpenItems interface {
 	// ClearedApart names the ledger's clearings of a line of the entry or
 	// of the lines against an item that is neither (relievedclearing.go).
 	ClearedApart(ctx context.Context, entryYear int16, entryID uuid.UUID, lines []ledger.ItemRef) ([]ledger.ClearingRef, error)
+	// Offsetting reads the entries' lines other than the customer's: what
+	// the liquidity forecast derives an item's liquidity items from
+	// (CashItems).
+	Offsetting(ctx context.Context, entries []ledger.EntryRef) (map[ledger.EntryRef][]ledger.OffsettingLine, error)
 }
 
 // agingSum is the items of a bucket, a customer or the report: how many,

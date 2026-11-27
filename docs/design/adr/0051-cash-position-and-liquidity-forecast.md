@@ -556,6 +556,108 @@ As built (T53g, the purchase orders, decision P7; decided by default where
   Tom drills the order's flow down to it on the last payment day before
   NT30's due date, and Rita sees the flow without the order.
 
+As built (T53l1, the receipts from customers; split from T53l, whose
+trigger, phase 3's receivables and sales orders, has arrived; decided by
+default where §4, §5 and §12 leave it open, each listed for the product
+owner):
+- **Two readers, three contexts' published reads** (§2, §4: "a new reader
+  and a new row, nothing else"). `cash` declares two ports, `Receivables`
+  and `SalesOrders`, which `internal/app` answers from
+  `receivables.Endpoints.CashItems` (the ordinary customer open items
+  with their net due dates and offsetting lines), `collections.Holds.Held`
+  (what collections holds back on a day) and `sales.Endpoints.CashOrders`
+  (the open sales orders, valued). `cash` imports none of them, none
+  imports `cash`, and collections' read joins because the dunning blocks
+  and dispute cases are its own (the brief named receivables and sales;
+  no dependency direction changes).
+- **`receivable` (`expected`).** Every ordinary customer open item of the
+  leading ledger in every currency, credits negative as booked (a credit
+  memo, a payment on account, a residual credit). Special G/L items (a
+  down payment received) are left out, as `payable` leaves supplier ones
+  out. Its day is its net due date by `ledger.ReceivableItem.NetDueDate`,
+  the one rule the AR aging, dunning and the worklist keep (the terms it
+  was posted with, else its document date), an overdue item on the read
+  date, moved to the next working day of the company's calendar. No cash
+  discount is assumed (default: whether a customer takes one is its
+  choice, and SAP's planning level for customer items is the net due
+  date, from memory, on the specialist list), no value days (the
+  customer's bank, not ours, takes them), and no `late` flag (an overdue
+  supplier item carries none either).
+- **Netting** (default). Per customer, currency and source, the items of
+  one day are one receipt, and a day whose items come to nothing or less
+  is carried to the customer's next day, as the customer deducts a credit
+  from its next payment; a credit left after the last day is no flow (a
+  refund is not forecast), as `payable` treats a supplier's debit
+  balance.
+- **`receivable_blocked` (`expected`).** The brief's "dunning blocks and
+  disputed items as the forecast's existing blocked convention treats
+  payables": an item under a dunning block in force on the read date
+  (of the item or its customer, not released, `valid_to` on or after the
+  read date, as a dunning run on that key date reads them) or in an open
+  dispute case is shown apart on its net due date (the read date when
+  overdue, not moved, as `payable_blocked`), netted the same way, summed
+  per currency in a new `blocked_receipts` (`LiquidityForecastBlockedReceipts`,
+  the group forecast's and the snapshot's currencies alike) rather than
+  in `blocked`, whose meaning (what blocked suppliers are owed) stays,
+  and counted in the totals only with `include_blocked`, one flag for
+  both. A disputed item is held back whole, whatever part its case
+  disputes, as a dunning run leaves the whole item out (default).
+- **`sales_order` (`planned`).** Each confirmed order not blocked for
+  credit with a part not yet posted as a customer invoice, valued as the
+  customer's credit exposure values it (ADR-0066 As built T77b: the live
+  items' net values less what posted billing documents billed, plus
+  their output tax on the order date, in the order's currency, never
+  converted). A billing document created and not posted is still the
+  order's (its invoice is no open item yet), so nothing counts twice. An
+  order blocked for credit takes no delivery and is left out, as the
+  exposure leaves it out (default). A line whose tax code is no longer an
+  output code of the company adds no tax rather than refuse the forecast,
+  as T53g's purchase orders do; a payment term not configured refuses
+  the read (terms are never removed). Its billing day (default) is the
+  order's requested delivery date, else its order date plus
+  `cash.order_lead_days` (the purchase orders' setting, one lead time per
+  company), and its receipt that day plus its payment term's net days
+  (the read date when past), moved to the next working day; one flow per
+  order, no netting.
+- **Liquidity items.** A customer item derives from its entry's
+  offsetting lines (`ledger.OpenItems.Offsetting`: revenue and output
+  tax, the tax following its base), an order from its open lines' revenue
+  accounts (the tax shared over them in proportion), both with the
+  inflow direction; no planning group (customers have none), so the
+  fallback is the inflow default.
+- **Drill-down, snapshots, group, analytics.** A flow names its customer
+  (`LiquidityForecastFlow.customer`, `CashSnapshotFlow.customer`) to a
+  caller who may use `partner.supplier.read` (the partner context's read
+  of every business partner), a customer item's journal entry
+  (`ledger.entry.read`) and a sales order (`sales.order.read`). A
+  snapshot keeps the customer (migration 000490: `customer_id`,
+  `snapshot_flow_customer`, `document_kind` `sales_order`, validated by
+  000491; the down refuses while a line of a receipt exists). The
+  snapshot's totals, the variance and the analytics' `blocked` dimension
+  leave `receivable_blocked` out as they leave `payable_blocked` out.
+- **Not built (T53l's remainder).** The variance does not yet match a
+  forecast receipt to the incoming payment that cleared it: a receipt
+  forecast and received is `missing` and `new` until the actuals know an
+  incoming payment's cleared customer items (the next receipts slice);
+  the tax payable reader; intraday camt.052, bank calendars and a stored
+  flow table, each when its trigger arrives.
+- **Evidence.** `cash.TestLiquidityForecastReceipts` (Maple Inc: an
+  invoice by its terms, an overdue invoice and a credit memo received
+  together, a USD invoice moved past a weekend and a holiday, a special
+  G/L item, a released and an expired block ignored; a customer blocked
+  for dunning and an item in an open dispute case apart, a rejected
+  case's item counted; a customer's credit alone no flow; orders by
+  delivery date, by lead days, billed and not posted, with tax and with a
+  code that adds none; a draft, a credit-blocked and a fully posted order
+  nothing; the certainty cut, the drill-down, the liquidity items, the
+  snapshot, the group forecast and the analytics' blocked shares),
+  `TestLiquidityForecastReceiptsRefused`,
+  `TestLiquidityForecastReceiptsFailures` (every database failure),
+  `db.TestCashReceiptSnapshotRules`, `TestCashReceiptsValidated`,
+  `TestCashReceiptsDownRefused`, `TestDownsRevert`; the walkthrough's
+  `step_cash_receipts`: an open customer invoice and a sales order appear
+  as receipts on their dates.
+
 ### 6. Where it is computed, and freshness (decision P3)
 **Position and forecast are computed at read time from PostgreSQL**
 through the ports of §2, in one `REPEATABLE READ` read-only transaction,
@@ -2317,7 +2419,9 @@ As built (T53f4, variance comments by people; decided by default where
 
 ### 12. Out of scope, and where it goes
 - **Receivables and sales orders** as sources: phase 3, as readers of §4;
-  until then expected receipts are memo records (decision P6).
+  until then expected receipts are memo records (decision P6). Built in
+  T53l1 (As built in §5); the variance's match of a receipt to its
+  incoming payment is left for a later slice.
 - **Tax payables** from T61's returns: a `tax_payable` reader once returns
   are filed with a due date (a small step after T61's returns).
 - **Intraday statements** (camt.052) and available balances: a later
@@ -2967,6 +3071,7 @@ configuration; T53g touches procurement; the rest is the new context.
 | T53j | **Analytics** | Datasets `cash_snapshots`, `cash_actuals` and `cash_accuracy` (T53j3; contract files, extraction in the tenant's run; the relay marks a tenant due for payments' and cash's events), semantic dimensions (liquidity item, flow source, certainty, house bank) and metrics (forecast, actual, variance, accuracy); isolation tests passing |
 | T53k | **SAP migration** (if the pilot uses SAP Cash Management) | Liquidity items, planning groups, supplier planning groups, open memo records extracted and loaded through the services; quality-gate issues for items with no mapping |
 | T53l | **Deferred** | Intraday camt.052, bank-specific calendars, tax payable reader (after T61 returns), receivables reader (phase 3): each its own step when its trigger arrives |
+| T53l1 | **Receipts from customers** (split from T53l) | Customer open items (`receivable`, held back ones `receivable_blocked` apart) and open sales orders (`sales_order`) as sources through receivables', collections' and sales' published reads; drill-down, snapshots (000490, 000491), group forecast and analytics showing them; walkthrough `step_cash_receipts` |
 
 T53a-T53f are the pilot's must-haves (a daily position and a forecast
 from what is posted, with variance from the first week); T53g follows as

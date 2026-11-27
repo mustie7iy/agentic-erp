@@ -23388,13 +23388,15 @@ func (s *CashSnapshotCreate) SetName(val string) {
 }
 
 // A snapshot's totals in one currency: what the forecast's totals counted over the horizon (every
-// source but `payable_blocked`), what suppliers no run pays were owed, and how many lines it kept.
+// source but `payable_blocked` and `receivable_blocked`), what suppliers no run pays were owed, what
+// customers held back by collections owed (T53l1), and how many lines it kept.
 // Ref: #/components/schemas/CashSnapshotCurrency
 type CashSnapshotCurrency struct {
 	// The currency (ISO 4217).
-	Currency string `json:"currency"`
-	Total    Money  `json:"total"`
-	Blocked  Money  `json:"blocked"`
+	Currency        string `json:"currency"`
+	Total           Money  `json:"total"`
+	Blocked         Money  `json:"blocked"`
+	BlockedReceipts Money  `json:"blocked_receipts"`
 	// The lines kept (`listCashSnapshotFlows`).
 	LineCount int32 `json:"line_count"`
 }
@@ -23412,6 +23414,11 @@ func (s *CashSnapshotCurrency) GetTotal() Money {
 // GetBlocked returns the value of Blocked.
 func (s *CashSnapshotCurrency) GetBlocked() Money {
 	return s.Blocked
+}
+
+// GetBlockedReceipts returns the value of BlockedReceipts.
+func (s *CashSnapshotCurrency) GetBlockedReceipts() Money {
+	return s.BlockedReceipts
 }
 
 // GetLineCount returns the value of LineCount.
@@ -23432,6 +23439,11 @@ func (s *CashSnapshotCurrency) SetTotal(val Money) {
 // SetBlocked sets the value of Blocked.
 func (s *CashSnapshotCurrency) SetBlocked(val Money) {
 	s.Blocked = val
+}
+
+// SetBlockedReceipts sets the value of BlockedReceipts.
+func (s *CashSnapshotCurrency) SetBlockedReceipts(val Money) {
+	s.BlockedReceipts = val
 }
 
 // SetLineCount sets the value of LineCount.
@@ -23517,6 +23529,7 @@ type CashSnapshotFlow struct {
 	// The flows it sums: 1 at document level.
 	FlowCount int32          `json:"flow_count"`
 	Supplier  OptPartnerName `json:"supplier"`
+	Customer  OptPartnerName `json:"customer"`
 	// The payment it was, a run's payment or a payment in transit, of the payment run `document` names;
 	// absent for other sources and for a caller who may not use `payments.run.read`.
 	PaymentID OptUUID `json:"payment_id"`
@@ -23588,6 +23601,11 @@ func (s *CashSnapshotFlow) GetFlowCount() int32 {
 // GetSupplier returns the value of Supplier.
 func (s *CashSnapshotFlow) GetSupplier() OptPartnerName {
 	return s.Supplier
+}
+
+// GetCustomer returns the value of Customer.
+func (s *CashSnapshotFlow) GetCustomer() OptPartnerName {
+	return s.Customer
 }
 
 // GetPaymentID returns the value of PaymentID.
@@ -23668,6 +23686,11 @@ func (s *CashSnapshotFlow) SetFlowCount(val int32) {
 // SetSupplier sets the value of Supplier.
 func (s *CashSnapshotFlow) SetSupplier(val OptPartnerName) {
 	s.Supplier = val
+}
+
+// SetCustomer sets the value of Customer.
+func (s *CashSnapshotFlow) SetCustomer(val OptPartnerName) {
+	s.Customer = val
 }
 
 // SetPaymentID sets the value of PaymentID.
@@ -60404,8 +60427,9 @@ type GroupLiquidityForecast struct {
 	// The least certain flows counted. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	MinCertainty string `json:"min_certainty"`
-	// Whether the `payable_blocked` flows are counted in the totals and `beyond`; they are listed in the
-	// buckets' flows and summed in each currency's `blocked` either way.
+	// Whether the `payable_blocked` and `receivable_blocked` flows are counted in the totals and `beyond`;
+	// they are listed in the buckets' flows and summed in each currency's `blocked` and `blocked_receipts`
+	// either way.
 	IncludeBlocked bool `json:"include_blocked"`
 	// The companies summed: every legal entity the caller may act in, by company code; empty when it may
 	// act in none.
@@ -60673,8 +60697,8 @@ func (s *GroupLiquidityForecastConverted) SetBeyond(val Money) {
 }
 
 // One currency's figures summed over the companies, never converted (T53e5): the openings, the flows
-// per bucket in the buckets' order, the total over the horizon, what is expected after it, and what
-// suppliers no run pays are owed.
+// per bucket in the buckets' order, the total over the horizon, what is expected after it, what
+// suppliers no run pays are owed, and what customers held back by collections owe (T53l1).
 // Ref: #/components/schemas/GroupLiquidityForecastCurrency
 type GroupLiquidityForecastCurrency struct {
 	// The currency (ISO 4217).
@@ -60682,10 +60706,11 @@ type GroupLiquidityForecastCurrency struct {
 	Opening  LiquidityForecastOpening `json:"opening"`
 	// One per bucket of the forecast, in the same order; each `closing` is the opening plus the totals so
 	// far.
-	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
-	Total   Money                          `json:"total"`
-	Beyond  LiquidityForecastBeyond        `json:"beyond"`
-	Blocked LiquidityForecastBlocked       `json:"blocked"`
+	Buckets         []LiquidityForecastBucketFlows   `json:"buckets"`
+	Total           Money                            `json:"total"`
+	Beyond          LiquidityForecastBeyond          `json:"beyond"`
+	Blocked         LiquidityForecastBlocked         `json:"blocked"`
+	BlockedReceipts LiquidityForecastBlockedReceipts `json:"blocked_receipts"`
 }
 
 // GetCurrency returns the value of Currency.
@@ -60718,6 +60743,11 @@ func (s *GroupLiquidityForecastCurrency) GetBlocked() LiquidityForecastBlocked {
 	return s.Blocked
 }
 
+// GetBlockedReceipts returns the value of BlockedReceipts.
+func (s *GroupLiquidityForecastCurrency) GetBlockedReceipts() LiquidityForecastBlockedReceipts {
+	return s.BlockedReceipts
+}
+
 // SetCurrency sets the value of Currency.
 func (s *GroupLiquidityForecastCurrency) SetCurrency(val string) {
 	s.Currency = val
@@ -60746,6 +60776,11 @@ func (s *GroupLiquidityForecastCurrency) SetBeyond(val LiquidityForecastBeyond) 
 // SetBlocked sets the value of Blocked.
 func (s *GroupLiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
 	s.Blocked = val
+}
+
+// SetBlockedReceipts sets the value of BlockedReceipts.
+func (s *GroupLiquidityForecastCurrency) SetBlockedReceipts(val LiquidityForecastBlockedReceipts) {
+	s.BlockedReceipts = val
 }
 
 // Merged schema.
@@ -70341,8 +70376,9 @@ type LiquidityForecast struct {
 	// The least certain flows counted. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	MinCertainty string `json:"min_certainty"`
-	// Whether the `payable_blocked` flows are counted in the totals and `beyond` (`include_blocked`); they
-	// are listed in the buckets' flows and summed in each currency's `blocked` either way.
+	// Whether the `payable_blocked` and `receivable_blocked` flows are counted in the totals and `beyond`
+	// (`include_blocked`); they are listed in the buckets' flows and summed in each currency's `blocked`
+	// and `blocked_receipts` either way.
 	IncludeBlocked bool `json:"include_blocked"`
 	// The columns, in order: consecutive periods from the read date.
 	Buckets []LiquidityForecastBucket `json:"buckets"`
@@ -70434,7 +70470,7 @@ func (s *LiquidityForecast) SetConverted(val OptLiquidityForecastConverted) {
 func (*LiquidityForecast) getLiquidityForecastRes() {}
 
 // The flows of one currency expected after the last bucket, counted in no bucket nor in the total;
-// `payable_blocked` flows only with `include_blocked`.
+// `payable_blocked` and `receivable_blocked` flows only with `include_blocked`.
 // Ref: #/components/schemas/LiquidityForecastBeyond
 type LiquidityForecastBeyond struct {
 	Amount Money `json:"amount"`
@@ -70492,6 +70528,37 @@ func (s *LiquidityForecastBlocked) SetCount(val int32) {
 	s.Count = val
 }
 
+// The `receivable_blocked` flows of one currency (ADR-0051 §4, T53l1): what customers owe on open
+// items collections holds back (a dunning block of the item or its customer in force on the read date,
+// or an open dispute case of the item), in the buckets and after the last, summed whether or not
+// `include_blocked` counts them in the totals.
+// Ref: #/components/schemas/LiquidityForecastBlockedReceipts
+type LiquidityForecastBlockedReceipts struct {
+	Amount Money `json:"amount"`
+	// How many flows (a customer's items held back netted per day, as its receipts are).
+	Count int32 `json:"count"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *LiquidityForecastBlockedReceipts) GetAmount() Money {
+	return s.Amount
+}
+
+// GetCount returns the value of Count.
+func (s *LiquidityForecastBlockedReceipts) GetCount() int32 {
+	return s.Count
+}
+
+// SetAmount sets the value of Amount.
+func (s *LiquidityForecastBlockedReceipts) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetCount sets the value of Count.
+func (s *LiquidityForecastBlockedReceipts) SetCount(val int32) {
+	s.Count = val
+}
+
 // A column of the forecast: the days from `start` to `end`.
 // Ref: #/components/schemas/LiquidityForecastBucket
 type LiquidityForecastBucket struct {
@@ -70541,7 +70608,7 @@ type LiquidityForecastBucketFlows struct {
 	// The bucket's first day.
 	Start time.Time `json:"start"`
 	// The bucket's flows by source, certainty and whether late; empty when none. The bucket's `total`
-	// counts its `payable_blocked` flows only with `include_blocked`.
+	// counts its `payable_blocked` and `receivable_blocked` flows only with `include_blocked`.
 	Flows   []CashFlowTotal `json:"flows"`
 	Total   Money           `json:"total"`
 	Closing Money           `json:"closing"`
@@ -70716,18 +70783,19 @@ func (s *LiquidityForecastConvertedBucket) SetClosing(val Money) {
 }
 
 // The flows of one currency: per bucket, in the buckets' order, their total over the horizon, what is
-// expected after it, and what suppliers no run pays are owed; and the same flows by liquidity item and
-// its hierarchy.
+// expected after it, what suppliers no run pays are owed and what customers held back by collections
+// owe (T53l1); and the same flows by liquidity item and its hierarchy.
 // Ref: #/components/schemas/LiquidityForecastCurrency
 type LiquidityForecastCurrency struct {
 	// The currency (ISO 4217).
 	Currency string                   `json:"currency"`
 	Opening  LiquidityForecastOpening `json:"opening"`
 	// One per bucket of the forecast, in the same order.
-	Buckets []LiquidityForecastBucketFlows `json:"buckets"`
-	Total   Money                          `json:"total"`
-	Beyond  LiquidityForecastBeyond        `json:"beyond"`
-	Blocked LiquidityForecastBlocked       `json:"blocked"`
+	Buckets         []LiquidityForecastBucketFlows   `json:"buckets"`
+	Total           Money                            `json:"total"`
+	Beyond          LiquidityForecastBeyond          `json:"beyond"`
+	Blocked         LiquidityForecastBlocked         `json:"blocked"`
+	BlockedReceipts LiquidityForecastBlockedReceipts `json:"blocked_receipts"`
 	// The rows by liquidity item (T53e3), depth first: each item followed by its children, siblings by
 	// code, an item listed when it or a descendant has a flow; the row of what no rule assigns (without
 	// `liquidity_item`) last. The top rows (`level` 0) add up to each bucket's `total`, the currency's
@@ -70765,6 +70833,11 @@ func (s *LiquidityForecastCurrency) GetBlocked() LiquidityForecastBlocked {
 	return s.Blocked
 }
 
+// GetBlockedReceipts returns the value of BlockedReceipts.
+func (s *LiquidityForecastCurrency) GetBlockedReceipts() LiquidityForecastBlockedReceipts {
+	return s.BlockedReceipts
+}
+
 // GetItems returns the value of Items.
 func (s *LiquidityForecastCurrency) GetItems() []LiquidityForecastItem {
 	return s.Items
@@ -70800,6 +70873,11 @@ func (s *LiquidityForecastCurrency) SetBlocked(val LiquidityForecastBlocked) {
 	s.Blocked = val
 }
 
+// SetBlockedReceipts sets the value of BlockedReceipts.
+func (s *LiquidityForecastCurrency) SetBlockedReceipts(val LiquidityForecastBlockedReceipts) {
+	s.BlockedReceipts = val
+}
+
 // SetItems sets the value of Items.
 func (s *LiquidityForecastCurrency) SetItems(val []LiquidityForecastItem) {
 	s.Items = val
@@ -70808,7 +70886,8 @@ func (s *LiquidityForecastCurrency) SetItems(val []LiquidityForecastItem) {
 // A document a forecast flow pays, to read through its own context's API: a posted supplier open
 // item's journal entry (`getJournalEntry`), a parked or held supplier invoice (`getSupplierInvoice`),
 // a down payment request (`getDownPaymentRequest`), a payment run (`getPaymentRun`), a memo record
-// (`getMemoRecord`) or a purchase order (`getPurchaseOrder`, T53g).
+// (`getMemoRecord`), a purchase order (`getPurchaseOrder`, T53g), or for a receipt a customer open
+// item's journal entry (`getJournalEntry`) or a sales order (`getSalesOrder`, T53l1).
 // Ref: #/components/schemas/LiquidityForecastDocument
 type LiquidityForecastDocument struct {
 	// What the document is. Open enumeration: clients must accept and preserve values not listed here;
@@ -70882,12 +70961,13 @@ type LiquidityForecastFlow struct {
 	Certainty string `json:"certainty"`
 	// True when it was due at the bank before the read date and is expected the working day after it.
 	Late bool `json:"late"`
-	// Whether the forecast's totals count it: false for a `payable_blocked` flow without
-	// `include_blocked`.
+	// Whether the forecast's totals count it: false for a `payable_blocked` or `receivable_blocked` flow
+	// without `include_blocked`.
 	Counted  bool           `json:"counted"`
 	Amount   Money          `json:"amount"`
 	Share    Money          `json:"share"`
 	Supplier OptPartnerName `json:"supplier"`
+	Customer OptPartnerName `json:"customer"`
 	// How many documents the flow pays, those not shown included.
 	DocumentCount int32 `json:"document_count"`
 	// The documents the flow pays that the caller may read, each with what the flow pays of it; empty when
@@ -70933,6 +71013,11 @@ func (s *LiquidityForecastFlow) GetShare() Money {
 // GetSupplier returns the value of Supplier.
 func (s *LiquidityForecastFlow) GetSupplier() OptPartnerName {
 	return s.Supplier
+}
+
+// GetCustomer returns the value of Customer.
+func (s *LiquidityForecastFlow) GetCustomer() OptPartnerName {
+	return s.Customer
 }
 
 // GetDocumentCount returns the value of DocumentCount.
@@ -70985,6 +71070,11 @@ func (s *LiquidityForecastFlow) SetSupplier(val OptPartnerName) {
 	s.Supplier = val
 }
 
+// SetCustomer sets the value of Customer.
+func (s *LiquidityForecastFlow) SetCustomer(val OptPartnerName) {
+	s.Customer = val
+}
+
 // SetDocumentCount sets the value of DocumentCount.
 func (s *LiquidityForecastFlow) SetDocumentCount(val int32) {
 	s.DocumentCount = val
@@ -71018,8 +71108,8 @@ type LiquidityForecastFlowPage struct {
 	// The least certain flows listed. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1.
 	MinCertainty string `json:"min_certainty"`
-	// Whether the `payable_blocked` flows count in `total`; they are listed either way, marked
-	// `counted: false` without it.
+	// Whether the `payable_blocked` and `receivable_blocked` flows count in `total`; they are listed
+	// either way, marked `counted: false` without it.
 	IncludeBlocked bool  `json:"include_blocked"`
 	Total          Money `json:"total"`
 	// How many flows the range lists, over every page.

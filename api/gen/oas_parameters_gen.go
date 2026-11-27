@@ -33577,8 +33577,9 @@ type GetGroupLiquidityForecastParams struct {
 	// The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every
 	// flow); another value is 422.
 	MinCertainty OptString `json:",omitempty,omitzero"`
-	// Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond`
-	// too; by default (false) they are listed and summed in `blocked` only.
+	// Count the `payable_blocked` flows (what suppliers no run pays are owed) and the `receivable_blocked`
+	// flows (what customers held back by collections owe, T53l1) in the totals and `beyond` too; by
+	// default (false) they are listed and summed in `blocked` and `blocked_receipts` only.
 	IncludeBlocked OptBool `json:",omitempty,omitzero"`
 }
 
@@ -34826,8 +34827,9 @@ type GetLiquidityForecastParams struct {
 	// The least certain flows counted: `actual`, `confirmed`, `expected` or `planned` (default, every
 	// flow); another value is 422.
 	MinCertainty OptString `json:",omitempty,omitzero"`
-	// Count the `payable_blocked` flows (what suppliers no run pays are owed) in the totals and `beyond`
-	// too; by default (false) they are listed and summed in `blocked` only.
+	// Count the `payable_blocked` flows (what suppliers no run pays are owed) and the `receivable_blocked`
+	// flows (what customers held back by collections owe, T53l1) in the totals and `beyond` too; by
+	// default (false) they are listed and summed in `blocked` and `blocked_receipts` only.
 	IncludeBlocked OptBool `json:",omitempty,omitzero"`
 }
 
@@ -91343,8 +91345,8 @@ type ListLiquidityForecastFlowsParams struct {
 	// The least certain flows listed: `actual`, `confirmed`, `expected` or `planned` (default, every
 	// flow); another value is 422.
 	MinCertainty OptString `json:",omitempty,omitzero"`
-	// Count the `payable_blocked` flows in `total`, as `getLiquidityForecast` does with it; they are
-	// listed either way.
+	// Count the `payable_blocked` and `receivable_blocked` flows in `total`, as `getLiquidityForecast`
+	// does with it; they are listed either way.
 	IncludeBlocked OptBool `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`

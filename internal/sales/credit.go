@@ -70,11 +70,13 @@ type People interface {
 
 // openLine is what is open of an order item for the customer's credit:
 // its net value not yet posted as a customer invoice and the output tax
-// code it will be billed with.
+// code it will be billed with; AccountID its revenue account, which only
+// the liquidity forecast's read gives (cashOrders).
 type openLine struct {
-	ItemNo  int32       `json:"item_no"`
-	Net     money.Minor `json:"net_amount"`
-	TaxCode *string     `json:"tax_code"`
+	ItemNo    int32       `json:"item_no"`
+	Net       money.Minor `json:"net_amount"`
+	TaxCode   *string     `json:"tax_code"`
+	AccountID uuid.UUID   `json:"account_id"`
 }
 
 // openOrder is an order as its value is calculated: its number, the date

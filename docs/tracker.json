@@ -1948,9 +1948,16 @@
        },
        {
         "s": "T",
-        "t": "Deferred (each its own step when its trigger arrives): intraday camt.052 statements and available balances, bank-specific calendars, a tax payable reader (after T61's returns), a receivables and sales order reader (phase 3), a stored flow table kept from events (only if a larger tenant breaks the read budget, P3)",
+        "t": "Deferred (each its own step when its trigger arrives): intraday camt.052 statements and available balances, bank-specific calendars, a tax payable reader (after T61's returns; its trigger has arrived, the next slice), the variance's match of a forecast receipt to the incoming payment that cleared it (left by T53l1), a stored flow table kept from events (only if a larger tenant breaks the read budget, P3); the receivables and sales order reader (phase 3) is T53l1",
         "r": "T53l",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Receipts from customers in the liquidity forecast: customer open items (receivable, by net due date, netted per customer as its payments net them, special G/L left out; items under a dunning block or in an open dispute case receivable_blocked apart, summed in blocked_receipts, counted only with include_blocked) and confirmed sales orders not blocked for credit with a part not yet billed (sales_order, planned, open net plus output tax, billed on the requested delivery date else the order date plus order_lead_days, received after the term's net days), through receivables', collections' and sales' published reads; drill-down naming the customer, snapshots, the group forecast and the analytics' blocked dimension showing them",
+        "r": "receivables.Endpoints.CashItems · collections.Holds.Held · sales.Endpoints.CashOrders · cash.Receivables, cash.SalesOrders, SourceReceivable, SourceReceivableBlocked, SourceSalesOrder, DocSalesOrder, blockedSource, BlockedReceipts · app cashReceivables, cashSales · LiquidityForecastBlockedReceipts, blocked_receipts, LiquidityForecastFlow.customer, CashSnapshotFlow.customer, CashSnapshotCurrency.blocked_receipts · migrations 000490 (cash.snapshot_flow.customer_id, snapshot_flow_customer, document_kind sales_order), 000491 (validated) · TestLiquidityForecastReceipts, TestLiquidityForecastReceiptsRefused, TestLiquidityForecastReceiptsFailures, db.TestCashReceiptSnapshotRules, TestCashReceiptsValidated, TestCashReceiptsDownRefused, TestDownsRevert · walkthrough step_cash_receipts · ADR-0051 As built T53l1 · 03-data-model §3.18 · T53l1",
+        "src": "split:T53l · adr:ADR-0051",
         "c": []
        }
       ]
