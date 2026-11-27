@@ -33,8 +33,9 @@ func sapItemKey(l sap.ACDOCA) string { return documentKey(l) + "/" + l.DOCLN }
 func (t target) fiscalYear() string { return strconv.Itoa(int(t.year)) }
 
 // earlierYear reports whether a line is of a fiscal year before the run's:
-// one of the documents its scope sets apart (sap.Extract.ClearedEarlier).
-func (t target) earlierYear(l sap.ACDOCA) bool { return l.GJAHR != t.fiscalYear() }
+// one of the documents its scope sets apart (sap.Extract.ClearedEarlier),
+// both years of SAP's four digits.
+func (t target) earlierYear(l sap.ACDOCA) bool { return l.GJAHR < t.fiscalYear() }
 
 // clearsThisYear reports whether SAP cleared a line by a clearing document
 // of the run's fiscal year.
@@ -55,27 +56,49 @@ func carriedClearings(e *sap.Extract, t target) []sap.ACDOCA {
 }
 
 // clearingYears refuses a clearing year (AUGGJ) that is no fiscal year,
-// which the scope cannot read the line at the year's end by, and, in
-// balances mode, a clearing of earlier fiscal years' items: the opening
-// entry leaves out the year's cleared items, so nothing it posts could
-// clear the items an earlier year's run loaded open.
+// which the scope cannot read the line at the year's end by, and the
+// clearings of earlier fiscal years' items the run cannot record
+// (carriedClearingRefusal).
 func (q *qualityCheck) clearingYears() {
 	for _, l := range q.e.ACDOCA {
-		if l.AUGGJ != "" && l.AUGGJ != "0000" && !sap.IsYear(l.AUGGJ) {
+		if !sap.IsInitialYear(l.AUGGJ) && !sap.IsYear(l.AUGGJ) {
 			q.add(SevError, "ACDOCA", sapItemKey(l), "the clearing's fiscal year (AUGGJ) %q is no fiscal year", l.AUGGJ)
 		}
 	}
-	if !q.t.balances {
-		return
-	}
-	items := map[string][]string{}
+	items, dated := map[string][]string{}, map[string]bool{}
 	for _, l := range carriedClearings(q.e, q.t) {
-		items[l.RBUKRS+"/"+l.AUGBL] = append(items[l.RBUKRS+"/"+l.AUGBL], sapItemKey(l))
+		key := l.RBUKRS + "/" + l.AUGBL
+		items[key] = append(items[key], sapItemKey(l))
+		_, err := sapDate(l.AUGDT)
+		dated[key] = dated[key] || err == nil
+	}
+	for _, l := range q.e.ACDOCA {
+		dated[l.RBUKRS+"/"+l.AUGBL] = dated[l.RBUKRS+"/"+l.AUGBL] || l.AUGBL != "" // a document of the year dates it
 	}
 	for _, key := range sortedKeys(items) {
-		q.add(SevError, "ACDOCA", "clearing "+key, "SAP cleared items of an earlier fiscal year (%s) with it in %d, which a balances run cannot "+
-			"clear on the platform: load the year in documents mode", strings.Join(items[key], ", "), q.t.year)
+		if why := q.carriedClearingRefusal(dated[key]); why != "" {
+			q.add(SevError, "ACDOCA", "clearing "+key, "SAP cleared items of an earlier fiscal year (%s) with it in %d, %s",
+				strings.Join(items[key], ", "), q.t.year, why)
+		}
 	}
+}
+
+// carriedClearingRefusal is why the run cannot record a clearing of
+// earlier fiscal years' items, "" when it can. A balances run cannot: its
+// opening entry leaves out the year's cleared items, so nothing it posts
+// could clear the items an earlier year's run loaded open. A documents
+// run cannot date one whose documents are all of earlier years without
+// SAP's clearing date (AUGDT): its latest document's date is of an earlier
+// year, where the items were open at the year's end.
+func (q *qualityCheck) carriedClearingRefusal(dated bool) string {
+	switch {
+	case q.t.balances:
+		return "which a balances run cannot clear on the platform: load the year in documents mode"
+	case !dated:
+		return "and none of its documents is of that year nor its lines carry SAP's clearing date (AUGDT), which the run dates the clearing by: " +
+			"extract AUGDT"
+	}
+	return ""
 }
 
 // addOpeningItems records the SAP key of each open vendor item an opening
@@ -131,7 +154,8 @@ func (l *loader) openingItems(ctx context.Context, keys []string) (map[string]lo
 // clearing date (AUGDT) for one of earlier fiscal years' items, whose
 // documents may all be of those years (a clearing document of no line,
 // as SAP posts one when the items net to zero), when the extract carries
-// it.
+// it; the quality gate refuses one of such documents alone without it
+// (carriedClearingRefusal).
 func (l *loader) clearingDate(group []sap.ACDOCA, by *loadedEntry) loadedEntry {
 	for _, line := range group {
 		if !l.t.earlierYear(line) {

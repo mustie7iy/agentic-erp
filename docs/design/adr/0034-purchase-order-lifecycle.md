@@ -604,7 +604,9 @@ Built as the product owner decided above. The SAP specialist's answer
   them (an earlier year's document of the same number is not it); one of
   no line, as SAP posts when the items net to zero, leaves the latest
   document to clear them, dated by SAP's clearing date (AUGDT), so the
-  clearing falls in the year SAP made it.
+  clearing falls in the year SAP made it; the quality gate refuses such a
+  clearing without AUGDT on any of its lines, rather than date it in an
+  earlier year, where its items were open at the year's end.
 - **Refused.** An earlier year's item no run of that year loaded fails
   the later year's run, keyed `clearing <BUKRS>/<AUGBL>`, naming the item
   and the year to migrate first, rather than clearing the year's items
@@ -631,8 +633,10 @@ Built as the product owner decided above. The SAP specialist's answer
   written in the opening entry's savepoint, and the foreign key to the
   run takes FOR KEY SHARE on the run row the start holds already.
 
-Not built, for the backlog: a balances run of a later fiscal year after
-an earlier one holds them open; and the reconciliation of an earlier
+Not built, each a tracker leaf (review:batch98): a balances run of a
+fiscal year in which SAP cleared earlier years' items, refused as above,
+or, with the earlier year not in the extract, failing as before (its
+cleared items do not net to zero); and the reconciliation of an earlier
 year run again after the later year cleared its items, which compares
 SAP's year-end reading with the platform's items open today and so shows
 them as differences.

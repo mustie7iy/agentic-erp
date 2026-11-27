@@ -280,7 +280,11 @@ migrate) and clears them against what the earlier year's run loaded, an
 entry of their own or a line of its opening entry. An earlier year's item
 no run of that year loaded fails the run, naming the item and the year to
 migrate first; a `balances` run of the later year cannot clear them and its
-quality gate refuses such a clearing; an AUGGJ that is no year is refused.
+quality gate refuses such a clearing (tracker: to decide and build), as it
+refuses a clearing of earlier years' documents alone without AUGDT, which
+dates it; an AUGGJ that is no year is refused. Reconciling an earlier
+year's run again after the later year's run cleared its items shows them
+as differences (tracker).
 An extract without AUGGJ reads AUGBL as before (ADR-0034 As built, vendor
 items SAP cleared in a later fiscal year). The SAP
 specialist confirmed the fields (po:2026-11-09, A3, [H]): ACDOCA-AUGDT and

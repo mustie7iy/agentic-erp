@@ -190,6 +190,10 @@ func IsYear(s string) bool {
 	return len(s) == 4 && s != "0000" && strings.Trim(s, "0123456789") == ""
 }
 
+// IsInitialYear reports whether s is the clearing year (AUGGJ) of an open
+// item: blank, or SAP's initial 0000.
+func IsInitialYear(s string) bool { return s == "" || s == "0000" }
+
 // atYearEnd is a journal line as it stood at the end of fiscal year
 // year: one SAP cleared by a clearing document of a later fiscal year
 // (AUGGJ) was open then, so its clearing (AUGBL, AUGDT, AUGGJ) is left

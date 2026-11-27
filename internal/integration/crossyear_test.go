@@ -126,8 +126,9 @@ func TestClearedInALaterYear(t *testing.T) {
 // TestClearedInALaterYearRefused: a later year's run refuses a clearing
 // of an earlier year's item no run of that year loaded, naming the year
 // to migrate first, and the quality gate refuses such a clearing in a
-// balances run, which cannot clear it, and a clearing year that is no
-// year.
+// balances run, which cannot clear it, one of earlier years' documents
+// alone that the extract gives no clearing date for, and a clearing year
+// that is no year.
 func TestClearedInALaterYearRefused(t *testing.T) {
 	t.Run("no run of the earlier year", func(t *testing.T) {
 		e := yearsSetup(t)
@@ -141,6 +142,8 @@ func TestClearedInALaterYearRefused(t *testing.T) {
 	})
 	noYear := acrossYears()
 	noYear.ACDOCA[8].AUGGJ = "20x6"
+	undated := acrossYears()
+	undated.ACDOCA[5].AUGDT, undated.ACDOCA[7].AUGDT = "", ""
 	for name, c := range map[string]struct {
 		extract *sap.Extract
 		mode    string
@@ -149,6 +152,9 @@ func TestClearedInALaterYearRefused(t *testing.T) {
 		"a balances run": {acrossYears(), "balances", "SAP cleared items of an earlier fiscal year (2000/2025/0100000002/000002) with it in 2026, " +
 			"which a balances run cannot clear on the platform: load the year in documents mode"},
 		"no clearing year": {noYear, "documents", `the clearing's fiscal year (AUGGJ) "20x6" is no fiscal year`},
+		"no document of the year nor a clearing date": {undated, "documents", "SAP cleared items of an earlier fiscal year " +
+			"(2000/2025/0100000004/000002, 2000/2025/0100000005/000002) with it in 2026, and none of its documents is of that year nor its lines " +
+			"carry SAP's clearing date (AUGDT), which the run dates the clearing by: extract AUGDT"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := yearsSetup(t)

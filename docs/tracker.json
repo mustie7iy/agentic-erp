@@ -12005,6 +12005,20 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "A balances run of a fiscal year in which SAP cleared vendor items of an earlier fiscal year fails (split from the item before, built for documents runs): its opening entry leaves the year's cleared items out, so it cannot clear the items an earlier year's run loaded open, and the quality gate refuses the clearing (load the year in documents mode); with the earlier year not in the extract (the first migrated year in balances mode, its prior-year invoices paid during it) the year's cleared items do not net to zero and the opening entry is refused as before. To decide and build: how a balances run takes over such a clearing (with no earlier year on the platform, leave the clearing's items of both years out; with one, clear its open items against the year's)",
+      "r": "internal/integration crossyear.go clearingYears, load.go openingEntry · ADR-0034 As built (vendor items SAP cleared in a later fiscal year, not built)",
+      "src": "review:batch98 · po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Reconciling an earlier fiscal year's run again after a later year's run cleared its items shows them as differences (split from the item before): SAP's side reads them open at the year's end (sap.FilterScope), the platform's open payables and their counts read items open today, which the later year's clearing closed. To build: the platform's open items of a fiscal year as at its end (cleared by a clearing dated after it counts open)",
+      "r": "internal/integration reconcile.go openPayables, openPayableItems · ledger Reports.OpenPayables, OpenPayableItems · ADR-0034 As built (vendor items SAP cleared in a later fiscal year, not built)",
+      "src": "review:batch98 · po:2026-10-31",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "Platform-processed invoices keep their state",
       "r": "",

@@ -90,3 +90,13 @@ func TestIsYear(t *testing.T) {
 		})
 	}
 }
+
+func TestIsInitialYear(t *testing.T) {
+	for s, want := range map[string]bool{"": true, "0000": true, "2026": false, "x": false} {
+		t.Run(s, func(t *testing.T) {
+			if got := IsInitialYear(s); got != want {
+				t.Errorf("IsInitialYear(%q): got %t, want %t", s, got, want)
+			}
+		})
+	}
+}
