@@ -7205,8 +7205,9 @@ erDiagram
   64-hex token, who and when) with its `inventory.cycle_count_abc_change`
   rows (numbered 1 to 1,000 in the analysis's order, once per material,
   class A to C, the indicator given and the one replaced, never the
-  same, the material's indicator row; at least one, as an analysis that
-  changes nothing is not applied), both insert-only. The
+  same, the material's indicator row), both insert-only; the application
+  keeps no application without a change (`ApplyABC`, 422
+  `inventory.abc_nothing_to_apply`; not a database rule). The
   company's ABC shares are configuration
   (`companies[].cycle_count_abc_shares`).
 - `inventory.outbox`, `inventory.inbox`: the context's events

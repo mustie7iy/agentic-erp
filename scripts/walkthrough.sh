@@ -15648,6 +15648,9 @@ step_count() {
   expect "the changes once applied" "$(field .changes)" 0
   refused 422 inventory.abc_nothing_to_apply createCycleCountAbcApplication -body \
     "{\"plant_id\": \"$PLANT\", \"from\": \"$from\", \"to\": \"$TODAY\", \"preview_token\": \"$(field .preview_token)\"}"
+  say "The applications at the plant are listed, each counting its changes:"
+  api 200 '.items[] | "  applied \(.created_at) by \(.created_by_name): \(.change_count) changes"' listCycleCountAbcApplications -p "plant_id=$PLANT"
+  expect "the latest application listed" "$(field '"\(.items[0].change_count > 0) \(.items[0].changes == null)"')" "true true"
   QUIET=1 api 200 '' listCycleCountMaterials -p "plant_id=$PLANT" -p "material_id=$BOLT" -p status=active
   expect "the bolts' indicator from the analysis" "$(field '.items | length')" 1
   passed
