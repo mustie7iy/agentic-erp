@@ -177,10 +177,10 @@ func shipFrom(units map[uuid.UUID]tenancy.Unit, in Input, le tenancy.Entity) (te
 // field: it names an active material kept in stock (422
 // shipping.item_not_stocked: an item without one, or of a material kept
 // in no stock, is confirmed as delivered by hand, T78c;
-// shipping.material_not_usable, also for a material managed in batches or
-// serial-managed, which a delivery carries no batch or serial numbers of
-// yet, ADR-0082 As built S2f, S2g), kept
-// at the storage location of the plant (shipping.material_not_at_location).
+// shipping.material_not_usable; one managed in batches or serial-managed
+// is delivered as any, its goods issue naming its batches and serial
+// numbers, S2f2, S2g2), kept at the storage location of the plant
+// (shipping.material_not_at_location).
 func (s origin) eligible(it sales.OrderItem, field string) error {
 	lead := fmt.Sprintf("Item %d of sales order %s ", it.ItemNo, s.order.DocumentNumber)
 	if it.MaterialID == nil {
@@ -194,12 +194,6 @@ func (s origin) eligible(it sales.OrderItem, field string) error {
 	case m.Status != materials.Active:
 		return problem.Invalid("shipping.material_not_usable", field, lead+"is material "+m.Number+", which is "+m.Status+
 			"; only an active material is delivered.")
-	case m.BatchManaged:
-		return problem.Invalid("shipping.material_not_usable", field, lead+"is material "+m.Number+", which is managed in batches; a delivery "+
-			"carries no batch yet.")
-	case m.SerialManaged:
-		return problem.Invalid("shipping.material_not_usable", field, lead+"is material "+m.Number+", which has a serial number profile; a "+
-			"delivery carries no serial numbers yet.")
 	case !m.KeptAt(s.plant.ID, s.location.ID):
 		return problem.Invalid("shipping.material_not_at_location", field, lead+"is material "+m.Number+", which is not kept at storage location "+
 			s.location.Code+" of plant "+s.plant.Code+".")

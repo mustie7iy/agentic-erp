@@ -30,7 +30,7 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 	for i, it := range d.Items {
 		out.Items[i] = gen.OutboundDeliveryItem{ItemNo: it.ItemNo, OrderItemNo: it.OrderItemNo, MaterialID: it.MaterialID,
 			MaterialNumber: r.materials[it.MaterialID].Number, Description: it.Description, Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit},
-			PickedQuantity: gen.Quantity{Value: it.Picked, Unit: it.Unit}}
+			PickedQuantity: gen.Quantity{Value: it.Picked, Unit: it.Unit}, IssueLines: issueLinesAPI(it)}
 		if it.Cost != nil {
 			out.Items[i].Cost = gen.NewOptMoney(apitypes.Money(*it.Cost, d.Currency, d.Exponent))
 			total += *it.Cost // their sum was posted in one WA entry, whose amounts the ledger keeps within an amount's range
@@ -53,6 +53,20 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 		out.TradeCompliance.SetTo(gen.OutboundDeliveryTradeCompliance{Status: tc.Status, ReasonCode: apitypes.OptString(tc.ReasonCode),
 			ScreenedAt: apitypes.OptDateTime(tc.ScreenedAt), ReleasedBy: apitypes.OptUUID(tc.ReleasedBy), ReleasedByName: apitypes.OptString(tc.ReleasedByName),
 			ReleasedAt: apitypes.OptDateTime(tc.ReleasedAt)})
+	}
+	return out
+}
+
+// issueLinesAPI is what an item's goods issue lines issued, as the API
+// gives them; nil when it has none, so the field is absent.
+func issueLinesAPI(it Item) []gen.OutboundDeliveryIssueLine {
+	if len(it.IssueLines) == 0 {
+		return nil
+	}
+	out := make([]gen.OutboundDeliveryIssueLine, len(it.IssueLines))
+	for i, l := range it.IssueLines {
+		out[i] = gen.OutboundDeliveryIssueLine{LineNo: int32(l.LineNo), Quantity: gen.Quantity{Value: l.Quantity, Unit: it.Unit},
+			BatchID: apitypes.OptUUID(l.BatchID), BatchNumber: apitypes.OptString(l.BatchNumber), SerialNumbers: l.SerialNumbers}
 	}
 	return out
 }
@@ -119,9 +133,13 @@ func (e *Endpoints) PickOutboundDelivery(ctx context.Context, req *gen.OutboundD
 
 // PostOutboundDeliveryGoodsIssue implements POST
 // /v1/outbound-deliveries/{id}:postGoodsIssue.
-func (e *Endpoints) PostOutboundDeliveryGoodsIssue(ctx context.Context, params gen.PostOutboundDeliveryGoodsIssueParams) (
-	gen.PostOutboundDeliveryGoodsIssueRes, error) {
-	d, err := e.PostGoodsIssue(ctx, params.ID, etag.IfMatch(params.IfMatch))
+func (e *Endpoints) PostOutboundDeliveryGoodsIssue(ctx context.Context, req gen.OptOutboundDeliveryGoodsIssue,
+	params gen.PostOutboundDeliveryGoodsIssueParams) (gen.PostOutboundDeliveryGoodsIssueRes, error) {
+	in := make([]IssueInput, len(req.Value.Items))
+	for i, it := range req.Value.Items {
+		in[i] = IssueInput{ItemNo: it.ItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit, Batch: it.BatchNumber.Value, SerialNumbers: it.SerialNumbers}
+	}
+	d, err := e.PostGoodsIssue(ctx, params.ID, etag.IfMatch(params.IfMatch), in)
 	out, tag, err := e.one(ctx, d, err)
 	if err != nil {
 		return nil, err

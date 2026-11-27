@@ -1590,7 +1590,10 @@ specialist) and S2i's and S2i2's decisions above.
   version serves (a stock row an earlier version writes is not
   batch-managed); the plan's slice names the
   batch on movements and stock, which the person's goods movements
-  carry. Decided by default.
+  carry. Decided by default. S2f1 lifted the purchase order's refusal,
+  and S2f2 the quotation's, the sales order's and the delivery's: a
+  delivery's goods issue (601) and its reversal (602) carry the batch
+  (ADR-0083 As built S2f2).
 - **Stock by batch beside the location's**, not a wider stock key:
   `inventory.batch_stock` (SAP MCHB beside MARD), rather than the plan's
   "stock key extended, expand-migrate-contract", so `inventory.stock` and
@@ -1691,7 +1694,9 @@ specialist) and S2i's and S2i2's decisions above.
   naming `items[i].material_id`, `TestMaterialItemRefusals`), added
   beside S2f's refusal at batch 87's integration (the sales order's code
   was another lane's); the delivery's own refusal stays as a second
-  guard.
+  guard. S2g2 lifted both, as S2f2 lifted a batch-managed material's: a
+  delivery's goods issue names its units' serial numbers (ADR-0083 As
+  built S2f2).
 - `GET /v1/serial-numbers` (material, number, plant, storage location,
   in stock) and `/{id}` with its history (each movement's material
   document, movement type, location and whether it received or issued the

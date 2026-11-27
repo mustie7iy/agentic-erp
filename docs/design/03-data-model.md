@@ -7181,6 +7181,14 @@ erDiagram
     text uom_code "ref"
     numeric picked_quantity "0 to quantity"
     bigint cost_amount "the goods issue's, not below 0" }
+  outbound_delivery_item ||--o{ outbound_delivery_issue_line : "goods issue lines (S2f2)"
+  outbound_delivery_issue_line { uuid outbound_delivery_id PK
+    smallint line_no PK "the 601's line, 1 to 200"
+    integer item_no "the delivery's item"
+    numeric quantity "above 0, the item's unit"
+    uuid batch_id "inventory: the batch, with batch_number"
+    text batch_number
+    text_array serial_numbers "1 to 1000, sorted" }
 ```
 
 - `shipping.outbound_delivery`: a delivery (SAP LIKP), numbered 1 to 40
@@ -7234,6 +7242,20 @@ erDiagram
   The application updates its picked quantity and cost alone, while its
   delivery is created (`outbound_delivery_item_issued_fixed`, a trigger),
   and deletes none (`outbound_delivery_item_no_delete`).
+- `shipping.outbound_delivery_issue_line` (S2f2, S2g2, migration 000491;
+  ADR-0083 As built S2f2): what a line of a delivery's goods issue (its
+  601's `line_no`, 1 to 200, `outbound_delivery_issue_line_no_check`,
+  once per delivery) issued of an item of a batch-managed or
+  serial-managed material (`outbound_delivery_issue_line_item_fkey`): a
+  quantity above zero in the item's unit
+  (`outbound_delivery_issue_line_quantity_check`), the batch by id and
+  number together (`outbound_delivery_issue_line_batch`), one to 1000
+  serial numbers (`outbound_delivery_issue_line_serial_numbers`), sorted,
+  and at least one of the two (`outbound_delivery_issue_line_tracked`).
+  Written with the goods issue, insert-only
+  (`outbound_delivery_issue_line_insert_only`); an item issued from
+  several batches has a line for each. Its reversal (602) gives the same
+  back and writes nothing here.
 - `sales.sales_order_item` gains `in_delivery_quantity`, 0 by default:
   what outbound deliveries not yet issued hold of the item, never below
   zero and, while above zero, with what is delivered at most what was

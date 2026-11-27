@@ -26,7 +26,11 @@ const deliverySelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number,
 		coalesce(d.currency, ''), coalesce((SELECT c.exponent FROM ref.currency c WHERE c.code = d.currency), 0),
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'order_item_no', i.order_item_no, 'material_id', i.material_id,
 			'description', i.description, 'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code,
-			'picked_quantity', trim_scale(i.picked_quantity)::text, 'cost_amount', i.cost_amount) ORDER BY i.item_no)
+			'picked_quantity', trim_scale(i.picked_quantity)::text, 'cost_amount', i.cost_amount,
+			'issue_lines', (SELECT json_agg(json_build_object('line_no', l.line_no, 'quantity', trim_scale(l.quantity)::text, 'batch_id', l.batch_id,
+				'batch_number', l.batch_number, 'serial_numbers', l.serial_numbers) ORDER BY l.line_no)
+			 FROM shipping.outbound_delivery_issue_line l
+			 WHERE l.tenant_id = i.tenant_id AND l.outbound_delivery_id = i.outbound_delivery_id AND l.item_no = i.item_no)) ORDER BY i.item_no)
 		 FROM shipping.outbound_delivery_item i WHERE i.tenant_id = d.tenant_id AND i.outbound_delivery_id = d.id),
 		d.version, d.created_at, d.created_by, d.updated_at, d.updated_by,
 		d.shipment_number, d.carrier_code, d.freight_amount, d.freight_currency,
@@ -179,6 +183,9 @@ func (e *Endpoints) record(ctx context.Context, action string, d Delivery, detai
 		if it.Cost != nil {
 			items[i]["cost"] = money.EventAmount(*it.Cost, d.Currency, d.Exponent)
 		}
+		if len(it.IssueLines) > 0 {
+			items[i]["issue_lines"] = issueLinesEvent(it)
+		}
 	}
 	var issued *string
 	if d.GoodsIssueDate != nil {
@@ -203,4 +210,16 @@ func (e *Endpoints) record(ctx context.Context, action string, d Delivery, detai
 		return fmt.Errorf("shipping: record %s of outbound delivery %s: %w", action, d.Number, err)
 	}
 	return nil
+}
+
+// issueLinesEvent is what an item's goods issue lines issued as
+// OutboundDeliveryChanged gives it: each line's quantity in the item's
+// unit, its batch and its serial numbers, null when it has none.
+func issueLinesEvent(it Item) []map[string]any {
+	out := make([]map[string]any, len(it.IssueLines))
+	for i, l := range it.IssueLines {
+		out[i] = map[string]any{"line_no": l.LineNo, "quantity": map[string]string{"value": l.Quantity, "unit": it.Unit}, "batch_id": l.BatchID,
+			"batch_number": l.BatchNumber, "serial_numbers": l.SerialNumbers}
+	}
+	return out
 }

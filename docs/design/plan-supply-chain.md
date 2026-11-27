@@ -899,6 +899,27 @@ storage location's.
   counts, the SAP take-over, a WMS-reported receipt naming a batch,
   internal batch numbers, changing a batch's dates, batch status, stock
   by batch as at a date, 309, FEFO, classification, where-used, recall).
+- **S2f2 Batches in the outbound delivery's goods issue** (lane gibatch,
+  2026-11-25; split from the batch variants, decided by default, ADR-0083
+  As built S2f2). **Adds:** an order item and a delivery of a
+  batch-managed material (refused until now); an optional body on
+  `POST /v1/outbound-deliveries/{id}:postGoodsIssue` naming, per item,
+  the batches its picked quantity leaves from by number with the
+  quantity of each (a batch split, SAP's batch split items, from
+  memory), each a line of the 601 checked against the batch's stock at
+  the storage location; the delivery's items naming what each batch
+  issued (`issue_lines`); its reversal (602) giving each batch back what
+  it issued. The person names the batch: batch determination is Later.
+  **Acceptance:** a picked item of a batch-managed material whose goods
+  issue names no batch is refused; the batches named add up to the
+  picked quantity; a batch short of the quantity is refused; the 602
+  gives the batch's stock back, so stock by batch still adds up to the
+  storage location's. **Later:** the batch variants left (stock
+  transport orders, an intercompany one's 643 included, counts, the SAP
+  take-over, a WMS-reported goods receipt or goods issue naming a batch,
+  batches named at picking, internal batch numbers, changing a batch's
+  dates, batch status, an expired batch's check at issue, stock by batch
+  as at a date, 309, FEFO, classification, where-used, recall).
 
 ### S2g Serial numbers
 
@@ -934,6 +955,22 @@ and its history. **Acceptance:** a serial number is in stock at most once.
   transport orders, counts, the SAP take-over, a WMS-reported receipt
   naming serial numbers, profiles per plant, other usages, maintenance
   and service, serialization at delivery only).
+- **S2g2 Serial numbers in the outbound delivery's goods issue** (lane
+  gibatch, 2026-11-25; split from the serial number variants, decided by
+  default, ADR-0083 As built S2f2). **Adds:** an order item and a
+  delivery of a serial-managed material; `serial_numbers` on the goods
+  issue's items, one per unit of the base unit, each in stock at the
+  delivery's storage location, out of stock after the 601; the
+  delivery's items naming them; the reversal (602) taking them into
+  stock there again. **Acceptance:** a picked item of a serial-managed
+  material whose goods issue names no serial numbers, or one not in
+  stock there, is refused; the 602 refuses a serial number in stock
+  again since (409 `inventory.serial_in_stock`). **Later:** the serial
+  number variants left (stock transport orders, an intercompany one's
+  643 included, counts, the SAP take-over, a WMS-reported goods receipt
+  or goods issue naming serial numbers, serial numbers named at
+  picking, profiles per plant, other usages, maintenance and service,
+  serialization at delivery only).
 
 **Later for Batch and serial number management:** batch classification
 and determination (FEFO), where-used lists, recall, serial numbers in

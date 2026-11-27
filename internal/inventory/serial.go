@@ -28,9 +28,10 @@ import (
 // posting then locks the serial numbers its lines move, after the
 // locations' and batches' stock rows, in one order, and refuses a receipt
 // of one in stock or an issue of one not in stock at the line's location.
-// A purchase order's goods receipt and its reversal carry them too (S2g1).
-// The movement types that carry no serial numbers yet (a delivery's goods
-// issue, a stock transport order's, a count's) refuse a serial-managed
+// A purchase order's goods receipt and its reversal carry them too (S2g1),
+// as do a delivery's goods issue and its reversal (S2g2). The movement
+// types that carry no serial numbers yet (a stock transport order's goods
+// issue, an intercompany one's 643, a count's) refuse a serial-managed
 // material, as they refuse a batch-managed one.
 
 func init() {

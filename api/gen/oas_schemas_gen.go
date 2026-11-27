@@ -87169,6 +87169,52 @@ func (o OptOperationResult) Or(d OperationResult) OperationResult {
 	return d
 }
 
+// NewOptOutboundDeliveryGoodsIssue returns new OptOutboundDeliveryGoodsIssue with value set to v.
+func NewOptOutboundDeliveryGoodsIssue(v OutboundDeliveryGoodsIssue) OptOutboundDeliveryGoodsIssue {
+	return OptOutboundDeliveryGoodsIssue{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptOutboundDeliveryGoodsIssue is optional OutboundDeliveryGoodsIssue.
+type OptOutboundDeliveryGoodsIssue struct {
+	Value OutboundDeliveryGoodsIssue
+	Set   bool
+}
+
+// IsSet returns true if OptOutboundDeliveryGoodsIssue was set.
+func (o OptOutboundDeliveryGoodsIssue) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptOutboundDeliveryGoodsIssue) Reset() {
+	var v OutboundDeliveryGoodsIssue
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptOutboundDeliveryGoodsIssue) SetTo(v OutboundDeliveryGoodsIssue) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptOutboundDeliveryGoodsIssue) Get() (v OutboundDeliveryGoodsIssue, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptOutboundDeliveryGoodsIssue) Or(d OutboundDeliveryGoodsIssue) OutboundDeliveryGoodsIssue {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptOutboundDeliveryShipment returns new OptOutboundDeliveryShipment with value set to v.
 func NewOptOutboundDeliveryShipment(v OutboundDeliveryShipment) OptOutboundDeliveryShipment {
 	return OptOutboundDeliveryShipment{
@@ -89447,6 +89493,84 @@ func (s *OutboundDeliveryCreate) SetItems(val []OutboundDeliveryItemInput) {
 	s.Items = val
 }
 
+// What an outbound delivery's goods issue issues of its picked items of batch-managed and
+// serial-managed materials (S2f2, S2g2); every other item issues its picked quantity.
+// Ref: #/components/schemas/OutboundDeliveryGoodsIssue
+type OutboundDeliveryGoodsIssue struct {
+	// Each picked item of a batch-managed or serial-managed material, once per batch it issues from (once
+	// for a material without batches); no other item.
+	Items []OutboundDeliveryGoodsIssueItem `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *OutboundDeliveryGoodsIssue) GetItems() []OutboundDeliveryGoodsIssueItem {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *OutboundDeliveryGoodsIssue) SetItems(val []OutboundDeliveryGoodsIssueItem) {
+	s.Items = val
+}
+
+// What a picked item of a batch-managed or serial-managed material issues, or part of it (S2f2, S2g2;
+// ADR-0083 As built S2f2): a quantity, from one batch, with the serial numbers of its units. An item
+// issued from several batches is named once per batch.
+// Ref: #/components/schemas/OutboundDeliveryGoodsIssueItem
+type OutboundDeliveryGoodsIssueItem struct {
+	// The delivery's item.
+	ItemNo int32 `json:"item_no"`
+	// The quantity issued, more than zero, in the item's unit; an item's entries add up to its picked
+	// quantity.
+	Quantity Quantity `json:"quantity"`
+	// The batch of a batch-managed material it issues from, by its number
+	// (`GET /v1/batch-stock?material_id=`); absent for another material.
+	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers of the units of a serial-managed material it issues, one for each unit of the
+	// base unit, each in stock at the delivery's storage location (`GET /v1/serial-numbers?material_id=`);
+	// absent for another material.
+	SerialNumbers []string `json:"serial_numbers"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *OutboundDeliveryGoodsIssueItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *OutboundDeliveryGoodsIssueItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *OutboundDeliveryGoodsIssueItem) GetBatchNumber() OptString {
+	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *OutboundDeliveryGoodsIssueItem) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *OutboundDeliveryGoodsIssueItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *OutboundDeliveryGoodsIssueItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *OutboundDeliveryGoodsIssueItem) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *OutboundDeliveryGoodsIssueItem) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
+}
+
 // OutboundDeliveryHeaders wraps OutboundDelivery with response headers.
 type OutboundDeliveryHeaders struct {
 	ETag               OptString
@@ -89497,6 +89621,74 @@ func (s *OutboundDeliveryHeaders) SetResponse(val OutboundDelivery) {
 
 func (*OutboundDeliveryHeaders) createOutboundDeliveryRes() {}
 
+// What a line of an outbound delivery's goods issue issued of a batch-managed or serial-managed
+// material's item (S2f2, S2g2): a quantity, its batch and its units' serial numbers.
+// Ref: #/components/schemas/OutboundDeliveryIssueLine
+type OutboundDeliveryIssueLine struct {
+	// The goods issue's material document line (`material_document_id`'s `lines[].line_no`).
+	LineNo int32 `json:"line_no"`
+	// The quantity it issued, in the item's unit.
+	Quantity Quantity `json:"quantity"`
+	// The batch it issued from, of a batch-managed material (`GET /v1/batches/{id}`); absent for another
+	// material.
+	BatchID OptUUID `json:"batch_id"`
+	// That batch's number; absent with it.
+	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers of the units it issued, of a serial-managed material
+	// (`GET /v1/serial-numbers?number=`), sorted by number; absent for another material.
+	SerialNumbers []string `json:"serial_numbers"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *OutboundDeliveryIssueLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *OutboundDeliveryIssueLine) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetBatchID returns the value of BatchID.
+func (s *OutboundDeliveryIssueLine) GetBatchID() OptUUID {
+	return s.BatchID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *OutboundDeliveryIssueLine) GetBatchNumber() OptString {
+	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *OutboundDeliveryIssueLine) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *OutboundDeliveryIssueLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *OutboundDeliveryIssueLine) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetBatchID sets the value of BatchID.
+func (s *OutboundDeliveryIssueLine) SetBatchID(val OptUUID) {
+	s.BatchID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *OutboundDeliveryIssueLine) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *OutboundDeliveryIssueLine) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
+}
+
 // An item of an outbound delivery (SAP LIPS): a quantity of a sales order item of a material kept in
 // stock, and what is picked of it.
 // Ref: #/components/schemas/OutboundDeliveryItem
@@ -89518,6 +89710,10 @@ type OutboundDeliveryItem struct {
 	// Once the goods issue is posted (S2b1): what the quantity issued took from the stock, its cost of
 	// goods sold, in the company's local currency; absent before and on an item picked at nothing.
 	Cost OptMoney `json:"cost"`
+	// Once the goods issue is posted, for an item of a batch-managed or serial-managed material (S2f2,
+	// S2g2): what each of its lines issued, by line, one per batch; its reversal gives them back. Absent
+	// before, on another item and on one picked at nothing.
+	IssueLines []OutboundDeliveryIssueLine `json:"issue_lines"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -89560,6 +89756,11 @@ func (s *OutboundDeliveryItem) GetCost() OptMoney {
 	return s.Cost
 }
 
+// GetIssueLines returns the value of IssueLines.
+func (s *OutboundDeliveryItem) GetIssueLines() []OutboundDeliveryIssueLine {
+	return s.IssueLines
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *OutboundDeliveryItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -89598,6 +89799,11 @@ func (s *OutboundDeliveryItem) SetPickedQuantity(val Quantity) {
 // SetCost sets the value of Cost.
 func (s *OutboundDeliveryItem) SetCost(val OptMoney) {
 	s.Cost = val
+}
+
+// SetIssueLines sets the value of IssueLines.
+func (s *OutboundDeliveryItem) SetIssueLines(val []OutboundDeliveryIssueLine) {
+	s.IssueLines = val
 }
 
 // An item of an outbound delivery to create: a quantity of a sales order item.
