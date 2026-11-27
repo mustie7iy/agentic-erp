@@ -150413,6 +150413,120 @@ func (s *GetStockTransportOrderNotFound) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes GetSupplierDeliveryPerformanceBadRequest as json.
+func (s *GetSupplierDeliveryPerformanceBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetSupplierDeliveryPerformanceBadRequest from json.
+func (s *GetSupplierDeliveryPerformanceBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetSupplierDeliveryPerformanceBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetSupplierDeliveryPerformanceBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetSupplierDeliveryPerformanceBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetSupplierDeliveryPerformanceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetSupplierDeliveryPerformanceForbidden as json.
+func (s *GetSupplierDeliveryPerformanceForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetSupplierDeliveryPerformanceForbidden from json.
+func (s *GetSupplierDeliveryPerformanceForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetSupplierDeliveryPerformanceForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetSupplierDeliveryPerformanceForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetSupplierDeliveryPerformanceForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetSupplierDeliveryPerformanceForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetSupplierDeliveryPerformanceUnprocessableEntity as json.
+func (s *GetSupplierDeliveryPerformanceUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetSupplierDeliveryPerformanceUnprocessableEntity from json.
+func (s *GetSupplierDeliveryPerformanceUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetSupplierDeliveryPerformanceUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetSupplierDeliveryPerformanceUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetSupplierDeliveryPerformanceUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetSupplierDeliveryPerformanceUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes GetSupplierInvoiceBadRequest as json.
 func (s *GetSupplierInvoiceBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -198522,6 +198636,22 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 		e.Str(s.Description)
 	}
 	{
+		e.FieldStart("description_language")
+		e.Str(s.DescriptionLanguage)
+	}
+	{
+		e.FieldStart("default_language")
+		e.Str(s.DefaultLanguage)
+	}
+	{
+		e.FieldStart("descriptions")
+		e.ArrStart()
+		for _, elem := range s.Descriptions {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("base_unit")
 		e.Str(s.BaseUnit)
 	}
@@ -198579,7 +198709,7 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterial = [21]string{
+var jsonFieldsNameOfMaterial = [24]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -198590,17 +198720,20 @@ var jsonFieldsNameOfMaterial = [21]string{
 	7:  "legal_entity_id",
 	8:  "company_code",
 	9:  "description",
-	10: "base_unit",
-	11: "base_unit_name",
-	12: "material_type",
-	13: "material_group",
-	14: "status",
-	15: "batch_managed",
-	16: "serial_managed",
-	17: "pending_change_id",
-	18: "pending_change_number",
-	19: "plants",
-	20: "alternative_units",
+	10: "description_language",
+	11: "default_language",
+	12: "descriptions",
+	13: "base_unit",
+	14: "base_unit_name",
+	15: "material_type",
+	16: "material_group",
+	17: "status",
+	18: "batch_managed",
+	19: "serial_managed",
+	20: "pending_change_id",
+	21: "pending_change_number",
+	22: "plants",
+	23: "alternative_units",
 }
 
 // Decode decodes Material from json.
@@ -198730,8 +198863,50 @@ func (s *Material) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
-		case "base_unit":
+		case "description_language":
 			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.DescriptionLanguage = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description_language\"")
+			}
+		case "default_language":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.DefaultLanguage = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"default_language\"")
+			}
+		case "descriptions":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
+			}
+		case "base_unit":
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.BaseUnit = string(v)
@@ -198743,7 +198918,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"base_unit\"")
 			}
 		case "base_unit_name":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.BaseUnitName = string(v)
@@ -198755,7 +198930,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"base_unit_name\"")
 			}
 		case "material_type":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialType = string(v)
@@ -198767,7 +198942,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_type\"")
 			}
 		case "material_group":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialGroup = string(v)
@@ -198779,7 +198954,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_group\"")
 			}
 		case "status":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -198791,7 +198966,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "batch_managed":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Bool()
 				s.BatchManaged = bool(v)
@@ -198803,7 +198978,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"batch_managed\"")
 			}
 		case "serial_managed":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Bool()
 				s.SerialManaged = bool(v)
@@ -198835,7 +199010,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"pending_change_number\"")
 			}
 		case "plants":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				s.Plants = make([]MaterialPlant, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -198853,7 +199028,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plants\"")
 			}
 		case "alternative_units":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				s.AlternativeUnits = make([]MaterialUnit, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -198882,7 +199057,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00011001,
+		0b11001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -199636,6 +199811,22 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.DescriptionLanguage.Set {
+			e.FieldStart("description_language")
+			s.DescriptionLanguage.Encode(e)
+		}
+	}
+	{
+		if s.Descriptions != nil {
+			e.FieldStart("descriptions")
+			e.ArrStart()
+			for _, elem := range s.Descriptions {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.BaseUnit.Set {
 			e.FieldStart("base_unit")
 			s.BaseUnit.Encode(e)
@@ -199693,16 +199884,18 @@ func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialChangeRequested = [9]string{
-	0: "description",
-	1: "base_unit",
-	2: "material_type",
-	3: "batch_managed",
-	4: "serial_managed",
-	5: "material_group",
-	6: "status",
-	7: "plants",
-	8: "alternative_units",
+var jsonFieldsNameOfMaterialChangeRequested = [11]string{
+	0:  "description",
+	1:  "description_language",
+	2:  "descriptions",
+	3:  "base_unit",
+	4:  "material_type",
+	5:  "batch_managed",
+	6:  "serial_managed",
+	7:  "material_group",
+	8:  "status",
+	9:  "plants",
+	10: "alternative_units",
 }
 
 // Decode decodes MaterialChangeRequested from json.
@@ -199722,6 +199915,33 @@ func (s *MaterialChangeRequested) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
+			}
+		case "description_language":
+			if err := func() error {
+				s.DescriptionLanguage.Reset()
+				if err := s.DescriptionLanguage.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description_language\"")
+			}
+		case "descriptions":
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
 			}
 		case "base_unit":
 			if err := func() error {
@@ -199859,6 +200079,22 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 		e.Str(s.Description)
 	}
 	{
+		if s.DescriptionLanguage.Set {
+			e.FieldStart("description_language")
+			s.DescriptionLanguage.Encode(e)
+		}
+	}
+	{
+		if s.Descriptions != nil {
+			e.FieldStart("descriptions")
+			e.ArrStart()
+			for _, elem := range s.Descriptions {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		e.FieldStart("base_unit")
 		e.Str(s.BaseUnit)
 	}
@@ -199916,18 +200152,20 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialCreate = [11]string{
+var jsonFieldsNameOfMaterialCreate = [13]string{
 	0:  "legal_entity_id",
 	1:  "description",
-	2:  "base_unit",
-	3:  "material_type",
-	4:  "material_group",
-	5:  "plants",
-	6:  "alternative_units",
-	7:  "reason",
-	8:  "confirm_duplicate",
-	9:  "batch_managed",
-	10: "serial_managed",
+	2:  "description_language",
+	3:  "descriptions",
+	4:  "base_unit",
+	5:  "material_type",
+	6:  "material_group",
+	7:  "plants",
+	8:  "alternative_units",
+	9:  "reason",
+	10: "confirm_duplicate",
+	11: "batch_managed",
+	12: "serial_managed",
 }
 
 // Decode decodes MaterialCreate from json.
@@ -199964,8 +200202,35 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
+		case "description_language":
+			if err := func() error {
+				s.DescriptionLanguage.Reset()
+				if err := s.DescriptionLanguage.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description_language\"")
+			}
+		case "descriptions":
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
+			}
 		case "base_unit":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.BaseUnit = string(v)
@@ -199977,7 +200242,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"base_unit\"")
 			}
 		case "material_type":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialType = string(v)
@@ -199989,7 +200254,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"material_type\"")
 			}
 		case "material_group":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.MaterialGroup = string(v)
@@ -200084,7 +200349,7 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b00011111,
+		0b01110011,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -200127,6 +200392,119 @@ func (s *MaterialCreate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *MaterialCreate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialDescription) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialDescription) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("language")
+		e.Str(s.Language)
+	}
+	{
+		e.FieldStart("description")
+		e.Str(s.Description)
+	}
+}
+
+var jsonFieldsNameOfMaterialDescription = [2]string{
+	0: "language",
+	1: "description",
+}
+
+// Decode decodes MaterialDescription from json.
+func (s *MaterialDescription) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialDescription to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "language":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Language = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"language\"")
+			}
+		case "description":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Description = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialDescription")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfMaterialDescription) {
+					name = jsonFieldsNameOfMaterialDescription[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialDescription) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialDescription) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -201862,6 +202240,40 @@ func (s *MaterialPlan) encodeFields(e *jx.Encoder) {
 		s.ReorderPoint.Encode(e)
 	}
 	{
+		e.FieldStart("lot_size")
+		e.Str(s.LotSize)
+	}
+	{
+		if s.FixedLotSize.Set {
+			e.FieldStart("fixed_lot_size")
+			s.FixedLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumStockLevel.Set {
+			e.FieldStart("maximum_stock_level")
+			s.MaximumStockLevel.Encode(e)
+		}
+	}
+	{
+		if s.MinimumLotSize.Set {
+			e.FieldStart("minimum_lot_size")
+			s.MinimumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumLotSize.Set {
+			e.FieldStart("maximum_lot_size")
+			s.MaximumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.RoundingValue.Set {
+			e.FieldStart("rounding_value")
+			s.RoundingValue.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
 	}
@@ -201871,7 +202283,7 @@ func (s *MaterialPlan) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialPlan = [18]string{
+var jsonFieldsNameOfMaterialPlan = [24]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -201888,8 +202300,14 @@ var jsonFieldsNameOfMaterialPlan = [18]string{
 	13: "material_description",
 	14: "mrp_type",
 	15: "reorder_point",
-	16: "account_id",
-	17: "account_number",
+	16: "lot_size",
+	17: "fixed_lot_size",
+	18: "maximum_stock_level",
+	19: "minimum_lot_size",
+	20: "maximum_lot_size",
+	21: "rounding_value",
+	22: "account_id",
+	23: "account_number",
 }
 
 // Decode decodes MaterialPlan from json.
@@ -202089,8 +202507,70 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reorder_point\"")
 			}
-		case "account_id":
+		case "lot_size":
 			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.LotSize = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "fixed_lot_size":
+			if err := func() error {
+				s.FixedLotSize.Reset()
+				if err := s.FixedLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fixed_lot_size\"")
+			}
+		case "maximum_stock_level":
+			if err := func() error {
+				s.MaximumStockLevel.Reset()
+				if err := s.MaximumStockLevel.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_stock_level\"")
+			}
+		case "minimum_lot_size":
+			if err := func() error {
+				s.MinimumLotSize.Reset()
+				if err := s.MinimumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"minimum_lot_size\"")
+			}
+		case "maximum_lot_size":
+			if err := func() error {
+				s.MaximumLotSize.Reset()
+				if err := s.MaximumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_lot_size\"")
+			}
+		case "rounding_value":
+			if err := func() error {
+				s.RoundingValue.Reset()
+				if err := s.RoundingValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rounding_value\"")
+			}
+		case "account_id":
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -202102,7 +202582,7 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
 		case "account_number":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountNumber = string(v)
@@ -202125,7 +202605,7 @@ func (s *MaterialPlan) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00000011,
+		0b11000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -202200,14 +202680,56 @@ func (s *MaterialPlanCreate) encodeFields(e *jx.Encoder) {
 		e.FieldStart("account_id")
 		json.EncodeUUID(e, s.AccountID)
 	}
+	{
+		if s.LotSize.Set {
+			e.FieldStart("lot_size")
+			s.LotSize.Encode(e)
+		}
+	}
+	{
+		if s.FixedLotSize.Set {
+			e.FieldStart("fixed_lot_size")
+			s.FixedLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumStockLevel.Set {
+			e.FieldStart("maximum_stock_level")
+			s.MaximumStockLevel.Encode(e)
+		}
+	}
+	{
+		if s.MinimumLotSize.Set {
+			e.FieldStart("minimum_lot_size")
+			s.MinimumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumLotSize.Set {
+			e.FieldStart("maximum_lot_size")
+			s.MaximumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.RoundingValue.Set {
+			e.FieldStart("rounding_value")
+			s.RoundingValue.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanCreate = [5]string{
-	0: "plant_id",
-	1: "material_id",
-	2: "mrp_type",
-	3: "reorder_point",
-	4: "account_id",
+var jsonFieldsNameOfMaterialPlanCreate = [11]string{
+	0:  "plant_id",
+	1:  "material_id",
+	2:  "mrp_type",
+	3:  "reorder_point",
+	4:  "account_id",
+	5:  "lot_size",
+	6:  "fixed_lot_size",
+	7:  "maximum_stock_level",
+	8:  "minimum_lot_size",
+	9:  "maximum_lot_size",
+	10: "rounding_value",
 }
 
 // Decode decodes MaterialPlanCreate from json.
@@ -202215,7 +202737,7 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MaterialPlanCreate to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -202279,6 +202801,66 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
+		case "lot_size":
+			if err := func() error {
+				s.LotSize.Reset()
+				if err := s.LotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "fixed_lot_size":
+			if err := func() error {
+				s.FixedLotSize.Reset()
+				if err := s.FixedLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fixed_lot_size\"")
+			}
+		case "maximum_stock_level":
+			if err := func() error {
+				s.MaximumStockLevel.Reset()
+				if err := s.MaximumStockLevel.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_stock_level\"")
+			}
+		case "minimum_lot_size":
+			if err := func() error {
+				s.MinimumLotSize.Reset()
+				if err := s.MinimumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"minimum_lot_size\"")
+			}
+		case "maximum_lot_size":
+			if err := func() error {
+				s.MaximumLotSize.Reset()
+				if err := s.MaximumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_lot_size\"")
+			}
+		case "rounding_value":
+			if err := func() error {
+				s.RoundingValue.Reset()
+				if err := s.RoundingValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rounding_value\"")
+			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
 		}
@@ -202288,8 +202870,9 @@ func (s *MaterialPlanCreate) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00011111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -202485,12 +203068,54 @@ func (s *MaterialPlanUpdate) encodeFields(e *jx.Encoder) {
 			s.AccountID.Encode(e)
 		}
 	}
+	{
+		if s.LotSize.Set {
+			e.FieldStart("lot_size")
+			s.LotSize.Encode(e)
+		}
+	}
+	{
+		if s.FixedLotSize.Set {
+			e.FieldStart("fixed_lot_size")
+			s.FixedLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumStockLevel.Set {
+			e.FieldStart("maximum_stock_level")
+			s.MaximumStockLevel.Encode(e)
+		}
+	}
+	{
+		if s.MinimumLotSize.Set {
+			e.FieldStart("minimum_lot_size")
+			s.MinimumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.MaximumLotSize.Set {
+			e.FieldStart("maximum_lot_size")
+			s.MaximumLotSize.Encode(e)
+		}
+	}
+	{
+		if s.RoundingValue.Set {
+			e.FieldStart("rounding_value")
+			s.RoundingValue.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialPlanUpdate = [3]string{
+var jsonFieldsNameOfMaterialPlanUpdate = [9]string{
 	0: "mrp_type",
 	1: "reorder_point",
 	2: "account_id",
+	3: "lot_size",
+	4: "fixed_lot_size",
+	5: "maximum_stock_level",
+	6: "minimum_lot_size",
+	7: "maximum_lot_size",
+	8: "rounding_value",
 }
 
 // Decode decodes MaterialPlanUpdate from json.
@@ -202532,6 +203157,66 @@ func (s *MaterialPlanUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"account_id\"")
+			}
+		case "lot_size":
+			if err := func() error {
+				s.LotSize.Reset()
+				if err := s.LotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "fixed_lot_size":
+			if err := func() error {
+				s.FixedLotSize.Reset()
+				if err := s.FixedLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fixed_lot_size\"")
+			}
+		case "maximum_stock_level":
+			if err := func() error {
+				s.MaximumStockLevel.Reset()
+				if err := s.MaximumStockLevel.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_stock_level\"")
+			}
+		case "minimum_lot_size":
+			if err := func() error {
+				s.MinimumLotSize.Reset()
+				if err := s.MinimumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"minimum_lot_size\"")
+			}
+		case "maximum_lot_size":
+			if err := func() error {
+				s.MaximumLotSize.Reset()
+				if err := s.MaximumLotSize.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"maximum_lot_size\"")
+			}
+		case "rounding_value":
+			if err := func() error {
+				s.RoundingValue.Reset()
+				if err := s.RoundingValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rounding_value\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -203400,6 +204085,16 @@ func (s *MaterialUpdate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Descriptions != nil {
+			e.FieldStart("descriptions")
+			e.ArrStart()
+			for _, elem := range s.Descriptions {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.MaterialGroup.Set {
 			e.FieldStart("material_group")
 			s.MaterialGroup.Encode(e)
@@ -203439,13 +204134,14 @@ func (s *MaterialUpdate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialUpdate = [6]string{
+var jsonFieldsNameOfMaterialUpdate = [7]string{
 	0: "description",
-	1: "material_group",
-	2: "status",
-	3: "plants",
-	4: "alternative_units",
-	5: "reason",
+	1: "descriptions",
+	2: "material_group",
+	3: "status",
+	4: "plants",
+	5: "alternative_units",
+	6: "reason",
 }
 
 // Decode decodes MaterialUpdate from json.
@@ -203465,6 +204161,23 @@ func (s *MaterialUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"description\"")
+			}
+		case "descriptions":
+			if err := func() error {
+				s.Descriptions = make([]MaterialDescription, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDescription
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Descriptions = append(s.Descriptions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"descriptions\"")
 			}
 		case "material_group":
 			if err := func() error {
@@ -212842,6 +213555,20 @@ func (s *MrpRunLine) encodeFields(e *jx.Encoder) {
 		s.Shortage.Encode(e)
 	}
 	{
+		e.FieldStart("lot_size")
+		e.Str(s.LotSize)
+	}
+	{
+		e.FieldStart("proposed")
+		s.Proposed.Encode(e)
+	}
+	{
+		if s.Lots.Set {
+			e.FieldStart("lots")
+			s.Lots.Encode(e)
+		}
+	}
+	{
 		if s.RequisitionID.Set {
 			e.FieldStart("requisition_id")
 			s.RequisitionID.Encode(e)
@@ -212855,17 +213582,20 @@ func (s *MrpRunLine) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMrpRunLine = [10]string{
-	0: "material_id",
-	1: "material_number",
-	2: "material_description",
-	3: "reorder_point",
-	4: "demand",
-	5: "stock",
-	6: "receipts",
-	7: "shortage",
-	8: "requisition_id",
-	9: "requisition_number",
+var jsonFieldsNameOfMrpRunLine = [13]string{
+	0:  "material_id",
+	1:  "material_number",
+	2:  "material_description",
+	3:  "reorder_point",
+	4:  "demand",
+	5:  "stock",
+	6:  "receipts",
+	7:  "shortage",
+	8:  "lot_size",
+	9:  "proposed",
+	10: "lots",
+	11: "requisition_id",
+	12: "requisition_number",
 }
 
 // Decode decodes MrpRunLine from json.
@@ -212963,6 +213693,38 @@ func (s *MrpRunLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"shortage\"")
 			}
+		case "lot_size":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.LotSize = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lot_size\"")
+			}
+		case "proposed":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.Proposed.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"proposed\"")
+			}
+		case "lots":
+			if err := func() error {
+				s.Lots.Reset()
+				if err := s.Lots.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"lots\"")
+			}
 		case "requisition_id":
 			if err := func() error {
 				s.RequisitionID.Reset()
@@ -212994,7 +213756,7 @@ func (s *MrpRunLine) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000000,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -305286,6 +306048,729 @@ func (s *SupplierCreditReason) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SupplierCreditReason) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SupplierDelivery) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SupplierDelivery) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("supplier_id")
+		json.EncodeUUID(e, s.SupplierID)
+	}
+	{
+		e.FieldStart("supplier_number")
+		e.Str(s.SupplierNumber)
+	}
+	{
+		e.FieldStart("supplier_name")
+		e.Str(s.SupplierName)
+	}
+	{
+		e.FieldStart("receipts")
+		e.Int32(s.Receipts)
+	}
+	{
+		e.FieldStart("dated_receipts")
+		e.Int32(s.DatedReceipts)
+	}
+	{
+		e.FieldStart("on_time_receipts")
+		e.Int32(s.OnTimeReceipts)
+	}
+	{
+		if s.OnTimePercent.Set {
+			e.FieldStart("on_time_percent")
+			s.OnTimePercent.Encode(e)
+		}
+	}
+	{
+		if s.PlannedLeadDays.Set {
+			e.FieldStart("planned_lead_days")
+			s.PlannedLeadDays.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("observed_lead_days")
+		e.Int32(s.ObservedLeadDays)
+	}
+	{
+		e.FieldStart("last_receipt_date")
+		json.EncodeDate(e, s.LastReceiptDate)
+	}
+	{
+		e.FieldStart("history")
+		e.Str(s.History)
+	}
+}
+
+var jsonFieldsNameOfSupplierDelivery = [11]string{
+	0:  "supplier_id",
+	1:  "supplier_number",
+	2:  "supplier_name",
+	3:  "receipts",
+	4:  "dated_receipts",
+	5:  "on_time_receipts",
+	6:  "on_time_percent",
+	7:  "planned_lead_days",
+	8:  "observed_lead_days",
+	9:  "last_receipt_date",
+	10: "history",
+}
+
+// Decode decodes SupplierDelivery from json.
+func (s *SupplierDelivery) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SupplierDelivery to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "supplier_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.SupplierID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_id\"")
+			}
+		case "supplier_number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.SupplierNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_number\"")
+			}
+		case "supplier_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.SupplierName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_name\"")
+			}
+		case "receipts":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int32()
+				s.Receipts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"receipts\"")
+			}
+		case "dated_receipts":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Int32()
+				s.DatedReceipts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"dated_receipts\"")
+			}
+		case "on_time_receipts":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.OnTimeReceipts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"on_time_receipts\"")
+			}
+		case "on_time_percent":
+			if err := func() error {
+				s.OnTimePercent.Reset()
+				if err := s.OnTimePercent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"on_time_percent\"")
+			}
+		case "planned_lead_days":
+			if err := func() error {
+				s.PlannedLeadDays.Reset()
+				if err := s.PlannedLeadDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"planned_lead_days\"")
+			}
+		case "observed_lead_days":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.ObservedLeadDays = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"observed_lead_days\"")
+			}
+		case "last_receipt_date":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.LastReceiptDate = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"last_receipt_date\"")
+			}
+		case "history":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.History = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"history\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SupplierDelivery")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b00111111,
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSupplierDelivery) {
+					name = jsonFieldsNameOfSupplierDelivery[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SupplierDelivery) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SupplierDelivery) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SupplierDeliveryPerformance) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SupplierDeliveryPerformance) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("plant_id")
+		json.EncodeUUID(e, s.PlantID)
+	}
+	{
+		e.FieldStart("plant_code")
+		e.Str(s.PlantCode)
+	}
+	{
+		e.FieldStart("plant_name")
+		e.Str(s.PlantName)
+	}
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("material_id")
+		json.EncodeUUID(e, s.MaterialID)
+	}
+	{
+		if s.SupplierID.Set {
+			e.FieldStart("supplier_id")
+			s.SupplierID.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("from")
+		json.EncodeDate(e, s.From)
+	}
+	{
+		e.FieldStart("to")
+		json.EncodeDate(e, s.To)
+	}
+	{
+		e.FieldStart("min_receipts")
+		e.Int32(s.MinReceipts)
+	}
+	{
+		e.FieldStart("suppliers")
+		e.ArrStart()
+		for _, elem := range s.Suppliers {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		e.FieldStart("totals")
+		s.Totals.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfSupplierDeliveryPerformance = [11]string{
+	0:  "plant_id",
+	1:  "plant_code",
+	2:  "plant_name",
+	3:  "legal_entity_id",
+	4:  "material_id",
+	5:  "supplier_id",
+	6:  "from",
+	7:  "to",
+	8:  "min_receipts",
+	9:  "suppliers",
+	10: "totals",
+}
+
+// Decode decodes SupplierDeliveryPerformance from json.
+func (s *SupplierDeliveryPerformance) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SupplierDeliveryPerformance to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "plant_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.PlantID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_id\"")
+			}
+		case "plant_code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.PlantCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_code\"")
+			}
+		case "plant_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.PlantName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_name\"")
+			}
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "material_id":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.MaterialID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "supplier_id":
+			if err := func() error {
+				s.SupplierID.Reset()
+				if err := s.SupplierID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_id\"")
+			}
+		case "from":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.From = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from\"")
+			}
+		case "to":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.To = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"to\"")
+			}
+		case "min_receipts":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.MinReceipts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"min_receipts\"")
+			}
+		case "suppliers":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				s.Suppliers = make([]SupplierDelivery, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SupplierDelivery
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Suppliers = append(s.Suppliers, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"suppliers\"")
+			}
+		case "totals":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.Totals.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"totals\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SupplierDeliveryPerformance")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11011111,
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSupplierDeliveryPerformance) {
+					name = jsonFieldsNameOfSupplierDeliveryPerformance[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SupplierDeliveryPerformance) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SupplierDeliveryPerformance) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SupplierDeliveryTotals) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SupplierDeliveryTotals) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("receipts")
+		e.Int32(s.Receipts)
+	}
+	{
+		e.FieldStart("dated_receipts")
+		e.Int32(s.DatedReceipts)
+	}
+	{
+		e.FieldStart("on_time_receipts")
+		e.Int32(s.OnTimeReceipts)
+	}
+	{
+		if s.OnTimePercent.Set {
+			e.FieldStart("on_time_percent")
+			s.OnTimePercent.Encode(e)
+		}
+	}
+	{
+		if s.PlannedLeadDays.Set {
+			e.FieldStart("planned_lead_days")
+			s.PlannedLeadDays.Encode(e)
+		}
+	}
+	{
+		if s.ObservedLeadDays.Set {
+			e.FieldStart("observed_lead_days")
+			s.ObservedLeadDays.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfSupplierDeliveryTotals = [6]string{
+	0: "receipts",
+	1: "dated_receipts",
+	2: "on_time_receipts",
+	3: "on_time_percent",
+	4: "planned_lead_days",
+	5: "observed_lead_days",
+}
+
+// Decode decodes SupplierDeliveryTotals from json.
+func (s *SupplierDeliveryTotals) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SupplierDeliveryTotals to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "receipts":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.Receipts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"receipts\"")
+			}
+		case "dated_receipts":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.DatedReceipts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"dated_receipts\"")
+			}
+		case "on_time_receipts":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int32()
+				s.OnTimeReceipts = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"on_time_receipts\"")
+			}
+		case "on_time_percent":
+			if err := func() error {
+				s.OnTimePercent.Reset()
+				if err := s.OnTimePercent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"on_time_percent\"")
+			}
+		case "planned_lead_days":
+			if err := func() error {
+				s.PlannedLeadDays.Reset()
+				if err := s.PlannedLeadDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"planned_lead_days\"")
+			}
+		case "observed_lead_days":
+			if err := func() error {
+				s.ObservedLeadDays.Reset()
+				if err := s.ObservedLeadDays.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"observed_lead_days\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SupplierDeliveryTotals")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSupplierDeliveryTotals) {
+					name = jsonFieldsNameOfSupplierDeliveryTotals[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SupplierDeliveryTotals) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SupplierDeliveryTotals) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

@@ -12,12 +12,13 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/platform/langtag"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
 // The material master's migration (S2o; ADR-0082 As built S2o): SAP's
 // plants (T001W) and storage locations (T001L) become tenancy's org units,
-// and its materials (MARA with one description of MAKT, the units of
+// and its materials (MARA with its descriptions of MAKT, the units of
 // MARM, the plants of MARC and the storage locations of MARD) the
 // materials context's, each kept by its SAP key as an external reference.
 // What the platform cannot hold of a material is no error of the run: the
@@ -39,6 +40,30 @@ var materialTypes = map[string]string{sap.MaterialTypeRaw: "raw_material", sap.M
 	sap.MaterialTypeFinished: "finished_good", sap.MaterialTypeTrading: "trading_good", sap.MaterialTypeNonStock: "non_stock",
 	sap.MaterialTypeService: "service"}
 
+// sapLanguages are the language tags (langtag) of SAP's one-character
+// language keys (MAKT-SPRAS, table T002, from memory; ADR-0082 As built
+// S1a2); a key of two letters is taken as its ISO 639-1 code (EN). Only
+// keys known with some confidence are listed (the pilot's E and A among
+// them); a text in another key warns and is left out until the specialist
+// confirms its tag (K, L, V, M, B and the rest of T002).
+var sapLanguages = map[string]string{"E": "en", "D": "de", "F": "fr", "S": "es", "I": "it", "P": "pt", "N": "nl", "A": "ar", "R": "ru", "T": "tr",
+	"J": "ja", "1": "zh"}
+
+// undetermined is the tag of a default description in a language key
+// that has none (BCP 47's und).
+const undetermined = "und"
+
+// languageOf is the tag of SAP's language key, false when it has none.
+func languageOf(spras string) (string, bool) {
+	if tag, ok := sapLanguages[spras]; ok {
+		return tag, true
+	}
+	if len(spras) != 2 {
+		return "", false
+	}
+	return langtag.Canonical(strings.ToLower(spras))
+}
+
 // maxFactor is the largest numerator or denominator of a conversion the
 // platform keeps (materials.unit_conversion, ADR-0082 §4).
 const maxFactor = 1_000_000
@@ -55,13 +80,15 @@ type sapPlant struct {
 type sapLocation struct{ lgort, name string }
 
 // sapMaterial is a material the load creates: its SAP number, its
-// platform type, group, base unit and description, its alternative units
+// platform type, group, base unit and default description with its
+// language, its further descriptions by language, its alternative units
 // in code order and its plants in plant order, each with its storage
 // locations in code order.
 type sapMaterial struct {
-	number, mtype, group, baseUnit, description string
-	units                                       []materials.UnitInput
-	plants                                      []sapMaterialPlant
+	number, mtype, group, baseUnit, description, language string
+	descriptions                                          []materials.Description
+	units                                                 []materials.UnitInput
+	plants                                                []sapMaterialPlant
 }
 
 type sapMaterialPlant struct {
@@ -252,7 +279,10 @@ func (mp *materialPlan) material(r sap.MARA) {
 	case !english:
 		mp.add(SevWarning, "MAKT", r.MATNR, "no description in English; it loads described %q, in language %s", t.name, t.lang)
 	}
-	m.description = strings.TrimSpace(t.name)
+	if ok {
+		m.description = strings.TrimSpace(t.name)
+		m.language, m.descriptions = mp.materialDescriptions(r.MATNR, t)
+	}
 	var unitReasons []string
 	m.units, unitReasons = mp.materialUnits(r)
 	if reasons = append(reasons, unitReasons...); len(reasons) > 0 {
@@ -260,6 +290,40 @@ func (mp *materialPlan) material(r sap.MARA) {
 		return
 	}
 	mp.materials = append(mp.materials, m)
+}
+
+// materialDescriptions are a material's default description's language,
+// that of the text it loads with (und, with a warning, for a key with no
+// tag), and its other MAKT texts as its further descriptions by language;
+// a text in a key with no tag, or in a language a text already has, is
+// left out with a warning, and a blank one is left out.
+func (mp *materialPlan) materialDescriptions(matnr string, picked sapText) (string, []materials.Description) {
+	language, ok := languageOf(picked.lang)
+	if !ok {
+		mp.add(SevWarning, "MAKT", matnr+"/"+picked.lang, "language key %s has no language tag; the default description loads in %s (undetermined)",
+			picked.lang, undetermined)
+		language = undetermined
+	}
+	taken := map[string]bool{language: true}
+	var out []materials.Description
+	for _, t := range slices.SortedFunc(slices.Values(mp.texts[matnr]), func(a, b sapText) int { return cmp.Compare(a.lang, b.lang) }) {
+		text := strings.TrimSpace(t.name)
+		if t.lang == picked.lang || text == "" {
+			continue
+		}
+		tag, ok := languageOf(t.lang)
+		switch {
+		case !ok:
+			mp.add(SevWarning, "MAKT", matnr+"/"+t.lang, "language key %s has no language tag; the description %q is left out", t.lang, text)
+		case taken[tag]:
+			mp.add(SevWarning, "MAKT", matnr+"/"+t.lang, "language key %s is %s, which another description has; the description %q is left out", t.lang,
+				tag, text)
+		default:
+			taken[tag], out = true, append(out, materials.Description{Language: tag, Text: text})
+		}
+	}
+	slices.SortFunc(out, func(a, b materials.Description) int { return cmp.Compare(a.Language, b.Language) })
+	return language, out
 }
 
 // materialPlants are the material's plants and their storage locations in

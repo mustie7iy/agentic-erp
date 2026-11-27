@@ -5218,7 +5218,8 @@ components:
         status_before null), when its create change is approved
         (`activated`), when an update or unblock change is applied
         (`changed`, `unblocked`) and when it is blocked (`blocked`, at once). It carries the material's number,
-        description, base unit, type, group and status, its plants with
+        description with its language and its descriptions in other
+        languages (S1a2), base unit, type, group and status, its plants with
         their companies by id and code and their storage locations by id, and its
         alternative units with their conversions, whatever companies the
         person who changed it may act in.
@@ -5235,7 +5236,7 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001301, source: /erp/eu-1/materials, type: com.example.erp.materials.material_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, base_unit: EA, material_type: trading_good, material_group: BRACKETS, status: pending, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}], change: created, version: 1}
+          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, description_language: en, descriptions: [{language: ar, description: دعامة مشغولة M10}], base_unit: EA, material_type: trading_good, material_group: BRACKETS, status: pending, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}], change: created, version: 1}
     MaterialChangeChanged:
       name: MaterialChangeChanged
       title: Material change changed
@@ -6923,7 +6924,17 @@ components:
         number: {type: string, description: "The material's number, unique in the tenant."}
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose material range numbered it.}
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
-        description: {type: string, description: What the material is.}
+        description: {type: string, description: 'What the material is: its default description, in `description_language`.'}
+        description_language: {type: string, description: "The default description's language, a BCP 47 tag (S1a2); it does not change. Not required (ADR-0041)."}
+        descriptions:
+          type: array
+          description: 'Its further descriptions, by language, none in `description_language` (S1a2): unlike `Material.descriptions` of the REST API, the default description is not repeated here, it is `description`. Not required (ADR-0041).'
+          items:
+            type: object
+            required: [language, description]
+            properties:
+              language: {type: string, description: 'The language, a BCP 47 tag.'}
+              description: {type: string, description: What the material is, in that language.}
         base_unit: {type: string, description: The base unit of measure.}
         material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
         material_group: {type: string, description: The material group.}

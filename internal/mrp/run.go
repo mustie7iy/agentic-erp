@@ -44,11 +44,15 @@ type RunError struct {
 }
 
 // Line is what a run counted and proposed of a material, in its base
-// unit (Unit), as plain decimals.
+// unit (Unit), as plain decimals: the lot sizing procedure it sized the
+// shortage by, what it proposed (zero without a shortage) and in how
+// many lots, the items of the requisition proposed.
 type Line struct {
 	MaterialID                                      uuid.UUID
 	Unit                                            string
 	ReorderPoint, Demand, Stock, Receipts, Shortage string
+	LotSize, Proposed                               string
+	Lots                                            *int32
 	RequisitionID                                   *uuid.UUID
 	RequisitionNumber                               *string
 }
@@ -140,14 +144,16 @@ func withDetails(ctx context.Context, tx pgx.Tx, runs []Run) error {
 		ids[i], at[runs[i].ID] = runs[i].ID, &runs[i]
 	}
 	rows, _ := tx.Query(ctx, `SELECT run_id, material_id, uom_code, trim_scale(reorder_point)::text, trim_scale(demand)::text, trim_scale(stock)::text,
-			trim_scale(receipts)::text, trim_scale(shortage)::text, requisition_id, requisition_number
+			trim_scale(receipts)::text, trim_scale(shortage)::text, requisition_id, requisition_number, lot_size,
+			-- a line of a server before lot sizing proposed its shortage in one lot (000486)
+			trim_scale(COALESCE(proposed, shortage))::text, CASE WHEN requisition_id IS NOT NULL THEN COALESCE(lots, 1) END
 		FROM mrp.run_line WHERE run_id = ANY($1) ORDER BY run_id, material_id`, ids)
 	var run uuid.UUID
 	var l Line
 	if _, err := pgx.ForEachRow(rows, []any{&run, &l.MaterialID, &l.Unit, &l.ReorderPoint, &l.Demand, &l.Stock, &l.Receipts, &l.Shortage,
-		&l.RequisitionID, &l.RequisitionNumber}, func() error {
+		&l.RequisitionID, &l.RequisitionNumber, &l.LotSize, &l.Proposed, &l.Lots}, func() error {
 		at[run].Lines = append(at[run].Lines, l)
-		l.RequisitionID, l.RequisitionNumber = nil, nil // pgx scans the next row's into the pointers the line just kept holds
+		l.RequisitionID, l.RequisitionNumber, l.Lots = nil, nil, nil // pgx scans the next row's into the pointers the line just kept holds
 		return nil
 	}); err != nil {
 		return fmt.Errorf("mrp: lines of %d planning runs: %w", len(runs), err)

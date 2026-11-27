@@ -42,13 +42,18 @@ type Migration struct{ Endpoints *Endpoints }
 type MigratedMaterial struct {
 	LegalEntityID uuid.UUID
 	Number        string
-	Description   string
-	BaseUnit      string
-	Type          string
-	Group         string
-	Plants        []PlantInput
-	Units         []UnitInput
-	Reason        string
+	// Description is the default description, in DescriptionLanguage
+	// (DefaultLanguage when empty); Descriptions are its further ones
+	// (S1a2).
+	Description         string
+	DescriptionLanguage string
+	Descriptions        []Description
+	BaseUnit            string
+	Type                string
+	Group               string
+	Plants              []PlantInput
+	Units               []UnitInput
+	Reason              string
 }
 
 // Number draws a migrated material's number from the material range of
@@ -73,8 +78,8 @@ func (m Migration) CreateMaterial(ctx context.Context, in MigratedMaterial) (uui
 	if err != nil {
 		return uuid.Nil, err
 	}
-	input := Input{LegalEntityID: in.LegalEntityID, Description: in.Description, BaseUnit: in.BaseUnit, Type: in.Type, Group: in.Group,
-		Plants: in.Plants, Units: in.Units, Reason: in.Reason}
+	input := Input{LegalEntityID: in.LegalEntityID, Description: in.Description, DescriptionLanguage: in.DescriptionLanguage,
+		Descriptions: in.Descriptions, BaseUnit: in.BaseUnit, Type: in.Type, Group: in.Group, Plants: in.Plants, Units: in.Units, Reason: in.Reason}.defaulted()
 	companies, err := e.says(ctx, tx, input)
 	if err != nil {
 		return uuid.Nil, err
@@ -88,7 +93,8 @@ func (m Migration) CreateMaterial(ctx context.Context, in MigratedMaterial) (uui
 		return uuid.Nil, err
 	}
 	if err := e.record(ctx, mat, change{action: "create", name: "created", detail: map[string]any{"number": mat.Number,
-		"description": mat.Description, "base_unit": mat.BaseUnit, "material_type": mat.Type, "material_group": mat.Group, "status": mat.Status,
+		"description": mat.Description, "description_language": mat.DescriptionLanguage, "descriptions": descriptionDetail(mat.Descriptions),
+		"base_unit": mat.BaseUnit, "material_type": mat.Type, "material_group": mat.Group, "status": mat.Status,
 		"plants": plantIDs(mat.Plants), "alternative_units": unitDetail(mat.Units), "material_change_id": c.ID, "migrated": true}}, nil); err != nil {
 		return uuid.Nil, err
 	}

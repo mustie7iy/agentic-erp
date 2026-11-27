@@ -69,7 +69,7 @@ func (rc *reconciler) readMaterials(ctx context.Context) (*materialStates, error
 // materialMaster compares the company's plants, storage locations and
 // materials (S2o) where either side has any: SAP's of the company code
 // against those runs loaded in the legal entity, by SAP key. A material
-// compares by its type, group, base unit, status, description, plants
+// compares by its type, group, base unit, status, descriptions, plants
 // and storage locations in the company, and alternative units; SAP's
 // held back or flagged for deletion are left out (materialsOf).
 func (rc *reconciler) materialMaster(s companyScope) {
@@ -134,10 +134,15 @@ type materialPlantText struct {
 }
 
 // materialText is a material as a difference shows it: its type, group,
-// base unit, status and description, its plants, each with its storage
-// locations, and its alternative units.
-func materialText(mtype, group, base, status, description string, plants []materialPlantText, units []materials.UnitInput) string {
-	parts := []string{fmt.Sprintf("%s, group %s, base unit %s, %s: %q", mtype, group, base, status, description)}
+// base unit, status and descriptions (the default first, each with its
+// language), its plants, each with its storage locations, and its
+// alternative units.
+func materialText(mtype, group, base, status string, descriptions []materials.Description, plants []materialPlantText, units []materials.UnitInput) string {
+	texts := make([]string, len(descriptions))
+	for i, d := range descriptions {
+		texts[i] = fmt.Sprintf("%s %q", d.Language, d.Text)
+	}
+	parts := []string{fmt.Sprintf("%s, group %s, base unit %s, %s: %s", mtype, group, base, status, strings.Join(texts, ", "))}
 	slices.SortFunc(plants, func(a, b materialPlantText) int { return strings.Compare(a.code, b.code) })
 	for _, p := range plants {
 		slices.Sort(p.locations)
@@ -158,7 +163,8 @@ func sapMaterialText(m sapMaterial, company map[string]bool) (string, bool) {
 			plants = append(plants, materialPlantText{code: p.werks, locations: slices.Clone(p.locations)})
 		}
 	}
-	return materialText(m.mtype, m.group, m.baseUnit, materials.Active, m.description, plants, m.units), len(plants) > 0
+	descriptions := append([]materials.Description{{Language: m.language, Text: m.description}}, m.descriptions...)
+	return materialText(m.mtype, m.group, m.baseUnit, materials.Active, descriptions, plants, m.units), len(plants) > 0
 }
 
 // materialText is the platform's material with its plants of the legal
@@ -179,5 +185,5 @@ func (st *materialStates) materialText(m materials.Material, le uuid.UUID) (stri
 	for i, u := range m.Units {
 		units[i] = materials.UnitInput{Code: u.Code, Numerator: u.Numerator, Denominator: u.Denominator}
 	}
-	return materialText(m.Type, m.Group, m.BaseUnit, m.Status, m.Description, plants, units), len(plants) > 0
+	return materialText(m.Type, m.Group, m.BaseUnit, m.Status, m.AllDescriptions(), plants, units), len(plants) > 0
 }

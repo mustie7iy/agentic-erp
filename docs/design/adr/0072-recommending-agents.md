@@ -216,7 +216,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `control_monitoring` | `internal/controlagent`, `erp agent control-monitor [-process TEXT]` | `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listSodRules`, `listRoleAssignments`, `listApprovalRequests` | on `control`: `exception_found`, `no_exception` | `createControl`, `updateControl`, `retireControl`, `createControlTest`, `createControlLink`, `removeControlLink` |
 | `risk` | `internal/riskagent`, `erp agent risk` | `listRisks`, `getRisk`, `listRiskRatings`, `listControls`, `getControl`, `listControlTests`, `getControlMatrix`, `listAuditEvents`, `listRecommendations` | on `risk`: `rate_again`, `keep`; on `tenant`: `new_risk` | `createRisk`, `updateRisk`, `closeRisk`, `createRiskRating` |
 | `planning` | `internal/planningagent`, `erp agent plan -company CODE -category CODE -year YYYY` | `listPlanCategories`, `listPlanLines`, `listCostCenterPlanActual`, `listProfitCenterPlanActual`, `listCostCenters`, `listAccounts`, `runAnalyticsQuery` | on `plan_category`: `plan_proposal` | `applyPlanBatch`, `copyPlanCategory`, `lockPlanCategory`, `unlockPlanCategory`, `createPlanCategory` |
-| `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner` | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan`, and of stock transport orders (`createStockTransportOrder`, `cancelStockTransportOrder`; review:batch92) |
+| `replenishment` | `internal/replenishmentagent`, `erp agent replenish -run ID` (S2l) | `getMrpRun`, `getRequisition`, `getMaterial`, `listCatalogItems`, `getCatalogItem`, `listContracts`, `getContract`, `listPurchaseOrders`, `getPurchaseOrder`, `getBusinessPartner`, `getSupplierDeliveryPerformance` (S2l1) | on `requisition` (a run's proposal): `order`, `source_needed` | every write of requisitions and purchase orders (their changes included, `postIntercompanyGoodsIssue` and `createGrIrClearing`), `createScheduleLine`, `callOffScheduleLine`, `createRfq`, `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan`, and of stock transport orders (`createStockTransportOrder`, `cancelStockTransportOrder`; review:batch92) |
 | `count_planning` | `internal/countagent`, `erp agent count-plan -company CODE -plant CODE` | `listStock`, `listMaterials`, `getMaterial`, `listMaterialDocuments`, `getMaterialDocument`, `listPhysicalInventoryDocuments`, `getPhysicalInventoryDocument` | on `plant`: `count_proposal` | `createPhysicalInventoryDocument`, `enterPhysicalInventoryCount`, `postPhysicalInventoryDifferences`, `createMaterialDocument`, `reverseMaterialDocument`, the postings that post a material document (`postGoodsReceipt`, `postOutboundDeliveryGoodsIssue`, `postStockTransportGoodsIssue`, `postStockTransportGoodsReceipt`, `postIntercompanyGoodsIssue`, `reverseGoodsReceipt`) |
 | `demand_forecast` | `internal/demandagent`, `erp agent demand-forecast -company CODE -material NUMBER` (S2m) | `getMaterial`, `listMaterials`, `listMaterialDocuments`, `getMaterialDocument`, `listSalesOrders`, `getSalesOrder` | on `material`: `demand_forecast` | every goods movement and count (`createMaterialDocument`, `reverseMaterialDocument` and the postings that post one), every write of sales and returns orders and their deliveries, the replenishment agent's never list of requisitions and purchase orders (schedule lines and their call-off included), `startMrpRun`, `createMaterialPlan`, `updateMaterialPlan` |
 
@@ -1544,12 +1544,15 @@ A later slice adds its row here and its section under "As built".
   <unit> from supplier <supplier_id> by <YYYY-MM-DD>: <source>`, the
   source `contract <id> item <n>`, `catalog item <id>` or `purchase order
   <id>`, and a line `Why: ` gives the reasons (`ErrForm`); the quantity
-  and unit are the proposal's (`ErrQuantity`: lot sizing is Later,
-  ADR-0084 §6); the day is the one the proposal is needed by, the run's
-  day when it names none (`ErrWhen`: lead times are Later); the source is
-  one the run read of the proposal's material in its company, an `active`
-  catalog item, an `active` contract's item valid on that day, or a
-  `released` or `closed` order's item, and the supplier is the source's
+  and unit are the proposal's (`ErrQuantity`); a proposal of several
+  lots (ADR-0084 As built S2k2) is refused (`ErrProposal`) and left to
+  the buyer, as the prompt says, before the check reads any supplier's
+  measures (batch 95S, `TestReviewLotsBeforeMeasures`); the day is the
+  one the proposal is needed by, the run's day when it names none
+  (`ErrWhen`: lead times are Later); the source is one the run read of
+  the proposal's material in its company, an `active` catalog item, an
+  `active` contract's item valid on that day, or a `released` or
+  `closed` order's item, and the supplier is the source's
   (`ErrSource`); the supplier is one the run read (`getBusinessPartner`)
   as `active` with the supplier role (`ErrSupplier`). Every number but
   the first line's, which the check holds whole, is one the run read
@@ -1591,6 +1594,73 @@ A later slice adds its row here and its section under "As built".
   own change of the proposal refused (403); Ben accepts, which changes
   nothing, and names Tyrell on the proposal himself.
 - No migration, no new operation, permission, event or problem code.
+
+### S2l1, the replenishment agent's supplier by lead time and on-time share (plan-supply-chain.md §S2l, 2026-11-24)
+
+- The agent reads `getSupplierDeliveryPerformance` (ADR-0082 As built
+  S2l1: per supplier of a material at a plant, measured in SQL from
+  posted orders and receipts, its receipts, planned and observed lead
+  time, on-time share and whether its history is `measured` or `thin`)
+  for each proposal's material at the run's plant (`getMrpRun`'s
+  `plant_id`); the model computes no measure.
+- **Which supplier** (the prompt, decided by default): among the sources
+  the run read, the supplier whose history is measured comes first, then
+  the higher on-time share, then the shorter observed lead time; a
+  supplier with thin history or none comes after every measured one, so
+  a supplier never seen deliver is not preferred over one with history.
+  On a tie of the measures the source order S2l had decides (a valid
+  contract, an active catalog item, the supplier last ordered from), then
+  the lower price. The check holds to the measures, not to the choice:
+  which supplier to order from stays the buyer's to judge, as S2l left
+  it, and an order from a supplier the prompt would not prefer is
+  admitted when it names that supplier's measures.
+- **The check** (`ErrMeasures`) reads the measures itself: for an order
+  it reads `getSupplierDeliveryPerformance` in code, through the agent's
+  own API client as the run's other reads before the session are made
+  (`erp agent replenish`'s token, no new import), narrowed to the
+  order's supplier, of the proposal's material at the run's plant, over
+  the fixed window from the run's day less 364 days to the run's day
+  (the year ending on the run's day, the read's default length), and
+  keeps the answer for the run. An order is refused unless a line of its
+  content is exactly that supplier's measures, and every line it names
+  measures in is: `Measures: <receipts> receipts (<history>), lead time
+  <observed_lead_days> days`, then ` against <planned_lead_days>
+  planned` when the read gives one, then `, on time <on_time_receipts>
+  of <dated_receipts> (<on_time_percent>%)` when it gives a share; or
+  `Measures: no receipts` when the supplier has no row. The refusal
+  names the line wanted. That line is held whole to what the check read,
+  so the figures check (§4) skips it, as it skips an order's first line.
+  A read the API refuses refuses the order with the read's error, and is
+  not kept. The model's own read informs its choice only: no window or
+  supplier it asks for makes an order pass or fail, so a run reviewed on
+  a later day than it was planned (the read's default then ends on the
+  later day) is held to the run's year, not refused (review rounds 1 to
+  4 found a fault in each check of the model's read's shape: a read
+  narrowed to another supplier, a past window, a future window, and the
+  default read refused on a later day; the coordinator's decision after
+  round 4 replaced that check). The prompt gives the window (`from`, the
+  run's day as `to`) so that the model reads what the check holds it to;
+  a run whose day is no date stops before its session.
+- It still only proposes: its never list is unchanged (`TestNever`), and
+  the new read is `x-autonomy`-free, as every read is.
+- `evals/replenishment`, version 2: the S2l cases name their measures
+  (no receipts), and three cases join them: the faster, reliable
+  supplier preferred over a cheaper, late one; a supplier with no
+  history not preferred over one with history; a tie of the measures
+  decided by the price; and a run reviewed on a later day, whose
+  supplier received a late delivery on the review's day, names the
+  measures of the run's year, which do not hold it. The suite's cell
+  clock stands at noon on 2026-11-16 in Toronto and its runs are carried
+  out the day before (cmd/erp `cellClock`, `planRuns`), so every case is
+  reviewed on a later day than planned; its receipts of March 2026 stay
+  in the run's year, and the replay reads the window the prompt gives.
+- Walkthrough `step_replenishment_agent` (step 153): before the run, Ben
+  orders hinges from Tyrell and from a second supplier, received on the
+  company's date: Tyrell on time, the other late; the read shows both,
+  and the agent recommends Tyrell's catalog item naming its measures,
+  though the other's is cheaper; its replay reads the run's year (`from`,
+  `to` the proposal's day), which the check reads too, so a run that
+  crosses midnight names the same measures.
 
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
 
@@ -1877,9 +1947,9 @@ A later slice adds its row here and its section under "As built".
     completed run, as a `requisition`: `order` (the proposal's quantity,
     by the day it is needed, from a source the run read: a catalog item,
     a valid contract item or the purchasing history, and that source's
-    active supplier) or `source_needed`; lot sizes, lead times and a
-    supplier's reliability are Later (ADR-0084 §6, the tracker's
-    replenishment variants). `listPurchaseOrders` and `listContracts`
+    active supplier) or `source_needed`; lot sizes are Later (ADR-0084
+    §6), and a supplier's lead time and on-time share are read from
+    procurement and named in the order (S2l1, ADR-0082 As built S2l1). `listPurchaseOrders` and `listContracts`
     filter by `material_id`, so the agent reads a material's orders and
     contracts without paging the company's.
 33. (S2e) The count planning agent recommends on the plant (an org unit,

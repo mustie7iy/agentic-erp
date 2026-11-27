@@ -1381,6 +1381,10 @@ type GetStockTransportOrderRes interface {
 	getStockTransportOrderRes()
 }
 
+type GetSupplierDeliveryPerformanceRes interface {
+	getSupplierDeliveryPerformanceRes()
+}
+
 type GetSupplierInvoiceDocumentRes interface {
 	getSupplierInvoiceDocumentRes()
 }

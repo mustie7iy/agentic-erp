@@ -33,12 +33,17 @@ type UnitInput struct {
 // Input is a material as a request creates it (ADR-0082 §4).
 type Input struct {
 	LegalEntityID uuid.UUID
-	Description   string
-	BaseUnit      string
-	Type          string
-	Group         string
-	Plants        []PlantInput
-	Units         []UnitInput
+	// Description is the default description, in DescriptionLanguage
+	// (DefaultLanguage when empty); Descriptions are the further ones
+	// (S1a2).
+	Description         string
+	DescriptionLanguage string
+	Descriptions        []Description
+	BaseUnit            string
+	Type                string
+	Group               string
+	Plants              []PlantInput
+	Units               []UnitInput
 	// BatchManaged manages the material in batches (As built S2f).
 	BatchManaged bool
 	// SerialManaged gives the material a serial number profile (As built
@@ -167,11 +172,26 @@ func (e *Endpoints) checkPlants(ctx context.Context, plants []PlantInput) (map[u
 	return companies, nil
 }
 
+// defaulted is the input with DefaultLanguage when it names no language.
+func (in Input) defaulted() Input {
+	if in.DescriptionLanguage == "" {
+		in.DescriptionLanguage = DefaultLanguage
+	}
+	return in
+}
+
 // says checks what a request says of a material before anything is
-// written: a known type, then its units and plants. The texts' lengths and
-// the group's form are the contract's and the database's.
+// written: its descriptions and their languages, a known type, then its
+// units and plants. The texts' lengths and the group's form are the
+// contract's and the database's.
 func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUID]uuid.UUID, error) {
 	if err := problem.RequireText("description", in.Description); err != nil {
+		return nil, err
+	}
+	if err := checkLanguage("description_language", in.DescriptionLanguage); err != nil {
+		return nil, err
+	}
+	if err := checkDescriptions(in.DescriptionLanguage, in.Descriptions); err != nil {
 		return nil, err
 	}
 	if !types[in.Type] {
@@ -204,6 +224,7 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	if err != nil {
 		return Material{}, err
 	}
+	in = in.defaulted()
 	le, err := e.company(ctx, in.LegalEntityID)
 	if err != nil {
 		return Material{}, err
@@ -232,7 +253,7 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 		return Material{}, err
 	}
 	if err := e.record(ctx, m, change{action: "create", name: "created", detail: map[string]any{"number": m.Number, "description": m.Description,
-		"base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status, "batch_managed": m.BatchManaged,
+		"description_language": m.DescriptionLanguage, "descriptions": descriptionDetail(m.Descriptions), "base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status, "batch_managed": m.BatchManaged,
 		"serial_managed": m.SerialManaged, "plants": plantIDs(m.Plants), "alternative_units": unitDetail(m.Units), "material_change_id": c.ID, "possible_duplicates": len(dups)}}, nil); err != nil {
 		return Material{}, err
 	}
@@ -246,15 +267,20 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 }
 
 // insert writes the material with its number in the status, pending for
-// a request and active for a migration (Migration), with its plants,
-// storage locations and units.
+// a request and active for a migration (Migration), with its further
+// descriptions, plants, storage locations and units.
 func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, in Input, companies map[uuid.UUID]uuid.UUID,
 	number, status string) (Material, error) {
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type,
-			material_group, status, batch_managed, serial_managed, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
-		p.TenantID, id, number, le.ID, in.Description, in.BaseUnit, in.Type, in.Group, status, in.BatchManaged, in.SerialManaged, p.ID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, description_language, base_uom_code,
+			material_type, material_group, status, batch_managed, serial_managed, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`,
+		p.TenantID, id, number, le.ID, in.Description, in.DescriptionLanguage, in.BaseUnit, in.Type, in.Group, status, in.BatchManaged, in.SerialManaged,
+		p.ID); err != nil {
 		return Material{}, fmt.Errorf("materials: insert material %s: %w", number, err)
+	}
+	if err := writeDescriptions(ctx, tx, p, id, in.Descriptions); err != nil {
+		return Material{}, err
 	}
 	if err := writePlants(ctx, tx, p, id, in.Plants, companies); err != nil {
 		return Material{}, err
@@ -271,8 +297,10 @@ func requestedOf(m Material, in Input, companies map[uuid.UUID]uuid.UUID) Reques
 	for i, u := range in.Units {
 		units[i] = RequestedUnit(u)
 	}
-	return Requested{Description: &m.Description, BaseUnit: &m.BaseUnit, Type: &m.Type, Group: &m.Group, Plants: requestedPlants(in.Plants, companies),
-		Units: &units, BatchManaged: &m.BatchManaged, SerialManaged: &m.SerialManaged}
+	descriptions := slices.Clone(m.Descriptions)
+	return Requested{Description: &m.Description, DescriptionLanguage: &m.DescriptionLanguage, Descriptions: &descriptions, BaseUnit: &m.BaseUnit,
+		Type: &m.Type, Group: &m.Group, Plants: requestedPlants(in.Plants, companies), Units: &units, BatchManaged: &m.BatchManaged,
+		SerialManaged: &m.SerialManaged}
 }
 
 // writePlants writes the plants a material is extended to and their

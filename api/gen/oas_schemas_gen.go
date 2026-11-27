@@ -29509,6 +29509,7 @@ func (*ConflictHeaders) getRetentionStatusRes()                          {}
 func (*ConflictHeaders) getRevenueScheduleRes()                          {}
 func (*ConflictHeaders) getRfqComparisonRes()                            {}
 func (*ConflictHeaders) getSalesPriceRes()                               {}
+func (*ConflictHeaders) getSupplierDeliveryPerformanceRes()              {}
 func (*ConflictHeaders) getSupplierInvoiceDocumentRes()                  {}
 func (*ConflictHeaders) getSupplierInvoiceRes()                          {}
 func (*ConflictHeaders) getTaxReturnDraftRes()                           {}
@@ -58456,6 +58457,18 @@ func (s *GetStockTransportOrderOKHeaders) SetResponse(val StockTransportOrder) {
 
 func (*GetStockTransportOrderOKHeaders) getStockTransportOrderRes() {}
 
+type GetSupplierDeliveryPerformanceBadRequest Problem
+
+func (*GetSupplierDeliveryPerformanceBadRequest) getSupplierDeliveryPerformanceRes() {}
+
+type GetSupplierDeliveryPerformanceForbidden Problem
+
+func (*GetSupplierDeliveryPerformanceForbidden) getSupplierDeliveryPerformanceRes() {}
+
+type GetSupplierDeliveryPerformanceUnprocessableEntity Problem
+
+func (*GetSupplierDeliveryPerformanceUnprocessableEntity) getSupplierDeliveryPerformanceRes() {}
+
 type GetSupplierInvoiceBadRequest Problem
 
 func (*GetSupplierInvoiceBadRequest) getSupplierInvoiceRes() {}
@@ -74560,8 +74573,15 @@ type Material struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// That company's code.
 	CompanyCode string `json:"company_code"`
-	// What the material is.
+	// What the material is, in the `language` the read asked for where the material has a description in
+	// it, else its default description (S1a2).
 	Description string `json:"description"`
+	// The language `description` is in.
+	DescriptionLanguage string `json:"description_language"`
+	// The language of the material's default description; it does not change.
+	DefaultLanguage string `json:"default_language"`
+	// Its descriptions in every language it has: the default first, then the others by language.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The base unit of measure.
 	BaseUnit string `json:"base_unit"`
 	// The base unit's name.
@@ -74639,6 +74659,21 @@ func (s *Material) GetCompanyCode() string {
 // GetDescription returns the value of Description.
 func (s *Material) GetDescription() string {
 	return s.Description
+}
+
+// GetDescriptionLanguage returns the value of DescriptionLanguage.
+func (s *Material) GetDescriptionLanguage() string {
+	return s.DescriptionLanguage
+}
+
+// GetDefaultLanguage returns the value of DefaultLanguage.
+func (s *Material) GetDefaultLanguage() string {
+	return s.DefaultLanguage
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *Material) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetBaseUnit returns the value of BaseUnit.
@@ -74746,6 +74781,21 @@ func (s *Material) SetDescription(val string) {
 	s.Description = val
 }
 
+// SetDescriptionLanguage sets the value of DescriptionLanguage.
+func (s *Material) SetDescriptionLanguage(val string) {
+	s.DescriptionLanguage = val
+}
+
+// SetDefaultLanguage sets the value of DefaultLanguage.
+func (s *Material) SetDefaultLanguage(val string) {
+	s.DefaultLanguage = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *Material) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
+}
+
 // SetBaseUnit sets the value of BaseUnit.
 func (s *Material) SetBaseUnit(val string) {
 	s.BaseUnit = val
@@ -74826,7 +74876,7 @@ type MaterialChange struct {
 	MaterialID uuid.UUID `json:"material_id"`
 	// The material's number.
 	MaterialNumber string `json:"material_number"`
-	// The material's description, as it is now.
+	// The material's default description, as it is now.
 	MaterialDescription string `json:"material_description"`
 	// `pending`: waiting for its approval. `applied`: written to the material. `rejected`: refused by its
 	// approver. `cancelled`: withdrawn by its requester. Open enumeration: clients must accept and
@@ -75155,8 +75205,13 @@ func (s *MaterialChangePlant) SetStorageLocations(val []MaterialStorageLocation)
 // requester could act in.
 // Ref: #/components/schemas/MaterialChangeRequested
 type MaterialChangeRequested struct {
-	// The description.
+	// The default description.
 	Description OptString `json:"description"`
+	// The default description's language (a create's only).
+	DescriptionLanguage OptString `json:"description_language"`
+	// The further descriptions, by language, replacing the material's: unlike `Material.descriptions`, the
+	// default description is not among them; it is `description`.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The base unit (a create's only).
 	BaseUnit OptString `json:"base_unit"`
 	// The material type (a create's only).
@@ -75180,6 +75235,16 @@ type MaterialChangeRequested struct {
 // GetDescription returns the value of Description.
 func (s *MaterialChangeRequested) GetDescription() OptString {
 	return s.Description
+}
+
+// GetDescriptionLanguage returns the value of DescriptionLanguage.
+func (s *MaterialChangeRequested) GetDescriptionLanguage() OptString {
+	return s.DescriptionLanguage
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *MaterialChangeRequested) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetBaseUnit returns the value of BaseUnit.
@@ -75225,6 +75290,16 @@ func (s *MaterialChangeRequested) GetAlternativeUnits() []MaterialUnitInput {
 // SetDescription sets the value of Description.
 func (s *MaterialChangeRequested) SetDescription(val OptString) {
 	s.Description = val
+}
+
+// SetDescriptionLanguage sets the value of DescriptionLanguage.
+func (s *MaterialChangeRequested) SetDescriptionLanguage(val OptString) {
+	s.DescriptionLanguage = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *MaterialChangeRequested) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
 }
 
 // SetBaseUnit sets the value of BaseUnit.
@@ -75273,8 +75348,14 @@ type MaterialCreate struct {
 	// The company whose `material` number range numbers the material, one the caller may act in. The
 	// material itself is the tenant's.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// What the material is, as people find it.
+	// What the material is, as people find it: its default description, in `description_language`.
 	Description string `json:"description"`
+	// The default description's language, a BCP 47 tag (ADR-0082 As built S1a2): a language with an
+	// optional script and region, in their canonical form, its subtags known. It does not change.
+	DescriptionLanguage OptString `json:"description_language"`
+	// Its further descriptions, one per language, none in the default's language (SAP's MAKT texts); none
+	// when absent.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The unit stock and quantities of the material are kept in; it does not change.
 	BaseUnit string `json:"base_unit"`
 	// What kind of material it is (SAP's standard material types ROH, HALB, FERT, HAWA, NLAG and DIEN); it
@@ -75312,6 +75393,16 @@ func (s *MaterialCreate) GetLegalEntityID() uuid.UUID {
 // GetDescription returns the value of Description.
 func (s *MaterialCreate) GetDescription() string {
 	return s.Description
+}
+
+// GetDescriptionLanguage returns the value of DescriptionLanguage.
+func (s *MaterialCreate) GetDescriptionLanguage() OptString {
+	return s.DescriptionLanguage
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *MaterialCreate) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetBaseUnit returns the value of BaseUnit.
@@ -75369,6 +75460,16 @@ func (s *MaterialCreate) SetDescription(val string) {
 	s.Description = val
 }
 
+// SetDescriptionLanguage sets the value of DescriptionLanguage.
+func (s *MaterialCreate) SetDescriptionLanguage(val OptString) {
+	s.DescriptionLanguage = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *MaterialCreate) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
+}
+
 // SetBaseUnit sets the value of BaseUnit.
 func (s *MaterialCreate) SetBaseUnit(val string) {
 	s.BaseUnit = val
@@ -75412,6 +75513,37 @@ func (s *MaterialCreate) SetBatchManaged(val OptBool) {
 // SetSerialManaged sets the value of SerialManaged.
 func (s *MaterialCreate) SetSerialManaged(val OptBool) {
 	s.SerialManaged = val
+}
+
+// A material's description in a language (ADR-0082 As built S1a2; SAP MAKT, from memory), stored and
+// answered as given.
+// Ref: #/components/schemas/MaterialDescription
+type MaterialDescription struct {
+	// The language, a BCP 47 tag: a language with an optional script and region, in their canonical form,
+	// its subtags known.
+	Language string `json:"language"`
+	// What the material is, in that language.
+	Description string `json:"description"`
+}
+
+// GetLanguage returns the value of Language.
+func (s *MaterialDescription) GetLanguage() string {
+	return s.Language
+}
+
+// GetDescription returns the value of Description.
+func (s *MaterialDescription) GetDescription() string {
+	return s.Description
+}
+
+// SetLanguage sets the value of Language.
+func (s *MaterialDescription) SetLanguage(val string) {
+	s.Language = val
+}
+
+// SetDescription sets the value of Description.
+func (s *MaterialDescription) SetDescription(val string) {
+	s.Description = val
 }
 
 // A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted
@@ -76351,13 +76483,26 @@ type MaterialPlan struct {
 	MaterialID uuid.UUID `json:"material_id"`
 	// The material's number.
 	MaterialNumber string `json:"material_number"`
-	// The material's description, as it is now.
+	// The material's default description, as it is now.
 	MaterialDescription string `json:"material_description"`
 	// `reorder_point` or `no_planning`. Open enumeration: clients must accept and preserve values not
 	// listed here; values may be added within /v1.
 	MrpType string `json:"mrp_type"`
 	// The reorder point, in the material's base unit.
 	ReorderPoint Quantity `json:"reorder_point"`
+	// `lot_for_lot`, `fixed` or `replenish_to_maximum` (`createMaterialPlan`). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	LotSize string `json:"lot_size"`
+	// The fixed lot size, in the base unit; absent unless `lot_size` is `fixed`.
+	FixedLotSize OptQuantity `json:"fixed_lot_size"`
+	// The maximum stock level, in the base unit; absent unless `lot_size` is `replenish_to_maximum`.
+	MaximumStockLevel OptQuantity `json:"maximum_stock_level"`
+	// The minimum lot size, in the base unit; absent when none is given.
+	MinimumLotSize OptQuantity `json:"minimum_lot_size"`
+	// The maximum lot size, in the base unit; absent when none is given.
+	MaximumLotSize OptQuantity `json:"maximum_lot_size"`
+	// The rounding value, in the base unit; absent when none is given.
+	RoundingValue OptQuantity `json:"rounding_value"`
 	// The account its proposals name.
 	AccountID uuid.UUID `json:"account_id"`
 	// That account's number.
@@ -76442,6 +76587,36 @@ func (s *MaterialPlan) GetMrpType() string {
 // GetReorderPoint returns the value of ReorderPoint.
 func (s *MaterialPlan) GetReorderPoint() Quantity {
 	return s.ReorderPoint
+}
+
+// GetLotSize returns the value of LotSize.
+func (s *MaterialPlan) GetLotSize() string {
+	return s.LotSize
+}
+
+// GetFixedLotSize returns the value of FixedLotSize.
+func (s *MaterialPlan) GetFixedLotSize() OptQuantity {
+	return s.FixedLotSize
+}
+
+// GetMaximumStockLevel returns the value of MaximumStockLevel.
+func (s *MaterialPlan) GetMaximumStockLevel() OptQuantity {
+	return s.MaximumStockLevel
+}
+
+// GetMinimumLotSize returns the value of MinimumLotSize.
+func (s *MaterialPlan) GetMinimumLotSize() OptQuantity {
+	return s.MinimumLotSize
+}
+
+// GetMaximumLotSize returns the value of MaximumLotSize.
+func (s *MaterialPlan) GetMaximumLotSize() OptQuantity {
+	return s.MaximumLotSize
+}
+
+// GetRoundingValue returns the value of RoundingValue.
+func (s *MaterialPlan) GetRoundingValue() OptQuantity {
+	return s.RoundingValue
 }
 
 // GetAccountID returns the value of AccountID.
@@ -76534,6 +76709,36 @@ func (s *MaterialPlan) SetReorderPoint(val Quantity) {
 	s.ReorderPoint = val
 }
 
+// SetLotSize sets the value of LotSize.
+func (s *MaterialPlan) SetLotSize(val string) {
+	s.LotSize = val
+}
+
+// SetFixedLotSize sets the value of FixedLotSize.
+func (s *MaterialPlan) SetFixedLotSize(val OptQuantity) {
+	s.FixedLotSize = val
+}
+
+// SetMaximumStockLevel sets the value of MaximumStockLevel.
+func (s *MaterialPlan) SetMaximumStockLevel(val OptQuantity) {
+	s.MaximumStockLevel = val
+}
+
+// SetMinimumLotSize sets the value of MinimumLotSize.
+func (s *MaterialPlan) SetMinimumLotSize(val OptQuantity) {
+	s.MinimumLotSize = val
+}
+
+// SetMaximumLotSize sets the value of MaximumLotSize.
+func (s *MaterialPlan) SetMaximumLotSize(val OptQuantity) {
+	s.MaximumLotSize = val
+}
+
+// SetRoundingValue sets the value of RoundingValue.
+func (s *MaterialPlan) SetRoundingValue(val OptQuantity) {
+	s.RoundingValue = val
+}
+
 // SetAccountID sets the value of AccountID.
 func (s *MaterialPlan) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
@@ -76560,6 +76765,29 @@ type MaterialPlanCreate struct {
 	// The account the requisitions runs propose name, one the plant's company may post to; a stock item's
 	// receipt posts its valuation class's accounts.
 	AccountID uuid.UUID `json:"account_id"`
+	// How a run sizes what it proposes for a shortage (SAP's lot sizing procedure, MARC-DISLS, from
+	// memory): `lot_for_lot` (EX, the default), the shortage itself; `fixed` (FX), as many lots of
+	// `fixed_lot_size` as cover it; `replenish_to_maximum` (HB), what brings the available quantity up to
+	// `maximum_stock_level`. A lot-for-lot or replenish-to-maximum quantity is raised to
+	// `minimum_lot_size`, rounded up to a multiple of `rounding_value` and split into lots of at most
+	// `maximum_lot_size`; each lot is an item of the material's one proposed requisition. Open
+	// enumeration: values may be added within /v1.
+	LotSize OptString `json:"lot_size"`
+	// The fixed procedure's lot in the material's base unit, more than zero; given with `lot_size` `fixed`
+	// alone.
+	FixedLotSize OptString `json:"fixed_lot_size"`
+	// The level `replenish_to_maximum` brings the available quantity up to, in the base unit, not below
+	// the reorder point; given with that procedure alone.
+	MaximumStockLevel OptString `json:"maximum_stock_level"`
+	// The least a lot is, in the base unit, more than zero and not above `maximum_lot_size`; not given
+	// with a fixed lot.
+	MinimumLotSize OptString `json:"minimum_lot_size"`
+	// The most a lot is, in the base unit, more than zero; a larger quantity is split into lots of it and
+	// a last lot of the rest. Not given with a fixed lot.
+	MaximumLotSize OptString `json:"maximum_lot_size"`
+	// A lot is rounded up to a multiple of it, in the base unit, more than zero (a pack size); the minimum
+	// and maximum lot sizes are multiples of it. Not given with a fixed lot.
+	RoundingValue OptString `json:"rounding_value"`
 }
 
 // GetPlantID returns the value of PlantID.
@@ -76587,6 +76815,36 @@ func (s *MaterialPlanCreate) GetAccountID() uuid.UUID {
 	return s.AccountID
 }
 
+// GetLotSize returns the value of LotSize.
+func (s *MaterialPlanCreate) GetLotSize() OptString {
+	return s.LotSize
+}
+
+// GetFixedLotSize returns the value of FixedLotSize.
+func (s *MaterialPlanCreate) GetFixedLotSize() OptString {
+	return s.FixedLotSize
+}
+
+// GetMaximumStockLevel returns the value of MaximumStockLevel.
+func (s *MaterialPlanCreate) GetMaximumStockLevel() OptString {
+	return s.MaximumStockLevel
+}
+
+// GetMinimumLotSize returns the value of MinimumLotSize.
+func (s *MaterialPlanCreate) GetMinimumLotSize() OptString {
+	return s.MinimumLotSize
+}
+
+// GetMaximumLotSize returns the value of MaximumLotSize.
+func (s *MaterialPlanCreate) GetMaximumLotSize() OptString {
+	return s.MaximumLotSize
+}
+
+// GetRoundingValue returns the value of RoundingValue.
+func (s *MaterialPlanCreate) GetRoundingValue() OptString {
+	return s.RoundingValue
+}
+
 // SetPlantID sets the value of PlantID.
 func (s *MaterialPlanCreate) SetPlantID(val uuid.UUID) {
 	s.PlantID = val
@@ -76610,6 +76868,36 @@ func (s *MaterialPlanCreate) SetReorderPoint(val string) {
 // SetAccountID sets the value of AccountID.
 func (s *MaterialPlanCreate) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
+}
+
+// SetLotSize sets the value of LotSize.
+func (s *MaterialPlanCreate) SetLotSize(val OptString) {
+	s.LotSize = val
+}
+
+// SetFixedLotSize sets the value of FixedLotSize.
+func (s *MaterialPlanCreate) SetFixedLotSize(val OptString) {
+	s.FixedLotSize = val
+}
+
+// SetMaximumStockLevel sets the value of MaximumStockLevel.
+func (s *MaterialPlanCreate) SetMaximumStockLevel(val OptString) {
+	s.MaximumStockLevel = val
+}
+
+// SetMinimumLotSize sets the value of MinimumLotSize.
+func (s *MaterialPlanCreate) SetMinimumLotSize(val OptString) {
+	s.MinimumLotSize = val
+}
+
+// SetMaximumLotSize sets the value of MaximumLotSize.
+func (s *MaterialPlanCreate) SetMaximumLotSize(val OptString) {
+	s.MaximumLotSize = val
+}
+
+// SetRoundingValue sets the value of RoundingValue.
+func (s *MaterialPlanCreate) SetRoundingValue(val OptString) {
+	s.RoundingValue = val
 }
 
 // MaterialPlanHeaders wraps MaterialPlan with response headers.
@@ -76702,6 +76990,18 @@ type MaterialPlanUpdate struct {
 	ReorderPoint OptString `json:"reorder_point"`
 	// The account its proposals name.
 	AccountID OptUUID `json:"account_id"`
+	// The lot sizing procedure. Open enumeration: values may be added within /v1.
+	LotSize OptString `json:"lot_size"`
+	// The fixed lot size; null removes it.
+	FixedLotSize OptNilString `json:"fixed_lot_size"`
+	// The maximum stock level; null removes it.
+	MaximumStockLevel OptNilString `json:"maximum_stock_level"`
+	// The minimum lot size; null removes it.
+	MinimumLotSize OptNilString `json:"minimum_lot_size"`
+	// The maximum lot size; null removes it.
+	MaximumLotSize OptNilString `json:"maximum_lot_size"`
+	// The rounding value; null removes it.
+	RoundingValue OptNilString `json:"rounding_value"`
 }
 
 // GetMrpType returns the value of MrpType.
@@ -76719,6 +77019,36 @@ func (s *MaterialPlanUpdate) GetAccountID() OptUUID {
 	return s.AccountID
 }
 
+// GetLotSize returns the value of LotSize.
+func (s *MaterialPlanUpdate) GetLotSize() OptString {
+	return s.LotSize
+}
+
+// GetFixedLotSize returns the value of FixedLotSize.
+func (s *MaterialPlanUpdate) GetFixedLotSize() OptNilString {
+	return s.FixedLotSize
+}
+
+// GetMaximumStockLevel returns the value of MaximumStockLevel.
+func (s *MaterialPlanUpdate) GetMaximumStockLevel() OptNilString {
+	return s.MaximumStockLevel
+}
+
+// GetMinimumLotSize returns the value of MinimumLotSize.
+func (s *MaterialPlanUpdate) GetMinimumLotSize() OptNilString {
+	return s.MinimumLotSize
+}
+
+// GetMaximumLotSize returns the value of MaximumLotSize.
+func (s *MaterialPlanUpdate) GetMaximumLotSize() OptNilString {
+	return s.MaximumLotSize
+}
+
+// GetRoundingValue returns the value of RoundingValue.
+func (s *MaterialPlanUpdate) GetRoundingValue() OptNilString {
+	return s.RoundingValue
+}
+
 // SetMrpType sets the value of MrpType.
 func (s *MaterialPlanUpdate) SetMrpType(val OptString) {
 	s.MrpType = val
@@ -76732,6 +77062,36 @@ func (s *MaterialPlanUpdate) SetReorderPoint(val OptString) {
 // SetAccountID sets the value of AccountID.
 func (s *MaterialPlanUpdate) SetAccountID(val OptUUID) {
 	s.AccountID = val
+}
+
+// SetLotSize sets the value of LotSize.
+func (s *MaterialPlanUpdate) SetLotSize(val OptString) {
+	s.LotSize = val
+}
+
+// SetFixedLotSize sets the value of FixedLotSize.
+func (s *MaterialPlanUpdate) SetFixedLotSize(val OptNilString) {
+	s.FixedLotSize = val
+}
+
+// SetMaximumStockLevel sets the value of MaximumStockLevel.
+func (s *MaterialPlanUpdate) SetMaximumStockLevel(val OptNilString) {
+	s.MaximumStockLevel = val
+}
+
+// SetMinimumLotSize sets the value of MinimumLotSize.
+func (s *MaterialPlanUpdate) SetMinimumLotSize(val OptNilString) {
+	s.MinimumLotSize = val
+}
+
+// SetMaximumLotSize sets the value of MaximumLotSize.
+func (s *MaterialPlanUpdate) SetMaximumLotSize(val OptNilString) {
+	s.MaximumLotSize = val
+}
+
+// SetRoundingValue sets the value of RoundingValue.
+func (s *MaterialPlanUpdate) SetRoundingValue(val OptNilString) {
+	s.RoundingValue = val
 }
 
 // A plant a material is extended to (SAP MARC), with its storage locations (MARD).
@@ -76996,12 +77356,15 @@ func (s *MaterialUnitInput) SetDenominator(val int32) {
 	s.Denominator = val
 }
 
-// Merge patch of a material: its description, material group, status, plants or alternative units. The
-// number, the base unit and the material type do not change.
+// Merge patch of a material: its description, further descriptions, material group, status, plants or
+// alternative units. The number, the base unit and the material type do not change.
 // Ref: #/components/schemas/MaterialUpdate
 type MaterialUpdate struct {
-	// What the material is.
+	// What the material is: its default description, in its default language.
 	Description OptString `json:"description"`
+	// The material's further descriptions, one per language, none in its default language, replacing those
+	// it has; an empty list removes them.
+	Descriptions []MaterialDescription `json:"descriptions"`
 	// The material group.
 	MaterialGroup OptString `json:"material_group"`
 	// `active` or `blocked`. Open enumeration: values may be added within /v1.
@@ -77018,6 +77381,11 @@ type MaterialUpdate struct {
 // GetDescription returns the value of Description.
 func (s *MaterialUpdate) GetDescription() OptString {
 	return s.Description
+}
+
+// GetDescriptions returns the value of Descriptions.
+func (s *MaterialUpdate) GetDescriptions() []MaterialDescription {
+	return s.Descriptions
 }
 
 // GetMaterialGroup returns the value of MaterialGroup.
@@ -77048,6 +77416,11 @@ func (s *MaterialUpdate) GetReason() OptString {
 // SetDescription sets the value of Description.
 func (s *MaterialUpdate) SetDescription(val OptString) {
 	s.Description = val
+}
+
+// SetDescriptions sets the value of Descriptions.
+func (s *MaterialUpdate) SetDescriptions(val []MaterialDescription) {
+	s.Descriptions = val
 }
 
 // SetMaterialGroup sets the value of MaterialGroup.
@@ -77094,7 +77467,7 @@ type MaterialValuation struct {
 	MaterialID uuid.UUID `json:"material_id"`
 	// The material's number.
 	MaterialNumber string `json:"material_number"`
-	// The material's description, as it is now.
+	// The material's default description, as it is now.
 	MaterialDescription string `json:"material_description"`
 	// The plant.
 	PlantID uuid.UUID `json:"plant_id"`
@@ -81713,8 +82086,9 @@ func (s *MrpRun) SetReplaced(val []MrpRunReplaced) {
 
 // The problem that failed a run: `mrp.run_cancelled` (its Operation cancelled before it was carried
 // out), `mrp.unit_not_convertible` (an open quantity in a unit the material no longer has),
-// `identity.principal_blocked` (who started it is no longer active), `platform.internal` (an error
-// outlasting its retries), or a problem a proposed requisition was refused with
+// `mrp.too_many_lots` (a material's fixed or maximum lot size needs more than 100 lots for its
+// shortage), `identity.principal_blocked` (who started it is no longer active), `platform.internal`
+// (an error outlasting its retries), or a problem a proposed requisition was refused with
 // (`procurement.account_not_postable`, `procurement.invalid_quantity`,
 // `procurement.material_not_usable`, `config.no_number_range`, `config.number_range_exhausted`,
 // `config.not_bootstrapped`). Open list: values may be added within /v1.
@@ -81797,6 +82171,14 @@ type MrpRunLine struct {
 	// What brings the stock and receipts less the demand back to the reorder point; zero when they are not
 	// below it.
 	Shortage Quantity `json:"shortage"`
+	// The lot sizing procedure the run sized the shortage by (the planning data's). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	LotSize string `json:"lot_size"`
+	// What the run proposed for the shortage, sized by the procedure, the shortage or more; zero without a
+	// shortage.
+	Proposed Quantity `json:"proposed"`
+	// In how many lots, the items of the requisition proposed; absent without a shortage.
+	Lots OptInt32 `json:"lots"`
 	// The draft requisition proposed for the shortage (`GET /v1/requisitions/{id}`); absent without a
 	// shortage.
 	RequisitionID OptUUID `json:"requisition_id"`
@@ -81842,6 +82224,21 @@ func (s *MrpRunLine) GetReceipts() Quantity {
 // GetShortage returns the value of Shortage.
 func (s *MrpRunLine) GetShortage() Quantity {
 	return s.Shortage
+}
+
+// GetLotSize returns the value of LotSize.
+func (s *MrpRunLine) GetLotSize() string {
+	return s.LotSize
+}
+
+// GetProposed returns the value of Proposed.
+func (s *MrpRunLine) GetProposed() Quantity {
+	return s.Proposed
+}
+
+// GetLots returns the value of Lots.
+func (s *MrpRunLine) GetLots() OptInt32 {
+	return s.Lots
 }
 
 // GetRequisitionID returns the value of RequisitionID.
@@ -81892,6 +82289,21 @@ func (s *MrpRunLine) SetReceipts(val Quantity) {
 // SetShortage sets the value of Shortage.
 func (s *MrpRunLine) SetShortage(val Quantity) {
 	s.Shortage = val
+}
+
+// SetLotSize sets the value of LotSize.
+func (s *MrpRunLine) SetLotSize(val string) {
+	s.LotSize = val
+}
+
+// SetProposed sets the value of Proposed.
+func (s *MrpRunLine) SetProposed(val Quantity) {
+	s.Proposed = val
+}
+
+// SetLots sets the value of Lots.
+func (s *MrpRunLine) SetLots(val OptInt32) {
+	s.Lots = val
 }
 
 // SetRequisitionID sets the value of RequisitionID.
@@ -124448,6 +124860,370 @@ func (s *SupplierCreditReason) SetText(val OptString) {
 	s.Text = val
 }
 
+// One supplier's deliveries of the material to the plant in the window.
+// Ref: #/components/schemas/SupplierDelivery
+type SupplierDelivery struct {
+	// The supplier (`GET /v1/business-partners/{id}`).
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's business partner number.
+	SupplierNumber string `json:"supplier_number"`
+	// The supplier's name, as it is now.
+	SupplierName string `json:"supplier_name"`
+	// Goods receipt items posted in the window, not reversed.
+	Receipts int32 `json:"receipts"`
+	// Of `receipts`, those whose order item has a delivery date: the ones on time or late.
+	DatedReceipts int32 `json:"dated_receipts"`
+	// Of `dated_receipts`, those posted on or before their order item's delivery date.
+	OnTimeReceipts int32 `json:"on_time_receipts"`
+	// `on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no
+	// receipt is dated.
+	OnTimePercent OptInt32 `json:"on_time_percent"`
+	// The order items' delivery date less the order date, the average over `dated_receipts` in whole days
+	// rounded half away from zero; absent when no receipt is dated.
+	PlannedLeadDays OptInt32 `json:"planned_lead_days"`
+	// The receipts' posting date less their order's date, the average in whole days rounded half away from
+	// zero.
+	ObservedLeadDays int32 `json:"observed_lead_days"`
+	// The latest receipt's posting date.
+	LastReceiptDate time.Time `json:"last_receipt_date"`
+	// `measured`: at least `min_receipts` receipts in the window; `thin`: fewer, so the measures say
+	// little. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	History string `json:"history"`
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *SupplierDelivery) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *SupplierDelivery) GetSupplierNumber() string {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *SupplierDelivery) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// GetReceipts returns the value of Receipts.
+func (s *SupplierDelivery) GetReceipts() int32 {
+	return s.Receipts
+}
+
+// GetDatedReceipts returns the value of DatedReceipts.
+func (s *SupplierDelivery) GetDatedReceipts() int32 {
+	return s.DatedReceipts
+}
+
+// GetOnTimeReceipts returns the value of OnTimeReceipts.
+func (s *SupplierDelivery) GetOnTimeReceipts() int32 {
+	return s.OnTimeReceipts
+}
+
+// GetOnTimePercent returns the value of OnTimePercent.
+func (s *SupplierDelivery) GetOnTimePercent() OptInt32 {
+	return s.OnTimePercent
+}
+
+// GetPlannedLeadDays returns the value of PlannedLeadDays.
+func (s *SupplierDelivery) GetPlannedLeadDays() OptInt32 {
+	return s.PlannedLeadDays
+}
+
+// GetObservedLeadDays returns the value of ObservedLeadDays.
+func (s *SupplierDelivery) GetObservedLeadDays() int32 {
+	return s.ObservedLeadDays
+}
+
+// GetLastReceiptDate returns the value of LastReceiptDate.
+func (s *SupplierDelivery) GetLastReceiptDate() time.Time {
+	return s.LastReceiptDate
+}
+
+// GetHistory returns the value of History.
+func (s *SupplierDelivery) GetHistory() string {
+	return s.History
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *SupplierDelivery) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *SupplierDelivery) SetSupplierNumber(val string) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *SupplierDelivery) SetSupplierName(val string) {
+	s.SupplierName = val
+}
+
+// SetReceipts sets the value of Receipts.
+func (s *SupplierDelivery) SetReceipts(val int32) {
+	s.Receipts = val
+}
+
+// SetDatedReceipts sets the value of DatedReceipts.
+func (s *SupplierDelivery) SetDatedReceipts(val int32) {
+	s.DatedReceipts = val
+}
+
+// SetOnTimeReceipts sets the value of OnTimeReceipts.
+func (s *SupplierDelivery) SetOnTimeReceipts(val int32) {
+	s.OnTimeReceipts = val
+}
+
+// SetOnTimePercent sets the value of OnTimePercent.
+func (s *SupplierDelivery) SetOnTimePercent(val OptInt32) {
+	s.OnTimePercent = val
+}
+
+// SetPlannedLeadDays sets the value of PlannedLeadDays.
+func (s *SupplierDelivery) SetPlannedLeadDays(val OptInt32) {
+	s.PlannedLeadDays = val
+}
+
+// SetObservedLeadDays sets the value of ObservedLeadDays.
+func (s *SupplierDelivery) SetObservedLeadDays(val int32) {
+	s.ObservedLeadDays = val
+}
+
+// SetLastReceiptDate sets the value of LastReceiptDate.
+func (s *SupplierDelivery) SetLastReceiptDate(val time.Time) {
+	s.LastReceiptDate = val
+}
+
+// SetHistory sets the value of History.
+func (s *SupplierDelivery) SetHistory(val string) {
+	s.History = val
+}
+
+// How the suppliers of a material delivered it to a plant over a window (procurement, ADR-0082 As
+// built S2l1), measured from posted purchase orders and goods receipts.
+// Ref: #/components/schemas/SupplierDeliveryPerformance
+type SupplierDeliveryPerformance struct {
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name.
+	PlantName string `json:"plant_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The material.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The one supplier the read was narrowed to (`supplier_id`), as asked; absent for a read of every
+	// supplier. A narrowed read's empty `suppliers` says nothing of the others.
+	SupplierID OptUUID `json:"supplier_id"`
+	// The window's first posting date.
+	From time.Time `json:"from"`
+	// The window's last posting date.
+	To time.Time `json:"to"`
+	// The receipts a supplier needs in the window for its history to be `measured`; with fewer it is
+	// `thin`.
+	MinReceipts int32 `json:"min_receipts"`
+	// One row per supplier with a receipt in the window, in the order of `supplier_number`, then
+	// `supplier_id`.
+	Suppliers []SupplierDelivery     `json:"suppliers"`
+	Totals    SupplierDeliveryTotals `json:"totals"`
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SupplierDeliveryPerformance) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *SupplierDeliveryPerformance) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *SupplierDeliveryPerformance) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SupplierDeliveryPerformance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *SupplierDeliveryPerformance) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *SupplierDeliveryPerformance) GetSupplierID() OptUUID {
+	return s.SupplierID
+}
+
+// GetFrom returns the value of From.
+func (s *SupplierDeliveryPerformance) GetFrom() time.Time {
+	return s.From
+}
+
+// GetTo returns the value of To.
+func (s *SupplierDeliveryPerformance) GetTo() time.Time {
+	return s.To
+}
+
+// GetMinReceipts returns the value of MinReceipts.
+func (s *SupplierDeliveryPerformance) GetMinReceipts() int32 {
+	return s.MinReceipts
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *SupplierDeliveryPerformance) GetSuppliers() []SupplierDelivery {
+	return s.Suppliers
+}
+
+// GetTotals returns the value of Totals.
+func (s *SupplierDeliveryPerformance) GetTotals() SupplierDeliveryTotals {
+	return s.Totals
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SupplierDeliveryPerformance) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *SupplierDeliveryPerformance) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *SupplierDeliveryPerformance) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SupplierDeliveryPerformance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *SupplierDeliveryPerformance) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *SupplierDeliveryPerformance) SetSupplierID(val OptUUID) {
+	s.SupplierID = val
+}
+
+// SetFrom sets the value of From.
+func (s *SupplierDeliveryPerformance) SetFrom(val time.Time) {
+	s.From = val
+}
+
+// SetTo sets the value of To.
+func (s *SupplierDeliveryPerformance) SetTo(val time.Time) {
+	s.To = val
+}
+
+// SetMinReceipts sets the value of MinReceipts.
+func (s *SupplierDeliveryPerformance) SetMinReceipts(val int32) {
+	s.MinReceipts = val
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *SupplierDeliveryPerformance) SetSuppliers(val []SupplierDelivery) {
+	s.Suppliers = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *SupplierDeliveryPerformance) SetTotals(val SupplierDeliveryTotals) {
+	s.Totals = val
+}
+
+func (*SupplierDeliveryPerformance) getSupplierDeliveryPerformanceRes() {}
+
+// Every row's receipts summed, their on-time share and their lead times.
+// Ref: #/components/schemas/SupplierDeliveryTotals
+type SupplierDeliveryTotals struct {
+	// Goods receipt items of every row.
+	Receipts int32 `json:"receipts"`
+	// Of them, those whose order item has a delivery date.
+	DatedReceipts int32 `json:"dated_receipts"`
+	// Of them, those posted on or before it.
+	OnTimeReceipts int32 `json:"on_time_receipts"`
+	// `on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no
+	// receipt is dated.
+	OnTimePercent OptInt32 `json:"on_time_percent"`
+	// The planned lead time averaged over every dated receipt of every row, in whole days rounded half
+	// away from zero (not an average of the rows' rounded figures); absent when no receipt is dated.
+	PlannedLeadDays OptInt32 `json:"planned_lead_days"`
+	// The observed lead time averaged over every receipt of every row, rounded the same way; absent when
+	// there is no receipt.
+	ObservedLeadDays OptInt32 `json:"observed_lead_days"`
+}
+
+// GetReceipts returns the value of Receipts.
+func (s *SupplierDeliveryTotals) GetReceipts() int32 {
+	return s.Receipts
+}
+
+// GetDatedReceipts returns the value of DatedReceipts.
+func (s *SupplierDeliveryTotals) GetDatedReceipts() int32 {
+	return s.DatedReceipts
+}
+
+// GetOnTimeReceipts returns the value of OnTimeReceipts.
+func (s *SupplierDeliveryTotals) GetOnTimeReceipts() int32 {
+	return s.OnTimeReceipts
+}
+
+// GetOnTimePercent returns the value of OnTimePercent.
+func (s *SupplierDeliveryTotals) GetOnTimePercent() OptInt32 {
+	return s.OnTimePercent
+}
+
+// GetPlannedLeadDays returns the value of PlannedLeadDays.
+func (s *SupplierDeliveryTotals) GetPlannedLeadDays() OptInt32 {
+	return s.PlannedLeadDays
+}
+
+// GetObservedLeadDays returns the value of ObservedLeadDays.
+func (s *SupplierDeliveryTotals) GetObservedLeadDays() OptInt32 {
+	return s.ObservedLeadDays
+}
+
+// SetReceipts sets the value of Receipts.
+func (s *SupplierDeliveryTotals) SetReceipts(val int32) {
+	s.Receipts = val
+}
+
+// SetDatedReceipts sets the value of DatedReceipts.
+func (s *SupplierDeliveryTotals) SetDatedReceipts(val int32) {
+	s.DatedReceipts = val
+}
+
+// SetOnTimeReceipts sets the value of OnTimeReceipts.
+func (s *SupplierDeliveryTotals) SetOnTimeReceipts(val int32) {
+	s.OnTimeReceipts = val
+}
+
+// SetOnTimePercent sets the value of OnTimePercent.
+func (s *SupplierDeliveryTotals) SetOnTimePercent(val OptInt32) {
+	s.OnTimePercent = val
+}
+
+// SetPlannedLeadDays sets the value of PlannedLeadDays.
+func (s *SupplierDeliveryTotals) SetPlannedLeadDays(val OptInt32) {
+	s.PlannedLeadDays = val
+}
+
+// SetObservedLeadDays sets the value of ObservedLeadDays.
+func (s *SupplierDeliveryTotals) SetObservedLeadDays(val OptInt32) {
+	s.ObservedLeadDays = val
+}
+
 // Merged schema.
 // Ref: #/components/schemas/SupplierInvoice
 type SupplierInvoice struct {
@@ -128663,6 +129439,7 @@ func (*TooManyRequestsHeaders) getSodRuleRes()                                  
 func (*TooManyRequestsHeaders) getSopPlanRes()                                  {}
 func (*TooManyRequestsHeaders) getStatisticalKeyFigureRes()                     {}
 func (*TooManyRequestsHeaders) getStockTransportOrderRes()                      {}
+func (*TooManyRequestsHeaders) getSupplierDeliveryPerformanceRes()              {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()                  {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()                          {}
 func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                           {}
@@ -129676,6 +130453,7 @@ func (*UnauthorizedHeaders) getSodRuleRes()                                  {}
 func (*UnauthorizedHeaders) getSopPlanRes()                                  {}
 func (*UnauthorizedHeaders) getStatisticalKeyFigureRes()                     {}
 func (*UnauthorizedHeaders) getStockTransportOrderRes()                      {}
+func (*UnauthorizedHeaders) getSupplierDeliveryPerformanceRes()              {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()                  {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()                          {}
 func (*UnauthorizedHeaders) getTaxReturnDraftRes()                           {}

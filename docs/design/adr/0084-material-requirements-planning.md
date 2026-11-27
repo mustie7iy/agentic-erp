@@ -113,7 +113,8 @@ they are no longer active (PO 2026-11-03). Its one step, `PlanRun`, is
    items as receipts; one ordered, cancelled or rejected is `closed`;
 4. per material, in its base unit: available = stock + receipts −
    demand; below the reorder point, the **shortage** is what brings it
-   back there, rounded up to six decimals (`money.CeilQuantity`), and is
+   back there, rounded up to six decimals (`money.CeilQuantity`), sized by
+   the plan's lot sizing procedure (As built S2k2), and is
    proposed as a draft requisition of the material in its base unit, in
    the company's currency at its valuation price at the plant (zero when
    it is not valued there; such a proposal, submitted unchanged, routes
@@ -174,7 +175,8 @@ own planned proposals that nobody firmed and keeping the firmed ones; one
 purchase requisition per material proposed at its valuation price.
 
 Not followed (Later, plan §S2l "Later"): lot sizing procedures (the
-shortage is ordered exactly), safety stock, MRP areas, planned orders for
+shortage is ordered exactly; lot for lot, fixed and replenish to maximum
+built since, As built S2k2), safety stock, MRP areas, planned orders for
 production, scheduling with lead times and calendars (a proposal is
 needed by the run's day), the planning time fence and firming by date,
 net change planning (every run plans every material of the plant), a run over
@@ -376,3 +378,68 @@ and a receipt at the receiving plant until its goods receipt):
   order of 30 entered by mistake before the runs. The gasket has
   a group of its own (`SEALS`), so step 159's S&OP figures of the hinge's
   group stay as they were.
+
+### S2k2 lot sizing (batch 95, 2026-11-24; the first item of "later: MRP variants")
+
+A run proposed every shortage exactly (§6, not followed). Decided by
+default (SAP's lot sizing procedures, MARC-DISLS EX, FX and HB with
+BSTFE, MABST, BSTMI, BSTMA and BSTRF, **from memory**, for the SAP
+specialist):
+
+- **Planning data** (migration 000486): `lot_size` `lot_for_lot` (EX,
+  the default, what every run did before), `fixed` (FX, `fixed_lot_size`)
+  or `replenish_to_maximum` (HB, `maximum_stock_level`, not below the
+  reorder point); `minimum_lot_size`, `maximum_lot_size` and
+  `rounding_value` with the other two. All in the base unit, exact
+  decimals of a quantity's scale, more than zero.
+  Its down migration refuses, rather than drops, a plan sized otherwise
+  than lot for lot (or bounded or rounded) and a run line that proposed
+  other than its shortage in one lot (06 §6.4; batch 95S integration,
+  `TestMRPLotSizingDownRefused`).
+- **Sizing** (`internal/mrp/lotsize.go`), when there is a shortage: a
+  fixed lot proposes as many lots of its size as cover the shortage;
+  lot for lot sizes the shortage and replenishing to the maximum sizes
+  what brings the available quantity (stock plus receipts less demand) up
+  to the level, then both raise it to the minimum, round it up to a
+  multiple of the rounding value and split it into lots of the maximum
+  and a last lot of the rest, raised to the minimum. The reorder point
+  still decides whether there is a shortage.
+- **A fixed lot is not bounded or rounded**: its size is the order
+  quantity, so minimum, maximum and rounding are refused with it (422
+  `mrp.invalid_lot_size`) rather than kept and ignored, as SAP ignores
+  them (from memory). The minimum and maximum are multiples of the
+  rounding value, so a rounded lot never leaves the bounds and the split
+  keeps every lot a multiple of it; SAP does not require it (from
+  memory), and a planner who needs both sets them so.
+- **A lot is an item of the material's one requisition**: §3's one
+  requisition per material and run stays, its items one per lot, which a
+  buyer orders as purchase order items (SAP creates a proposal per lot,
+  from memory: not followed, so a run line keeps one requisition and the
+  proposals' settling is unchanged). The run line names the procedure,
+  `proposed` (what the lots add up to) and `lots`.
+- **At most 100 lots** (`MaxLots`) of a material in a run: a fixed or
+  maximum lot size so small that the shortage needs more fails the run
+  with 409 `mrp.too_many_lots`, naming the material, as any business
+  problem of §3 does, rather than raise a requisition of thousands of
+  items.
+- **Rolling upgrade** (expand only): a plan written by a server before
+  is lot for lot (the column's default); a run line it wrote names no
+  `proposed` or `lots`, read as its shortage in one lot.
+- **The replenishment agent** reads a proposal of one item (ADR-0072 As
+  built S2l), so it refuses to recommend on a proposal of several lots
+  and leaves it to the buyer; recommending on one is Later (plan
+  §S2k2).
+- API (additive): `MaterialPlan`, `MaterialPlanCreate` and
+  `MaterialPlanUpdate` (merge patch; `null` removes a quantity) gain the
+  six fields, `MrpRunLine` `lot_size`, `proposed` and `lots`; problems
+  `mrp.invalid_lot_size` and `mrp.too_many_lots` (`MrpRunError`). The
+  plan's audit records hold the lot sizing before and after.
+- Tests: `TestLots` by hand per procedure (rounding to a fraction of the
+  base unit included), `TestLotSizingChecks`, `TestTooManyLots`,
+  `TestPlanningRunLotSizing` through the API, schema
+  `TestMRPLotSizing`. Walkthrough `step_mrp` (step 152) plans a washer at
+  Montreal in fixed lots of 40.
+- Left in the tracker's "later: MRP variants": period lot sizes (daily,
+  weekly, monthly), optimising procedures (part period, least unit cost,
+  Groff), scrap and firming in a planning time fence, beside the leaf's
+  safety stock, MRP areas, planned orders and calendars.

@@ -216,7 +216,7 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"sales' issue": func(ctx context.Context) error {
 			_, err := h.Shipments.Issue(ctx, sales.GoodsIssue{OrderID: o, DeliveryID: picked, DeliveryNumber: "OD9", PlantID: e.p1, MaterialDocumentID: picked,
-				MaterialDocumentNumber: "MD9", Date: time.Now(), Currency: "EUR", Items: []sales.IssuedItem{{ItemNo: 1, Held: "2", Issued: "2", Cost: 1}}})
+				MaterialDocumentNumber: "MD9", Date: time.Now().UTC(), Currency: "EUR", Items: []sales.IssuedItem{{ItemNo: 1, Held: "2", Issued: "2", Cost: 1}}})
 			return err
 		},
 		"inventory's issue": func(ctx context.Context) error {

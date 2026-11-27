@@ -15,29 +15,34 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// Change is a merge patch of a material: nil fields stay. Plants replaces
+// Change is a merge patch of a material: nil fields stay. Description is
+// the default description; Descriptions replaces the further ones, Plants
 // the material's plants in the companies the caller may act in, Units its
 // alternative units; an empty list clears them.
 type Change struct {
-	Description *string
-	Group       *string
-	Status      *string
-	Plants      *[]PlantInput
-	Units       *[]UnitInput
+	Description  *string
+	Descriptions *[]Description
+	Group        *string
+	Status       *string
+	Plants       *[]PlantInput
+	Units        *[]UnitInput
 }
 
 // view is what a change compares: the material's texts and status, its
-// plants in the caller's companies with their storage locations, and its
-// units with their factors, each in a stated order.
+// further descriptions by language, its plants in the caller's companies
+// with their storage locations, and its units with their factors, each in
+// a stated order.
 type view struct {
 	Description, Group, Status string
+	Descriptions               map[string]string
 	Plants                     map[uuid.UUID][]uuid.UUID
 	Units                      map[string][2]int32
 }
 
 // viewOf is a material as the caller's change sees it.
 func viewOf(m Material, access authz.Access) view {
-	v := view{Description: m.Description, Group: m.Group, Status: m.Status, Plants: map[uuid.UUID][]uuid.UUID{}, Units: map[string][2]int32{}}
+	v := view{Description: m.Description, Group: m.Group, Status: m.Status, Descriptions: descriptionDetail(m.Descriptions),
+		Plants: map[uuid.UUID][]uuid.UUID{}, Units: map[string][2]int32{}}
 	for _, p := range m.Plants {
 		if access.Allows(p.LegalEntityID) {
 			v.Plants[p.PlantID] = p.StorageLocations
@@ -62,6 +67,10 @@ func (ch Change) apply(v view) (view, []string) {
 	if ch.Description != nil {
 		set("description", *ch.Description != v.Description)
 		to.Description = *ch.Description
+	}
+	if ch.Descriptions != nil {
+		to.Descriptions = descriptionDetail(*ch.Descriptions)
+		set("descriptions", !maps.Equal(to.Descriptions, v.Descriptions))
 	}
 	if ch.Group != nil {
 		set("material_group", *ch.Group != v.Group)
@@ -94,7 +103,7 @@ func byBytes(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) }
 
 // detail is the view's fields as an audit record names them.
 func (v view) detail(fields []string) map[string]any {
-	all := map[string]any{"description": v.Description, "material_group": v.Group, "status": v.Status,
+	all := map[string]any{"description": v.Description, "descriptions": v.Descriptions, "material_group": v.Group, "status": v.Status,
 		"plants": slices.SortedFunc(maps.Keys(v.Plants), byBytes), "alternative_units": v.Units}
 	out := map[string]any{}
 	for _, f := range fields {
@@ -165,7 +174,8 @@ func (e *Endpoints) Change(ctx context.Context, id uuid.UUID, ifMatch func(int32
 // requested checks a change of the material as a creation is checked and
 // is what it asks for, the fields it changes, and the material before and
 // after it as the caller sees them (422 materials.unknown_status,
-// materials.nothing_to_change).
+// materials.nothing_to_change). Its descriptions are checked before they
+// are compared, so a language given twice is refused as such.
 func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Change) (Requested, []string, view, view, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
@@ -175,6 +185,11 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 		return Requested{}, nil, view{}, view{}, problem.Invalid("materials.unknown_status", "status",
 			fmt.Sprintf("%q is not a status a change sets; it sets active or blocked.", *ch.Status))
 	}
+	if ch.Descriptions != nil {
+		if err := checkDescriptions(m.DescriptionLanguage, *ch.Descriptions); err != nil {
+			return Requested{}, nil, view{}, view{}, err
+		}
+	}
 	before := viewOf(m, access)
 	to, fields := ch.apply(before)
 	if len(fields) == 0 {
@@ -183,7 +198,7 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 	if err := problem.RequireText("description", to.Description); err != nil {
 		return Requested{}, nil, view{}, view{}, err
 	}
-	req := Requested{Description: ch.Description, Group: ch.Group, Status: ch.Status}
+	req := Requested{Description: ch.Description, Descriptions: ch.Descriptions, Group: ch.Group, Status: ch.Status}
 	if ch.Units != nil {
 		if err := checkUnits(ctx, tx, m.BaseUnit, *ch.Units); err != nil {
 			return Requested{}, nil, view{}, view{}, err
@@ -209,6 +224,9 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 func (r Requested) only(fields []string) Requested {
 	if !slices.Contains(fields, "description") {
 		r.Description = nil
+	}
+	if !slices.Contains(fields, "descriptions") {
+		r.Descriptions = nil
 	}
 	if !slices.Contains(fields, "material_group") {
 		r.Group = nil
@@ -258,8 +276,9 @@ func (e *Endpoints) block(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m 
 }
 
 // write writes what a change asks for on the material: its texts and
-// status, then its plants in the change's scope and its units, those it
-// no longer names marked removed and those it names written.
+// status, then its further descriptions, its plants in the change's scope
+// and its units, those it no longer names marked removed and those it
+// names written.
 func write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req Requested) error {
 	description, group, status := m.Description, m.Group, m.Status
 	for _, f := range []struct{ to, from *string }{{&description, req.Description}, {&group, req.Group}, {&status, req.Status}} {
@@ -270,6 +289,11 @@ func write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req R
 	if _, err := tx.Exec(ctx, `UPDATE materials.material SET description = $2, material_group = $3, status = $4, version = version + 1, updated_by = $5
 		WHERE id = $1`, m.ID, description, group, status, p.ID); err != nil {
 		return fmt.Errorf("materials: change material %s: %w", m.Number, err)
+	}
+	if req.Descriptions != nil {
+		if err := replaceDescriptions(ctx, tx, p, m, *req.Descriptions); err != nil {
+			return err
+		}
 	}
 	if req.Plants != nil {
 		if err := replacePlants(ctx, tx, p, m, *req.Plants, *req.Scope); err != nil {

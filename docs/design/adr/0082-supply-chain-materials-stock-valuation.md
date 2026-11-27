@@ -2477,3 +2477,159 @@ parties' names and addresses and the materials' classifications in the
 request; screening of sales orders, purchase orders and business
 partners; a delivery sent again by hand; customs declarations,
 preference calculation and licences.
+
+### S1a2 Descriptions by language (2026-11-24)
+
+The first item of "later: material master variants" (plan-supply-chain.md
+§S1a2, lane matdesc): a material's description is its default one, and it
+may have one further description per other language (SAP MAKT, one text
+per material and language, from memory), Arabic for the UAE pilot.
+
+- **Data (migrations 000484, 000485).** `materials.material` gains
+  `description_language`, added with the constant default `en` (no
+  rewrite; every material created before was described in English, and
+  the previous version's inserts, naming none, take it) and its check
+  NOT VALID, validated by 000485 (06 §6.4); it does not change
+  (`material_language_fixed`, a trigger of its own, so `material_fixed`
+  stays as 000435 left it). `materials.material_description` holds the
+  further descriptions, removed by their mark and given back as a unit is
+  (nothing is deleted, 000011); none is in the default's language
+  (`material_description_not_default`), which holds without a lock on the
+  material because that language never changes. The down migration
+  refuses, rather than drops, a further description (a removed one too)
+  and a default in another language than `en` (06 §6.4; batch 95S
+  integration, `TestMaterialDescriptionDownRefused`). **Nothing is
+  contracted:** `description` stays the default description's text, so
+  today's field, the duplicate check, items by material (S1f) and every
+  reader of the published API keep working unchanged.
+- **Language tags (decided by default).** A BCP 47 tag of a language with
+  an optional script and region in canonical form (`ar`, `ar-AE`,
+  `zh-Hant`, `es-419`; the contract's and the database's pattern), its
+  subtags known as `golang.org/x/text/language` holds the IANA registry
+  (`internal/platform/langtag`, new: no helper checked tags before; the web
+  workspace's `i18n` matches locales for its own pages only). A tag not
+  in canonical form is refused naming it (`iw` is written `he`; 422
+  `materials.unknown_language`), as is an unknown subtag. A business
+  partner's ISO 639-1 `language` is such a tag. Alternative: any
+  well-formed BCP 47 tag with extensions; refused as a key for a text no
+  reader would ask for.
+- **Reads (decided by default).** `getMaterial` and `listMaterials` take
+  the query parameter `language`: the API has no `Accept-Language`
+  convention (only the web workspace reads that header, for its own
+  texts), and a parameter keeps a response cacheable by its URL and
+  visible in the contract. The description is found by RFC 4647 §3.4
+  lookup (`ar-AE`, then `ar`), else the default; `description` answers
+  it, `description_language` names its language, `default_language` and
+  `descriptions` (the default first, then the others by language, byte
+  order) give the rest. A read without `language` is answered as before.
+  Responses to `createMaterial` and `updateMaterial`, and a material
+  change's `material_description`, give the default.
+- **Writes (decided by default).** `createMaterial` takes
+  `description_language` (`en` when absent) and `descriptions`;
+  `updateMaterial` takes `descriptions`, replacing the further
+  descriptions as a whole, an empty list removing them, as
+  `alternative_units` does; each language once and none the default's
+  (422 `materials.duplicate_language`). The change is governed as the
+  other fields are (S1b): pending until approved, audited with the texts
+  before and after by language, and `MaterialChangeRequested` carries
+  `description_language` (a create's) and `descriptions`. The default's
+  language does not change in this slice. The texts are master data, not
+  personal data, so the audit records them (ADR-0079 concerns free text
+  about people). The duplicate check stays on the default description.
+- **Events.** MaterialChanged carries `description_language` and
+  `descriptions` (the further ones), not required (ADR-0041).
+- **SAP (S2o's load).** MAKT-SPRAS is mapped to a tag: SAP's
+  one-character keys E, D, F, S, I, P, N, A, R, T, J and 1 (en, de, fr,
+  es, it, pt, nl, ar, ru, tr, ja, zh; T002, from memory, on the
+  specialist list), and a two-letter key as its ISO 639-1 code. The text
+  the load picked before (English, else the first other key) stays the
+  default, in its language (`und`, undetermined, with a warning, for a
+  key with no tag); the material's other MAKT texts become its further
+  descriptions, a key with no tag or a second key of one language left
+  out with a warning. The reconciliation compares every description with
+  its language. A later run does not change the descriptions of a
+  material an earlier run created (the leaf's remainder).
+- **Walkthrough:** step 122 (`step_material`): the bracket in Arabic, read
+  in `ar`, `ar-AE` and French, the zinc-plated change carrying Arabic and
+  French texts, a further English description refused; `step_migrate`
+  shows the steel sheet's German MAKT text as a further description.
+
+**Later for descriptions by language:** changing a material's default
+language; documents and outputs (sales and purchasing items, e-invoices)
+taking the description in their partner's language; the duplicate check
+across languages; a later SAP run's new or changed descriptions of a
+material an earlier run created.
+
+### S2l1: suppliers' delivery performance (2026-11-24)
+
+The replenishment agent's supplier choice by lead time and reliability
+(plan-supply-chain.md §S2l, S2l1; the agent is ADR-0072 As built S2l1)
+reads the suppliers' delivery performance from procurement, which
+measures it in SQL from posted documents at the moment of the read,
+never by a model: `GET /v1/supplier-delivery-performance`
+(`getSupplierDeliveryPerformance`, `procurement.order.read`, published
+in Go as `procurement.Endpoints.DeliveryPerformance`). It adds no
+direction to §3: procurement reads its own orders and receipts, tenancy's
+plant and partner's names, as it did. Decided by default (SAP's vendor
+evaluation scores on-time delivery from the goods receipt's date against
+the schedule line's delivery date, EKET-EINDT, per receipt, from memory;
+the specialist list):
+
+- **A delivery** is a goods receipt item (101) of a released or closed
+  order's item of the material that no reversal (102) names, at the plant
+  the order item names, or else the one the receipt's header names (an
+  item without a storage location names none). A return (122) is no
+  delivery and is not netted; a reversed receipt is left out whole, as
+  its reversal is of the whole receipt. Each item of a receipt counts
+  once: an order item delivered in two receipts is two deliveries, as
+  SAP's per-receipt score counts it (from memory).
+- **On time** is the receipt's posting date on or before the order
+  item's delivery date (`delivery_date`, as it is at the read; a change
+  of the date by an order change moves it), as the brief states it. A
+  receipt whose item has no delivery date is neither on time nor late:
+  `dated_receipts` counts those that have one, and the on-time share is
+  of them (absent when none is).
+- **Lead times** are calendar days: the planned one the item's delivery
+  date less the order date, the observed one the receipt's posting date
+  less the order date; each the average over the supplier's receipts (the
+  planned over the dated ones), rounded half away from zero to a whole
+  day by numeric's `round`, never through a float. The on-time share is a
+  whole percent, rounded the same way.
+- **The window** is a range of posting dates, both ends counted, by
+  default the 365 days ending on the plant's company's date (its time
+  zone, T72n): long enough to hold a year's seasons, short enough that an
+  old supplier's record does not hide a recent change. A window that ends
+  before it starts, or is longer than 1,096 days (three years, a leap day
+  among them), is 400 `request.invalid_parameter`, so a read stays
+  bounded. The replenishment agent's check asks for the year ending on
+  its run's day (`from`, `to`), not the default, so a run reviewed on a
+  later day is held to the year it was planned in (ADR-0072 As built
+  S2l1).
+- **Thin history.** A supplier with fewer than `min_receipts` (3)
+  receipts in the window is `thin`; with 3 or more `measured`; with none
+  it has no row. The agent prefers a measured supplier over a thin one or
+  one with none (ADR-0072 As built S2l1): three receipts are the fewest
+  from which an on-time share is more than one or two events. The
+  threshold is a constant of the read, stated in every answer, so a
+  consumer need not know it.
+- **Answer.** Per supplier its number and name (partner's `Names`, the
+  name masked as everywhere for a blocked person), in the order of the
+  supplier number, then the id; `totals` sum every row (ROLLUP in the
+  same statement, so the totals and the rows are one snapshot). A
+  report, not paged: one row per supplier that delivered the material to
+  the plant in the window; `supplier_id` narrows it to one, and the
+  answer echoes it. The totals give the lead times averaged over every
+  receipt too, which the rows' rounded figures cannot give. A plant that
+  does not exist, an org unit that is no plant, or a plant of a company
+  the caller cannot act in is 422 `request.reference_not_found`, as a
+  legal entity is (`tenancy.Accessible`).
+- **Indexes.** Migration 000487 indexes order items by material
+  (`purchase_order_item_by_material`, which listPurchaseOrders'
+  `material_id` filter uses too) and 000488 goods movements by the one
+  they reverse (`goods_movement_by_reversal`, which a receipt's
+  `reversed_by` uses too), both partial and built concurrently.
+
+**Later** (the tracker's replenishment agent variants): a planned
+delivery time kept as master data (SAP's info record or the material's
+plant data, from memory) and the order dated back from the need by it;
+a weighted supplier score with price, quantity reliability and quality.

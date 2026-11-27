@@ -67,7 +67,18 @@ func planAPI(p Plan, r refs) gen.MaterialPlan {
 	return gen.MaterialPlan{ID: p.ID, Version: p.Version, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(p.UpdatedBy), PlantID: p.PlantID, PlantCode: plant.Code, PlantName: plant.Name, LegalEntityID: p.LegalEntityID,
 		CompanyCode: r.companies[p.LegalEntityID], MaterialID: p.MaterialID, MaterialNumber: m.Number, MaterialDescription: m.Description,
-		MrpType: p.MRPType, ReorderPoint: gen.Quantity{Value: p.ReorderPoint, Unit: m.BaseUnit}, AccountID: p.AccountID, AccountNumber: r.accounts[p.AccountID]}
+		MrpType: p.MRPType, ReorderPoint: gen.Quantity{Value: p.ReorderPoint, Unit: m.BaseUnit}, AccountID: p.AccountID, AccountNumber: r.accounts[p.AccountID],
+		LotSize: p.Lots.Procedure, FixedLotSize: optQuantity(p.Lots.Fixed, m.BaseUnit), MaximumStockLevel: optQuantity(p.Lots.MaximumLevel, m.BaseUnit),
+		MinimumLotSize: optQuantity(p.Lots.Minimum, m.BaseUnit), MaximumLotSize: optQuantity(p.Lots.Maximum, m.BaseUnit),
+		RoundingValue: optQuantity(p.Lots.Rounding, m.BaseUnit)}
+}
+
+// optQuantity is a quantity in the unit once given.
+func optQuantity(v *string, unit string) gen.OptQuantity {
+	if v == nil {
+		return gen.OptQuantity{}
+	}
+	return gen.NewOptQuantity(gen.Quantity{Value: *v, Unit: unit})
 }
 
 // onePlan is a plan as the API gives it, with its ETag.
@@ -85,7 +96,9 @@ func (e *Endpoints) onePlan(ctx context.Context, p Plan, err error) (gen.Materia
 // CreateMaterialPlan implements POST /v1/material-plans.
 func (e *Endpoints) CreateMaterialPlan(ctx context.Context, req *gen.MaterialPlanCreate, _ gen.CreateMaterialPlanParams) (gen.CreateMaterialPlanRes, error) {
 	p, err := e.CreatePlan(ctx, PlanInput{PlantID: req.PlantID, MaterialID: req.MaterialID, AccountID: req.AccountID, MRPType: req.MrpType,
-		ReorderPoint: req.ReorderPoint})
+		ReorderPoint: req.ReorderPoint, Lots: LotSizing{Procedure: req.LotSize.Value, Fixed: apitypes.Ptr[string](req.FixedLotSize),
+			MaximumLevel: apitypes.Ptr[string](req.MaximumStockLevel), Minimum: apitypes.Ptr[string](req.MinimumLotSize),
+			Maximum: apitypes.Ptr[string](req.MaximumLotSize), Rounding: apitypes.Ptr[string](req.RoundingValue)}})
 	out, tag, err := e.onePlan(ctx, p, err)
 	if err != nil {
 		return nil, err
@@ -110,7 +123,10 @@ func (e *Endpoints) GetMaterialPlan(ctx context.Context, params gen.GetMaterialP
 // UpdateMaterialPlan implements PATCH /v1/material-plans/{id}.
 func (e *Endpoints) UpdateMaterialPlan(ctx context.Context, req *gen.MaterialPlanUpdate, params gen.UpdateMaterialPlanParams) (gen.UpdateMaterialPlanRes, error) {
 	p, err := e.ChangePlan(ctx, params.ID, etag.IfMatch(params.IfMatch), PlanChange{MRPType: apitypes.Ptr[string](req.MrpType),
-		ReorderPoint: apitypes.Ptr[string](req.ReorderPoint), AccountID: apitypes.Ptr[uuid.UUID](req.AccountID)})
+		ReorderPoint: apitypes.Ptr[string](req.ReorderPoint), AccountID: apitypes.Ptr[uuid.UUID](req.AccountID), LotSize: apitypes.Ptr[string](req.LotSize),
+		FixedLotSize: apitypes.OptNilString(req.FixedLotSize), MaximumStockLevel: apitypes.OptNilString(req.MaximumStockLevel),
+		MinimumLotSize: apitypes.OptNilString(req.MinimumLotSize), MaximumLotSize: apitypes.OptNilString(req.MaximumLotSize),
+		Rounding: apitypes.OptNilString(req.RoundingValue)})
 	out, tag, err := e.onePlan(ctx, p, err)
 	if err != nil {
 		return nil, err
@@ -193,6 +209,7 @@ func runAPI(r Run, x refs) gen.MrpRun {
 		q := func(v string) gen.Quantity { return gen.Quantity{Value: v, Unit: l.Unit} }
 		out.Lines[i] = gen.MrpRunLine{MaterialID: l.MaterialID, MaterialNumber: m.Number, MaterialDescription: m.Description,
 			ReorderPoint: q(l.ReorderPoint), Demand: q(l.Demand), Stock: q(l.Stock), Receipts: q(l.Receipts), Shortage: q(l.Shortage),
+			LotSize: l.LotSize, Proposed: q(l.Proposed), Lots: apitypes.OptInt32(l.Lots),
 			RequisitionID: apitypes.OptUUID(l.RequisitionID), RequisitionNumber: apitypes.OptString(l.RequisitionNumber)}
 	}
 	slices.SortStableFunc(out.Lines, func(a, b gen.MrpRunLine) int { return cmp.Compare(a.MaterialNumber, b.MaterialNumber) })

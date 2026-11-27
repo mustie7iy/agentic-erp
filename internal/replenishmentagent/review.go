@@ -3,9 +3,11 @@ package replenishmentagent
 import (
 	"fmt"
 	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
@@ -25,17 +27,36 @@ type source struct {
 	from, to                        string
 }
 
-// review is what one run's check knows: the run's day, and what the run
-// read of the proposals, their sources and their suppliers.
+// review is what one run's check knows: the run's plant and the year
+// ending on its day, what the run read of the proposals, their sources
+// and their suppliers, and the suppliers' measures the check read itself.
 type review struct {
-	runDate   string
-	proposals map[string]proposal // requisition id to the proposal
-	sources   map[string]source   // "contract <id> item <n>", "catalog item <id>", "purchase order <id>" to the source
-	suppliers map[string]bool     // business partners read: id to whether it is an active supplier
+	runDate, plant string
+	from           string                                      // the first day of the year ending on the run's day
+	read           func(url.Values) (apitools.Response, error) // getSupplierDeliveryPerformance, as the check reads it
+	proposals      map[string]proposal                         // requisition id to the proposal
+	sources        map[string]source                           // "contract <id> item <n>", "catalog item <id>", "purchase order <id>" to the source
+	suppliers      map[string]bool                             // business partners read: id to whether it is an active supplier
+	measured       map[string]string                           // "<material> <supplier>" to the line naming the supplier's measures
 }
 
-func newReview(runDate string) *review {
-	return &review{runDate: runDate, proposals: map[string]proposal{}, sources: map[string]source{}, suppliers: map[string]bool{}}
+// window is the days, both counted, a supplier's measures are read over:
+// the year ending on the run's day (ADR-0072 As built S2l1).
+const window = 365
+
+// windowFrom is the first day of the year ending on a run's day, the
+// check's window's from; a run day that is no date has none.
+func windowFrom(runDate string) (string, error) {
+	d, err := time.Parse(time.DateOnly, runDate)
+	if err != nil {
+		return "", fmt.Errorf("replenishmentagent: the planning run's day %q: %w", runDate, err)
+	}
+	return d.AddDate(0, 0, 1-window).Format(time.DateOnly), nil
+}
+
+func newReview(runDate, from, plant string, read func(url.Values) (apitools.Response, error)) *review {
+	return &review{runDate: runDate, plant: plant, from: from, read: read, proposals: map[string]proposal{}, sources: map[string]source{},
+		suppliers: map[string]bool{}, measured: map[string]string{}}
 }
 
 // quantity is a Quantity as an answer gives it.
@@ -161,6 +182,72 @@ func (rv *review) supplierRead(resp apitools.Response) {
 	rv.suppliers[bp.ID] = bp.Status == "active" && slices.Contains(bp.Roles, "supplier")
 }
 
+// delivery is a supplier's row of getSupplierDeliveryPerformance.
+type delivery struct {
+	SupplierID       string `json:"supplier_id"`
+	Receipts         int    `json:"receipts"`
+	DatedReceipts    int    `json:"dated_receipts"`
+	OnTimeReceipts   int    `json:"on_time_receipts"`
+	OnTimePercent    *int   `json:"on_time_percent"`
+	PlannedLeadDays  *int   `json:"planned_lead_days"`
+	ObservedLeadDays int    `json:"observed_lead_days"`
+	History          string `json:"history"`
+}
+
+// measuresOf is the line naming the supplier's measures of the material
+// at the run's plant over the year ending on the run's day, as the check
+// reads them itself (getSupplierDeliveryPerformance narrowed to the
+// supplier, from and to fixed): no read of the model's, whatever window
+// or supplier it asked for, makes an order pass or fail. A supplier
+// without a row has no receipt in the year. A read is kept for the run,
+// so that the check tells the same line each time; a failed one is not.
+func (rv *review) measuresOf(material, supplier string) (string, error) {
+	key := material + " " + supplier
+	if line, ok := rv.measured[key]; ok {
+		return line, nil
+	}
+	resp, err := rv.read(url.Values{"plant_id": {rv.plant}, "material_id": {material}, "supplier_id": {supplier}, "from": {rv.from}, "to": {rv.runDate}})
+	var read struct {
+		Suppliers []delivery `json:"suppliers"`
+	}
+	if err == nil {
+		err = resp.Decode(&read)
+	}
+	if err != nil {
+		return "", fmt.Errorf("replenishmentagent: the delivery performance of supplier %s for material %s from %s to %s: %w", supplier, material, rv.from, rv.runDate, err)
+	}
+	line := noReceipts
+	for _, d := range read.Suppliers {
+		if d.SupplierID == supplier {
+			line = measured(d)
+		}
+	}
+	rv.measured[key] = line
+	return line, nil
+}
+
+// measuresPrefix begins the line naming an order's supplier's measures.
+const measuresPrefix = "Measures: "
+
+// noReceipts is the measures line of a supplier with no receipt in the
+// year.
+const noReceipts = measuresPrefix + "no receipts"
+
+// measured is the line naming a supplier's measures (S2l1): its
+// receipts and their history, its observed lead time, against its
+// planned one when the read gives it, and its on-time share when it gives
+// one.
+func measured(d delivery) string {
+	m := fmt.Sprintf(measuresPrefix+"%d receipts (%s), lead time %d days", d.Receipts, d.History, d.ObservedLeadDays)
+	if d.PlannedLeadDays != nil {
+		m += fmt.Sprintf(" against %d planned", *d.PlannedLeadDays)
+	}
+	if d.OnTimePercent != nil {
+		m += fmt.Sprintf(", on time %d of %d (%d%%)", d.OnTimeReceipts, d.DatedReceipts, *d.OnTimePercent)
+	}
+	return m
+}
+
 // open are the statuses of a requisition still to be ordered.
 var open = []string{"draft", "pending_approval", "approved"}
 
@@ -171,11 +258,13 @@ var orderLine = regexp.MustCompile(`^Order (\d+(?:\.\d+)?) ([A-Z0-9]{1,6}) from 
 
 // check is the agent's rule on a recommendation the pattern admits
 // (ADR-0072, S2l): on a proposal the run read that is still to be ordered,
-// of one material; every number it writes but an order's first line,
-// which is checked whole, is one the run read; an order in the form a
-// buyer orders from, of the proposal's quantity by its day from a source
-// of its material the run read and that source's active supplier; a
-// source_needed only when the run read no source of the material.
+// of one material; every number it writes but in an order's first line
+// and its measures, which are checked whole, is one the run read; an
+// order in the form a buyer orders from, of the proposal's quantity by
+// its day from a source of its material the run read and that source's
+// active supplier, naming the supplier's measures as the check reads
+// them; a source_needed only when the run read no source of the
+// material.
 func (rv *review) check(r recommend.Proposed, f *recommend.Figures) error {
 	p, read := rv.proposals[r.ObjectID]
 	if !read || !slices.Contains(open, p.status) || p.items != 1 || p.material == "" {
@@ -186,14 +275,53 @@ func (rv *review) check(r recommend.Proposed, f *recommend.Figures) error {
 	if r.Kind == SourceNeeded {
 		return rv.sourceNeeded(p, r.Content, first, f)
 	}
-	if unread := f.Unread(joined(lines, 0)); len(unread) > 0 {
+	if unread := f.Unread(figured(lines)); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrUnread, strings.Join(unread, ", "))
 	}
 	m := orderLine.FindStringSubmatch(first)
 	if m == nil || !reasoned(lines[1:]) {
 		return fmt.Errorf("%w: not %q", ErrForm, first)
 	}
-	return rv.ordered(p, m[1], m[2], m[3], m[4], m[5])
+	if err := rv.ordered(p, m[1], m[2], m[3], m[4], m[5]); err != nil {
+		return err
+	}
+	return rv.measuresNamed(p, m[3], lines[1:])
+}
+
+// measuresNamed checks that an order names its supplier's measures, in
+// every line it names them in, as the check reads them (measuresOf); the
+// refusal tells the line wanted.
+func (rv *review) measuresNamed(p proposal, supplier string, lines []string) error {
+	want, err := rv.measuresOf(p.material, supplier)
+	if err != nil {
+		return err
+	}
+	named := false
+	for _, l := range lines {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, measuresPrefix) {
+			if l != want {
+				return fmt.Errorf("%w: want %q", ErrMeasures, want)
+			}
+			named = true
+		}
+	}
+	if !named {
+		return fmt.Errorf("%w: want %q", ErrMeasures, want)
+	}
+	return nil
+}
+
+// figured is a content's lines whose numbers must be ones the run read:
+// every line but an order's first and its measures, which the check
+// holds whole to what it read.
+func figured(lines []string) string {
+	rest := make([]string, 0, len(lines))
+	for _, l := range lines[1:] {
+		if !strings.HasPrefix(strings.TrimSpace(l), measuresPrefix) {
+			rest = append(rest, l)
+		}
+	}
+	return strings.Join(rest, "\n")
 }
 
 // sourceNeeded checks a source_needed: it orders nothing, writes only

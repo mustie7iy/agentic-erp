@@ -351,6 +351,7 @@ const (
 	GetSopPlanOperation                                  OperationName = "GetSopPlan"
 	GetStatisticalKeyFigureOperation                     OperationName = "GetStatisticalKeyFigure"
 	GetStockTransportOrderOperation                      OperationName = "GetStockTransportOrder"
+	GetSupplierDeliveryPerformanceOperation              OperationName = "GetSupplierDeliveryPerformance"
 	GetSupplierInvoiceOperation                          OperationName = "GetSupplierInvoice"
 	GetSupplierInvoiceDocumentOperation                  OperationName = "GetSupplierInvoiceDocument"
 	GetTaxReturnOperation                                OperationName = "GetTaxReturn"

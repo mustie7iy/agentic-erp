@@ -12385,6 +12385,65 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/supplier-delivery-performance:
+    get:
+      operationId: getSupplierDeliveryPerformance
+      tags:
+        - procurement
+      summary: Get suppliers' delivery performance for a material at a plant
+      description: "How the suppliers of a material delivered it to a plant over a window of goods receipt posting dates (ADR-0082 As built S2l1), measured from posted documents at the moment of the read: per supplier, the receipts (goods receipt items, movement 101, not reversed, on purchase order items of the material whose plant, or else whose receipt's plant, is the plant), the planned lead time (the order item's delivery date less the order date, the average over the receipts whose item has a delivery date, in whole days rounded half away from zero), the observed lead time (the receipt's posting date less the order date, averaged the same way), the on-time share (receipts posted on or before their item's delivery date, of those whose item has one) and whether the supplier's history in the window is `measured` (at least `min_receipts` receipts) or `thin`. Returns to the supplier (122) are not deliveries and are not counted. A supplier with no receipt in the window has no row: no history. Rows are in the order of `supplier_number`, then `supplier_id`; `totals` sum every row. A report, not paged: one row per supplier that delivered the material to the plant in the window. The replenishment agent reads it to suggest a supplier (ADR-0072 As built S2l1). The window defaults to the 365 days ending on the plant's company's date; one that ends before it starts, or is longer than 1,096 days, is 400 `request.invalid_parameter`. A plant that does not exist, or of a company the caller cannot act in, is 422 `request.reference_not_found`. Reads only; every agent autonomy level may call it."
+      x-permission: procurement.order.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - name: plant_id
+          in: query
+          required: true
+          description: "The plant (an org unit of kind `plant`, `GET /v1/org-units/{id}`) the material was delivered to (required)."
+          schema:
+            type: string
+            format: uuid
+        - name: material_id
+          in: query
+          required: true
+          description: "The material (`GET /v1/materials/{id}`) delivered (required)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/SupplierId"
+        - name: from
+          in: query
+          required: false
+          description: "Receipts posted on or after this date; default 364 days before `to`."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: "Receipts posted on or before this date; default the plant's company's date (its time zone)."
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: The suppliers' delivery performance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierDeliveryPerformance"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/catalog-items:
     get:
       operationId: listCatalogItems
@@ -25366,7 +25425,7 @@ paths:
       tags:
         - materials
       summary: List materials
-      description: "The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description, base unit, type, group and status, its plants and storage locations in the companies the caller may act in, and its alternative units. Filtered by number, plant, status, material type and material group. Sortable by: `number`."
+      description: "The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description, base unit, type, group and status, its plants and storage locations in the companies the caller may act in, and its alternative units. Filtered by number, plant, status, material type and material group; each `description` in the `language` asked for where the material has one, else its default (S1a2). Sortable by: `number`."
       x-permission: materials.material.read
       x-problem-codes:
         - request.invalid_order_by
@@ -25415,6 +25474,15 @@ paths:
           schema:
             type: string
             maxLength: 9
+        - name: language
+          in: query
+          required: false
+          description: "The language to answer each material's `description` in, a BCP 47 tag (ADR-0082 As built S1a2): the material's description in that language, found by RFC 4647 lookup (`ar-AE`, then `ar`), else its default description; `description_language` says which. Absent: the default description."
+          schema:
+            type: string
+            maxLength: 12
+            pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+            example: ar
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -25438,7 +25506,7 @@ paths:
       tags:
         - materials
       summary: Create a material
-      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and the material type do not change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays `pending` and is used nowhere. The change lists the existing materials with the same description, white space and case aside, whatever their status, a pending one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is refused (409 `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
+      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Its `description` is its default one, in `description_language` (`en` when absent); `descriptions` gives it further ones (S1a2), each in a BCP 47 language with known subtags in their canonical form (422 `materials.unknown_language`), each language once and none in the default's (422 `materials.duplicate_language`). The base unit, the material type and the default's language do not change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays `pending` and is used nowhere. The change lists the existing materials with the same description, white space and case aside, whatever their status, a pending one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is refused (409 `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
@@ -25451,6 +25519,7 @@ paths:
         - materials.batch_managed_not_stocked
         - materials.change_pending
         - materials.duplicate_description
+        - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
@@ -25459,6 +25528,7 @@ paths:
         - materials.plant_invalid
         - materials.serial_managed_not_stocked
         - materials.storage_location_invalid
+        - materials.unknown_language
         - materials.unknown_material_type
         - materials.unknown_unit
         - request.validation_failed
@@ -25522,11 +25592,20 @@ paths:
       tags:
         - materials
       summary: Get a material
-      description: "One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description, base unit, type, group and status, its plants and their storage locations in the companies the caller may act in, each with its code and name, and its alternative units with their conversions."
+      description: "One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description, base unit, type, group and status, its plants and their storage locations in the companies the caller may act in, each with its code and name, and its alternative units with their conversions; its descriptions in every language it has, and its `description` in the `language` asked for, else its default (S1a2)."
       x-permission: materials.material.read
       x-problem-codes: []
       parameters:
         - $ref: "#/components/parameters/Id"
+        - name: language
+          in: query
+          required: false
+          description: "The language to answer each material's `description` in, a BCP 47 tag (ADR-0082 As built S1a2): the material's description in that language, found by RFC 4647 lookup (`ar-AE`, then `ar`), else its default description; `description_language` says which. Absent: the default description."
+          schema:
+            type: string
+            maxLength: 12
+            pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+            example: ar
       responses:
         "200":
           description: The material.
@@ -25552,7 +25631,7 @@ paths:
       tags:
         - materials
       summary: Request a change of a material
-      description: "Requests a change of a material's description, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at once, a pending change or not (the material answered blocked, with a material change of kind `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a pending update approved later leaves the block in place. Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
+      description: "Requests a change of a material's description, further descriptions, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; `descriptions` replaces its further descriptions, an empty list removing them (S1a2), and `description` sets its default one; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at once, a pending change or not (the material answered blocked, with a material change of kind `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a pending update approved later leaves the block in place. Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
@@ -25560,6 +25639,7 @@ paths:
         - ledger.no_exchange_rate
         - materials.base_unit_conversion
         - materials.change_pending
+        - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
@@ -25568,6 +25648,7 @@ paths:
         - materials.number_taken
         - materials.plant_invalid
         - materials.storage_location_invalid
+        - materials.unknown_language
         - materials.unknown_status
         - materials.unknown_unit
         - request.validation_failed
@@ -27519,11 +27600,12 @@ paths:
       tags:
         - mrp
       summary: Plan a material at a plant
-      description: "Gives a material its planning data at a plant (ADR-0084 §4; SAP MARC's MRP view, MM02): how planning runs plan it (`mrp_type`: `reorder_point`, SAP's VB, or `no_planning`, ND) and its reorder point in its base unit, and the account its proposed purchase requisitions name. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may post to (422 `mrp.account_not_postable`); an MRP type of the list (422 `mrp.invalid_mrp_type`); a reorder point with up to six decimals (422 `mrp.invalid_quantity`). A material is planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`)."
+      description: "Gives a material its planning data at a plant (ADR-0084 §4; SAP MARC's MRP view, MM02): how planning runs plan it (`mrp_type`: `reorder_point`, SAP's VB, or `no_planning`, ND) and its reorder point in its base unit, and the account its proposed purchase requisitions name. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may post to (422 `mrp.account_not_postable`); an MRP type of the list (422 `mrp.invalid_mrp_type`); a reorder point with up to six decimals (422 `mrp.invalid_quantity`); a lot sizing procedure of the list, `lot_for_lot` unless named, with the quantities it uses and no others, each more than zero with up to six decimals (422 `mrp.invalid_quantity`): a fixed lot size exactly with `fixed`, a maximum stock level not below the reorder point exactly with `replenish_to_maximum`, no minimum or maximum lot size or rounding value with a fixed lot, a minimum lot size not above the maximum and both multiples of the rounding value (422 `mrp.invalid_lot_size`, naming the field). A material is planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`)."
       x-permission: mrp.plan.write
       x-agent: false
       x-problem-codes:
         - mrp.account_not_postable
+        - mrp.invalid_lot_size
         - mrp.invalid_mrp_type
         - mrp.invalid_quantity
         - mrp.material_invalid
@@ -27609,11 +27691,12 @@ paths:
       tags:
         - mrp
       summary: Change a material's planning data
-      description: "Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084 §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_mrp_type`, `mrp.invalid_quantity`, `mrp.account_not_postable`); a change to what it already is is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only (`x-agent: false`)."
+      description: "Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084 §4): its MRP type, reorder point, lot sizing (`null` removes a quantity) or account, checked as on creation, the planning data as it is after the change (422 `mrp.invalid_mrp_type`, `mrp.invalid_quantity`, `mrp.invalid_lot_size`, `mrp.account_not_postable`: changing `lot_size` removes or adds the quantities the procedures use in the same patch); a change to what it already is is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only (`x-agent: false`)."
       x-permission: mrp.plan.write
       x-agent: false
       x-problem-codes:
         - mrp.account_not_postable
+        - mrp.invalid_lot_size
         - mrp.invalid_mrp_type
         - mrp.invalid_quantity
         - mrp.material_plan_exists
@@ -27664,7 +27747,7 @@ paths:
       tags:
         - mrp
       summary: Start a planning run
-      description: "Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a workflow, or in process in a cell without a workflow engine, as the person who started it. On the plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`) that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales orders (each standing item's ordered quantity less what is delivered) and the ordered quantities of the intercompany purchase orders the plant supplies (`supplying_plant_id`) that are not closed, cancelled or issued (their standing items) and of the stock transport orders within the company from the plant that are not issued, the plant's stock at its storage locations (not stock in transit), and its open receipts (the open quantities of the stock items of purchase orders not closed or cancelled at the plant, the quantities of the stock transport orders within the company to the plant that are not received, open or in transit, and the items of the requisitions earlier runs proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft purchase requisition of the material in its base unit, raised by the person who started the run in the company's currency at the material's valuation price at the plant (zero when it has none), naming the planning data's account and needed by the run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a run proposed them. A proposal a person changed or submitted is theirs from then on and is never touched; a requisition a person raised is never touched either. The run's lines say what it counted and proposed per material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's requisition number range exhausted, the account no longer postable, the requester no longer active, an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`)."
+      description: "Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a workflow, or in process in a cell without a workflow engine, as the person who started it. On the plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`) that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales orders (each standing item's ordered quantity less what is delivered) and the ordered quantities of the intercompany purchase orders the plant supplies (`supplying_plant_id`) that are not closed, cancelled or issued (their standing items) and of the stock transport orders within the company from the plant that are not issued, the plant's stock at its storage locations (not stock in transit), and its open receipts (the open quantities of the stock items of purchase orders not closed or cancelled at the plant, the quantities of the stock transport orders within the company to the plant that are not received, open or in transit, and the items of the requisitions earlier runs proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is sized by the planning data's lot sizing procedure (lot for lot: the shortage itself; a fixed lot size; or up to the maximum stock level, with the minimum and maximum lot sizes and the rounding value) and proposed as a draft purchase requisition of the material in its base unit, an item per lot, raised by the person who started the run in the company's currency at the material's valuation price at the plant (zero when it has none), naming the planning data's account and needed by the run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a run proposed them. A proposal a person changed or submitted is theirs from then on and is never touched; a requisition a person raised is never touched either. The run's lines say what it counted and proposed per material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's requisition number range exhausted, the account no longer postable, the requester no longer active, an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; a shortage needing more than 100 lots of a material's fixed or maximum lot size: `mrp.too_many_lots`; `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`)."
       x-permission: mrp.run.start
       x-agent: false
       x-problem-codes:
@@ -41317,6 +41400,7 @@ paths:
         - materials.base_unit_conversion
         - materials.batch_managed_not_stocked
         - materials.change_pending
+        - materials.duplicate_language
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
@@ -41324,6 +41408,7 @@ paths:
         - materials.plant_invalid
         - materials.serial_managed_not_stocked
         - materials.storage_location_invalid
+        - materials.unknown_language
         - materials.unknown_material_type
         - materials.unknown_unit
         - partner.address_overlap
@@ -56861,6 +56946,78 @@ components:
         material_description: {type: string, description: "Its description; absent for `no_material`.", readOnly: true}
         reason: {type: string, description: "Why the key's items were not mapped, for `not_mappable`: the material's status, or the units its items are ordered in that are none of the material's.", readOnly: true}
         items: {type: integer, format: int32, minimum: 1, description: "The key's catalog items: those mapped, or those left without a material.", readOnly: true}
+    SupplierDeliveryPerformance:
+      type: object
+      description: "How the suppliers of a material delivered it to a plant over a window (procurement, ADR-0082 As built S2l1), measured from posted purchase orders and goods receipts."
+      required: [plant_id, plant_code, plant_name, legal_entity_id, material_id, from, to, min_receipts, suppliers, totals]
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        plant_name: {type: string, description: "The plant's name.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
+        supplier_id: {type: string, format: uuid, description: "The one supplier the read was narrowed to (`supplier_id`), as asked; absent for a read of every supplier. A narrowed read's empty `suppliers` says nothing of the others.", readOnly: true}
+        from: {type: string, format: date, description: "The window's first posting date.", readOnly: true}
+        to: {type: string, format: date, description: "The window's last posting date.", readOnly: true}
+        min_receipts: {type: integer, format: int32, minimum: 1, description: "The receipts a supplier needs in the window for its history to be `measured`; with fewer it is `thin`.", readOnly: true}
+        suppliers:
+          type: array
+          items: {$ref: "#/components/schemas/SupplierDelivery"}
+          description: "One row per supplier with a receipt in the window, in the order of `supplier_number`, then `supplier_id`."
+        totals: {$ref: "#/components/schemas/SupplierDeliveryTotals"}
+      examples:
+        - plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          from: "2025-11-25"
+          to: "2026-11-24"
+          min_receipts: 3
+          suppliers:
+            - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+              supplier_number: BP100057
+              supplier_name: Tyrell Office Supply
+              receipts: 4
+              dated_receipts: 4
+              on_time_receipts: 3
+              on_time_percent: 75
+              planned_lead_days: 5
+              observed_lead_days: 6
+              last_receipt_date: "2026-11-20"
+              history: measured
+          totals: {receipts: 4, dated_receipts: 4, on_time_receipts: 3, on_time_percent: 75}
+    SupplierDelivery:
+      type: object
+      description: "One supplier's deliveries of the material to the plant in the window."
+      required: [supplier_id, supplier_number, supplier_name, receipts, dated_receipts, on_time_receipts, observed_lead_days, last_receipt_date, history]
+      properties:
+        supplier_id: {type: string, format: uuid, description: "The supplier (`GET /v1/business-partners/{id}`).", readOnly: true}
+        supplier_number: {type: string, description: "The supplier's business partner number.", readOnly: true}
+        supplier_name: {type: string, description: "The supplier's name, as it is now.", readOnly: true}
+        receipts: {type: integer, format: int32, minimum: 1, description: "Goods receipt items posted in the window, not reversed.", readOnly: true}
+        dated_receipts: {type: integer, format: int32, minimum: 0, description: "Of `receipts`, those whose order item has a delivery date: the ones on time or late.", readOnly: true}
+        on_time_receipts: {type: integer, format: int32, minimum: 0, description: "Of `dated_receipts`, those posted on or before their order item's delivery date.", readOnly: true}
+        on_time_percent: {type: integer, format: int32, minimum: 0, maximum: 100, description: "`on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no receipt is dated.", readOnly: true}
+        planned_lead_days: {type: integer, format: int32, description: "The order items' delivery date less the order date, the average over `dated_receipts` in whole days rounded half away from zero; absent when no receipt is dated.", readOnly: true}
+        observed_lead_days: {type: integer, format: int32, description: "The receipts' posting date less their order's date, the average in whole days rounded half away from zero.", readOnly: true}
+        last_receipt_date: {type: string, format: date, description: "The latest receipt's posting date.", readOnly: true}
+        history:
+          type: string
+          x-extensible-enum: [measured, thin]
+          description: "`measured`: at least `min_receipts` receipts in the window; `thin`: fewer, so the measures say little. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+    SupplierDeliveryTotals:
+      type: object
+      description: "Every row's receipts summed, their on-time share and their lead times."
+      required: [receipts, dated_receipts, on_time_receipts]
+      properties:
+        receipts: {type: integer, format: int32, minimum: 0, description: "Goods receipt items of every row.", readOnly: true}
+        dated_receipts: {type: integer, format: int32, minimum: 0, description: "Of them, those whose order item has a delivery date.", readOnly: true}
+        on_time_receipts: {type: integer, format: int32, minimum: 0, description: "Of them, those posted on or before it.", readOnly: true}
+        on_time_percent: {type: integer, format: int32, minimum: 0, maximum: 100, description: "`on_time_receipts` in percent of `dated_receipts`, rounded half away from zero; absent when no receipt is dated.", readOnly: true}
+        planned_lead_days: {type: integer, format: int32, description: "The planned lead time averaged over every dated receipt of every row, in whole days rounded half away from zero (not an average of the rows' rounded figures); absent when no receipt is dated.", readOnly: true}
+        observed_lead_days: {type: integer, format: int32, description: "The observed lead time averaged over every receipt of every row, rounded the same way; absent when there is no receipt.", readOnly: true}
     CatalogItem:
       description: "A catalog item (procurement, ADR-0071): a supplier's item in a company's catalog, with one price."
       allOf:
@@ -68222,7 +68379,13 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose `material` number range numbers the material, one the caller may act in. The material itself is the tenant's."}
-        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is, as people find it."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is, as people find it: its default description, in `description_language`."}
+        description_language: {type: string, maxLength: 12, pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$", default: en, description: "The default description's language, a BCP 47 tag (ADR-0082 As built S1a2): a language with an optional script and region, in their canonical form, its subtags known. It does not change."}
+        descriptions:
+          type: array
+          maxItems: 50
+          items: {$ref: "#/components/schemas/MaterialDescription"}
+          description: "Its further descriptions, one per language, none in the default's language (SAP's MAKT texts); none when absent."
         base_unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The unit stock and quantities of the material are kept in; it does not change."}
         material_type:
           type: string
@@ -68246,10 +68409,15 @@ components:
         serial_managed: {type: boolean, default: false, description: "Give the material a serial number profile (ADR-0082 As built S2g; SAP's serial number profile, from memory): every goods movement of it names the serial number of each unit it moves (`serial_numbers`), and each serial number is in stock at most once (`GET /v1/serial-numbers`). Only a material kept in stock has one (422 `materials.serial_managed_not_stocked` for `non_stock` and `service`). It does not change."}
     MaterialUpdate:
       type: object
-      description: "Merge patch of a material: its description, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
+      description: "Merge patch of a material: its description, further descriptions, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
       additionalProperties: false
       properties:
-        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is: its default description, in its default language."}
+        descriptions:
+          type: array
+          maxItems: 50
+          items: {$ref: "#/components/schemas/MaterialDescription"}
+          description: "The material's further descriptions, one per language, none in its default language, replacing those it has; an empty list removes them."
         material_group: {type: string, pattern: "^[A-Z0-9_-]{1,9}$", description: "The material group."}
         status:
           type: string
@@ -68269,6 +68437,16 @@ components:
         reason: {type: string, maxLength: 500, description: "Why it is changed, kept on the change for the approver."}
       examples:
         - material_group: FASTENERS
+    MaterialDescription:
+      type: object
+      description: "A material's description in a language (ADR-0082 As built S1a2; SAP MAKT, from memory), stored and answered as given."
+      required: [language, description]
+      additionalProperties: false
+      properties:
+        language: {type: string, maxLength: 12, pattern: "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$", description: "The language, a BCP 47 tag: a language with an optional script and region, in their canonical form, its subtags known."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is, in that language."}
+      examples:
+        - {language: ar, description: "دعامة مشغولة M10"}
     MaterialStorageLocation:
       type: object
       description: "A storage location a material is kept in at a plant."
@@ -68306,12 +68484,19 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [number, legal_entity_id, company_code, description, base_unit, base_unit_name, material_type, material_group, status, batch_managed, serial_managed, plants, alternative_units]
+          required: [number, legal_entity_id, company_code, description, description_language, default_language, descriptions, base_unit, base_unit_name, material_type, material_group, status, batch_managed, serial_managed, plants, alternative_units]
           properties:
             number: {type: string, description: "The material's number, unique in the tenant, from the `material` number range of the company that created it.", readOnly: true}
             legal_entity_id: {type: string, format: uuid, description: "The company whose range numbered the material.", readOnly: true}
             company_code: {type: string, description: "That company's code.", readOnly: true}
-            description: {type: string, description: "What the material is."}
+            description: {type: string, description: "What the material is, in the `language` the read asked for where the material has a description in it, else its default description (S1a2)."}
+            description_language: {type: string, description: "The language `description` is in.", readOnly: true}
+            default_language: {type: string, description: "The language of the material's default description; it does not change.", readOnly: true}
+            descriptions:
+              type: array
+              items: {$ref: "#/components/schemas/MaterialDescription"}
+              description: "Its descriptions in every language it has: the default first, then the others by language."
+              readOnly: true
             base_unit: {type: string, description: "The base unit of measure.", readOnly: true}
             base_unit_name: {type: string, description: "The base unit's name.", readOnly: true}
             material_type:
@@ -68350,6 +68535,11 @@ components:
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           company_code: "3000"
           description: Machined bracket M10
+          description_language: en
+          default_language: en
+          descriptions:
+            - {language: en, description: Machined bracket M10}
+            - {language: ar, description: "دعامة مشغولة M10"}
           base_unit: EA
           base_unit_name: Each
           material_type: trading_good
@@ -68401,7 +68591,13 @@ components:
       type: object
       description: "What a material change asks for: the fields it sets, absent when it leaves them. A create's names the whole material; an update's `plants` replace the material's plants in the companies its requester could act in."
       properties:
-        description: {type: string, description: "The description.", readOnly: true}
+        description: {type: string, description: "The default description.", readOnly: true}
+        description_language: {type: string, description: "The default description's language (a create's only).", readOnly: true}
+        descriptions:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialDescription"}
+          description: "The further descriptions, by language, replacing the material's: unlike `Material.descriptions`, the default description is not among them; it is `description`."
+          readOnly: true
         base_unit: {type: string, description: "The base unit (a create's only).", readOnly: true}
         material_type: {type: string, description: "The material type (a create's only).", readOnly: true}
         batch_managed: {type: boolean, description: "Whether the material is managed in batches (a create's only).", readOnly: true}
@@ -68433,7 +68629,7 @@ components:
               readOnly: true
             material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
             material_number: {type: string, description: "The material's number.", readOnly: true}
-            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            material_description: {type: string, description: "The material's default description, as it is now.", readOnly: true}
             status:
               type: string
               x-extensible-enum: [pending, applied, rejected, cancelled]
@@ -69197,7 +69393,7 @@ components:
           properties:
             material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
             material_number: {type: string, description: "The material's number.", readOnly: true}
-            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            material_description: {type: string, description: "The material's default description, as it is now.", readOnly: true}
             plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
             plant_code: {type: string, description: "The plant's code.", readOnly: true}
             plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
@@ -69291,6 +69487,17 @@ components:
           description: "`reorder_point` (SAP's VB): runs propose what brings the plant's available quantity back to the reorder point; `no_planning` (ND): runs leave it out. Open enumeration: values may be added within /v1."
         reorder_point: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The reorder point in the material's base unit, zero or more."}
         account_id: {type: string, format: uuid, description: "The account the requisitions runs propose name, one the plant's company may post to; a stock item's receipt posts its valuation class's accounts."}
+        lot_size:
+          type: string
+          minLength: 1
+          maxLength: 30
+          x-extensible-enum: [lot_for_lot, fixed, replenish_to_maximum]
+          description: "How a run sizes what it proposes for a shortage (SAP's lot sizing procedure, MARC-DISLS, from memory): `lot_for_lot` (EX, the default), the shortage itself; `fixed` (FX), as many lots of `fixed_lot_size` as cover it; `replenish_to_maximum` (HB), what brings the available quantity up to `maximum_stock_level`. A lot-for-lot or replenish-to-maximum quantity is raised to `minimum_lot_size`, rounded up to a multiple of `rounding_value` and split into lots of at most `maximum_lot_size`; each lot is an item of the material's one proposed requisition. Open enumeration: values may be added within /v1."
+        fixed_lot_size: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The fixed procedure's lot in the material's base unit, more than zero; given with `lot_size` `fixed` alone."}
+        maximum_stock_level: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The level `replenish_to_maximum` brings the available quantity up to, in the base unit, not below the reorder point; given with that procedure alone."}
+        minimum_lot_size: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The least a lot is, in the base unit, more than zero and not above `maximum_lot_size`; not given with a fixed lot."}
+        maximum_lot_size: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The most a lot is, in the base unit, more than zero; a larger quantity is split into lots of it and a last lot of the rest. Not given with a fixed lot."}
+        rounding_value: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "A lot is rounded up to a multiple of it, in the base unit, more than zero (a pack size); the minimum and maximum lot sizes are multiples of it. Not given with a fixed lot."}
     MaterialPlanUpdate:
       type: object
       description: "Merge patch of a material's planning data."
@@ -69304,12 +69511,23 @@ components:
           description: "The MRP type. Open enumeration: values may be added within /v1."
         reorder_point: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The reorder point in the material's base unit."}
         account_id: {type: string, format: uuid, description: "The account its proposals name."}
+        lot_size:
+          type: string
+          minLength: 1
+          maxLength: 30
+          x-extensible-enum: [lot_for_lot, fixed, replenish_to_maximum]
+          description: "The lot sizing procedure. Open enumeration: values may be added within /v1."
+        fixed_lot_size: {type: [string, "null"], pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The fixed lot size; null removes it."}
+        maximum_stock_level: {type: [string, "null"], pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The maximum stock level; null removes it."}
+        minimum_lot_size: {type: [string, "null"], pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The minimum lot size; null removes it."}
+        maximum_lot_size: {type: [string, "null"], pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The maximum lot size; null removes it."}
+        rounding_value: {type: [string, "null"], pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The rounding value; null removes it."}
     MaterialPlan:
       description: "A material's planning data at a plant (SAP MARC's MRP view; ADR-0084 §4)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, mrp_type, reorder_point, account_id, account_number]
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, mrp_type, reorder_point, lot_size, account_id, account_number]
           properties:
             plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
             plant_code: {type: string, description: "The plant's code.", readOnly: true}
@@ -69318,12 +69536,21 @@ components:
             company_code: {type: string, description: "That company's code.", readOnly: true}
             material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
             material_number: {type: string, description: "The material's number.", readOnly: true}
-            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            material_description: {type: string, description: "The material's default description, as it is now.", readOnly: true}
             mrp_type:
               type: string
               x-extensible-enum: [reorder_point, no_planning]
               description: "`reorder_point` or `no_planning`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             reorder_point: {$ref: "#/components/schemas/Quantity", description: "The reorder point, in the material's base unit."}
+            lot_size:
+              type: string
+              x-extensible-enum: [lot_for_lot, fixed, replenish_to_maximum]
+              description: "`lot_for_lot`, `fixed` or `replenish_to_maximum` (`createMaterialPlan`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            fixed_lot_size: {$ref: "#/components/schemas/Quantity", description: "The fixed lot size, in the base unit; absent unless `lot_size` is `fixed`."}
+            maximum_stock_level: {$ref: "#/components/schemas/Quantity", description: "The maximum stock level, in the base unit; absent unless `lot_size` is `replenish_to_maximum`."}
+            minimum_lot_size: {$ref: "#/components/schemas/Quantity", description: "The minimum lot size, in the base unit; absent when none is given."}
+            maximum_lot_size: {$ref: "#/components/schemas/Quantity", description: "The maximum lot size, in the base unit; absent when none is given."}
+            rounding_value: {$ref: "#/components/schemas/Quantity", description: "The rounding value, in the base unit; absent when none is given."}
             account_id: {type: string, format: uuid, description: "The account its proposals name."}
             account_number: {type: string, description: "That account's number.", readOnly: true}
       examples:
@@ -69342,6 +69569,7 @@ components:
           material_description: Hinge H30
           mrp_type: reorder_point
           reorder_point: {value: "30", unit: EA}
+          lot_size: lot_for_lot
           account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
           account_number: "140000"
     MaterialPlanPage:
@@ -69370,7 +69598,7 @@ components:
         plant_id: {type: string, format: uuid, description: "The plant to plan.", example: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61}
     MrpRunError:
       type: object
-      description: "The problem that failed a run: `mrp.run_cancelled` (its Operation cancelled before it was carried out), `mrp.unit_not_convertible` (an open quantity in a unit the material no longer has), `identity.principal_blocked` (who started it is no longer active), `platform.internal` (an error outlasting its retries), or a problem a proposed requisition was refused with (`procurement.account_not_postable`, `procurement.invalid_quantity`, `procurement.material_not_usable`, `config.no_number_range`, `config.number_range_exhausted`, `config.not_bootstrapped`). Open list: values may be added within /v1."
+      description: "The problem that failed a run: `mrp.run_cancelled` (its Operation cancelled before it was carried out), `mrp.unit_not_convertible` (an open quantity in a unit the material no longer has), `mrp.too_many_lots` (a material's fixed or maximum lot size needs more than 100 lots for its shortage), `identity.principal_blocked` (who started it is no longer active), `platform.internal` (an error outlasting its retries), or a problem a proposed requisition was refused with (`procurement.account_not_postable`, `procurement.invalid_quantity`, `procurement.material_not_usable`, `config.no_number_range`, `config.number_range_exhausted`, `config.not_bootstrapped`). Open list: values may be added within /v1."
       required: [code, detail]
       properties:
         code: {type: string, description: "The problem's code."}
@@ -69378,7 +69606,7 @@ components:
     MrpRunLine:
       type: object
       description: "What a run counted and proposed of one material, in its base unit."
-      required: [material_id, material_number, material_description, reorder_point, demand, stock, receipts, shortage]
+      required: [material_id, material_number, material_description, reorder_point, demand, stock, receipts, shortage, lot_size, proposed]
       properties:
         material_id: {type: string, format: uuid, description: "The material."}
         material_number: {type: string, description: "The material's number."}
@@ -69388,6 +69616,12 @@ components:
         stock: {$ref: "#/components/schemas/Quantity", description: "The plant's stock at its storage locations."}
         receipts: {$ref: "#/components/schemas/Quantity", description: "The plant's open receipts: purchase orders' open quantities, the quantities of the stock transport orders within the company to it that are not received, and the proposals a person took over."}
         shortage: {$ref: "#/components/schemas/Quantity", description: "What brings the stock and receipts less the demand back to the reorder point; zero when they are not below it."}
+        lot_size:
+          type: string
+          x-extensible-enum: [lot_for_lot, fixed, replenish_to_maximum]
+          description: "The lot sizing procedure the run sized the shortage by (the planning data's). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        proposed: {$ref: "#/components/schemas/Quantity", description: "What the run proposed for the shortage, sized by the procedure, the shortage or more; zero without a shortage."}
+        lots: {type: integer, format: int32, minimum: 1, maximum: 100, description: "In how many lots, the items of the requisition proposed; absent without a shortage."}
         requisition_id: {type: string, format: uuid, description: "The draft requisition proposed for the shortage (`GET /v1/requisitions/{id}`); absent without a shortage."}
         requisition_number: {type: string, description: "That requisition's number."}
     MrpRunReplaced:
