@@ -245,7 +245,7 @@ func (v *validator) secondaryAccounts(p string, co *Company) {
 		}
 	}
 	for _, aa := range co.AssetAccounts {
-		for _, r := range [][2]string{{"depreciation", aa.Depreciation}, {"loss", aa.Loss}} {
+		for _, r := range [][2]string{{"depreciation", aa.Depreciation}, {"loss", aa.Loss}, {"impairment_loss", aa.ImpairmentLoss}} {
 			if secondary(r[1]) {
 				v.err(p+".asset_accounts["+aa.Class+"]."+r[0], why, r[1])
 			}

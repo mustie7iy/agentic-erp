@@ -164,6 +164,9 @@ type journalEntry struct {
 		AccountID string `json:"account_id"`
 		AmountLC  amount `json:"amount_lc"`
 		PartnerID string `json:"partner_id"`
+		// TaxJurisdiction is the subdivision the line's tax is levied in
+		// (a UAE sale's emirate, ADR-0049 §7); "" for a line without one.
+		TaxJurisdiction string `json:"tax_jurisdiction"`
 	}
 }
 
@@ -340,7 +343,7 @@ func (b *factBuilder) addEntry(le legalEntity, je journalEntry, chart map[string
 		v := b.vendors[l.PartnerID]
 		dims := map[string]string{"company": le.Code, "account": a.Number, "account_name": a.Name, "account_type": a.AccountType,
 			"determination": a.determination(le.ID), "document_type": je.DocumentType, "vendor": v.Number, "vendor_name": v.Name, "vendor_recon": strconv.FormatBool(recon),
-			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)])}
+			"cleared": strconv.FormatBool(recon && !isOpen[je.ID+"/"+strconv.Itoa(l.LineNo)]), "tax_jurisdiction": l.TaxJurisdiction}
 		amt, err := b.minor(l.AmountLC)
 		if err == nil {
 			err = b.calendar(dims, "posting_date", je.PostingDate)

@@ -109,6 +109,66 @@ func TestImportFromCustomsDeclaration(t *testing.T) {
 	}
 }
 
+// postedLines renders the lines of the JournalEntryPosted events of entry
+// as "line_no jurisdiction base_tc base_lc", "-" where a field is absent.
+func postedLines(t *testing.T, e env, entry string) []string {
+	t.Helper()
+	var out []string
+	for _, ev := range events(t, e.ten, "journal_entry_posted") {
+		if ev["journal_entry_id"] != entry {
+			continue
+		}
+		for _, l := range ev["lines"].([]any) {
+			line := l.(map[string]any)
+			field := func(name string) string {
+				switch v := line[name].(type) {
+				case string:
+					return v
+				case map[string]any:
+					return fmt.Sprintf("%v %v", v["amount"], v["currency"])
+				case nil:
+					return "-"
+				}
+				return fmt.Sprintf("unexpected %T", line[name])
+			}
+			out = append(out, fmt.Sprintf("%v %s %s %s", line["line_no"], field("tax_jurisdiction"), field("tax_base_tc"), field("tax_base_lc")))
+		}
+	}
+	return out
+}
+
+// TestPostedEventTax: JournalEntryPosted's lines carry what the entry's
+// tax items were written from (ADR-0049 §7, §9): a sale's emirate on its
+// base and tax lines, and an import's declared base in transaction and
+// local currency on its tax lines, negated on the reversal; a line
+// without them carries neither.
+func TestPostedEventTax(t *testing.T) {
+	t.Run("a sale in Dubai", func(t *testing.T) {
+		e := setup(t)
+		outputCodes(t, e)
+		je, _ := e.in(t).Must(201, "POST", "/v1/journal-entries", saleEntry(t, e, saleLine{"100000", "105.00", "", ""},
+			saleLine{"400000", "-100.00", "S5", "AE-DU"}, saleLine{"240000", "-5.00", "S5", "AE-DU"}), "")
+		if got, want := postedLines(t, e, apitest.String(t, je, "id")), []string{"1 - - -", "2 AE-DU - -", "3 AE-DU - -"}; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("event lines: got %v, want %v", got, want)
+		}
+	})
+	t.Run("an import's declared base", func(t *testing.T) {
+		e := setup(t)
+		importCodes(t, e)
+		settleRate(t, e, "AED", "2026-01-01", "0.25")
+		je, tag := e.in(t).Must(201, "POST", "/v1/journal-entries",
+			importEntry(t, e, "AED", importLine{"140000", "500.00", "IM5", "10000.00"}, importLine{"240000", "-500.00", "IM5", "10000.00"}), "")
+		id := apitest.String(t, je, "id")
+		if got, want := postedLines(t, e, id), []string{"1 - 10000.00 AED 2500.00 EUR", "2 - 10000.00 AED 2500.00 EUR"}; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("event lines: got %v, want %v", got, want)
+		}
+		rev, _ := e.in(t).Must(200, "POST", "/v1/journal-entries/"+id+":reverse", "", tag)
+		if got, want := postedLines(t, e, apitest.String(t, rev, "id")), []string{"1 - -10000.00 AED -2500.00 EUR", "2 - -10000.00 AED -2500.00 EUR"}; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("reversal's event lines: got %v, want %v", got, want)
+		}
+	})
+}
+
 // TestImportReversedAfterAccountChange: an import entry is reversed on its
 // own accounts after its component moved to another account.
 func TestImportReversedAfterAccountChange(t *testing.T) {

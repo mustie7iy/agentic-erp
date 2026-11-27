@@ -3810,9 +3810,11 @@ ASSET_SETTINGS='
       {"number": "1695", "name": "Asset sale clearing", "type": "asset"},
       {"number": "4950", "name": "Gain on asset retirements", "type": "revenue"},
       {"number": "6250", "name": "Depreciation of machinery", "type": "expense"},
-      {"number": "6950", "name": "Loss on asset retirements", "type": "expense"}]
+      {"number": "6950", "name": "Loss on asset retirements", "type": "expense"},
+      {"number": "6960", "name": "Impairment of machinery", "type": "expense"},
+      {"number": "4960", "name": "Reversal of asset impairments", "type": "revenue"}]
     | .asset_accounts = (["MACHINES", "TOOLS"] | map({"class": ., "acquisition_cost": "1600", "accumulated_depreciation": "1609", "depreciation": "6250",
-        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695"})))
+        "clearing": "1690", "gain": "4950", "loss": "6950", "sale_clearing": "1695", "impairment_loss": "6960", "impairment_reversal": "4960"})))
 | .number_ranges += (["asset", "journal_aa", "journal_af"] | map({"company": "@CC@", "document_type": ., "fiscal_year": @YEAR@, "first": 1, "last": 999999}))'
 
 step_assets() {
@@ -5222,6 +5224,60 @@ uae_year_end_adjustment() {
   done
 }
 
+# uae_ledger_hook has Sam subscribe step 35's webhook subscriber to the
+# ledger's JournalEntryPosted while Carla posts the quarter's sales and
+# imports, the subscriber verifying with its secret in place of the
+# treasury's (kept in hook/secret.treasury); it sets the caller's hook.
+uae_ledger_hook() {
+  as sam
+  say "Maple's tax analytics wants each posting's lines as they are posted: Sam subscribes its endpoint to the ledger's"
+  say "JournalEntryPosted, whose lines carry the emirate and the declared tax base (ADR-0049 §9 As built, batch 95):"
+  api 201 '"subscription to \(.event_types | join(", ")) at \(.url): \(.status)"' createWebhookSubscription \
+    -body "{\"url\": \"https://$HOOK_ADDR/tax/events\", \"description\": \"Maple tax analytics\", \"event_types\": [\"com.example.erp.ledger.journal_entry_posted.v1\"]}"
+  hook=$(field .id)
+  cp "$WORK/hook/secret" "$WORK/hook/secret.treasury"
+  field .secret >"$WORK/hook/secret"
+}
+
+# uae_ledger_events HOOK SALE IMPORT shows the lines of the Dubai sale's
+# and the customs declaration's JournalEntryPosted as the subscriber
+# received them, once every delivery of the subscription is delivered;
+# then Sam deletes it and the treasury's secret is back.
+uae_ledger_events() {
+  local hook=$1 sale=$2 imported=$3 i file entry delivery lines='"\(.line_no) \(.amount_tc.amount) \(.amount_tc.currency)\(if .tax_code then " \(.tax_code)" else "" end)\(if .tax_jurisdiction then " in \(.tax_jurisdiction)" else "" end)\(if .tax_base_tc then ", declared base \(.tax_base_tc.amount) \(.tax_base_tc.currency) (\(.tax_base_lc.amount) \(.tax_base_lc.currency))" else "" end)"'
+  as sam
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listWebhookDeliveries -p "id=$hook"
+    if [ "$(field '[.items[] | select(.subject == "'"$sale"'" or .subject == "'"$imported"'")] | length')" = 2 ] &&
+      [ "$(field '[.items[] | select(.status != "delivered")] | length')" = 0 ]; then break; fi
+    sleep 0.25
+  done
+  expect "the sale's and the import's events, delivered (after $i checks)" \
+    "$(field '[.items[] | select((.subject == "'"$sale"'" or .subject == "'"$imported"'") and .status == "delivered")] | length')" 2
+  say "What the endpoint received of the Dubai sale's and the customs declaration's events (no partner's name, product"
+  say "owner 2026-11-05): each line's amount and code, the emirate it is levied in and the declared base, in transaction"
+  say "and local currency, both AED here:"
+  for entry in "$sale" "$imported"; do
+    delivery=$(field '.items[] | select(.subject == "'"$entry"'") | .id')
+    for file in "$WORK"/hook/received/delivery-*.json; do
+      [ -e "$file" ] || break # none received: the glob is left as written, and the check below says so
+      if [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ]; then break; fi
+    done
+    [ -s "$file" ] && [ "$(jq -r .webhook_delivery_id "$file")" = "$delivery" ] || fail "the endpoint did not receive delivery $delivery"
+    jq -r '"  \(.event.type) of entry \(.event.data.document_number), verified \(.verified)", (.event.data.lines[] | "    line " + '"$lines"')' "$file" | sed 's/^/   /'
+    cp "$file" "$WORK/event-$entry.json"
+  done
+  expect "the sale's lines in Dubai" "$(jq -r '[.event.data.lines[] | select(.tax_jurisdiction == "AE-DU") | .amount_tc.amount] | join(" ")' "$WORK/event-$sale.json")" "-10000.00 -500.00"
+  expect "the sale's lines declaring a base" "$(jq -r '[.event.data.lines[] | select(has("tax_base_tc"))] | length' "$WORK/event-$sale.json")" 0
+  expect "the import's declared bases" \
+    "$(jq -r '[.event.data.lines[] | "\(.tax_base_tc.amount) \(.tax_base_tc.currency)/\(.tax_base_lc.amount)"] | join(", ")' "$WORK/event-$imported.json")" \
+    "10000.00 AED/10000.00, 10000.00 AED/10000.00"
+  expect "the import's lines in no emirate" "$(jq -r '[.event.data.lines[] | select(has("tax_jurisdiction"))] | length' "$WORK/event-$imported.json")" 0
+  QUIET=1 api 200 '' getWebhookSubscription -p "id=$hook"
+  api 200 '"  subscription \(.description): \(.status)"' deleteWebhookSubscription -p "id=$hook" -if-match "$ETAG"
+  mv "$WORK/hook/secret.treasury" "$WORK/hook/secret"
+}
+
 # uae_return AE SUPPLIER EXPENSE is step 41's VAT 201 (T61k) of legal
 # entity AE's latest quarter ended: Carla posts its sales in Dubai and Abu
 # Dhabi, a zero-rated export, an exempt supply and the import VAT of a
@@ -5232,7 +5288,7 @@ uae_year_end_adjustment() {
 # computes the draft and drills box 1b down, prepares the return,
 # Fiona approves it and Carla records it filed.
 uae_return() {
-  local ae=$1 supplier=$2 expense=$3 registration start end bank sales vat input ret request
+  local ae=$1 supplier=$2 expense=$3 registration start end bank sales vat input ret request hook dubai imported
   as carla
   QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
   bank=$(field '.items[] | select(.number == "1000") | .id')
@@ -5266,7 +5322,10 @@ uae_return() {
   say "Its sales for $start to $end, entered today with the quarter's last day as their tax date (P6): standard-rated"
   say "sales name the emirate of the establishment that made them (S5 levies the line's emirate, ADR-0049 §7), so the"
   say "VAT 201 reports them by emirate (boxes 1a-1g); a zero-rated export (Z0) and an exempt supply (E0):"
+  uae_ledger_hook
+  as carla
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Dubai branch" "$(uae_line "$bank" 10500.00), $(uae_line "$sales" -10000.00 S5 AE-DU), $(uae_line "$vat" -500.00 S5 AE-DU)")"
+  dubai=$(field .id)
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Abu Dhabi branch" "$(uae_line "$bank" 4200.00), $(uae_line "$sales" -4000.00 S5 AE-AZ), $(uae_line "$vat" -200.00 S5 AE-AZ)")"
   say "A sale keyed with a mistyped emirate, AE-DB for Dubai, is refused: S5 accepts the seven emirates alone (the"
   say "emirate guard), so its VAT cannot fall outside boxes 1a-1g unreported:"
@@ -5277,6 +5336,15 @@ uae_return() {
   say "Goods imported through customs: the declaration's AED 10,000.00, its import VAT of 500.00 accounted for in the"
   say "return, owed and recovered (IM5, ADR-0049 §9), an entry of tax lines that name the declared value:"
   api 201 "$entry" postJournalEntry -body "$(uae_entry "Customs declaration: import VAT" "$(uae_line "$input" 500.00 IM5 "" 10000.00), $(uae_line "$vat" -500.00 IM5 "" 10000.00)")"
+  imported=$(field .id)
+  uae_ledger_events "$hook" "$dubai" "$imported"
+  as carla
+  say "Analytics reads the same lines, from the database or the analytical store as fresh as it is (ADR-0044 As built"
+  say "batch 95): Carla asks revenue by tax jurisdiction, the quarter's sales by emirate, the export and exempt supply under none:"
+  api 200 '"  answered from the \(.source)", (.rows[] | "  \(.[0].value // "" | if . == "" then "none" else . end): \(.[1].value) \(.[1].currency)")' runAnalyticsQuery \
+    -body "{\"measures\": [\"revenue\"], \"by\": [\"tax_jurisdiction\"], \"companies\": [\"$AE\"]}"
+  expect "revenue by emirate" "$(field '[.rows[] | "\(.[0].value // "" | if . == "" then "none" else . end) \(.[1].value)"] | sort | join(", ")')" \
+    "AE-AZ 4000.00, AE-DU 10000.00, none 4500.00"
   as alex
   say "Alex posts the supplier's invoices of the quarter's last day: mobile phones bought for resale, AED 2,000.00 under"
   say "the domestic reverse charge (DR5: Maple Gulf owes and recovers the 100.00), and staff entertainment, AED 1,000.00"
@@ -6335,7 +6403,7 @@ year_end_sign_off() {
 # through this period in the leading ledger by step 29's run, gets a
 # shorter useful life and a residual value from the next period on.
 step_asset_estimate() {
-  heading "Step 44 — A change in estimate: the lathe's useful life and residual value changed from the next period on, the periods booked untouched"
+  heading "Step 44 — A change in estimate and an impairment: the lathe's useful life and residual value changed from the next period on, the periods booked untouched; an impairment loss and its partial reversal"
   as carla
   say "At the year-end review Carla finds the lathe will last five years in all, not ten, and fetch CAD 500.00 at"
   say "the end (IAS 16.51). Its depreciation is booked through this period in the leading ledger, so its terms there"
@@ -6368,6 +6436,38 @@ step_asset_estimate() {
   api 200 '.periods[] | select(.planned.amount != "0.00") | "  \(.fiscal_year)/\(.period): planned \(.planned.amount), booked \(.booked.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
     getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
   expect "the next period" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 75.56
+  say "The review also finds the lathe impaired (IAS 36.59): its recoverable amount at this period's end is CAD 1,000.00"
+  say "below its carrying amount, 4,958.33. Carla posts the loss in the leading ledger, measured at the period's end after"
+  say "its depreciation; the next period depreciates the 3,958.33 left on the changed terms: (3,958.33 - 500.00) / 59 = 58.62."
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  refused 422 assets.impairment_exceeds_carrying_amount impairAsset -p "id=$lathe" -if-match "$ETAG" \
+    -body '{"kind": "loss", "amount": {"amount": "4958.34", "currency": "CAD"}, "text": "Above its carrying amount"}'
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  api 201 '"impairment \(.kind) of asset \(.asset_number) in \(.ledger_code): \(.amount.amount) \(.amount.currency) (group \(.amount_gc.amount) \(.amount_gc.currency)); carrying amount \(.carrying_amount.amount) -> \(.carrying_amount_after.amount), entry \(.entries[0].document_number)"' \
+    impairAsset -p "id=$lathe" -if-match "$ETAG" -body '{"kind": "loss", "amount": {"amount": "1000.00", "currency": "CAD"}, "text": "Lathe impaired at the review"}'
+  expect "the carrying amount it was measured against, and after" "$(field '"\(.carrying_amount.amount) \(.carrying_amount_after.amount) \(.unimpaired_amount.amount)"')" \
+    "4958.33 3958.33 4958.33"
+  api 200 '"entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(", "))"' getJournalEntry -p "id=$(field '.entries[0].journal_entry_id')"
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
+  expect "the next period, on the impaired amount" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 58.62
+  say "A buyer's offer later the same period shows part of the loss recovered. A reversal restores at most what the loss"
+  say "took, net of the depreciation it saved (IAS 36.117): 1,000.00 here, since none has been depreciated since; more is refused."
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  refused 422 assets.reversal_exceeds_impairment impairAsset -p "id=$lathe" -if-match "$ETAG" -body '{"kind": "reversal", "amount": {"amount": "1000.01", "currency": "CAD"}}'
+  QUIET=1 api 200 '' getAsset -p "id=$lathe"
+  api 201 '"impairment \(.kind) of asset \(.asset_number): \(.amount.amount) \(.amount.currency); carrying amount \(.carrying_amount.amount) -> \(.carrying_amount_after.amount)"' \
+    impairAsset -p "id=$lathe" -if-match "$ETAG" -body '{"kind": "reversal", "amount": {"amount": "400.00", "currency": "CAD"}}'
+  expect "the carrying amount after the reversal" "$(field .carrying_amount_after.amount)" 4358.33
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
+  expect "the next period, (4,358.33 - 500.00) / 59" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 65.40
+  say "This year's sheet shows the lathe's impairment lines; its accumulated depreciation holds them (IAS 16.73(d), (e)):"
+  api 200 '.items[] | select(.description == "CNC lathe") | "  \(.asset_number) \(.description): accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + impaired \(.impairment_losses.amount) + reversed \(.impairment_reversals.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
+  expect "the lathe's impairment lines" "$(field '.items[] | select(.description == "CNC lathe") | "\(.impairment_losses.amount) \(.impairment_reversals.amount) \(.closing_net_book_value.amount)"')" \
+    "-1000.00 400.00 4358.33"
+  sheet_reconciles "by asset, the lathe impaired"
+  api 200 '"the lathe'"'"'s impairments: \([.items[] | "\(.kind) \(.amount.amount)"] | join(", "))"' listAssetImpairments -p "asset_id=$lathe"
+  expect "the lathe's impairments" "$(field '[.items[].kind] | join(" ")')" "loss reversal"
   passed
 }
 
@@ -6405,10 +6505,10 @@ step_asset_held_for_sale() {
   api 200 '.periods[] | select(.period == '"$next"') | "  the machine, \(.fiscal_year)/\(.period): planned \(.planned.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
     getAssetSchedule -p "id=$mill" -p "fiscal_year=$year"
   expect "no depreciation from the next period" "$(field ".periods[] | select(.period == $next) | .planned.amount")" 0.00
-  say "Both apply from the next period, so this year's asset history sheet is as it was: the lathe (step 44) and the"
-  say "machine, still active, stay on their rows with their cost, a classification as held for sale moving no value,"
-  say "and each row reconciles from opening to closing (po:2026-11-09, B14):"
-  api 200 '.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
+  say "Both apply from the next period, so this year's asset history sheet shows only what was posted: the lathe (step"
+  say "44) with its impairment lines and the machine, still active, stay on their rows with their cost, a classification"
+  say "as held for sale moving no value, and each row reconciles from opening to closing (po:2026-11-09, B14):"
+  api 200 '.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + impaired \(.impairment_losses.amount) + reversed \(.impairment_reversals.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
     getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
   expect "the lathe and the machine on the sheet" "$(field '[.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | .description] | unique | join(", ")')" "CNC lathe, CNC milling machine"
   expect "the machine held for sale: active, its cost on the sheet" \
@@ -19237,13 +19337,15 @@ step_cash_orders() {
 # sheet_reconciles WHAT checks the asset history sheet just read (ADR-0057
 # §9; po:2026-11-09, B14; IAS 16.73(d), (e)): every row and the totals
 # reconcile from opening to closing for cost and for accumulated
-# depreciation, and each net book value is its cost plus its accumulated
-# depreciation.
+# depreciation, impairment losses and their reversals included (ADR-0057
+# As built, impairment), and each net book value is its cost plus its
+# accumulated depreciation.
 sheet_reconciles() {
   expect "$1: rows and totals that do not reconcile from opening to closing" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
     [(.items[], .totals) | select(
       (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) != (.closing_cost | c)
-      or (.opening_accumulated | c) + (.depreciation | c) + (.retirements_accumulated | c) + (.transfers_accumulated | c) != (.closing_accumulated | c)
+      or (.opening_accumulated | c) + (.depreciation | c) + (.impairment_losses | c) + (.impairment_reversals | c) + (.retirements_accumulated | c)
+        + (.transfers_accumulated | c) != (.closing_accumulated | c)
       or (.opening_cost | c) + (.opening_accumulated | c) != (.opening_net_book_value | c)
       or (.closing_cost | c) + (.closing_accumulated | c) != (.closing_net_book_value | c))] | length')" 0
 }

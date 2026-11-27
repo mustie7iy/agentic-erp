@@ -21,8 +21,11 @@ type (
 var (
 	dsTypes = []string{"uuid", "string", "int32", "int64", "bool", "date", "timestamp", "xid8"}
 	// attribute: a column the reader may filter or group by that no semantic
-	// dimension names (a partner's roles).
-	dsRoles = []string{"tenant", "id", "key", "dimension", "date", "amount", "currency", "exponent", "watermark", "attribute"}
+	// dimension names (a partner's roles). measure: a fact's money beside
+	// its amount, in the row's currency and exponent, that the reader
+	// neither sums, filters nor groups by and no metric names yet (a
+	// journal line's declared tax base).
+	dsRoles = []string{"tenant", "id", "key", "dimension", "date", "amount", "currency", "exponent", "watermark", "attribute", "measure"}
 	// A guard, not the masking policy itself: names of fields that are
 	// masked or redacted (bank details, tax ids, contact data, ADR-0036) or
 	// free text that may hold them. The store never holds them, so it cannot
@@ -142,6 +145,11 @@ func checkFact(t *testing.T, d *dataset) {
 	}
 	if c := d.Column(d.Date); c == nil || c.Role != "date" {
 		t.Errorf("date: got %q, want the name of the date column", d.Date)
+	}
+	for _, c := range d.WithRole("measure") {
+		if c.Type != "int64" || !c.Nullable {
+			t.Errorf("measure %s: got %s nullable %v, want nullable int64 minor units", c.Name, c.Type, c.Nullable)
+		}
 	}
 }
 

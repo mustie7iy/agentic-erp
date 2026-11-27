@@ -117,6 +117,7 @@ type run struct {
 	tenant  uuid.UUID
 	prev    pointer
 	prevM   Manifest
+	from    uint64 // where the journal's interval starts: the previous watermark, 0 when it is extracted from the start
 	cutoff  uint64
 	asOf    time.Time
 	m       Manifest

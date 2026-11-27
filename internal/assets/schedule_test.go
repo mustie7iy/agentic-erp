@@ -245,3 +245,40 @@ func TestScheduleWalkWithChanges(t *testing.T) {
 		}
 	}
 }
+
+// impairedBy is an impairment loss (negative) or reversal (positive) of
+// accumulated depreciation valued in the period.
+func impairedBy(n int, accumulated money.Minor) assets.Move {
+	return assets.Move{Month: month(n), Accumulated: accumulated, Impairment: true}
+}
+
+// TestScheduleWalkWithImpairments: an impairment is applied at the end of
+// its period, after that period's depreciation, and the periods after
+// depreciate the carrying amount then over the life left (IAS 36.63); a
+// reversal restores it; moves given out of period order walk the same.
+func TestScheduleWalkWithImpairments(t *testing.T) {
+	for name, c := range map[string]struct {
+		plan    assets.Plan
+		moves   []assets.Move
+		through int
+		want    string
+	}{
+		// 1,200.00 over 12 periods: 100.00 in June, then 800.00 over the
+		// 11 periods left, 72.73.
+		"a loss at June's end":   {straight(12, 0, 6), []assets.Move{acquired(6, 120000), impairedBy(6, -30000)}, 8, "10000 7273 7273 | 65454"},
+		"through its own period": {straight(12, 0, 6), []assets.Move{acquired(6, 120000), impairedBy(6, -30000)}, 6, "10000 | 80000"},
+		// The loss in June, its reversal in July: from August 1,000.00
+		// over the 10 periods left.
+		"reversed a period later": {straight(12, 0, 6), []assets.Move{impairedBy(7, 27273), acquired(6, 120000), impairedBy(6, -30000)}, 8,
+			"10000 7273 10000 | 90000"},
+		"declining balance": {declining(12, "2", 0, 6), []assets.Move{acquired(6, 120000), impairedBy(6, -60000)}, 7, "20000 6667 | 33333"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			steps, err := assets.Walk(c.plan, c.moves, month(c.through))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want(t, name, depreciations(steps), c.want)
+		})
+	}
+}

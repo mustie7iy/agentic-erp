@@ -15,8 +15,19 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
-// Movement kinds (ADR-0057 §5).
-const kindDepreciation = "depreciation"
+// Movement kinds (ADR-0057 §5; As built, impairment).
+const (
+	kindDepreciation       = "depreciation"
+	kindImpairment         = "impairment"
+	kindImpairmentReversal = "impairment_reversal"
+)
+
+// impairmentKind says whether a movement of the kind is an impairment loss or
+// its reversal, which the schedule applies at the end of its period
+// (Move).
+func impairmentKind(kind string) bool {
+	return kind == kindImpairment || kind == kindImpairmentReversal
+}
 
 // postingPeriod is a fiscal year and period a movement was posted in.
 type postingPeriod struct{ year, period int16 }
@@ -114,7 +125,7 @@ func readMovements(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid
 			d.bookedIn[postingPeriod{year, period}] -= accumulated
 			return nil
 		}
-		d.moves = append(d.moves, Move{Month: MonthOf(value), Seq: seq, Cost: cost, Accumulated: accumulated, Residual: residual})
+		d.moves = append(d.moves, Move{Month: MonthOf(value), Seq: seq, Cost: cost, Accumulated: accumulated, Residual: residual, Impairment: impairmentKind(kind)})
 		return nil
 	})
 	return errs.Wrapf(err, "assets: movements of %d assets in ledger %s", len(ds), ledger)
@@ -127,18 +138,19 @@ func readMovements(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid
 // keeps with its movements in its own transaction (keepTotals, ADR-0057
 // §5, T57f3), so the depreciation movements, some 120 per asset
 // depreciated for ten years, are not read. The movements are read from
-// the covering index movement_moves_covering alone (an index-only scan),
-// unordered: the walk applies a period's moves in any order, their
-// effects adding (Walk) (T57f2, T57f3: the preview of 100,000 assets read
-// 5.8 million rows, then 90,000 table pages).
+// the covering index movement_moves_with_kind alone (an index-only scan,
+// migration 000482), unordered: the walk applies a period's moves in any
+// order, their effects adding (Walk) (T57f2, T57f3: the preview of
+// 100,000 assets read 5.8 million rows, then 90,000 table pages).
 func readMoves(ctx context.Context, tx pgx.Tx, ledger uuid.UUID, ds map[uuid.UUID]*depreciable) error {
-	rows, _ := tx.Query(ctx, `SELECT asset_id, seq, value_date, cost, accumulated, residual
+	rows, _ := tx.Query(ctx, `SELECT asset_id, seq, value_date, cost, accumulated, residual, kind
 		FROM assets.movement WHERE asset_id = ANY($1) AND ledger_id = $2 AND kind <> 'depreciation'`, assetIDs(ds), ledger)
 	var asset uuid.UUID
 	var m Move
 	var value time.Time
-	_, err := pgx.ForEachRow(rows, []any{&asset, &m.Seq, &value, &m.Cost, &m.Accumulated, &m.Residual}, func() error {
-		m.Month = MonthOf(value)
+	var kind string
+	_, err := pgx.ForEachRow(rows, []any{&asset, &m.Seq, &value, &m.Cost, &m.Accumulated, &m.Residual, &kind}, func() error {
+		m.Month, m.Impairment = MonthOf(value), impairmentKind(kind)
 		d := ds[asset]
 		d.moves = append(d.moves, m)
 		return nil

@@ -1040,9 +1040,12 @@ zone", split into T72n1-T72n6):
   so a consumer knows which day judged it. The list judges each record by
   its own legal entity's date in the `status` filter and in the items
   alike, from one instant: the dates of the companies with a zone are
-  read once per list (their legal entities found by company code through
-  the tenancy port, `LegalEntities.ByCode`; a tenant without zones reads
-  none, and a list filtered by legal entity reads only its), and every
+  read once per list (their legal entities found in one lookup of the
+  tenant's legal entities through the tenancy port,
+  `LegalEntities.Entities`, review:batch26, no longer one `ByCode` round
+  trip per company now that every new tenant's companies have a zone,
+  T72n7; a tenant without zones reads none, and a list filtered by legal
+  entity reads only its), and every
   other legal entity is judged by UTC's date, as before. The upload's
   response gives counts, not statuses, and an upload judges nothing by
   date (it compares values, and realised and cancelled are stored), so

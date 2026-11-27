@@ -269,13 +269,28 @@ func SetActor(ctx context.Context, tx pgx.Tx, actor uuid.UUID) error {
 // takes them in one fixed order, so two transactions never wait on each
 // other in a cycle.
 func LockTenant(ctx context.Context, tx pgx.Tx, name string, parts ...string) error {
+	return lockTenant(ctx, tx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || platform.require_tenant() || $2::text, 0))`,
+		"", name, parts)
+}
+
+// LockTenantShared takes the same lock as LockTenant, shared: holders of
+// it shared never wait for each other, and LockTenant's holder waits for
+// them all, as they wait for it. Many readers that must not see a value
+// change under them take it shared, the one writer exclusively. A
+// transaction that holds it already, in either mode, takes it again
+// without waiting, even while another waits for it.
+func LockTenantShared(ctx context.Context, tx pgx.Tx, name string, parts ...string) error {
+	return lockTenant(ctx, tx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text || ':' || platform.require_tenant() || $2::text, 0))`,
+		" shared", name, parts)
+}
+
+func lockTenant(ctx context.Context, tx pgx.Tx, sql, mode, name string, parts []string) error {
 	var suffix strings.Builder
 	for _, part := range parts {
 		suffix.WriteString(":" + part)
 	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || platform.require_tenant() || $2::text, 0))`,
-		name, suffix.String()); err != nil {
-		return fmt.Errorf("database: advisory lock %s%s: %w", name, suffix.String(), err)
+	if _, err := tx.Exec(ctx, sql, name, suffix.String()); err != nil {
+		return fmt.Errorf("database: advisory lock %s%s%s: %w", name, suffix.String(), mode, err)
 	}
 	return nil
 }
