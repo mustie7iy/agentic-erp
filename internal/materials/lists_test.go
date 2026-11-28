@@ -86,7 +86,8 @@ func TestListsWithoutConfiguration(t *testing.T) {
 
 // TestListsOnChange: a change that sets a group the configuration does
 // not list is refused; one it lists waits for approval; a material created
-// before the lists keeps its group through a change of another field.
+// before the lists keeps its group through a change of another field, its
+// description or its measures.
 func TestListsOnChange(t *testing.T) {
 	e := setup(t)
 	before := e.active(t, map[string]any{"material_type": "service", "material_group": "OLD"})["id"].(string)
@@ -101,4 +102,15 @@ func TestListsOnChange(t *testing.T) {
 	kept := e.changed(t, before, `{"description": "Machined bracket M10, kept"}`)
 	fields(t, kept, map[string]any{"material_type": "service", "material_group": "OLD", "description": "Machined bracket M10, kept"})
 	e.Problem(422, "materials.unknown_material_group", "PATCH", path+"/"+before, `{"material_group": "OLDER"}`, `"3"`)
+	// Its GTIN, weights and size (S1a3) are changed as before: the lists
+	// check only a change that sets the group (batch 99S integration).
+	measures, err := json.Marshal(map[string]any{"base_unit_measures": eachMeasures()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dims := e.changed(t, before, string(measures))
+	fields(t, dims, map[string]any{"material_group": "OLD", "version": 4})
+	if got, want := measured(dims["base_unit_measures"]), "gtin=036000291452 gross_weight=0.12 net_weight=0.11 weight_unit=KG "; !strings.HasPrefix(got, want) {
+		t.Errorf("the measures of a material of a group the lists leave out: got %s, want %s", got, want)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -152,5 +153,41 @@ func TestPlanLotSizingAndLeadTime(t *testing.T) {
 		WHERE tenant_id = $1 AND action = 'mrp.material_plan.change'`, []any{e.Tenant.ID}, &detail)
 	if want := "70/10>50/10,50/10>50/20"; detail != want {
 		t.Errorf("the changes' audit: got %q, want %q", detail, want)
+	}
+}
+
+// TestPeriodLotsAndLeadTime (batch 99S integration: period lot sizes
+// beside batch 96S's lead time, ADR-0084 As built): a weekly plan with a
+// lead time of 10 days is proposed its lots by period, each needed by its
+// requirement's day, the lead time dating nothing (the availability
+// check's alone, S2j); a change naming the lot size leaves the lead time,
+// and one naming the lead time leaves the weekly lots, as for the other
+// procedures.
+func TestPeriodLotsAndLeadTime(t *testing.T) {
+	e := setup(t)
+	first := e.confirmedOn(t, "150", "")
+	today, err := time.Parse(time.DateOnly, first["order_date"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	week := today.AddDate(0, 0, 7).Format(time.DateOnly)
+	e.confirmedOn(t, "30", week)
+	plan, tag := e.Must(201, "POST", plans, mustJSON(t, map[string]any{"plant_id": e.p1, "material_id": e.bracket, "mrp_type": "reorder_point",
+		"reorder_point": "50", "account_id": e.stock, "lot_size": "weekly", "replenishment_lead_time_days": 10}), "")
+	if got, want := schedule(t, e.run(t), e.bracket), "30@"+week; got != want {
+		t.Errorf("the weekly lots with a lead time: got %s, want %s, needed by the order's day", got, want)
+	}
+	id := plans + "/" + plan["id"].(string)
+	both := func(p map[string]any) string {
+		t.Helper()
+		return fmt.Sprint(p["lot_size"], " ", p["replenishment_lead_time_days"])
+	}
+	plan, tag = e.Must(200, "PATCH", id, `{"lot_size": "monthly"}`, tag)
+	if got, want := both(plan), "monthly 10"; got != want {
+		t.Errorf("the lot size changed: got %s, want %s (the lead time kept)", got, want)
+	}
+	plan, _ = e.Must(200, "PATCH", id, `{"replenishment_lead_time_days": 20}`, tag)
+	if got, want := both(plan), "monthly 20"; got != want {
+		t.Errorf("the lead time changed: got %s, want %s (the period lots kept)", got, want)
 	}
 }
