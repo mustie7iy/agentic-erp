@@ -1749,6 +1749,47 @@ recommendation. Decided by default:
   the brackets, so the run's 100 short and three lots of 40 hold.
 - No migration, no contract change, permission, event or problem code.
 
+### S2k3 in the agent: each lot of a proposal by period by its own day (batch 99S integration, 2026-11-28)
+
+Batch 99S merges period lot sizes (ADR-0084 As built S2k3: a run line
+sized `daily`, `weekly` or `monthly` proposes one requisition of an item
+per period's lot, needed by the first lot's day, and gives each lot's own
+day in the line's `lot_schedule`). The check above held every lot to the
+requisition's one need date, so an order naming the second week's lot by
+its week's day was refused, and one naming every lot by the first day,
+which a buyer would order wrongly, was made. Decided by default (the
+integration brief's cross-lane check; ADR-0084 As built S2k3 already
+said the dates per lot are read from `lot_schedule`):
+
+- **Each lot's day from the run**: the agent reads the run before its
+  session (`getMrpRun`, as it did); a line's `lot_schedule` is kept by
+  its requisition. When the requisition the model reads has the line's
+  lots as its items (as many, each of the same quantity, compared as
+  numbers), each `Lot` line names its lot's own `needed_by`; a
+  requisition a person has changed since keeps the requisition's day for
+  every lot, as other proposals' lots are named. The order's first line
+  stays by the requisition's day (the first lot's), `ErrWhen` unchanged.
+  No new cross-context import: the day comes through the contract, as
+  every read of the agent's does.
+- **A contract valid to the last lot**: a contract item is a source of a
+  proposal by period only while valid from the order's day to its last
+  lot's day (`usable`), for an order and a source_needed alike; an
+  order from a contract that ends between the lots is `ErrSource`. A
+  catalog item or a purchase order has no validity and is unchanged.
+- The prompt and `ErrLots`, `ErrSource` say so. `TestReviewPeriodLots`
+  (weekly lots by their days made, by the order's day refused telling
+  each lot's day, the order by the last lot's day refused, a contract
+  ending before the last lot refused and the catalog to it made, a
+  requisition whose items changed named by its own day, lots not in the
+  contract's shape ignored).
+- `evals/replenishment` version 4: the hinge in weekly lots from a
+  reorder point of 0 with two confirmed sales orders of Northwind
+  Traders, 5 on 2026-11-18 and 3 on 2026-11-25 (the replay cell plans on
+  2026-11-15); the agent orders the 8 by 2026-11-18 naming lot 2 by
+  2026-11-25. Its configuration gains the 2026 sales order range, SO.
+- An order per lot (a lot ordered on its own day, or from another
+  supplier) stays Later.
+
 ### S2m, the demand forecasting agent (plan-supply-chain.md §S2m, 2026-11-22)
 
 - `internal/demandagent`; agent type `demand_forecast` (in

@@ -8,7 +8,8 @@
 # goods receipts a case's setup posts, PO and GR, and an order up to
 # 1,000.00 released without an approval (order_release_approval's first
 # tier), so that a setup posts the orders and receipts its suppliers'
-# delivery performance is measured from.
+# delivery performance is measured from. For S2k3, the range of the sales
+# orders a period lot case confirms, SO.
 version: 1
 companies:
   - code: "3000"
@@ -116,5 +117,6 @@ number_ranges:
   - {company: "3000", document_type: journal_dr, fiscal_year: 2026, first: 1800000000, last: 1899999999}
   - {company: "3000", document_type: material, fiscal_year: 2026, prefix: MA, first: 1, last: 9999999}
   - {company: "3000", document_type: requisition, fiscal_year: 2026, prefix: PR, first: 1, last: 9999999}
+  - {company: "3000", document_type: sales_order, fiscal_year: 2026, prefix: SO, first: 100000, last: 999999}
   - {company: "3000", document_type: purchase_order, fiscal_year: 2026, prefix: PO, first: 1, last: 9999999}
   - {company: "3000", document_type: goods_receipt, fiscal_year: 2026, prefix: GR, first: 1, last: 9999999}

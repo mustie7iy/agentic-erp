@@ -514,13 +514,14 @@ date of a period's receipt, **from memory**, for the SAP specialist):
 - **Locks and writes**: nothing new is locked; the lots are inserted
   after their lines in the run's one transaction (their foreign key to
   the line it just wrote), and read with the lines (`withSchedules`).
-- **The replenishment agent** (not changed here; batch 98S's repllots
-  teaches it proposals of several lots) sees a period-lot proposal as a
-  requisition of several items needed by the first lot's day, and the
-  run line's `lot_size` (`daily`, `weekly`, `monthly`), `lots` and
-  `lot_schedule` with each lot's own day; a check that holds a
-  recommendation to dates per lot reads them from `lot_schedule`, not
-  from the requisition's one need date.
+- **The replenishment agent** (not changed by the lane; batch 98S's
+  repllots teaches it proposals of several lots) sees a period-lot
+  proposal as a requisition of several items needed by the first lot's
+  day, and the run line's `lot_size` (`daily`, `weekly`, `monthly`),
+  `lots` and `lot_schedule` with each lot's own day. Batch 99S's
+  integration makes its check read each lot's day from `lot_schedule`,
+  not from the requisition's one need date, and hold a contract source to
+  the last lot's day (ADR-0072 As built "S2k3 in the agent").
 - **Rolling upgrade** (expand only): the checks are widened and a table
   added, which a server before never writes; its worker sizes a period
   plan it meets lot for lot (a line naming the period procedure, with no
