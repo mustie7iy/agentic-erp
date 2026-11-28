@@ -78035,8 +78035,9 @@ type MaterialPlan struct {
 	MrpType string `json:"mrp_type"`
 	// The reorder point, in the material's base unit.
 	ReorderPoint Quantity `json:"reorder_point"`
-	// `lot_for_lot`, `fixed` or `replenish_to_maximum` (`createMaterialPlan`). Open enumeration: clients
-	// must accept and preserve values not listed here; values may be added within /v1.
+	// `lot_for_lot`, `fixed`, `replenish_to_maximum`, `daily`, `weekly` or `monthly`
+	// (`createMaterialPlan`). Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
 	LotSize string `json:"lot_size"`
 	// The fixed lot size, in the base unit; absent unless `lot_size` is `fixed`.
 	FixedLotSize OptQuantity `json:"fixed_lot_size"`
@@ -78326,10 +78327,12 @@ type MaterialPlanCreate struct {
 	// How a run sizes what it proposes for a shortage (SAP's lot sizing procedure, MARC-DISLS, from
 	// memory): `lot_for_lot` (EX, the default), the shortage itself; `fixed` (FX), as many lots of
 	// `fixed_lot_size` as cover it; `replenish_to_maximum` (HB), what brings the available quantity up to
-	// `maximum_stock_level`. A lot-for-lot or replenish-to-maximum quantity is raised to
-	// `minimum_lot_size`, rounded up to a multiple of `rounding_value` and split into lots of at most
-	// `maximum_lot_size`; each lot is an item of the material's one proposed requisition. Open
-	// enumeration: values may be added within /v1.
+	// `maximum_stock_level`; `daily`, `weekly` or `monthly` (TB, WB, MB), a lot per period of the
+	// company's days (a day; an ISO week, Monday to Sunday; a calendar month) for what the demand due in
+	// it takes below the reorder point, needed by its first requirement date. A lot-for-lot,
+	// replenish-to-maximum or period quantity is raised to `minimum_lot_size`, rounded up to a multiple of
+	// `rounding_value` and split into lots of at most `maximum_lot_size`; each lot is an item of the
+	// material's one proposed requisition. Open enumeration: values may be added within /v1.
 	LotSize OptString `json:"lot_size"`
 	// The fixed procedure's lot in the material's base unit, more than zero; given with `lot_size` `fixed`
 	// alone.
@@ -83875,10 +83878,10 @@ func (s *MrpRun) SetReplaced(val []MrpRunReplaced) {
 
 // The problem that failed a run: `mrp.run_cancelled` (its Operation cancelled before it was carried
 // out), `mrp.unit_not_convertible` (an open quantity in a unit the material no longer has),
-// `mrp.too_many_lots` (a material's fixed or maximum lot size needs more than 100 lots for its
-// shortage), `identity.principal_blocked` (who started it is no longer active), `platform.internal`
-// (an error outlasting its retries), or a problem a proposed requisition was refused with
-// (`procurement.account_not_postable`, `procurement.invalid_quantity`,
+// `mrp.too_many_lots` (a material's fixed or maximum lot size, or its periods, need more than 100 lots
+// for its shortage), `identity.principal_blocked` (who started it is no longer active),
+// `platform.internal` (an error outlasting its retries), or a problem a proposed requisition was
+// refused with (`procurement.account_not_postable`, `procurement.invalid_quantity`,
 // `procurement.material_not_usable`, `config.no_number_range`, `config.number_range_exhausted`,
 // `config.not_bootstrapped`). Open list: values may be added within /v1.
 // Ref: #/components/schemas/MrpRunError
@@ -83968,6 +83971,12 @@ type MrpRunLine struct {
 	Proposed Quantity `json:"proposed"`
 	// In how many lots, the items of the requisition proposed; absent without a shortage.
 	Lots OptInt32 `json:"lots"`
+	// The lots a period procedure (`daily`, `weekly`, `monthly`) proposed, in the order of the
+	// requisition's items, each with the day it is needed by: the first day of its period the demand takes
+	// the stock, receipts and earlier lots below the reorder point, the run's day for demand overdue or a
+	// plant already below it. The requisition is needed by the first lot's day. Absent for the other
+	// procedures, whose lots are all needed by the run's day, and without a shortage.
+	LotSchedule []MrpRunLot `json:"lot_schedule"`
 	// The draft requisition proposed for the shortage (`GET /v1/requisitions/{id}`); absent without a
 	// shortage.
 	RequisitionID OptUUID `json:"requisition_id"`
@@ -84028,6 +84037,11 @@ func (s *MrpRunLine) GetProposed() Quantity {
 // GetLots returns the value of Lots.
 func (s *MrpRunLine) GetLots() OptInt32 {
 	return s.Lots
+}
+
+// GetLotSchedule returns the value of LotSchedule.
+func (s *MrpRunLine) GetLotSchedule() []MrpRunLot {
+	return s.LotSchedule
 }
 
 // GetRequisitionID returns the value of RequisitionID.
@@ -84095,6 +84109,11 @@ func (s *MrpRunLine) SetLots(val OptInt32) {
 	s.Lots = val
 }
 
+// SetLotSchedule sets the value of LotSchedule.
+func (s *MrpRunLine) SetLotSchedule(val []MrpRunLot) {
+	s.LotSchedule = val
+}
+
 // SetRequisitionID sets the value of RequisitionID.
 func (s *MrpRunLine) SetRequisitionID(val OptUUID) {
 	s.RequisitionID = val
@@ -84103,6 +84122,35 @@ func (s *MrpRunLine) SetRequisitionID(val OptUUID) {
 // SetRequisitionNumber sets the value of RequisitionNumber.
 func (s *MrpRunLine) SetRequisitionNumber(val OptString) {
 	s.RequisitionNumber = val
+}
+
+// A lot a run proposed by period: an item of the requisition proposed.
+// Ref: #/components/schemas/MrpRunLot
+type MrpRunLot struct {
+	// The lot, in the material's base unit.
+	Quantity Quantity `json:"quantity"`
+	// The day the plant needs it by: its period's first requirement date (a company day).
+	NeededBy time.Time `json:"needed_by"`
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *MrpRunLot) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetNeededBy returns the value of NeededBy.
+func (s *MrpRunLot) GetNeededBy() time.Time {
+	return s.NeededBy
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *MrpRunLot) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetNeededBy sets the value of NeededBy.
+func (s *MrpRunLot) SetNeededBy(val time.Time) {
+	s.NeededBy = val
 }
 
 // One page of planning runs.

@@ -67,8 +67,9 @@ func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want 
 // (the house bank code per account), 000499 (opening items) and 000501 and
 // 000500 (the forecast's receipts, T53l1), and batch 98S's of 000503 and
 // 000502 (returns to the supplier) and of 000505 and 000504 (customer
-// returns into stock) revert what their ups added, so that each up
-// applies again after its down (06 §6.4: a down reverts its up, and
+// returns into stock), and batch 99S's of 000506 (period lot sizes)
+// revert what their ups added, so that each up applies again after its
+// down (06 §6.4: a down reverts its up, and
 // TestMigrationsRevertCleanly, reverting the whole chain, would not see
 // one that left its columns behind).
 func TestDownsRevert(t *testing.T) {
@@ -85,6 +86,7 @@ func TestDownsRevert(t *testing.T) {
 		// the case in a failure.
 		check string
 	}{
+		{[]string{"000506_mrp_period_lots"}, "mrp", "run_line_lot", "needed_by", ""},
 		{[]string{"000496_cycle_count_removal"}, "inventory", "cycle_count_material", "status", ""},
 		{[]string{"000495_material_measures"}, "materials", "unit_measure", "gtin", ""},
 		{[]string{"000494_sop_plan_approval"}, "mrp", "sop_plan", "approval_request_id", ""},

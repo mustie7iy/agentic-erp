@@ -1,10 +1,12 @@
 package mrp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,7 +48,9 @@ type RunError struct {
 // Line is what a run counted and proposed of a material, in its base
 // unit (Unit), as plain decimals: the lot sizing procedure it sized the
 // shortage by, what it proposed (zero without a shortage) and in how
-// many lots, the items of the requisition proposed.
+// many lots, the items of the requisition proposed; a period procedure's
+// lots with the day each is needed by (Schedule, in item order; none for
+// the other procedures, whose lots are needed by the run's day).
 type Line struct {
 	MaterialID                                      uuid.UUID
 	Unit                                            string
@@ -55,6 +59,14 @@ type Line struct {
 	Lots                                            *int32
 	RequisitionID                                   *uuid.UUID
 	RequisitionNumber                               *string
+	Schedule                                        []LotDue
+}
+
+// LotDue is a lot a run proposed by period: its quantity in the line's
+// unit, as a plain decimal, and the day it is needed by.
+type LotDue struct {
+	Quantity string
+	NeededBy time.Time
 }
 
 // Replacement is an earlier run's proposal a run cancelled.
@@ -158,6 +170,9 @@ func withDetails(ctx context.Context, tx pgx.Tx, runs []Run) error {
 	}); err != nil {
 		return fmt.Errorf("mrp: lines of %d planning runs: %w", len(runs), err)
 	}
+	if err := withSchedules(ctx, tx, ids, at); err != nil {
+		return err
+	}
 	rows, _ = tx.Query(ctx, `SELECT replaced_by_run_id, requisition_id, material_id, requisition_number FROM mrp.proposal
 		WHERE replaced_by_run_id = ANY($1) ORDER BY replaced_by_run_id, requisition_number`, ids)
 	var x Replacement
@@ -166,4 +181,22 @@ func withDetails(ctx context.Context, tx pgx.Tx, runs []Run) error {
 		return nil
 	})
 	return errs.Wrapf(err, "mrp: proposals replaced by %d planning runs", len(runs))
+}
+
+// withSchedules reads the period-sized lines' lots of the runs, by
+// material and lot, into their lines.
+func withSchedules(ctx context.Context, tx pgx.Tx, ids []uuid.UUID, at map[uuid.UUID]*Run) error {
+	rows, _ := tx.Query(ctx, `SELECT run_id, material_id, trim_scale(quantity)::text, needed_by FROM mrp.run_line_lot WHERE run_id = ANY($1)
+		ORDER BY run_id, material_id, lot_no`, ids)
+	var run, material uuid.UUID
+	var x LotDue
+	_, err := pgx.ForEachRow(rows, []any{&run, &material, &x.Quantity, &x.NeededBy}, func() error {
+		lines := at[run].Lines
+		// A lot's line is the run's (run_line_lot_line_fkey), and the
+		// lines are in material order.
+		i, _ := slices.BinarySearchFunc(lines, material, func(l Line, id uuid.UUID) int { return bytes.Compare(l.MaterialID[:], id[:]) })
+		lines[i].Schedule = append(lines[i].Schedule, x)
+		return nil
+	})
+	return errs.Wrapf(err, "mrp: lots of %d planning runs", len(ids))
 }

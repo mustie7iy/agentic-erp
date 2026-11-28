@@ -17111,10 +17111,17 @@ step_serial_numbers() {
 # built S2k2): Mira creates the W8 washer, kept at Montreal, and plans it
 # there by a reorder point of 100 in fixed lots of 40, a minimum lot size
 # with a fixed lot refused; Ben's run of Montreal, none of it in stock,
-# proposes three lots of 40 (120) as the items of one requisition.
+# proposes three lots of 40 (120) as the items of one requisition. Period
+# lot sizes (S2k3; ADR-0084 As built, period lot sizes): Mira creates the
+# N10 nut, kept at Montreal, and plans it there by a reorder point of 0
+# in weekly lots rounded to 10; Sally's orders ask for 25 a week from
+# today and 20 two weeks from today, in two ISO weeks; Ben's run of
+# Montreal proposes two lots, 30 needed on the first order's day (25
+# rounded up) and 20 on the second's (the 5 left over count, 15 rounded
+# up), as the items of one requisition needed by the first lot's day.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither; a washer planned in fixed lots is proposed in whole lots"
-  local hinge sales own own_version run first second montreal store gasket plant mistake washer
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither; a washer planned in fixed lots is proposed in whole lots; a nut planned in weekly lots with orders due in two weeks gets a lot for each week"
+  local hinge sales own own_version run first second montreal store gasket plant mistake washer nut week fortnight due order
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -17276,6 +17283,54 @@ step_mrp() {
   api 200 '"proposal \(.document_number): \(.status), \([.items[] | "\(.quantity.value) \(.quantity.unit)"] | join(" + "))"' \
     getRequisition -p "id=$(field .id)"
   expect "the washer's proposal" "$(field '[.items[] | .quantity.value] | join(" ")')" "40 40 40"
+  as mira
+  say "Period lot sizes (S2k3): Mira creates the N10 nut, kept in the Montreal store; Priya approves it; Ines values it at"
+  say "Montreal:"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Nut N10\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"NUTS\",
+      \"plants\": [{\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  nut=$(field .id)
+  approve priya "$(material_request "$nut")" "Nut ordered week by week."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$nut\", \"plant_id\": \"$montreal\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"0.05\", \"currency\": \"CAD\"}}"
+  as mira
+  say "Mira plans it at Montreal by a reorder point of 0 in weekly lots (SAP's lot size WB), rounded up to boxes of 10:"
+  api 201 '"\(.material_number) at \(.plant_code): reorder point \(.reorder_point.value), \(.lot_size) lots rounded to \(.rounding_value.value) \(.rounding_value.unit)"' \
+    createMaterialPlan -body "{\"plant_id\": \"$montreal\", \"material_id\": \"$nut\", \"mrp_type\": \"reorder_point\", \"reorder_point\": \"0\",
+      \"lot_size\": \"weekly\", \"rounding_value\": \"10\", \"account_id\": \"$(account 6000)\"}"
+  week=$(date_add "$TODAY" 7)
+  fortnight=$(date_add "$TODAY" 14)
+  as sally
+  say "Sally's orders for Northwind from the Montreal plant ask for 25 nuts on $week and 20 on $fortnight, in two weeks:"
+  for due in "25:$week" "20:$fortnight"; do
+    QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\",
+        \"plant_id\": \"$montreal\", \"requested_delivery_date\": \"${due##*:}\", \"items\": [{\"material_id\": \"$nut\",
+        \"quantity\": {\"value\": \"${due%%:*}\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"0.20\", \"currency\": \"CAD\"},
+        \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+    order=$(field .id)
+    QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+    api 200 '"  sales order \(.document_number): \(.status), \(.items[0].quantity.value) ordered for \(.requested_delivery_date)"' \
+      confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+    if [ "$(field .credit_block)" = blocked ]; then
+      local tag=$ETAG
+      as ruth
+      QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+      as sally
+    fi
+  done
+  as ben
+  say "Ben runs Montreal: none of the nut is there. The week of $week needs 25, rounded up to 30; the 5 left over count"
+  say "the week after, which needs 15 more, rounded up to 20. Two lots, each needed by its order's day, are the items of"
+  say "one requisition needed by the first:"
+  mrp_run "$montreal" "$nut"
+  expect "Montreal's nut" "$(field '.lines[] | select(.material_id == "'"$nut"'") | "\(.demand.value) \(.shortage.value) \(.lot_size) \(.proposed.value) \(.lots)"')" "45 45 weekly 50 2"
+  say "  the nut's weekly lots: $(field '[.lines[] | select(.material_id == "'"$nut"'") | .lot_schedule[] | "\(.quantity.value) \(.quantity.unit) by \(.needed_by)"] | join(", ")')"
+  expect "the nut's lots" "$(field '[.lines[] | select(.material_id == "'"$nut"'") | .lot_schedule[] | "\(.quantity.value)@\(.needed_by)"] | join(" ")')" "30@$week 20@$fortnight"
+  QUIET=1 api 200 '' getRequisition -p "id=$(field '.lines[] | select(.material_id == "'"$nut"'") | .requisition_id')"
+  api 200 '"proposal \(.document_number): \(.status), \([.items[] | "\(.quantity.value) \(.quantity.unit)"] | join(" + ")), needed by \(.needed_by)"' \
+    getRequisition -p "id=$(field .id)"
+  expect "the nut's proposal" "$(field '"\([.items[] | .quantity.value] | join(" ")) \(.needed_by)"')" "30 20 $week"
   HINGE=$hinge WASHER=$washer MONTREAL=$montreal
   passed
 }

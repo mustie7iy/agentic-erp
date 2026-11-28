@@ -48,13 +48,6 @@ func opens[T, U any](rows []T, of func(T) U) []U {
 	return out
 }
 
-func (mrpSupply) Demand(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) ([]mrp.Open, error) {
-	rs, err := sales.Orders{}.PlantRequirements(ctx, plant, ms)
-	return opens(rs, func(r sales.Requirement) mrp.Open {
-		return mrp.Open{MaterialID: r.MaterialID, Unit: r.Unit, Quantity: r.Quantity}
-	}), err
-}
-
 func (s mrpSupply) Stock(ctx context.Context, plant uuid.UUID, ms []uuid.UUID) (map[uuid.UUID]string, error) {
 	return s.inventory.PlantStock(ctx, plant, ms)
 }

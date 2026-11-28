@@ -19,7 +19,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
-	"github.com/mustie7iy/agentic-erp/internal/sales"
 )
 
 // codeOf is the problem code of err, "" for none.
@@ -204,8 +203,11 @@ func TestDatabaseFailures(t *testing.T) {
 	_, rtag := e.requisition(t, taken)
 	e.Must(200, "PATCH", "/v1/requisitions/"+taken, `{"needed_by": "2026-12-31"}`, rtag)
 	e.confirmed(t, "1 BOX")
-	e.run(t)             // proposes 20 more, beside the proposal taken over
-	queued := e.start(t) // replaces that proposal, counts the one taken over and proposes again
+	e.run(t) // proposes 20 more, beside the proposal taken over
+	weekly := e.material(t, "Weekly bracket", "raw_material")
+	e.Must(201, "POST", plans, mustJSON(t, map[string]any{"plant_id": e.p1, "material_id": weekly, "mrp_type": "reorder_point", "reorder_point": "5",
+		"account_id": e.stock, "lot_size": "weekly"}), "")
+	queued := e.start(t) // replaces that proposal, counts the one taken over and proposes again, and the weekly bracket's lot with its day
 	other := uuid.MustParse(e.material(t, "Other bracket", "raw_material"))
 	q := "60"
 	calls := map[string]func(ctx context.Context) error{
@@ -296,7 +298,6 @@ func TestPublishedReadsOutsideARequest(t *testing.T) {
 	ctx, ids := context.Background(), []uuid.UUID{uuid.New()}
 	inv, pr := app.Inventory(app.Config{}), app.Procurement(app.Config{})
 	for name, call := range map[string]func() error{
-		"demand":         func() error { _, err := sales.Orders{}.PlantRequirements(ctx, ids[0], ids); return err },
 		"prices":         func() error { _, err := inv.PlantPrices(ctx, ids[0], ids); return err },
 		"receipts":       func() error { _, err := procurement.Orders{}.OpenReceipts(ctx, ids[0], ids); return err },
 		"transports due": func() error { _, err := procurement.Orders{}.TransportsDue(ctx, ids[0], ids); return err },
