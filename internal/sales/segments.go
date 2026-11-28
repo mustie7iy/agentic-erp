@@ -27,7 +27,8 @@ type SegmentQuery struct {
 // query's currency: the gross value billed, the discounts taken off it,
 // the credit memos posted against it and Net, the first less the other
 // two; Cost, the cost of goods sold its goods issues posted (ADR-0083
-// §6) less what their reversals took back on their days (S2b3), and
+// §6) less what their reversals took back on their days (S2b3) and what
+// returns received into stock took back on theirs (S2b4), and
 // Margin, Net less Cost. ItemKey is nil for the customer's items
 // without a key.
 type Segment struct {
@@ -55,7 +56,9 @@ type Segment struct {
 // counts its own posting date and its billing item's segment. A goods
 // issue's cost counts on its date, the date its cost of goods sold
 // posted, in the segment of the order item it delivered, for an order in
-// the query's currency, as its revenue counts (ADR-0083 §6).
+// the query's currency, as its revenue counts (ADR-0083 §6), and what a
+// customer's return received into stock took back of it on the
+// receipt's date (S2b4), in its order item's segment.
 const segmentsSQL = `WITH parts AS (
 	SELECT b.id, b.customer_id, b.posting_date, oi.item_key, i.net_amount,
 		CASE WHEN d.discount = 0 OR i.net_amount = i.order_net_amount THEN d.discount
@@ -103,6 +106,16 @@ const segmentsSQL = `WITH parts AS (
 	JOIN sales.delivery_item i ON i.tenant_id = r.tenant_id AND i.delivery_id = r.delivery_id
 	JOIN sales.sales_order_item oi ON oi.tenant_id = i.tenant_id AND oi.sales_order_id = i.sales_order_id AND oi.item_no = i.order_item_no
 	WHERE o.legal_entity_id = $1 AND r.reversal_date BETWEEN $2 AND $3 AND o.currency = $4 AND ($5::uuid IS NULL OR o.customer_id = $5)
+	UNION ALL
+	SELECT o.customer_id, oi.item_key, -k.cost_amount
+	FROM sales.return_receipt c
+	JOIN sales.returns_order r ON r.tenant_id = c.tenant_id AND r.id = c.returns_order_id
+	JOIN sales.sales_order o ON o.tenant_id = r.tenant_id AND o.id = r.sales_order_id
+	JOIN sales.return_receipt_item_cost k ON k.tenant_id = c.tenant_id AND k.receipt_id = c.id
+	JOIN sales.returns_order_item ri ON ri.tenant_id = k.tenant_id AND ri.returns_order_id = c.returns_order_id AND ri.item_no = k.item_no
+	JOIN sales.billing_document_item bi ON bi.tenant_id = ri.tenant_id AND bi.billing_document_id = ri.billing_document_id AND bi.item_no = ri.billing_item_no
+	JOIN sales.sales_order_item oi ON oi.tenant_id = bi.tenant_id AND oi.sales_order_id = bi.sales_order_id AND oi.item_no = bi.order_item_no
+	WHERE r.legal_entity_id = $1 AND c.receipt_date BETWEEN $2 AND $3 AND o.currency = $4 AND ($5::uuid IS NULL OR r.customer_id = $5)
 )
 SELECT customer_id, item_key, sum(gross)::bigint, sum(discount)::bigint, sum(credit)::bigint, (sum(gross) - sum(discount) - sum(credit))::bigint,
 	sum(cost)::bigint, (sum(gross) - sum(discount) - sum(credit) - sum(cost))::bigint
@@ -129,7 +142,11 @@ const foreignSQL = `SELECT
 		WHERE o.legal_entity_id = $1 AND d.outbound_delivery_id IS NOT NULL AND d.delivery_date BETWEEN $2 AND $3 AND o.currency <> $4
 			AND ($5::uuid IS NULL OR o.customer_id = $5))
 	+ (SELECT count(*) FROM sales.delivery_reversal r JOIN sales.sales_order o ON o.tenant_id = r.tenant_id AND o.id = r.sales_order_id
-		WHERE o.legal_entity_id = $1 AND r.reversal_date BETWEEN $2 AND $3 AND o.currency <> $4 AND ($5::uuid IS NULL OR o.customer_id = $5))`
+		WHERE o.legal_entity_id = $1 AND r.reversal_date BETWEEN $2 AND $3 AND o.currency <> $4 AND ($5::uuid IS NULL OR o.customer_id = $5))
+	+ (SELECT count(*) FROM sales.return_receipt_posting p JOIN sales.return_receipt c ON c.tenant_id = p.tenant_id AND c.id = p.receipt_id
+		JOIN sales.returns_order r ON r.tenant_id = c.tenant_id AND r.id = c.returns_order_id
+		JOIN sales.sales_order o ON o.tenant_id = r.tenant_id AND o.id = r.sales_order_id
+		WHERE r.legal_entity_id = $1 AND c.receipt_date BETWEEN $2 AND $3 AND o.currency <> $4 AND ($5::uuid IS NULL OR r.customer_id = $5))`
 
 // Segments are the company's figures by profitability segment, a
 // customer and an item key (ADR-0075 §6, T92a), from the billing

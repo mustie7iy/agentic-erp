@@ -120,8 +120,9 @@ func TestReturnReceiptConfirmed(t *testing.T) {
 			"legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001",
 			"billing_document_id": doc, "billing_document_number": returns["billing_document_number"], "sales_order_id": order,
 			"sales_order_number": returns["sales_order_number"], "receipt_date": today, "version": float64(3), "items": []any{
-				map[string]any{"item_no": float64(1), "billing_item_no": float64(2), "quantity": qty("3", "EA"), "received_quantity": qty("3", "EA")},
-				map[string]any{"item_no": float64(2), "billing_item_no": float64(1), "quantity": qty("0.5", "KG"), "received_quantity": qty("0.5", "KG")}}}
+				map[string]any{"item_no": float64(1), "billing_item_no": float64(2), "quantity": qty("3", "EA"), "received_quantity": qty("3", "EA"), "cost": nil},
+				map[string]any{"item_no": float64(2), "billing_item_no": float64(1), "quantity": qty("0.5", "KG"), "received_quantity": qty("0.5", "KG"), "cost": nil}},
+			"material_document_id": nil, "material_document_number": nil} // items of no material move no stock (S2b4)
 		if a, b := mustJSON(t, e.events(t, "return_received", "returns_order_id", id)), mustJSON(t, []map[string]any{want}); a != b {
 			t.Errorf("ReturnReceived: got %s, want %s", a, b)
 		}
@@ -289,7 +290,7 @@ func TestReturnReceiptDatedInTheCompanysZone(t *testing.T) {
 	receive := func(date string) error {
 		return e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ConfirmReceipt(ctx, uuid.MustParse(id), sales.ReceiptInput{Date: instant(t, date+"T00:00:00Z"),
-				Items: []sales.ItemQuantity{{ItemNo: 1, Quantity: "1", Unit: "EA"}}})
+				Items: []sales.ReceiptItemInput{{ItemQuantity: sales.ItemQuantity{ItemNo: 1, Quantity: "1", Unit: "EA"}}}})
 			return err
 		})
 	}

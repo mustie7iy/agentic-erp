@@ -20,9 +20,10 @@
 //
 // Its check holds an order to what the run read: the proposal read with
 // getRequisition and still to be ordered, of one material; the quantity
-// and unit as the proposal has them, a proposal of one item (one of several
-// lots, ADR-0084 As built S2k2, is left to the buyer, refused before any
-// measures are read);
+// and unit as the proposal has them (a proposal of several lots, ADR-0084
+// As built S2k2, is ordered as one order of its lots: the quantity their
+// sum, and each lot named in a line of its own, its item's number and
+// quantity by the order's day, ADR-0072 As built S2k2a);
 // the day it is needed by (or the run's day, when it names none: lead
 // times are Later); a source of the proposal's material in its company
 // that the run read, an active catalog item, an active contract item
@@ -109,9 +110,14 @@ catalog item before the supplier last ordered from, and then the lower price.
 Then recommend once on each proposal still to be ordered (draft, pending approval or approved). order, when a source exists:
 the content's first line is exactly
 Order <quantity> <unit> from supplier <supplier_id> by <YYYY-MM-DD>: <source>
-with the proposal's quantity and unit as the requisition gives them, the supplier's id, the day the requisition is needed by
+with the proposal's quantity and unit as the requisition gives them (the sum of its items' quantities when it has several), the supplier's id, the day the requisition is needed by
 (the run's day when it names none), and the source as one of "contract <contract_id> item <item_no>", "catalog item
-<catalog_item_id>" or "purchase order <purchase_order_id>", ids as the tools returned them; then a line of its own
+<catalog_item_id>" or "purchase order <purchase_order_id>", ids as the tools returned them; then, when the requisition has
+more than one item (its run line's lots above 1: the plan sizes the shortage in lots, an item per lot), a line of its own for
+each item, in the order of its item numbers,
+Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>
+with the item's number and quantity as the requisition gives them, its unit and the order's day: one order of the lots from
+one supplier and source, the buyer ordering each lot as an item of it; then a line of its own
 Measures: <the supplier's measures>
 exactly as "<receipts> receipts (<history>), lead time <observed_lead_days> days", then " against <planned_lead_days> planned"
 when the read gives a planned lead time, then ", on time <on_time_receipts> of <dated_receipts> (<on_time_percent>%)" when it
@@ -119,10 +125,9 @@ gives an on-time share; or "no receipts" for a supplier the read has no row of. 
 Why: <reasons>
 saying why this supplier and source, citing what you read (its measures against the other suppliers', the source's price,
 the last order, the supplier's number and name), each figure as a tool returned it; a quantity with a fraction stands only in
-the first line. source_needed, when nothing you read is a source of the material: say what you looked for, so
+the first line and the lot lines. source_needed, when nothing you read is a source of the material: say what you looked for, so
 that the buyer can source it (for example by a request for quotation). A proposal that is no longer to be ordered gets no
-recommendation: say so in your answer. Nor does a proposal of more than one item (its run line's lots above 1: the plan
-sizes it in lots): say it is left to the buyer.`
+recommendation: say so in your answer.`
 
 // Agent reviews a planning run's proposals.
 type Agent struct {
@@ -139,9 +144,10 @@ var (
 	ErrNotCompleted = errors.New("replenishmentagent: the planning run has not completed, so it has no proposals to review")
 	// ErrProposal refuses a recommendation on a proposal the run has not
 	// read with getRequisition, or that is no longer to be ordered or no
-	// longer one item of a material.
+	// longer of one material: its items, one per lot, of a material in one
+	// unit.
 	ErrProposal = errors.New("replenishmentagent: a recommendation is on a proposal the run read (getRequisition) that is still to be ordered " +
-		"(draft, pending_approval or approved) and of one item of a material")
+		"(draft, pending_approval or approved) and of one material, its items of the material in one unit")
 	// ErrForm refuses an order without its first line in the form a buyer
 	// orders from, or without its reasons, and a source_needed that
 	// orders.
@@ -149,8 +155,9 @@ var (
 		`the source "contract <contract_id> item <item_no>", "catalog item <catalog_item_id>" or "purchase order <purchase_order_id>", ` +
 		`and a line "Why: " gives its reasons; a source_needed orders nothing`)
 	// ErrQuantity refuses an order of another quantity or unit than the
-	// proposal's.
-	ErrQuantity = errors.New("replenishmentagent: an order is of the proposal's quantity in its unit, as the requisition gives them")
+	// proposal's, its lots' sum.
+	ErrQuantity = errors.New("replenishmentagent: an order is of the proposal's quantity in its unit, as the requisition gives them " +
+		"(the sum of its items' quantities when it has several lots)")
 	// ErrWhen refuses an order by another day than the proposal's.
 	ErrWhen = errors.New("replenishmentagent: an order is by the day the requisition is needed by, or the run's day when it names none")
 	// ErrSource refuses an order from a source the run has not read as one
@@ -158,6 +165,12 @@ var (
 	// from another supplier than the source's.
 	ErrSource = errors.New("replenishmentagent: an order's source is one the run read of the proposal's material in its company (an active catalog item, " +
 		"an active contract item valid on the day, a released or closed purchase order's item), and its supplier the source's")
+	// ErrLots refuses an order of a proposal of several lots that does not
+	// name each lot as the requisition has it, in its items' order, by the
+	// order's day, or names lots that are not the proposal's (S2k2).
+	ErrLots = errors.New(`replenishmentagent: an order of a proposal of several lots names each lot in a line of its own, in the order of its ` +
+		`item numbers, "Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>" with the item's number and quantity as the requisition gives them, ` +
+		`its unit and the order's day, and no other lot`)
 	// ErrSupplier refuses an order from a supplier the run has not read as
 	// an active supplier.
 	ErrSupplier = errors.New("replenishmentagent: an order's supplier is one the run read (getBusinessPartner) as an active supplier")

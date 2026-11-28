@@ -23,13 +23,15 @@
 // posts through the ledger's posting port, through the ports below, which
 // the composition root wires. Procurement posts its goods receipts of
 // stock items and their reversals through it (ReceiveForOrder,
-// ReverseForOrder), their value on the GR/IR entry procurement posts, and
+// ReverseForOrder), and their returns to the supplier (ReturnForOrder,
+// As built S1e2), their value on the GR/IR entry procurement posts, and
 // payables the price differences of their invoices on a moving-priced
-// stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e). Stock
-// transport orders move stock between a company's plants through it, the
-// goods issue into stock in transit at the receiving plant and the goods
-// receipt out of it (IssueForTransport, ReceiveForTransport; As built
-// S2h).
+// stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e). Sales'
+// return receipts post a customer's return into stock through it
+// (ReceiveForReturn; ADR-0083 As built S2b4). Stock transport orders
+// move stock between a company's plants through it, the goods issue into
+// stock in transit at the receiving plant and the goods receipt out of it
+// (IssueForTransport, ReceiveForTransport; As built S2h).
 package inventory
 
 import (
@@ -69,8 +71,9 @@ type movementType struct {
 	costCenter bool
 	reversal   string
 	reverses   string
-	// order: a purchase order's goods receipt or its reversal, which
-	// procurement's goods movement posts (S1e), never a person here.
+	// order: a purchase order's goods receipt or its reversal, or a return
+	// to the supplier or its reversal, which procurement's goods movement
+	// posts (S1e, S1e2), never a person here.
 	order bool
 	// count: a physical inventory count's difference, which posting the
 	// count's differences posts (S2d), never a person here, and which is
@@ -88,19 +91,26 @@ type movementType struct {
 	// (IssueForIntercompany, S2i1), never a person here, and which is not
 	// reversed yet.
 	intercompany bool
+	// customerReturn: a customer's return received into stock, which a
+	// return receipt of sales posts (ReceiveForReturn, S2b4), never a
+	// person here, and which is not reversed yet.
+	customerReturn bool
 	// tracked: an item of a batch-managed material names its batch
 	// (S2f), and one of a serial-managed material the serial number of
 	// each unit (S2g); a purchase order's goods receipt and its reversal
-	// carry both since S2f1 and S2g1, a delivery's goods issue and its
-	// reversal since S2f2 and S2g2; the other movement types carry
-	// neither yet, and refuse such a material.
+	// carry both since S2f1 and S2g1, a return to the supplier and its
+	// reversal since S1e2, a delivery's goods issue and its reversal since
+	// S2f2 and S2g2, a customer's return since S2b4; the other movement
+	// types carry neither yet, and refuse such a material.
 	tracked bool
 }
 
 // movementTypes are the forward movement types a person posts and their
 // reversals, which only reverseMaterialDocument posts, a purchase
 // order's goods receipt and its reversal, which procurement posts
-// (ReceiveForOrder, ReverseForOrder), a count's differences, which
+// (ReceiveForOrder, ReverseForOrder), a return of its stock items to the
+// supplier and the return's reversal, which procurement posts too
+// (ReturnForOrder, ReverseForOrder; S1e2), a count's differences, which
 // PostDifferences posts (S2d), and an outbound delivery's goods issue,
 // which shipping posts (IssueForDelivery; its reversal, 602, through
 // ReverseForDelivery, S2b3), and a
@@ -108,10 +118,14 @@ type movementType struct {
 // (IssueForTransport, S2h; its receipt is a 101 of its own kind,
 // transportReceipt), and an intercompany stock transport order's goods
 // issue, which procurement posts (IssueForIntercompany, S2i1; the
-// receiving company receives it as a purchase order's 101).
+// receiving company receives it as a purchase order's 101), and a
+// customer's return received into stock, which sales' return receipt
+// posts (ReceiveForReturn, S2b4).
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true, tracked: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true, tracked: true},
+	"122": {name: "Return delivery to the supplier", sign: -1, reversal: "123", order: true, tracked: true},
+	"123": {name: "Reversal of a return delivery to the supplier", sign: 1, reverses: "122", order: true, tracked: true},
 	"501": {name: "Receipt without purchase order", sign: 1, reversal: "502", tracked: true},
 	"502": {name: "Reversal of a receipt without purchase order", sign: -1, reverses: "501", tracked: true},
 	"561": {name: "Initial entry of stock", sign: 1, reversal: "562", tracked: true},
@@ -128,8 +142,17 @@ var movementTypes = map[string]movementType{
 	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true, tracked: true},
 	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true, tracked: true},
 	"643": {name: "Goods issue for an intercompany stock transport order", sign: -1, intercompany: true},
+	"653": {name: "Customer return into stock", sign: 1, customerReturn: true, tracked: true},
 	"701": {name: "Physical inventory surplus", sign: 1, count: true},
 	"702": {name: "Physical inventory shortage", sign: -1, count: true},
+}
+
+// byPerson says whether a person posts the movement type through Post: a
+// forward type that no other document of inventory or another context
+// posts (an order's goods movement, a count, a delivery's or transport's
+// goods issue, a customer's return).
+func (mt movementType) byPerson() bool {
+	return mt.reverses == "" && !mt.order && !mt.count && !mt.delivery && !mt.transport && !mt.intercompany && !mt.customerReturn
 }
 
 func init() {
@@ -275,8 +298,12 @@ type Document struct {
 	ReversedByNumber *string
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
-	// Reference is the goods movement's number of a purchase order's
-	// goods receipt or its reversal (101, 102), nil on another document.
+	// Reference is the number of the document that posted it: the goods
+	// movement's of a purchase order's goods receipt, its return to the
+	// supplier or their reversals (101, 102, 122, 123), the stock
+	// transport order's (351, and its receipt's 101), the outbound
+	// delivery's (601, 602), the intercompany order's (643) or the
+	// returns order's (653); nil on a document a person posts or a count's.
 	Reference *string
 	// Currency and Exponent are what its lines are valued in, the
 	// company's; empty on a document posted before valuation (S1c). The

@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,7 +24,9 @@ import (
 // movement's transaction, and the WE entry posts its value on the stock
 // account of the material's valuation class rather than on the item's
 // account (SAP's BSX for an item without account assignment, from
-// memory). Returns to the supplier (122) of stock items are Later.
+// memory). A return to the supplier (122) takes a stock item's goods out
+// of stock and its reversal (123) puts them back, through the same API
+// (S1e2, As built S1e2).
 
 // Materials reads materials (the materials context's published API): by
 // id, what a stock item's or a material item's material is, where it is
@@ -37,10 +38,12 @@ type Materials interface {
 }
 
 // Movements moves stock (the inventory context's published API): a
-// goods receipt of stock items as a material document, and its reversal,
-// each posting its value on the entry the callback posts.
+// goods receipt of stock items as a material document, a return of them
+// to the supplier (S1e2), and the reversal of either, each posting its
+// value on the entry the callback posts.
 type Movements interface {
 	ReceiveForOrder(ctx context.Context, in inventory.OrderReceipt, post inventory.PostEntry) (inventory.Document, error)
+	ReturnForOrder(ctx context.Context, in inventory.OrderReturn, post inventory.PostEntry) (inventory.Document, error)
 	ReverseForOrder(ctx context.Context, id uuid.UUID, day time.Time, reference string, post inventory.PostEntry) (inventory.Document, error)
 }
 
@@ -152,21 +155,20 @@ func notStockItem(field string, it ReceiptItem, oi orderItem) error {
 
 // asReceiptItems names a refusal of the material document's item k by the
 // goods movement's item it is, stock[k]: inventory numbers the stock items
-// alone.
+// alone. A return's batch, which inventory's issue names batch_number, is
+// the item's batch here (S1e2).
 func asReceiptItems(err error, stock []int) error {
-	var p *problem.Problem
-	if !errors.As(err, &p) {
-		return err
-	}
-	for j := range p.Errors {
+	return problem.Renamed(err, func(field string) (string, bool) {
 		for k, i := range stock {
-			if rest, ok := strings.CutPrefix(p.Errors[j].Field, fmt.Sprintf("items[%d].", k)); ok {
-				p.Errors[j].Field = fmt.Sprintf("items[%d].%s", i, rest)
-				break
+			if rest, ok := strings.CutPrefix(field, fmt.Sprintf("items[%d].", k)); ok {
+				if rest == "batch_number" {
+					rest = "batch"
+				}
+				return fmt.Sprintf("items[%d].%s", i, rest), true
 			}
 		}
-	}
-	return p
+		return field, true // a field of no item, such as items itself, is the request's too
+	})
 }
 
 func entryOf(entry ledger.Entry, ok bool) postedMovement {
@@ -178,8 +180,9 @@ func entryOf(entry ledger.Entry, ok bool) postedMovement {
 
 // postStock posts a goods movement's WE entry (postMovement) and, when it
 // has stock items, their material document: a receipt's through
-// ReceiveForOrder, a receipt's reversal through ReverseForOrder of the
-// receipt's document (g.reverses), each posting the WE entry with its
+// ReceiveForOrder, a return's through ReturnForOrder (S1e2), a reversal
+// of either through ReverseForOrder of its original's document
+// (g.reverses), each posting the WE entry with its
 // stock items' bookings in the inventory context's call, so the
 // valuations and stock are locked before the ledger's GR/IR lock, as
 // every inventory posting takes them.
@@ -214,17 +217,7 @@ func (e *Endpoints) postStock(ctx context.Context, id uuid.UUID, number string, 
 		out = entryOf(entry, true)
 		return entry, posted, nil
 	}
-	var doc inventory.Document
-	var err error
-	switch {
-	case g.ReversalOfID != nil && g.reverses == nil: // a receipt of stock items has its document (insertMovement)
-		return postedMovement{}, fmt.Errorf("procurement: goods movement %s reverses stock items without a material document", number)
-	case g.ReversalOfID != nil:
-		doc, err = e.Movements.ReverseForOrder(ctx, *g.reverses, g.PostingDate, number, post)
-	default:
-		doc, err = e.Movements.ReceiveForOrder(ctx, inventory.OrderReceipt{Company: g.LegalEntityID, Day: g.PostingDate, Reference: number,
-			Items: orderItems(g, current, stock)}, post)
-	}
+	doc, err := e.moveStock(ctx, number, g, current, stock, post)
 	if err != nil {
 		return postedMovement{}, asReceiptItems(err, stock)
 	}
@@ -233,6 +226,43 @@ func (e *Endpoints) postStock(ctx context.Context, id uuid.UUID, number string, 
 		out.lines[stock[l.ItemNo-1]] = l
 	}
 	return out, nil
+}
+
+// moveStock posts the material document of a goods movement's stock
+// items (stock, the goods items' indexes) through inventory, its entry
+// through post.
+func (e *Endpoints) moveStock(ctx context.Context, number string, g GoodsReceipt, current []orderItem, stock []int, post inventory.PostEntry) (
+	inventory.Document, error) {
+	switch {
+	case g.ReversalOfID != nil && g.reverses == nil: // a receipt or return of stock items has its document (insertMovement)
+		return inventory.Document{}, fmt.Errorf("procurement: goods movement %s reverses stock items without a material document", number)
+	case g.ReversalOfID != nil:
+		return e.Movements.ReverseForOrder(ctx, *g.reverses, g.PostingDate, number, post)
+	case g.MovementType == Return:
+		return e.Movements.ReturnForOrder(ctx, inventory.OrderReturn{Company: g.LegalEntityID, Day: g.PostingDate, Reference: number,
+			Items: returnItems(g, current, stock)}, post)
+	default:
+		return e.Movements.ReceiveForOrder(ctx, inventory.OrderReceipt{Company: g.LegalEntityID, Day: g.PostingDate, Reference: number,
+			Items: orderItems(g, current, stock)}, post)
+	}
+}
+
+// returnItems are the stock items of a return (stock, the goods items'
+// indexes) as inventory issues them, each out of its order item's storage
+// location, with the batch it names by number and its serial numbers
+// (S1e2). A return's quantities are stored negative (movedItems); inventory
+// takes them positive.
+func returnItems(g GoodsReceipt, current []orderItem, stock []int) []inventory.DeliveryItem {
+	items := make([]inventory.DeliveryItem, len(stock))
+	for k, i := range stock {
+		oi, it := current[i], g.Items[i]
+		items[k] = inventory.DeliveryItem{MaterialID: *oi.material, PlantID: *oi.plant, StorageLocationID: *oi.storageLocation, Quantity: negated(it.Quantity),
+			Unit: it.Unit, SerialNumbers: it.SerialNumbers}
+		if it.Batch != nil {
+			items[k].Batch = it.Batch.Number
+		}
+	}
+	return items
 }
 
 // orderItems are the stock items of a receipt (stock, the goods items'
@@ -249,10 +279,13 @@ func orderItems(g GoodsReceipt, current []orderItem, stock []int) []inventory.Or
 }
 
 // stockValued refuses stock items that cannot be received into stock: a
-// return of them (122, Later), or of an order valued directly, which
-// posts no receipt, or in another currency than the company's, which a
-// valuation is kept in (an order item's currency is checked as it is
-// ordered; this holds for orders the company's currency changed under).
+// return of an intercompany stock transport order's (122 or 123: the goods
+// would leave the receiving company with nothing bringing them back to
+// the supplying one, ADR-0082 As built S2i), or of an order valued
+// directly, which posts no receipt, or in another currency than the
+// company's, which a valuation is kept in (an order item's currency is
+// checked as it is ordered; this holds for orders the company's currency
+// changed under).
 func (e *Endpoints) stockValued(ctx context.Context, g GoodsReceipt, current []orderItem, stock []int) error {
 	le, _, err := e.LegalEntities.Entity(ctx, g.LegalEntityID) // the movement's legal entity was checked
 	if err != nil {
@@ -262,9 +295,10 @@ func (e *Endpoints) stockValued(ctx context.Context, g GoodsReceipt, current []o
 		oi := current[i]
 		field := fmt.Sprintf("items[%d]", i)
 		switch {
-		case g.MovementType == Return || g.MovementType == ReturnReversal:
-			return problem.Invalid("procurement.stock_item_return", field, fmt.Sprintf("Item %d of order %s is a stock item; returning stock items "+
-				"to the supplier is not built yet.", g.Items[i].POItemNo, oi.documentNumber))
+		case oi.intercompany && (g.MovementType == Return || g.MovementType == ReturnReversal):
+			return problem.Invalid("procurement.stock_item_return", field, fmt.Sprintf("Item %d of order %s is a stock item of an intercompany stock "+
+				"transport order; it is not returned to the supplying company yet: reverse its goods receipt (102), which puts it back in transit.",
+				g.Items[i].POItemNo, oi.documentNumber))
 		case oi.valuation != ValuationGRIR || oi.currency != le.LocalCurrency:
 			return problem.Unprocessable("procurement.stock_item_not_valued", fmt.Sprintf("Item %d of order %s is a stock item, received into stock "+
 				"against GR/IR in company %s's currency %s; the order is valued %s in %s.", g.Items[i].POItemNo, oi.documentNumber, le.Code,

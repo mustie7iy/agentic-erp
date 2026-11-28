@@ -435,8 +435,39 @@ against the receipt clears GR/IR and puts a price difference on the stock
 **Later for the goods receipt into stock:** goods receipt into quality
 inspection, delivery tolerances against the order (over- and
 underdelivery), GR-based invoice verification by receipt versus by order,
-evaluated receipt settlement (ERS), returns to the supplier (122, 161),
-delivery costs (planned freight) on the stock value.
+evaluated receipt settlement (ERS), returns to the supplier (122, 161;
+first slice S1e2: returns out of stock), delivery costs (planned freight)
+on the stock value.
+
+### S1e2 Returns to the supplier out of stock (inventory posting variants, first slice)
+
+**Capability.** A buyer returns received goods of a purchase order's
+stock item to the supplier: the return takes them out of stock at the
+value the stock holds them at, reverses GR/IR for them at the order price
+and lowers the order item's received quantity, so that the supplier's
+replacement is received again.
+
+- **Adds** (lane supret, 2026-11-27; the tracker's "later: inventory
+  posting variants" split, its first item; decided by default, ADR-0082
+  As built S1e2): a return (`POST /v1/goods-receipts`, movement type 122)
+  of a stock item posts a material document 122 through inventory's
+  `ReturnForOrder`, valued as the receipt's reversal (102) is, and its
+  reversal (`:reverse`, 123) puts back what it took; migrations 000502 and
+  000503; a batch named by number, serial numbers in stock; 409
+  `procurement.return_below_invoiced` once invoiced (the credit memo
+  first), 422 `procurement.return_batch_dates`; an intercompany order's
+  stock items still refused (422 `procurement.stock_item_return`).
+- **Walkthrough:** extends `step_stock_receipt` (step 130).
+  **Acceptance:** receive 40, return 4: stock and GR/IR show the order
+  item 96 received; receive 4 again: 100; a return beyond the stock or
+  what was received, or below what was invoiced, is refused and moves
+  nothing; the reversal of a return restores stock, value and GR/IR.
+- **Later:** a return naming the receipt it returns, at that receipt's
+  value; returns from quality inspection or blocked stock (161); a return
+  delivery with shipping papers; an intercompany order's returns.
+- **Integrated** (batch 98S, with S2b4): ADR-0082 As built S1e2's last
+  bullet; a return of a material blocked since its receipt is a tracker
+  leaf (review:batch98).
 
 ### S1f Item keys of sales and procurement mapped onto materials (pilot)
 
@@ -718,10 +749,64 @@ delivery.
 - **As built** (2026-11-24): ADR-0083 As built S2b3, migrations 000471
   and 000472, walkthrough step 143 (`goods_issue_reversal`).
 
+#### S2b4 Customer returns received into stock (653)
+
+The first item of the leaf "later: delivery variants: … returns
+deliveries (stock posting of T85b's returns)" (lane custret,
+2026-11-27); what is left of it stays a leaf.
+
+**Capability.** A sales administrator confirms that a customer's
+returned goods arrived (T85b's return receipt) and names the storage
+location an item of a material kept in stock goes back into: the stock
+and its value come back at the cost the goods issue took out for them,
+and the cost of goods sold is taken back in the same posting; the credit
+memo for the return stays the credit memo request's.
+
+- **Adds:** on `POST /v1/returns-orders/{id}/receipts`, each item's
+  `storage_location_id`, `batch_number` and `serial_numbers`; the
+  receipt's `material_document_id`, `_number` and each item's `cost`;
+  inventory's movement type `653` and `Endpoints.ReceiveForReturn`;
+  `sales.return_receipt_posting` and `sales.return_receipt_item_cost`;
+  the problem codes `sales.storage_location_required`,
+  `sales.storage_location_invalid`, `sales.return_not_stocked`,
+  `sales.exceeds_issued_quantity` and
+  `inventory.reverse_customer_return`.
+- **Decided by default (ADR-0083 As built S2b4):** the receipt posts on
+  its own date into unrestricted stock (there are no stock types); each
+  item at its share of what its order item's goods issues not reversed
+  cost, less what earlier receipts took back, the last share the
+  remainder; refused beyond what those goods issues delivered and is not
+  back; an order item no goods issue delivered at the valuation's price
+  (ADR-0082 §8); the 653 not reversed yet; cost of sales by segment falls
+  on the receipt's date.
+- **Walkthrough:** `step_return_into_stock`: Northwind returns 2 of 5
+  washers delivered from Montreal and billed; a receipt without its
+  storage location is refused; the 653 puts them back at the cost the
+  601 took, its entry crediting 5016 and debiting 1416; the store, the
+  valuation and the cost of sales by segment show it; the 653 is not
+  reversed by hand.
+- **Acceptance:** the receipt posts once, at the goods issue's cost; the
+  stock, the valuation and the cost of goods sold move by it; a receipt
+  beyond what was issued and is not back is refused; the availability
+  check sees the stock.
+- **Later:** a returns delivery document of its own (SAP LR, from
+  memory) and its goods receipt; returns into blocked or quality
+  inspection stock (651, 655, 657, with stock types); the 653's reversal;
+  a receipt naming the delivery it returns, at that delivery's cost; a
+  check that a returned serial number was delivered to the customer; a
+  warehouse system reporting a return receipt.
+- **As built** (2026-11-27): ADR-0083 As built S2b4, migrations 000504
+  and 000505, walkthrough step 166 (`return_into_stock`). Batch 98S's
+  integration with S1e2: both lanes' movement types in one schema and one
+  table test; a 122 and a 653 reconcile the valuation to the stock
+  account, neither is consumption to the ABC analysis, and a serial
+  number received back is issued again (ADR-0082 As built S1e2,
+  ADR-0083 As built S2b4).
+
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
-delivery notes, returns deliveries (stock posting of T85b's returns),
-the order-to-delivery variants of `plan-breadth-week2.md` §T78c.
+delivery notes, the returns deliveries S2b4 left (its Later), the
+order-to-delivery variants of `plan-breadth-week2.md` §T78c.
 
 ### S2c Physical inventory count documents (pilot)
 
@@ -1320,8 +1405,31 @@ pack size.
   rounded; the run's lines say what was proposed and in how many lots.
 - **Later:** period lot sizes (daily, weekly, monthly), optimising
   procedures (part period, least unit cost, Groff), scrap, firming in a
-  planning time fence; the replenishment agent recommending on a
-  proposal of several lots.
+  planning time fence; the replenishment agent recommending an order per
+  lot (lots from several suppliers or on several days).
+- **S2k2a The replenishment agent on a proposal of several lots** (lane
+  repllots, 2026-11-27; the Later item "the replenishment agent
+  recommending on a proposal of several lots", review:batch95; ADR-0072
+  As built S2k2a, decided by default).
+  - **Adds:** the agent recommends one order of a proposal's lots from
+    one supplier and source: its first line orders their sum, then a line
+    `Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>` per item, by the
+    proposal's day; its check holds the lines to the requisition's items
+    (`ErrLots`) and the sum to its own exact total (`ErrQuantity`), and
+    the supplier's measures as S2l1 does. No migration, no contract
+    change; suite `evals/replenishment` version 3.
+  - **Acceptance:** an order of the lots' sum naming each lot in order is
+    made; one without the lots, with one missing, out of order, split
+    otherwise, on another day or naming a lot twice is refused before the
+    measures are read, telling the lines wanted; a requisition not of one
+    material in one unit is no proposal; the suite's two lot cases pass
+    replayed.
+  - **Walkthrough:** `step_replenishment_agent` (step 153): the W8
+    washer at Montreal, in fixed lots of 40: the agent's order of the 120
+    without its lots refused (its recorded result `ErrLots`'s wording),
+    its order naming the three lots made.
+  - **Later:** an order per lot (lots from several suppliers, with quota
+    arrangements; lots on several days, with period lot sizes).
 
 ### S2l Replenishment agent
 

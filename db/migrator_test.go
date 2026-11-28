@@ -63,10 +63,12 @@ func downRefused(t *testing.T, down string, tenant uuid.UUID, rows []stmt, want 
 // (material descriptions), batch 96S's of 000490 (recounts), 000491
 // (goods issue lines), 000493 and 000492 (lead times), batch 97S's of
 // 000494 (S&OP approval), 000495 (units' measures) and 000496 (indicators
-// taken off, ABC analyses applied), and batch 98F's of 000498 and 000497
+// taken off, ABC analyses applied), batch 98F's of 000498 and 000497
 // (the house bank code per account), 000499 (opening items) and 000501 and
-// 000500 (the forecast's receipts, T53l1) revert what their ups added, so
-// that each up applies again after its down (06 §6.4: a down reverts its up, and
+// 000500 (the forecast's receipts, T53l1), and batch 98S's of 000503 and
+// 000502 (returns to the supplier) and of 000505 and 000504 (customer
+// returns into stock) revert what their ups added, so that each up
+// applies again after its down (06 §6.4: a down reverts its up, and
 // TestMigrationsRevertCleanly, reverting the whole chain, would not see
 // one that left its columns behind).
 func TestDownsRevert(t *testing.T) {
@@ -79,7 +81,8 @@ func TestDownsRevert(t *testing.T) {
 		names                 []string // the migrations reverted, latest first
 		schema, table, column string   // a column the first up added
 		// check, for an up that adds no column, is true while what it
-		// changed is still there.
+		// changed is still there; schema, table and column then only name
+		// the case in a failure.
 		check string
 	}{
 		{[]string{"000496_cycle_count_removal"}, "inventory", "cycle_count_material", "status", ""},
@@ -96,6 +99,10 @@ func TestDownsRevert(t *testing.T) {
 				AND pg_get_constraintdef(oid) LIKE '%{1,10}%')`},
 		{[]string{"000499_opening_item"}, "integration", "opening_item", "external_key", ""},
 		{[]string{"000501_validate_cash_receipts", "000500_cash_receipts"}, "cash", "snapshot_flow", "customer_id", ""},
+		{names: []string{"000503_validate_supplier_returns", "000502_supplier_returns"}, schema: "inventory", table: "material_document", column: "movement_type",
+			check: `SELECT EXISTS (SELECT FROM pg_constraint WHERE conrelid = 'inventory.material_document'::regclass
+				AND conname = 'material_document_movement_type_check' AND pg_get_constraintdef(oid) LIKE '%''122''%')`},
+		{[]string{"000505_validate_customer_return_stock", "000504_customer_return_stock"}, "sales", "return_receipt_posting", "receipt_id", ""},
 	} {
 		t.Run(c.names[len(c.names)-1], func(t *testing.T) {
 			tx, err := conn.Begin(ctx)

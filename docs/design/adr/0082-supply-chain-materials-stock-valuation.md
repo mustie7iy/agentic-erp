@@ -571,7 +571,7 @@ follow by type.
   posts neither type.
 - **Not received into stock** (decided by default; Later): a return to the
   supplier (122) of a stock item (422 `procurement.stock_item_return`, the
-  plan's Later), and a stock item of an order valued directly or in another
+  plan's Later; built in S1e2 below), and a stock item of an order valued directly or in another
   currency than the company's, in which a valuation is kept (422
   `procurement.stock_item_not_valued`; foreign-currency stock items are
   Later). A material blocked since the order is not received
@@ -613,6 +613,110 @@ follow by type.
   difference to the company's price difference account, not to the stock
   (for the specialist).
 - Walkthrough step 130, `step_stock_receipt`, after step 125.
+
+### S1e2: returns to the supplier out of stock (2026-11-27)
+
+The first slice of the plan's "later: inventory posting variants" (plan
+§S1e2; decided by default where nothing above settles it, each listed for
+the product owner).
+
+- Migrations 000502 and 000503 (03 §3.35): the material document's
+  movement types `122` (return delivery to the supplier) and `123` (its
+  reversal), each naming the goods movement as its `reference`, a 123
+  reversing a 122 (`material_document_reversal`, as every type the next);
+  under schema tests (`db/supplier_return_test.go`, the down's refusal
+  too). The contract's open enumerations of movement types gain both.
+- **A return (122) of a stock item takes the goods out of stock**: its
+  order item's material out of the storage location the item names, in the
+  goods movement's transaction, through inventory's new
+  `ReturnForOrder` (one function in its published API), which checks each
+  item as a goods issue's (an active material kept there; a blocked
+  material is refused, `inventory.material_not_usable`, as a delivery's
+  goods issue refuses it), locks the valuations and stock as a 101 does and
+  refuses a return beyond the stock there (409
+  `inventory.insufficient_stock`) as well as beyond what was received
+  (409 `procurement.return_exceeds_receipts`, as before). The stock is
+  unrestricted stock: there are no stock types yet.
+- **Values: as the receipt's reversal (102), reused, not a second
+  valuation.** The line leaves the stock at a standard price at the price,
+  at a moving price at the value in proportion (S1d's issue); the WE entry
+  debits GR/IR at the order item's valuation price, as a return of any
+  item does, and the rest goes to the valuation class's price difference
+  account (`ledger.GRIRStock`). So a return of a moving-priced material
+  whose price has moved since the receipt leaves its price unchanged and
+  books the difference (SAP credits the stock at the receipt's value and
+  moves the price, from memory: for the specialist). The returned quantity
+  is no longer received: the order item can be received again, by a 101
+  at the order price.
+- **Its reversal (123) puts back what the return took**: inventory's
+  `ReverseForOrder` now reverses a 122 as well as a 101, its lines given
+  back at the value the 122's lines took out (at a moving price that value,
+  at a standard price the price), the GR/IR line credited at the order
+  price, the rest a price difference; reversed once (409
+  `procurement.already_reversed`). A 123's lines are given back what the
+  122's lines took from the stock alone (`reversedLines`), the price
+  difference beside them being the GR/IR line's to take back; a 102 and a
+  person's reversal are valued as before.
+- **A return after the invoice is refused for a stock item** (409
+  `procurement.return_below_invoiced`, decided by default, the simpler and
+  safe one; SAP allows it and expects a credit memo, from memory: for the
+  specialist): a return may not leave the order item received below what
+  posted documents invoiced, net of credit memos, as a receipt's reversal
+  may not; the supplier's credit memo comes first. A return of an item that
+  is no stock item is not held to it, as before (ADR-0034).
+- **Batches and serial numbers**: a batch-managed item's return names the
+  batch it gives back by number alone (dates, 422
+  `procurement.return_batch_dates`; a number of no batch of the material,
+  422 `inventory.batch_invalid`; none, 422 `inventory.batch_required`), and
+  a serial-managed item's the serial number of each unit, in stock at the
+  location (409 `inventory.serial_not_in_stock`), as a delivery's goods
+  issue names them (S2f2, S2g2). Movement types 122 and 123 carry both
+  (`tracked`); the reversal gives them back. Inventory's field
+  `batch_number` is the request's `batch` in the goods receipt's refusal.
+- **An intercompany stock transport order's stock items are still not
+  returned** (422 `procurement.stock_item_return`, reworded): the goods
+  would leave the receiving company with nothing bringing them back to the
+  supplying one (As built S2i); the receipt's reversal (102) puts them back
+  in transit.
+- **Locks**: a return takes the order items (`FOR UPDATE`, `lockItems`),
+  then the valuations, stock, batches and serial numbers, the ranges and
+  the ledger's locks, as a receipt does; an invoice takes the order items,
+  then the valuations, so a return, a receipt, an issue and an invoice of
+  the material post at once without a cycle (`TestSupplierReturnsAtOnce`).
+- People only, as the goods receipt: a return is `postGoodsReceipt` with
+  movement type 122, already on the never lists of the agents that list
+  it; nothing new to list.
+- Walkthrough step 130, `step_stock_receipt`, extended: four brackets
+  returned, stock and GR/IR down to 96 received, received again; a return
+  after the invoice refused.
+- **With S2b4's customer returns (653) and the slices before** (batch 98S
+  integration). The two lanes rewrote the same three checks: 000504 (S2b4)
+  runs after 000503 and lists 122 and 123 beside 653, its down restoring
+  000503's lists; `TestMovementTypesOfCountAndShipping` reverts 000505,
+  000504, then 000503, 000502, then the older stages, which types each
+  takes and refuses, and the checks validated after each, and
+  `TestDownsRevert` takes both pairs. One table, `TestMovementTypes`
+  (internal), holds every type's direction, poster, reversal and
+  tracking; Post's rule is `movementType.byPerson`, so 122, 123 and 653
+  are posted by their documents alone. A 122 at the moving price and a 653
+  at its goods issue's cost leave the valuation's quantity the stock and
+  its value the stock account's balance (`TestReturnsBothWays`, in
+  internal/shipping); the availability check confirms the stock on hand
+  after both; the counts due are decided by the stock a location holds and
+  its last count, not by the movement that put it there, so neither return
+  makes a location due by itself; and the ABC analysis (S2c3) counts
+  neither as consumption, its movement types being 201, 551 and 601 and
+  their reversals. A return of a material blocked since its receipt is
+  refused, while the receipt's reversal reverses it: a tracker leaf
+  (review:batch98), nothing built. Procurement renames inventory's
+  refusal of a return's items onto its own request through
+  `problem.Renamed` (`asReceiptItems`), copying the problem rather than
+  changing it (S2b4's review backlog).
+- **Not built** (plan §S1e2, Later): a return naming the receipt (material
+  document) it returns rather than the order item, at that receipt's value;
+  returns from quality inspection or blocked stock (161, 122 from stock
+  types); a return delivery with its own outbound delivery and shipping
+  papers; returns of an intercompany order's stock items.
 
 ### S1f (2026-11-19)
 

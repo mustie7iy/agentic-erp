@@ -1149,12 +1149,12 @@ func (UnimplementedHandler) ConfirmDunningRun(ctx context.Context, params Confir
 //
 // Records that quantities of a `confirmed` returns order's items arrived on a date (ADR-0067, As built
 // T85b). It is a confirmation by a person, kept in the sales context, as a delivery confirmation is
-// (`confirmSalesDelivery`): no stock moves and nothing is posted; a credit memo request reads what was
-// received. The returns order is read under a row lock, so two receipts of one returns order wait for
-// one another. A returns order that is not confirmed takes none (409
-// `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in its
-// time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by its
-// number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422
+// (`confirmSalesDelivery`); a credit memo request reads what was received, and its items of materials
+// kept in stock are received into stock (below). The returns order is read under a row lock, so two
+// receipts of one returns order wait for one another. A returns order that is not confirmed takes none
+// (409 `sales.returns_order_not_confirmed`). `receipt_date` is not after the company's date today in
+// its time zone (422 `sales.receipt_date_in_future`). Each item names an item of the returns order by
+// its number (422 `sales.unknown_returns_item` naming `items[i].item_no`), once (422
 // `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the item's
 // unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what is returned less
 // what earlier receipts confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`,
@@ -1163,8 +1163,32 @@ func (UnimplementedHandler) ConfirmDunningRun(ctx context.Context, params Confir
 // not changed or reversed in the first version. Each returns order item's `received_quantity` rises by
 // what was received, its `open_quantity` falls by it, and the returns order's `version` moves, so
 // `getReturnsOrder` shows what is received and what is still expected. The sales order is not changed:
-// its delivered, billed and returned quantities stay. Audited, and published as ReturnReceived. A
-// retry with the same `Idempotency-Key` answers the receipt recorded. Human-only (`x-agent: false`).
+// its delivered, billed and returned quantities stay. Into stock (S2b4; ADR-0083 As built S2b4): an
+// item whose sales order item is of a material kept in stock names the `storage_location_id` it is
+// received into (422 `sales.storage_location_required`), a storage location of the returns order's
+// company (422 `sales.storage_location_invalid`) at which the material is kept (422
+// `inventory.storage_location_not_extended`; its plant the location's, active and the material
+// extended to it, 422 `inventory.plant_invalid`, `inventory.plant_not_extended`, both naming
+// `items[i].storage_location_id`), with the batch and serial numbers of a tracked material; another
+// item names none of these (422 `sales.return_not_stocked`). Those items are posted into stock as one
+// material document of movement type `653` (`material_document_id`; SAP's return delivery into
+// unrestricted-use stock, from memory: there are no stock types yet, so the goods are in the
+// location's one stock, available to an order's availability check at once), dated `receipt_date`, its
+// `reference` the returns order's number. Each goes back at the cost its sales order item's goods
+// issues took out and did not get back since: its share by quantity of what the order item's goods
+// issues not reversed cost, less what earlier receipts into stock took back, the last share taking the
+// remainder; one beyond what those goods issues delivered and is not back in stock is refused (422
+// `sales.exceeds_issued_quantity` naming `items[i].quantity.value`). An order item no goods issue
+// delivered goes back as a receipt is valued: at a standard price at the price, at a moving price its
+// quantity at the moving price (422 `inventory.no_price` when that is zero). Its value posts in one WA
+// journal entry from the valuation class's cost of goods sold account back to its stock account (422
+// `inventory.no_inventory_account` when the class names none), at a standard price the rest on its
+// price difference account, so the cost of goods sold falls by each item's `cost`; the ledger's
+// refusals apply (such as 422 `ledger.period_not_open`), as does a physical inventory count open on
+// the material there (409 `inventory.posting_blocked`). The 653 is not reversed yet (Later). The
+// credit memo for the return is unchanged: a credit memo request's. Audited, and published as
+// ReturnReceived and MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the
+// receipt recorded. Human-only (`x-agent: false`).
 //
 // POST /v1/returns-orders/{id}/receipts
 func (UnimplementedHandler) ConfirmReturnReceipt(ctx context.Context, req *ReturnReceiptCreate, params ConfirmReturnReceiptParams) (r ConfirmReturnReceiptRes, _ error) {
@@ -10063,7 +10087,16 @@ func (UnimplementedHandler) PostExpenseReport(ctx context.Context, req OptExpens
 // `inventory.serial_not_allowed`), and an item that is no stock item neither (422
 // `procurement.not_stock_item`). The receipt's items name the batch by id and number and the serial
 // numbers, and its reversal (`reverseGoodsReceipt`) takes them out of the batch's stock and out of
-// stock again.
+// stock again. A return of a stock item (S1e2, ADR-0082 As built S1e2) takes its goods out of the
+// order item's storage location (material document 122) at the value the stock holds them at, as the
+// receipt's reversal does, its GR/IR debit at the order price and the difference on the valuation
+// class's price difference account; it names the batch it gives back by number alone (422
+// `procurement.return_batch_dates` with dates) and the serial numbers of the units, in stock there
+// (409 `inventory.serial_not_in_stock`); it is refused beyond what is in stock (409
+// `inventory.insufficient_stock`) and when it would leave the item received below what was invoiced
+// (409 `procurement.return_below_invoiced`: post the credit memo first); an intercompany stock
+// transport order's stock items are not returned (422 `procurement.stock_item_return`). What was
+// returned is received again by a receipt.
 //
 // POST /v1/goods-receipts
 func (UnimplementedHandler) PostGoodsReceipt(ctx context.Context, req *GoodsReceiptCreate, params PostGoodsReceiptParams) (r PostGoodsReceiptRes, _ error) {
@@ -11480,7 +11513,10 @@ func (UnimplementedHandler) ReverseCustomerInvoice(ctx context.Context, req *Cus
 // quantities) if it would leave an order item received less than posted supplier documents invoiced of
 // it, net of credit memos: the supplier's credit memo is posted first, or the goods returned (122). A
 // movement on a closed order is reversed too, as a mistaken receipt or return is undone whenever it is
-// found. Returns the reversal.
+// found. Returns the reversal. A return of a stock item (S1e2) is reversed by a 123 that puts back
+// into its storage location what the 122 took out, at that value (a standard-priced material at its
+// price), its batch and serial numbers with it; refused (409 `inventory.serial_in_stock`) when a
+// returned unit has been received again since.
 //
 // POST /v1/goods-receipts/{id}:reverse
 func (UnimplementedHandler) ReverseGoodsReceipt(ctx context.Context, req OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (r ReverseGoodsReceiptRes, _ error) {
@@ -11556,18 +11592,21 @@ func (UnimplementedHandler) ReverseJournalEntry(ctx context.Context, req OptJour
 // (each keeping its original item's `item_no`), posted on the company's date today and numbered from
 // its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
-// nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
-// (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409
-// `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a
-// new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so
-// it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`,
-// naming the material, the location and both quantities). It is refused, as a posting is, while an
-// open count document counts one of its materials at one of its storage locations (409
-// `inventory.posting_blocked`). The material may have been blocked since; the reversal is still
-// posted. Each line is valued at what its original line was, given back: what the stock does not take
-// of it at its price now is a price difference, and the value is posted through the ledger as the
-// original's was, reversed. A document of a company the caller may not act in is not found (404).
-// Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
+// nor a document twice (409 `inventory.already_reversed`), nor a purchase order's goods receipt (101)
+// or return to the supplier (122, S1e2), which are reversed by reversing their goods movement
+// (`reverseGoodsReceipt`; 409 `inventory.reverse_goods_receipt`), nor an outbound delivery's goods
+// issue yet (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or
+// receipt yet (409 `inventory.reverse_stock_transport`), nor a customer's return received into stock
+// yet (653, S2b4; 409 `inventory.reverse_customer_return`), nor a count's differences (409
+// `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The
+// reversal moves the stock back, so it is refused when the stock the original received has gone (409
+// `inventory.insufficient_stock`, naming the material, the location and both quantities). It is
+// refused, as a posting is, while an open count document counts one of its materials at one of its
+// storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the
+// reversal is still posted. Each line is valued at what its original line was, given back: what the
+// stock does not take of it at its price now is a price difference, and the value is posted through
+// the ledger as the original's was, reversed. A document of a company the caller may not act in is not
+// found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents/{id}:reverse
 func (UnimplementedHandler) ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (r ReverseMaterialDocumentRes, _ error) {

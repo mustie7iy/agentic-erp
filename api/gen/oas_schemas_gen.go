@@ -60088,9 +60088,9 @@ type GoodsReceipt struct {
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// Fiscal year of the journal entry, set with `journal_entry_id`.
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
-	// The material document (`GET /v1/material-documents/{id}`, movement type 101 or 102) that moved the
-	// stock of the movement's stock items (S1e: items of order items naming a storage location), whose
-	// value the WE entry posts against GR/IR; absent when the movement has no stock items.
+	// The material document (`GET /v1/material-documents/{id}`, movement type 101, 102, 122 or 123) that
+	// moved the stock of the movement's stock items (S1e: items of order items naming a storage location),
+	// whose value the WE entry posts against GR/IR; absent when the movement has no stock items.
 	MaterialDocumentID OptUUID `json:"material_document_id"`
 	// That material document's number; absent with it.
 	MaterialDocumentNumber OptString `json:"material_document_number"`
@@ -60316,7 +60316,12 @@ func (s *GoodsReceiptBatch) SetExpiryDate(val OptDate) {
 }
 
 // Post a goods receipt (movement type 101) or a return to the supplier (122). Quantities are positive
-// either way: a return's are stored negative.
+// either way: a return's are stored negative. A return of a stock item (S1e2, ADR-0082 As built S1e2)
+// takes its goods out of the order item's storage location as a material document (122), valued as the
+// receipt's reversal is, and debits GR/IR at the order price, the stock's difference on the price
+// difference account; it is refused beyond what is still in stock (409 `inventory.insufficient_stock`)
+// and below what was invoiced (409 `procurement.return_below_invoiced`: the credit memo first). The
+// returned quantity can be received again.
 // Ref: #/components/schemas/GoodsReceiptCreate
 type GoodsReceiptCreate struct {
 	// Legal entity.
@@ -60571,13 +60576,17 @@ type GoodsReceiptItemInput struct {
 	Quantity Quantity `json:"quantity"`
 	// The batch a stock item of a batch-managed material receives into (ADR-0082 As built S2f1; 422
 	// `inventory.batch_required` without one); another item names none (422 `inventory.batch_not_allowed`,
-	// `procurement.not_stock_item`).
+	// `procurement.not_stock_item`). A return (122) names the batch it gives back by its number alone (422
+	// `procurement.return_batch_dates` with dates; 422 `inventory.batch_invalid` for a number the material
+	// has no batch of; ADR-0082 As built S1e2).
 	Batch OptGoodsReceiptBatch `json:"batch"`
 	// The serial numbers of the units a stock item of a serial-managed material receives (S2g1), one for
 	// each unit of the base unit (422 `inventory.serial_required`; the quantity a whole number of base
 	// units, 422 `inventory.serial_quantity`), each once in the receipt (422 `inventory.serial_repeated`)
 	// and in no stock (409 `inventory.serial_in_stock`; a new one is created); another item names none
-	// (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`).
+	// (422 `inventory.serial_not_allowed`, `procurement.not_stock_item`). A return (122) names the serial
+	// numbers of the units it gives back, each in stock at the order item's storage location (409
+	// `inventory.serial_not_in_stock`; S1e2).
 	SerialNumbers []string `json:"serial_numbers"`
 }
 
@@ -76985,16 +76994,22 @@ type MaterialDocument struct {
 	// A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number`
 	// (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock
 	// against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409
-	// `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1):
-	// the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods
-	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods
-	// issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number`
+	// `inventory.reverse_goods_receipt` here). A return to the supplier (122) or its reversal (123; S1e2):
+	// the goods movement's `document_number` likewise, its WE entry debiting GR/IR; a 122 is reversed by
+	// reversing the goods movement (`reverseGoodsReceipt`, 409 `inventory.reverse_goods_receipt` here). An
+	// outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number`
+	// (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet
+	// (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt
+	// (101; S2h, its lines in transit `in_transit`): the order's `number`
 	// (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409
 	// `inventory.reverse_stock_transport`). An intercompany stock transport order's goods issue (643,
 	// S2i1, the supplying company's): the purchase order's `document_number`
 	// (`GET /v1/purchase-orders?document_number=`, the receiving company's order), whose WA entry posts
-	// the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on
-	// every other document.
+	// the cost of goods sold; it is not reversed yet (409 `inventory.reverse_stock_transport`). A
+	// customer's return received into stock (653, S2b4): the returns order's `document_number`
+	// (`GET /v1/returns-orders`), whose return receipt names this document (`listReturnReceipts`) and
+	// whose WA entry takes the cost of goods sold back; it is not reversed yet (409
+	// `inventory.reverse_customer_return`). Absent on every other document.
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
@@ -112197,8 +112212,9 @@ type RetryOutgoingEInvoiceTaxDataUnprocessableEntity Problem
 func (*RetryOutgoingEInvoiceTaxDataUnprocessableEntity) retryOutgoingEInvoiceTaxDataRes() {}
 
 // A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person
-// confirmed as received on a date. It moves no stock and posts nothing. It is written once and never
-// changed.
+// confirmed as received on a date. Its items of materials kept in stock are received into stock by one
+// material document (653, ADR-0083 As built S2b4), which it names; its other items move no stock and
+// post nothing. It is written once and never changed.
 // Ref: #/components/schemas/ReturnReceipt
 type ReturnReceipt struct {
 	// Identifier (UUIDv7).
@@ -112213,6 +112229,12 @@ type ReturnReceipt struct {
 	ReceiptDate time.Time `json:"receipt_date"`
 	// The items received, by the returns order's item number.
 	Items []ReturnReceiptItem `json:"items"`
+	// The material document (653, `GET /v1/material-documents/{id}`) that received its items of materials
+	// kept in stock into stock, posted on `receipt_date`, whose `journal_entry_id` took their cost of
+	// goods sold back; absent for a receipt of no such item (S2b4).
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// That material document's number; absent with it.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
 	// When the receipt was confirmed.
 	CreatedAt time.Time `json:"created_at"`
 	// The principal who confirmed it.
@@ -112247,6 +112269,16 @@ func (s *ReturnReceipt) GetReceiptDate() time.Time {
 // GetItems returns the value of Items.
 func (s *ReturnReceipt) GetItems() []ReturnReceiptItem {
 	return s.Items
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *ReturnReceipt) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *ReturnReceipt) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -112287,6 +112319,16 @@ func (s *ReturnReceipt) SetReceiptDate(val time.Time) {
 // SetItems sets the value of Items.
 func (s *ReturnReceipt) SetItems(val []ReturnReceiptItem) {
 	s.Items = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *ReturnReceipt) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *ReturnReceipt) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -112370,6 +112412,10 @@ type ReturnReceiptItem struct {
 	Description string `json:"description"`
 	// The quantity received, in the item's unit.
 	Quantity Quantity `json:"quantity"`
+	// Of an item received into stock (S2b4): what it took back from the cost of goods sold, in the
+	// company's currency, the value its line of the receipt's material document put into the stock with
+	// any price difference; absent for another item.
+	Cost OptMoney `json:"cost"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -112397,6 +112443,11 @@ func (s *ReturnReceiptItem) GetQuantity() Quantity {
 	return s.Quantity
 }
 
+// GetCost returns the value of Cost.
+func (s *ReturnReceiptItem) GetCost() OptMoney {
+	return s.Cost
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *ReturnReceiptItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -112422,6 +112473,11 @@ func (s *ReturnReceiptItem) SetQuantity(val Quantity) {
 	s.Quantity = val
 }
 
+// SetCost sets the value of Cost.
+func (s *ReturnReceiptItem) SetCost(val OptMoney) {
+	s.Cost = val
+}
+
 // A quantity received of one item of the returns order.
 // Ref: #/components/schemas/ReturnReceiptItemCreate
 type ReturnReceiptItemCreate struct {
@@ -112430,6 +112486,20 @@ type ReturnReceiptItemCreate struct {
 	// The quantity received: more than zero, in the item's unit, at most the item's open quantity
 	// (returned less received).
 	Quantity Quantity `json:"quantity"`
+	// The storage location an item of a material kept in stock is received into (S2b4), one of the returns
+	// order's company (422 `sales.storage_location_invalid`), its plant the location's; required for such
+	// an item (422 `sales.storage_location_required`) and named for no other (422
+	// `sales.return_not_stocked`).
+	StorageLocationID OptUUID `json:"storage_location_id"`
+	// The batch an item of a batch-managed material goes back to, by its number, one of the material's
+	// (`GET /v1/batch-stock?material_id=`; 422 `inventory.batch_invalid`, `inventory.batch_required`,
+	// `inventory.batch_not_allowed`); absent for another material.
+	BatchNumber OptString `json:"batch_number"`
+	// The serial numbers of the units of a serial-managed material received, one for each unit of the base
+	// unit (422 `inventory.serial_required`, `inventory.serial_quantity`), each once (422
+	// `inventory.serial_repeated`) and in no stock (409 `inventory.serial_in_stock`); absent for another
+	// material (422 `inventory.serial_not_allowed`).
+	SerialNumbers []string `json:"serial_numbers"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -112442,6 +112512,21 @@ func (s *ReturnReceiptItemCreate) GetQuantity() Quantity {
 	return s.Quantity
 }
 
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *ReturnReceiptItemCreate) GetStorageLocationID() OptUUID {
+	return s.StorageLocationID
+}
+
+// GetBatchNumber returns the value of BatchNumber.
+func (s *ReturnReceiptItemCreate) GetBatchNumber() OptString {
+	return s.BatchNumber
+}
+
+// GetSerialNumbers returns the value of SerialNumbers.
+func (s *ReturnReceiptItemCreate) GetSerialNumbers() []string {
+	return s.SerialNumbers
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *ReturnReceiptItemCreate) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -112450,6 +112535,21 @@ func (s *ReturnReceiptItemCreate) SetItemNo(val int32) {
 // SetQuantity sets the value of Quantity.
 func (s *ReturnReceiptItemCreate) SetQuantity(val Quantity) {
 	s.Quantity = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *ReturnReceiptItemCreate) SetStorageLocationID(val OptUUID) {
+	s.StorageLocationID = val
+}
+
+// SetBatchNumber sets the value of BatchNumber.
+func (s *ReturnReceiptItemCreate) SetBatchNumber(val OptString) {
+	s.BatchNumber = val
+}
+
+// SetSerialNumbers sets the value of SerialNumbers.
+func (s *ReturnReceiptItemCreate) SetSerialNumbers(val []string) {
+	s.SerialNumbers = val
 }
 
 // One page of a returns order's receipts.

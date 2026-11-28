@@ -1414,6 +1414,23 @@ that returned quantities arrived, as T78c's is for a delivery.
   built, by the plan's "Later": the return delivery, goods receipt,
   inspection and stock posting (Supply chain, outside the required
   scope), reversing a receipt, replacement deliveries.
+- **Into stock (S2b4, 2026-11-27; ADR-0083 As built S2b4).** Supply
+  chain came into scope (product owner 2026-11-17): a receipt's items of
+  materials kept in stock now name the storage location they go back
+  into and are posted into stock by inventory as one 653 at the cost
+  their goods issues took, the cost of goods sold taken back
+  (`internal/sales/return_stock.go`: `stockLines`, `receiveStock`,
+  `issuedCosts`; the port `ReturnStock`, which the composition root
+  answers with inventory's `ReceiveForReturn`). Each `ReturnsItem`
+  carries its order item's `MaterialID`. The receipt names the 653 and
+  each such item's cost (`sales.return_receipt_posting`,
+  `sales.return_receipt_item_cost`, migration 000504); its other items
+  move nothing, as above. The credit for the return is unchanged: the
+  credit memo request's. Reversing a receipt, the returns delivery
+  document, inspection and replacement deliveries stay Later. Batch 98S's
+  integration numbered its migrations 000504 and 000505, after S1e2's
+  returns to the supplier, and its walkthrough step 166; a serial number
+  received back is issued again (`TestReturnedSerialIssuedAgain`).
 
 ### T85c Credit memo request created and decided (migration 000313)
 

@@ -197,8 +197,9 @@ func TestIntercompanyStockTransport(t *testing.T) {
 		t.Errorf("the receipt and the valuation: got %s, want %s", got, want)
 	}
 	e.Problem(409, "procurement.over_delivery", "POST", "/v1/goods-receipts", e.receipt(t, po, "", 1, "1"), "")
-	// A return would take the goods out of both companies' stock: stock
-	// items are not returned (S1e), so neither is an intercompany order's.
+	// A return would take the goods out of the receiving company with
+	// nothing bringing them back to the supplying one: an intercompany
+	// order's stock items are not returned (S1e2 returns other stock items).
 	e.Problem(422, "procurement.stock_item_return", "POST", "/v1/goods-receipts", e.receipt(t, po, "122", 1, "1"), "")
 	_, tag = e.Must(200, "GET", orders+"/"+po.String(), "", "")
 	closed, _ := e.Must(200, "POST", orders+"/"+po.String()+":close", "", tag)

@@ -157,7 +157,8 @@ shipping points, routes, delivery split and grouping, packing and
 handling units, proof of delivery and delivery notes;
 deliveries from several plants in one document; an availability check or
 reservation of stock (S2j); goods issue reversal (602), returns
-deliveries and partial goods issue: all Later in the plan.
+deliveries and partial goods issue: all Later in the plan (the 602
+came with S2b3, a customer's return into stock, 653, with S2b4).
 
 ## Consequences
 
@@ -452,3 +453,135 @@ Decided by default while building (listed for the product owner):
   `TestBatchRefusals`, `TestSerialRefusals`), counts by batch and serial
   number being in the variants' remainder.
 
+
+**S2b4** (lane custret, 2026-11-27; migrations 000504, 000505;
+walkthrough step 166, `step_return_into_stock`): a customer's return
+received into stock, the first item of the leaf "later: delivery
+variants: … returns deliveries" (plan-supply-chain.md §S2b4). T85b's
+return receipt moved no stock; now its items of materials kept in stock
+go back into stock. Decided by default while building (listed for the
+product owner):
+
+- **Where it is posted.** The receipt stays sales' one operation
+  (`confirmReturnReceipt`, its permission `sales.return.receive`,
+  human-only): no returns delivery document of shipping's is added, and
+  the person who confirms the parcel names, per item of a material kept
+  in stock, the `storage_location_id` it goes back into (422
+  `sales.storage_location_required`), a storage location of the returns
+  order's company (422 `sales.storage_location_invalid`), its plant the
+  location's, with the batch and serial numbers of a tracked material;
+  an item of no material kept in stock names none of them (422
+  `sales.return_not_stocked`) and moves nothing, as before. SAP's
+  returns delivery (VL01N on a returns order, LR, from memory) with its
+  own goods receipt is Later.
+- **What is posted.** Inventory's `Endpoints.ReceiveForReturn` posts
+  the receipt's stock items as one material document of movement type
+  `653` (SAP's return delivery into unrestricted-use stock, from memory;
+  specialist list), dated the receipt's `receipt_date`, its `reference`
+  the returns order's number, its WA entry from the valuation class's
+  cost of goods sold account (`inventory_cost_of_goods_sold:<class>`, as
+  the 601) to its stock account. There are no stock types yet, so the
+  goods are in the location's one stock, unrestricted, at once available
+  to an order's availability check (S2j reads the stock on hand:
+  `TestCustomerReturnAvailable`); returns into blocked or quality
+  inspection stock (SAP's 651, 655, 657, from memory) wait for stock
+  types. A person does not post a 653 (422
+  `inventory.unknown_movement_type`) and `reverseMaterialDocument`
+  refuses one (409 `inventory.reverse_customer_return`): its reversal is
+  Later, as the receipt is never changed.
+- **At what cost.** The returns order always names its billing
+  document, whose item names the sales order item; that item's goods
+  issues not reversed (sales' deliveries naming an outbound delivery,
+  with `delivery_item.cost_amount`, less `delivery_reversal`) give what
+  the goods took out. Each received item takes its share by quantity of
+  what those goods issues cost less what earlier receipts into stock of
+  the same order item took back (`return_receipt_item_cost`), the last
+  share taking the remainder, rounded half away from zero once
+  (`issuedCosts`), so the cost of goods sold gets back exactly what the
+  goods issues debited, never more (`TestCustomerReturnCosts`). A receipt
+  beyond what the goods issues delivered and is not back in stock is
+  refused (422 `sales.exceeds_issued_quantity`). An order item no goods
+  issue delivered (delivered by hand before S2b1) goes back as ADR-0082
+  §8 values a receipt that names no amount: at a standard price the
+  stock after it at the price, at a moving price its quantity at the
+  moving price (422 `inventory.no_price` when that is zero). At a
+  standard price the line's value is its quantity at the price and the
+  rest of the cost goes to the class's price difference account, as the
+  602 does. The order item's average is used, not a delivery's own cost:
+  the returns order names the billing document, not a delivery
+  (SAP's return delivery takes the original's cost when it references
+  the outbound delivery, from memory: specialist list); a receipt naming
+  its delivery is Later.
+- **Locks.** The receipt locks the returns order (ADR-0008), then the
+  sales order's receipts into stock (`database.LockTenant`
+  `sales.return_stock` on the order's id, review round 1: two receipts
+  of one order item into two plants share no valuation lock), then
+  inventory the valuations of the materials at their plants, the lock
+  every goods issue and its reversal of them take first; only then does
+  sales read what the goods issues took and earlier receipts took back
+  (`ReceiveForReturn` asks `Costs`), so two receipts of one order, in
+  one plant or two, or a receipt and a goods issue's reversal, wait for
+  one another and the second is judged on what the first left
+  (`TestCustomerReturnsAtOnce`, `TestCustomerReturnsAtOnceInTwoPlants`);
+  then the stock, batch stock and serial numbers, as any posting. The
+  sales order's row is not locked: a goods issue of the same order holds
+  the valuations and then waits for it, and nothing the receipt reads of
+  it changes once it is billed. No lock is taken the other way round:
+  the goods issue and its reversal take delivery, valuations, stock,
+  then order and never the receipts' lock; the receipt returns order,
+  receipts' lock, valuations, stock.
+- **The receipt's date** stays T85b's: any day up to the company's
+  today, also one before the goods issue (T85b default 3); the 653 posts
+  on it, so its cost of sales counts in that period. Refusing a date
+  before the goods issue is not built (listed for the product owner).
+- **Delivered partly by hand.** An order item delivered in part by a
+  goods issue and in part by hand (before S2b1) takes back at most what
+  the goods issue delivered; its hand-delivered rest is refused (422
+  `sales.exceeds_issued_quantity`) rather than valued at the price,
+  which would mix two bases in one item. Such items predate goods
+  issues; accepted, listed for the product owner.
+- **The movement type list** of the contract's open enumerations gains
+  `653` at its end, after `702`, so the values listed before keep their
+  places (an open enumeration, ADR-0041); the order carries no meaning.
+- **What is recorded.** `sales.return_receipt_posting` names the 653,
+  once per receipt and once per document, with the company's currency;
+  `sales.return_receipt_item_cost` each stock item's cost (both
+  insert-only, as the receipt is). The receipt (`ReturnReceipt`) gains
+  `material_document_id`, `_number` and each item's `cost`;
+  ReturnReceived carries them (null for a receipt of other items), and
+  MaterialDocumentPosted is published for the 653.
+- **Cost of sales by segment.** `Orders.Segments` takes each received
+  item's cost off its order item's segment on the receipt's date, as a
+  reversal's on its own (S2b3); one of an order in another currency is
+  left out and counted in `foreign_currency_documents`
+  (`TestProfitabilityCostOfSalesReturned`).
+- **Unchanged.** The credit memo for the return is the credit memo
+  request's, as before (T85c, T85d): revenue and receivables are not
+  touched by the receipt, and a point-in-time revenue obligation keeps
+  its deliveries. The consumption the demand forecasting and count
+  planning agents read (201, 601, 643 and their reversals) does not
+  count a 653 (whether SAP's consumption statistics count a customer
+  return is on the specialist list). The count planning agent's never
+  list gains `confirmReturnReceipt`, which now posts a goods movement;
+  the demand forecasting agent's held it already.
+- **Tracked materials**, as supret's return to the supplier (S1e2) and
+  the goods issue (S2f2, S2g2): a batch-managed material's item names
+  the batch it goes back to by number, one of the material's (422
+  `inventory.batch_required`, `inventory.batch_invalid`), and a
+  serial-managed one the serial number of each unit, none in stock (409
+  `inventory.serial_in_stock`); that a serial number was delivered to
+  this customer is not checked (Later).
+- **With S1e2's returns to the supplier** (batch 98S integration). The
+  two lanes widened the same checks on `inventory.material_document`:
+  000504 runs after S1e2's 000502 and 000503 and lists 122 and 123 beside
+  653 in every check it rewrites, and its down restores 000503's lists,
+  validated, so reverting S2b4 leaves a 122 taken
+  (`TestMovementTypesOfCountAndShipping`). The contract's enumerations
+  list 122 and 123 where S1e2 put them and 653 last. A serial number a
+  customer returned is in stock again and issued again by the next
+  delivery (`TestReturnedSerialIssuedAgain`); one S1e2 returned to the
+  supplier is out of stock until its 123 (`TestSupplierReturnTracked`).
+  The valuation, availability, counts due and ABC analysis after both
+  returns: ADR-0082 As built S1e2 (`TestReturnsBothWays`). The
+  walkthrough step takes step 147's washer as `M10_WASHER`, since step
+  152 (S2k2a's) sets `WASHER` to its own washer.

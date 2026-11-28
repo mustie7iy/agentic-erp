@@ -15,7 +15,12 @@ import (
 // reversal 602 beside the count's 701 and 702, and the account
 // determination both the inventory_difference and the
 // inventory_cost_of_goods_sold keys, S2h's 351 (000418 and 000419) and
-// S2i1's 643 (000443 and 000444). Reverting 000444 and 000443 restores
+// S2i1's 643 (000443 and 000444), S1e2's 122 and 123 (000502 and 000503)
+// and S2b4's 653 (000504 and 000505), which runs after S1e2's and keeps
+// its types. Reverting 000505 and 000504 restores 000503's checks,
+// validated, 653 refused and 122 and 123 still taken; reverting 000503 and
+// 000502 restores 000444's checks, validated, 122 and 123 refused too;
+// reverting 000444 and 000443 restores
 // 000419's checks, validated, 643 refused; reverting 000419 and 000418
 // restores 000411's checks, validated, 351 refused; reverting 000411 and 000410 then restores 000408's checks,
 // validated: 701, 702 and inventory_difference:<class> still taken, 601,
@@ -62,13 +67,16 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 	tenant := id()
 	check := func(t *testing.T, stage string, want map[string]string) {
 		t.Helper()
-		issue := id()
+		issue, ret := id(), id()
 		for _, c := range []struct {
 			name, sql string
 			args      []any
 		}{
+			{"122", movementTypeDoc, []any{tenant, ret, "122", nil, "GR1"}},
+			{"123", movementTypeDoc, []any{tenant, id(), "123", ret, "GR2"}},
 			{"351", movementTypeDoc, []any{tenant, id(), "351", nil, "TO1"}},
 			{"643", movementTypeDoc, []any{tenant, id(), "643", nil, "PO1"}},
+			{"653", movementTypeDoc, []any{tenant, id(), "653", nil, "RO1"}},
 			{"601", movementTypeDoc, []any{tenant, issue, "601", nil, "OD1"}},
 			{"602", movementTypeDoc, []any{tenant, id(), "602", issue, "OD1"}},
 			{"701", movementTypeDoc, []any{tenant, id(), "701", nil, nil}},
@@ -96,6 +104,38 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			}
 		}
 	}
+	// 000504's down refuses to revert while a customer's return into stock
+	// exists (this test's and those other tests committed).
+	if err := all(tx, step("DELETE FROM sales.return_receipt_item_cost"), step("DELETE FROM sales.return_receipt_posting"),
+		step("DELETE FROM inventory.material_document WHERE movement_type = '653'")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"000505_validate_customer_return_stock", "000504_customer_return_stock"} {
+		if err := exec(tx, migrationNamed(t, name).Down); err != nil {
+			t.Fatalf("%s's down: %v", name, err)
+		}
+	}
+	customerReturns := map[string]string{"653": "material_document_movement_type_check"}
+	check(t, "after reverting 000505 and 000504", customerReturns)
+	// 000503's state is validated checks.
+	validated(t, "000505 and 000504", "material_document_movement_type_check", "material_document_reversal_check", "material_document_reference")
+	// 000502's down refuses to revert while a return to the supplier or its
+	// reversal exists (this test's and those other tests committed).
+	if err := exec(tx, "DELETE FROM inventory.material_document WHERE movement_type IN ('122', '123')"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"000503_validate_supplier_returns", "000502_supplier_returns"} {
+		if err := exec(tx, migrationNamed(t, name).Down); err != nil {
+			t.Fatalf("%s's down: %v", name, err)
+		}
+	}
+	returns := refusedWith(customerReturns, "122", "123")
+	check(t, "after reverting 000503 and 000502", returns)
+	// 000444's state is validated checks.
+	validated(t, "000503 and 000502", "material_document_movement_type_check", "material_document_reversal_check", "material_document_reference")
+	if err := exec(tx, "DELETE FROM inventory.material_document WHERE movement_type IN ('122', '123')"); err != nil {
+		t.Fatal(err)
+	}
 	// 000443's down refuses to revert while an intercompany order or a 643
 	// exists (this test's and those other tests committed).
 	if err := all(tx, step("DELETE FROM inventory.material_document WHERE movement_type = '643'"),
@@ -107,19 +147,17 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			t.Fatalf("%s's down: %v", name, err)
 		}
 	}
-	check(t, "after reverting 000444 and 000443", map[string]string{"643": "material_document_movement_type_check"})
+	check(t, "after reverting 000444 and 000443", refusedWith(returns, "643"))
 	// 000419's state is validated checks.
 	validated(t, "000444 and 000443", "material_document_movement_type_check", "material_document_reference")
 	down(t, true, "000419_validate_stock_transport", "000418_stock_transport")
-	check(t, "after reverting 000419 and 000418", map[string]string{"351": "material_document_movement_type_check",
-		"643": "material_document_movement_type_check"})
+	check(t, "after reverting 000419 and 000418", refusedWith(returns, "643", "351"))
 	// 000411's state is validated checks.
 	validated(t, "000419 and 000418", "material_document_movement_type_check", "material_document_reference")
 	down(t, false, "000411_validate_goods_issue", "000410_goods_issue")
-	check(t, "after reverting 000411 and 000410", map[string]string{"351": "material_document_movement_type_check",
-		"643": "material_document_movement_type_check",
-		"601": "material_document_movement_type_check", "602": "material_document_movement_type_check",
-		"inventory_cost_of_goods_sold:3000": "account_determination_key_check"})
+	gone := refusedWith(returns, "643", "351", "601", "602")
+	gone["inventory_cost_of_goods_sold:3000"] = "account_determination_key_check"
+	check(t, "after reverting 000411 and 000410", gone)
 	// 000408's state is validated checks, as 000391 left the reversal and
 	// reference checks.
 	validated(t, "000411 and 000410", "material_document_movement_type_check", "material_document_reversal_check", "material_document_reference",
@@ -131,6 +169,19 @@ const (
 		reversal_of_id, reference, created_by) VALUES ($1, $2, gen_random_uuid(), 2026, gen_random_uuid()::text, $3, '2026-11-20', $4, $5, $1)`
 	movementTypeKey = `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $1, $2, $1, $1)`
 )
+
+// refusedWith is the refusals want with the movement types added, each refused
+// by material_document_movement_type_check.
+func refusedWith(want map[string]string, types ...string) map[string]string {
+	out := map[string]string{}
+	for k, v := range want {
+		out[k] = v
+	}
+	for _, mt := range types {
+		out[mt] = "material_document_movement_type_check"
+	}
+	return out
+}
 
 // savepoint runs one statement under a savepoint, so a refused one leaves
 // the transaction usable.
