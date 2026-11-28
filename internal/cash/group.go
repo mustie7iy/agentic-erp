@@ -230,6 +230,7 @@ func (g *group) addCurrency(c ForecastCurrency) {
 	into.Total = s.add(into.Total, c.Total)
 	into.Beyond = Beyond{Amount: s.add(into.Beyond.Amount, c.Beyond.Amount), Count: into.Beyond.Count + c.Beyond.Count}
 	into.Blocked = Beyond{Amount: s.add(into.Blocked.Amount, c.Blocked.Amount), Count: into.Blocked.Count + c.Blocked.Count}
+	into.BlockedReceipts = Beyond{Amount: s.add(into.BlockedReceipts.Amount, c.BlockedReceipts.Amount), Count: into.BlockedReceipts.Count + c.BlockedReceipts.Count}
 }
 
 // addConverted adds a company's converted opening, buckets' totals and

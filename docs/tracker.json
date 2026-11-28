@@ -1955,9 +1955,23 @@
        },
        {
         "s": "T",
-        "t": "Deferred (each its own step when its trigger arrives): intraday camt.052 statements and available balances, bank-specific calendars, a tax payable reader (after T61's returns), a receivables and sales order reader (phase 3), a stored flow table kept from events (only if a larger tenant breaks the read budget, P3)",
+        "t": "Deferred (each its own step when its trigger arrives): intraday camt.052 statements and available balances, bank-specific calendars, a tax payable reader (after T61's returns; its trigger has arrived, the next slice), the variance's match of a forecast receipt to the incoming payment that cleared it, with receipts derived to liquidity items by their documents' lines once the actuals split an incoming payment by the items it cleared (left by T53l1), a stored flow table kept from events (only if a larger tenant breaks the read budget, P3); the receivables and sales order reader (phase 3) is T53l1",
         "r": "T53l",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Receipts from customers in the liquidity forecast: customer open items (receivable, by net due date, netted per customer as its payments net them, special G/L left out; items under a dunning block or in an open dispute case receivable_blocked apart, summed in blocked_receipts, counted only with include_blocked) and confirmed sales orders not blocked for credit with a part not yet billed (sales_order, planned, open net plus output tax, billed on the requested delivery date else the order date plus order_lead_days, received after the term's net days), each under the inflows' default as the actuals classify a receipt, through receivables', collections' and sales' published reads; drill-down naming the customer, snapshots, the group forecast and the analytics' blocked dimension showing them",
+        "r": "receivables.Endpoints.CashItems · collections.Holds.Held · sales.Endpoints.CashOrders · cash.Receivables, cash.SalesOrders, SourceReceivable, SourceReceivableBlocked, SourceSalesOrder, DocSalesOrder, blockedSource, BlockedReceipts · app cashReceivables, cashSales · LiquidityForecastBlockedReceipts, blocked_receipts, LiquidityForecastFlow.customer, CashSnapshotFlow.customer, CashSnapshotCurrency.blocked_receipts · migrations 000500 (cash.snapshot_flow.customer_id, snapshot_flow_customer, document_kind sales_order), 000501 (validated) · TestLiquidityForecastReceipts, TestLiquidityForecastReceiptsRefused, TestLiquidityForecastReceiptsFailures, db.TestCashReceiptSnapshotRules, TestCashReceiptsValidated, TestCashReceiptsDownRefused, TestDownsRevert · walkthrough step_cash_receipts (step 165) · ADR-0051 As built T53l1 · 03-data-model §3.18 · T53l1",
+        "src": "split:T53l · adr:ADR-0051",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The liquidity forecast's budget data holds no customer open items or open sales orders, so TestLiquidityForecastBudget and TestGroupLiquidityForecastBudget do not measure T53l1's reads (receivables.CashItems, collections.Holds.Held, sales.CashOrders) at volume. To build: customer items, dunning blocks, disputes and open sales orders in the budget data, at the suppliers' volumes, and the budget measured at ERP_BUDGET_SCALE 1 and 2",
+        "r": "internal/cash budget_test.go forecastBudgetData · ADR-0051 As built T53l1 · 06 §6.5 budgets",
+        "src": "review:batch98",
         "c": []
        }
       ]
@@ -2390,9 +2404,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Eliminations",
-      "r": "T68 · ADR-0059 §8, §9 · T68f, T68h",
+      "r": "T68 · ADR-0059 §8, §9 · T68f, T68h · done by T68f (intercompany matching and eliminations) and T68h (investment and equity elimination of a subsidiary the parent incorporated and holds whole, the pilot's structure, D11) under Group reporting and consolidation designed; evidence: TestIntercompanyMatching, TestInvestmentElimination, walkthrough step 40 (step_consolidation); goodwill, non-controlling interests, fair value and a bargain purchase for a member held below 100% or acquired stay their own leaves under T68h",
       "src": "baseline",
       "c": []
      },
@@ -2600,9 +2614,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Tax returns: GST/HST (plus QST FPZ-500 if registered in Quebec, P4) and the UAE VAT 201, prepared and approved in the ERP and filed by a person (P3)",
-      "r": "ADR-0049 · T61g-T61k",
+      "r": "ADR-0049 · T61g-T61k · done by T61g (registrations and periods), T61h (the return engine), T61i (the lifecycle: prepared, approved by another person, filed by a person), T61j (the GST34, signed off in Canada 2026.7) and T61k (the VAT 201, signed off in UAE 2026.4) under Tax determination, calculation and returns; evidence: TestGST34Golden, TestVAT201Golden, TestTaxReturnLifecycle, TestTaxReturnPeople, walkthrough step 11 (step_tax: the GST34 prepared, approved and filed) and step 41 (step_uae: the VAT 201 filed); the FPZ-500 stays its own leaf under T61j, built only if the pilot company is registered in Quebec (P4 (b), not said)",
       "src": "baseline",
       "pilot": "po:2026-10-31 · adr:ADR-0049",
       "c": []
@@ -3066,9 +3080,9 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Peppol network connector",
-      "r": "T65 · ADR-0061 §3-§7 (through the tenant's accredited provider, not a network connector of our own: 07 §7.6, phase 2 decisions; provider Q1) · T65a-T65f; sending T65h (phase 3) · the UAE company's revenue is below AED 50m and no provider is appointed (product owner, po:2026-11-09, a fact): appoint one by 31 March 2027, go live 1 July 2027 (ADR-0061 Context)",
+      "r": "T65 · ADR-0061 §3-§7 (through the tenant's accredited provider, not a network connector of our own: 07 §7.6, phase 2 decisions; provider Q1) · T65a-T65f; sending T65h (phase 3) · the UAE company's revenue is below AED 50m and no provider is appointed (product owner, po:2026-11-09, a fact): appoint one by 31 March 2027, go live 1 July 2027 (ADR-0061 Context) · done by T65a-T65f (receiving through the provider: fetch, schedule, validation, entry as supplier invoices and credit memos, held documents) and T65h E1-E4 (Evatra, accredited ASP 144576, po:2026-11-19: inbound, PINT AE rendering, sending, delivery status and FTA reporting), through the accredited provider, not a connector of our own; evidence: walkthrough step 43 (step_einvoice), step 144 (step_evatra_inbound), step 145 (step_einvoice_render) and step 146 (step_einvoice_send); the provider fact above is superseded by Evatra (po:2026-11-19); T65h's later document types stay its own leaf",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0049",
       "c": []
@@ -3083,7 +3097,7 @@
      {
       "s": "T",
       "t": "SAF-T and statutory reports",
-      "r": "T65 · ADR-0061 §10 · T65g (the FTA Audit File); SAF-T for a later country pack; Canadian reports wait for Q4",
+      "r": "T65 · ADR-0061 §10 · T65g (the FTA Audit File); SAF-T for a later country pack; Canadian reports wait for Q4 · checked in batch 98F, left T: the FTA Audit File (T65g) waits for the FTA's specification from the specialist; SAF-T waits for a country pack that requires it; the Canadian statutory reports wait for Q4; nothing of the three is built",
       "src": "baseline",
       "pilot": "po:2026-10-31 · design:07 §7.6",
       "c": []
@@ -12122,11 +12136,18 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "T042I's account chooses a house bank's account per method and currency (SAP specialist, po:2026-11-09, A4 [H]; third part of the leaf on the payment method order): T042I gives, per house bank, payment method and currency, the account (HKTID, a T012K account) the payment run pays from; without it the bank is known but not its account. The configuration draft takes one account per house bank (the first T012K row) today and does not read HKTID. To build: the extract's T012K carries HKTID, and the draft ranks for a method and currency the account T042I names",
-      "r": "ADR-0038 As built (SAP payment methods: no counterpart, noted; the run order of payment methods, still open) · delivery/sapconfig sapconfig.go (houseBanks), paymethods.go (ranking, subaccounts) · internal/sap T012K, T042I · docs/migration.md",
+      "s": "D",
+      "t": "T042I's account chooses a house bank's account per method and currency (SAP specialist, po:2026-11-09, A4 [H]; third part of the leaf on the payment method order): T042I gives, per house bank, payment method and currency, the account (HKTID, a T012K account) the payment run pays from; without it the bank is known but not its account. The configuration draft takes one account per house bank (the first T012K row) today and does not read HKTID. To build: the extract's T012K carries HKTID, and the draft ranks for a method and currency the account T042I names. Built: T012K carries HKTID (extract, types, mock); a house bank of several accounts, each with its own ID, gives each account a house bank of its own, coded HBKID + HKTID (po:2026-11-10), the platform's code widened to 1-10 characters (000497/000498); the ranking names, per method and currency, the account T042I names (for a T042A row without a currency, those it names for the method, each in its own currency); where T042I names none the bank's first account is ranked as before, noted; an account T042I names that T012K lacks is ranked by its would-be code, which validation refuses, noted; an extract without the IDs keeps one account per bank",
+      "r": "ADR-0038 As built (SAP payment methods: no counterpart, noted; the run order of payment methods, still open) · delivery/sapconfig sapconfig.go (houseBanks), paymethods.go (ranking, subaccounts) · internal/sap T012K, T042I · docs/migration.md · delivery/sapconfig accounts.go (bankAccounts, chosen) · payments housebanks.go (houseBankCode) · db 000497-000498 · walkthrough step 1",
       "src": "split:T45b · po:2026-11-09",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Step 1's main configuration draft is expected to fail validation, but the step checks only that it fails, not why: a draft refused for another reason than the ones the step explains would pass unnoticed. To build: the step names the errors it expects of the main draft, as it does for the second draft of MUSD's two accounts (errors other than the expected ones fail the step)",
+      "r": "scripts/walkthrough.sh step_tenant · delivery/sapconfig · ADR-0038 As built (a house bank's account by payment method)",
+      "src": "review:batch98",
       "c": []
      },
      {
@@ -12151,11 +12172,39 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A vendor item SAP cleared against an item of another fiscal year fails the migration run (split from the item before): the extract holds the scope's fiscal year only and AUGBL without SAP's clearing date and year, so a prior-year invoice paid this year fails documents mode (ledger.clearing_not_balanced) in either year's run and balances mode (cleared vendor items do not net to zero). Decided (product owner 2026-10-31, as recommended in batch 25, sapclear case 2): a fiscal year's migration holds open at the year's end every vendor item SAP cleared in a later fiscal year (SAP's key-date reading by the clearing date), and the later year's run clears it with the payment it loads; the extract carries SAP's clearing date and the clearing document's fiscal year (AUGDT, AUGGJ, stated from memory). The SAP specialist confirmed the field names on 2026-11-09 (po:2026-11-09, A3 [H]): ACDOCA-AUGDT and AUGGJ, on ACDOCA from S/4HANA 1610 (BSEG before), empty on an open item and emptied again by a clearing reset (FBRA), so an item open at a year's end is told by AUGDT after its last day, never by AUGBL being filled today; nothing is waited on",
-      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (AUGDT and AUGGJ confirmed, po:2026-11-09)",
+      "r": "internal/sap FilterScope, ACDOCA · internal/integration/load.go clearings, openingLines · reconcile.go journal · ADR-0034 As built (decided 2026-10-31) · docs/migration.md (AUGDT and AUGGJ confirmed, po:2026-11-09) · built: sap.FilterScope reads the year's end by AUGGJ and sets ClearedEarlier apart; crossyear.go; integration.opening_item (000499); TestClearedInALaterYear",
       "src": "review:batch22 · review:batch25 · po:2026-10-31 · po:2026-11-09",
       "pilot": "po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A balances run of a fiscal year in which SAP cleared vendor items of an earlier fiscal year fails (split from the item before, built for documents runs): its opening entry leaves the year's cleared items out, so it cannot clear the items an earlier year's run loaded open, and the quality gate refuses the clearing (load the year in documents mode); with the earlier year not in the extract (the first migrated year in balances mode, its prior-year invoices paid during it) the year's cleared items do not net to zero and the opening entry is refused as before. To decide and build: how a balances run takes over such a clearing (with no earlier year on the platform, leave the clearing's items of both years out; with one, clear its open items against the year's)",
+      "r": "internal/integration crossyear.go clearingYears, load.go openingEntry · ADR-0034 As built (vendor items SAP cleared in a later fiscal year, not built)",
+      "src": "review:batch98 · po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Reconciling an earlier fiscal year's run again after a later year's run cleared its items shows them as differences (split from the item before): SAP's side reads them open at the year's end (sap.FilterScope), the platform's open payables and their counts read items open today, which the later year's clearing closed. To build: the platform's open items of a fiscal year as at its end (cleared by a clearing dated after it counts open)",
+      "r": "internal/integration reconcile.go openPayables, openPayableItems · ledger Reports.OpenPayables, OpenPayableItems · ADR-0034 As built (vendor items SAP cleared in a later fiscal year, not built)",
+      "src": "review:batch98 · po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The migration quality gate refuses a journal line the extract holds twice (company code, fiscal year, document and line, sapItemKey), so a duplicated open line no longer ends a balances run in a 500 at integration.opening_item's key, and a repeated document that still balances no longer posts twice: the run fails at the gate with the line named in its report",
+      "r": "internal/integration quality.go journalLine (journalScan.lines) · TestJournalLineTwice · ADR-0034 As built (vendor items SAP cleared in a later fiscal year, integration)",
+      "src": "review:batch98",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The walkthrough cannot show a later fiscal year's run clearing an item SAP cleared in that year: the walkthrough company has one fiscal year's periods, so step 3 shows the item loaded open at the year's end, not the later year's clearing (TestClearedInALaterYear covers it). To build: a second fiscal year's periods and number ranges for the walkthrough company, and a later year's run in step 3",
+      "r": "scripts/walkthrough.sh step_migrate · internal/integration crossyear.go · ADR-0034 As built (vendor items SAP cleared in a later fiscal year)",
+      "src": "review:batch98",
       "c": []
      },
      {

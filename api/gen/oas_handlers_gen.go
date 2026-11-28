@@ -58847,53 +58847,71 @@ func (s *Server) handleGetLegalEntityTodayRequest(args [1]string, argsEscaped bo
 // `payable_blocked` (each keeping its own certainty), on their net due date (a request's due date; an
 // overdue one on the read date), at what they owe then, netted as a run would, apart from the totals:
 // listed in each bucket's flows and summed per currency in `blocked`, but counted in the buckets'
-// `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Amounts are signed:
-// a payment out is negative. Each currency gives its flows per bucket by source, certainty and
-// lateness with the bucket's total, the total over the horizon, and what is expected after the last
-// bucket (`beyond`, in no bucket). Each currency also gives its rows by liquidity item and its
-// hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow is split over the liquidity items
-// (`cash.liquidity_items`) its documents derive by the configuration's `cash.derivation`: a supplier
-// payment over the documents it pays, each at what the payment pays of it, and each document over its
-// offsetting lines (a posted item's expense, asset and tax lines, an unposted invoice's items; never
-// the supplier's line nor a withholding tax withheld at invoice), in proportion to their signed
-// amounts, a line taking the item of the first account rule covering its account, else its supplier's
-// planning group's, else the default of the flow's direction; a tax line follows the base lines of its
-// tax code in proportion to their amounts, and a self-assessed pair (`self_output`/`self_input` of a
-// reverse charge or import code), which moves no cash, is left out before the split. A down payment
-// request, and a run's payment of one, has no lines and takes its supplier's planning group's item or
-// the default. Each split rounds once to minor units by largest remainder (ties to the item named
-// first), so an item's shares add up to the flow. Each row gives the item's code, name, parent and
-// level, its flows and its descendants' per bucket (`buckets`, in the forecast's buckets' order), over
-// the horizon (`total`) and after the last bucket (`beyond`), counted as the buckets' totals count
-// them, so the top rows add up to each bucket's `total`, and the item's own flows by source and
-// certainty; a row without `liquidity_item` holds what no rule assigns and no default covers.
-// `min_certainty` cuts the less certain flows (actual, confirmed, expected, planned; default planned,
-// every flow). T53e4 adds two sources, the opening position, one grain over a range, conversion and
-// drill-down. `in_transit` (`confirmed`): the payments released from the company's active house banks
-// whose line on the bank's clearing account is still open and that no statement line up to the bank's
-// opening statement matches, as in the cash position (`getCashPosition`), on their run date plus the
-// bank's value days moved to the next working day, `late` before the read date. `memo`: the `active`
-// memo records of the legal entity, with or without a house bank, at their own certainty and liquidity
-// item, each on its value date moved to the next working day (`late` before the read date) and not
-// after it expires; a series' occurrences up to the last bucket's end, each once (an override
-// replacing its occurrence), a one-off record also after the last bucket (`beyond`). Each currency
-// gives its `opening`, the cash position's opening of the read date: the sum of its active house
-// banks' latest statement closing balances before the read date (zero without a bank; a currency with
-// a bank and no flow is listed too), and each bucket its `closing`, the opening plus the bucket's
-// `total` and those of every bucket before it. `grain` with `to` asks for one grain over a range
-// instead of the company's buckets: periods of the grain from the read date up to the one holding
-// `to`, at most 92 days, 104 weeks or 36 months (the configuration's limits); one without the other, a
-// `to` before the read date or more periods are 422. `display_currency` adds `converted` (ADR-0051
-// §10): each currency's opening, buckets' totals and `beyond` converted into it at one rate for every
-// bucket, the latest of the company's `cash.rate_type` valid on the read date (default `planning`;
-// with no planning rate, `average`), each amount rounded once to the display currency's minor unit,
-// half away from zero, then summed over the currencies; the converted `closing` is the converted
-// opening plus the converted totals so far, so it adds up as the currencies' own do. A rate valid from
-// more than `cash.rate_max_age_days` (default 7) before the read date is used and marked `stale`; a
-// currency without a rate is left out of the converted figures and listed in `incomplete_currencies`
-// (its own figures stand), never counted as zero. A display currency the reference data does not know
-// is 422 `cash.unknown_currency`. The flows and documents behind a bucket and liquidity item are
-// `listLiquidityForecastFlows`. A legal entity the caller cannot act in is 404.
+// `total`s, the currency's `total` and `beyond` only with `include_blocked=true`. Receipts from
+// customers (T53l1): `receivable` (`expected`), the ordinary customer open items (not special G/L
+// items) in every currency, each on its net due date (by the terms it was posted with, else its
+// document date, as the AR aging has it; no cash discount is assumed), an overdue one on the read
+// date, moved to the next working day, netted per customer and currency as the customer's payments net
+// them: the items of a day received together, a day whose items come to nothing or less (a credit
+// memo, a payment on account) carried to the customer's next day, and a credit left after the last no
+// flow. Items collections holds back on the read date (a dunning block of the item or its customer in
+// force, or an open dispute case of the item) are `receivable_blocked` (`expected`), on their net due
+// date (the read date when overdue), netted the same way and kept apart from the totals as
+// `payable_blocked` is, summed per currency in `blocked_receipts`. `sales_order` (`planned`), each
+// confirmed sales order not blocked for credit with a part not yet posted as a customer invoice: its
+// open net values plus their output tax on the order date (as the customer's credit exposure values
+// it), billed on the order's `delivery_date`, else its order date plus `cash.order_lead_days`, and
+// received its payment term's net days later (the read date when that is past), moved to the next
+// working day; one flow per order. Amounts are signed: a payment out is negative. Each currency gives
+// its flows per bucket by source, certainty and lateness with the bucket's total, the total over the
+// horizon, and what is expected after the last bucket (`beyond`, in no bucket). Each currency also
+// gives its rows by liquidity item and its hierarchy (`items`, T53e3; ADR-0051 §4, §9): every flow
+// is split over the liquidity items (`cash.liquidity_items`) its documents derive by the
+// configuration's `cash.derivation`: a supplier payment over the documents it pays, each at what the
+// payment pays of it, and each document over its offsetting lines (a posted item's expense, asset and
+// tax lines, an unposted invoice's items; never the supplier's line nor a withholding tax withheld at
+// invoice), in proportion to their signed amounts, a line taking the item of the first account rule
+// covering its account, else its supplier's planning group's, else the default of the flow's
+// direction; a tax line follows the base lines of its tax code in proportion to their amounts, and a
+// self-assessed pair (`self_output`/`self_input` of a reverse charge or import code), which moves no
+// cash, is left out before the split. A down payment request, and a run's payment of one, has no lines
+// and takes its supplier's planning group's item or the default. A receipt from a customer
+// (`receivable`, `receivable_blocked`, `sales_order`, T53l1) has no lines and takes the inflows'
+// default (`cash.derivation.defaults.inflow`), whatever its document's revenue accounts, as the
+// actuals classify a statement line matched as incoming. Each split rounds once to minor units by
+// largest remainder (ties to the item named first), so an item's shares add up to the flow. Each row
+// gives the item's code, name, parent and level, its flows and its descendants' per bucket (`buckets`,
+// in the forecast's buckets' order), over the horizon (`total`) and after the last bucket (`beyond`),
+// counted as the buckets' totals count them, so the top rows add up to each bucket's `total`, and the
+// item's own flows by source and certainty; a row without `liquidity_item` holds what no rule assigns
+// and no default covers. `min_certainty` cuts the less certain flows (actual, confirmed, expected,
+// planned; default planned, every flow). T53e4 adds two sources, the opening position, one grain over
+// a range, conversion and drill-down. `in_transit` (`confirmed`): the payments released from the
+// company's active house banks whose line on the bank's clearing account is still open and that no
+// statement line up to the bank's opening statement matches, as in the cash position
+// (`getCashPosition`), on their run date plus the bank's value days moved to the next working day,
+// `late` before the read date. `memo`: the `active` memo records of the legal entity, with or without
+// a house bank, at their own certainty and liquidity item, each on its value date moved to the next
+// working day (`late` before the read date) and not after it expires; a series' occurrences up to the
+// last bucket's end, each once (an override replacing its occurrence), a one-off record also after the
+// last bucket (`beyond`). Each currency gives its `opening`, the cash position's opening of the read
+// date: the sum of its active house banks' latest statement closing balances before the read date
+// (zero without a bank; a currency with a bank and no flow is listed too), and each bucket its
+// `closing`, the opening plus the bucket's `total` and those of every bucket before it. `grain` with
+// `to` asks for one grain over a range instead of the company's buckets: periods of the grain from the
+// read date up to the one holding `to`, at most 92 days, 104 weeks or 36 months (the configuration's
+// limits); one without the other, a `to` before the read date or more periods are 422.
+// `display_currency` adds `converted` (ADR-0051 §10): each currency's opening, buckets' totals and
+// `beyond` converted into it at one rate for every bucket, the latest of the company's
+// `cash.rate_type` valid on the read date (default `planning`; with no planning rate, `average`), each
+// amount rounded once to the display currency's minor unit, half away from zero, then summed over the
+// currencies; the converted `closing` is the converted opening plus the converted totals so far, so it
+// adds up as the currencies' own do. A rate valid from more than `cash.rate_max_age_days` (default 7)
+// before the read date is used and marked `stale`; a currency without a rate is left out of the
+// converted figures and listed in `incomplete_currencies` (its own figures stand), never counted as
+// zero. A display currency the reference data does not know is 422 `cash.unknown_currency`. The flows
+// and documents behind a bucket and liquidity item are `listLiquidityForecastFlows`. A legal entity
+// the caller cannot act in is 404.
 //
 // GET /v1/liquidity-forecast
 func (s *Server) handleGetLiquidityForecastRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -59104,21 +59122,25 @@ func (s *Server) handleGetLiquidityForecastRequest(args [0]string, argsEscaped b
 // T53f3), computed at the read from one database state (a repeatable-read snapshot), per currency,
 // liquidity item and bucket: the forecast is that of the legal entity's snapshot taken `lag` days
 // before `from` (its daily snapshot of that date, else the last taken on demand that day; 409
-// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed, as the
-// forecast's totals leave them out; the actuals are the statement lines by value date as
-// `getCashActuals` classifies them; the variance is the actual less the forecast, and
-// `variance_percent` its size in percent of the forecast's size. A snapshot keeps each document it
-// forecast for 31 days from its date (`document_level_until`) and bucket sums after (T53f), so the
-// period's days up to that day are in `buckets` (of `grain` from `from`, the last ending on `to` or on
-// that day) with the variance attributed: each document the snapshot forecast is matched to the
-// statement lines that paid it (a run's payment or a payment in transit by the payment, a supplier
-// item by its journal entry, an invoice forecast before it was posted by the entry it posted, a down
-// payment request by its payment, a memo record by the line that realised it, a series' occurrence by
-// its override), and its part of the variance is `timing` when it was forecast in one bucket and paid
-// in another (paid before or after the period included), `amount` when paid in the bucket it was
-// forecast in, `missing` when nothing paid it; a statement line's part that pays no document the
-// snapshot forecast is `new`, or `unclassified` when the line has no decided match. The five add up to
-// the variance. The days after the document level up to `to` are compared per item only (`beyond`), up
+// `cash.snapshot_not_taken` when none was), without what blocked suppliers were owed and the
+// customers' receipts held back (`receivable_blocked`), as the forecast's totals leave them out; the
+// actuals are the statement lines by value date as `getCashActuals` classifies them; the variance is
+// the actual less the forecast, and `variance_percent` its size in percent of the forecast's size. A
+// snapshot keeps each document it forecast for 31 days from its date (`document_level_until`) and
+// bucket sums after (T53f), so the period's days up to that day are in `buckets` (of `grain` from
+// `from`, the last ending on `to` or on that day) with the variance attributed: each document the
+// snapshot forecast is matched to the statement lines that paid it (a run's payment or a payment in
+// transit by the payment, a supplier item by its journal entry, an invoice forecast before it was
+// posted by the entry it posted, a down payment request by its payment, a memo record by the line that
+// realised it, a series' occurrence by its override), and its part of the variance is `timing` when it
+// was forecast in one bucket and paid in another (paid before or after the period included), `amount`
+// when paid in the bucket it was forecast in, `missing` when nothing paid it; a statement line's part
+// that pays no document the snapshot forecast is `new`, or `unclassified` when the line has no decided
+// match. The five add up to the variance. A receipt from a customer (`receivable`, `sales_order`,
+// T53l1) is not yet matched to the incoming payment that received it (the statement line's match does
+// not name the customer items it cleared): forecast and received in one period, it shows as `missing`
+// and its receipt as `new`, which cancel out in the variance; matched in a later slice (ADR-0051 As
+// built T53l1). The days after the document level up to `to` are compared per item only (`beyond`), up
 // to the day before a snapshot bucket that ends after `to` (its sum cannot be told apart by day). The
 // variance names no document or supplier, so `cash.forecast.read` is all it needs.
 //
@@ -96978,13 +97000,14 @@ func (s *Server) handleListLegalEntitiesRequest(args [0]string, argsEscaped bool
 // `share` (as the item's row adds them up); with `unclassified=true`, only the shares no rule assigns
 // and no default covers; else every flow, its `share` its whole amount. A memo series' occurrences are
 // listed up to `to`, else up to the last of the company's buckets. `total` adds up the shares of every
-// page's flows that the forecast counts (a `payable_blocked` one only with `include_blocked`), so a
-// bucket's drill-down totals its cell of the item's row; `count` counts the flows of every page. Each
-// flow names its supplier (number and name) only to a caller who may use `partner.supplier.read`, and
-// each document only to one who may use its context's read permission (`ledger.entry.read`,
-// `payables.invoice.read`, `payments.run.read`, `cash.memo.read`, `procurement.order.read`); for
-// others it is left out, never refused, and `document_count` still counts it. A liquidity item the
-// configuration does not have lists nothing. A legal entity the caller cannot act in is 404.
+// page's flows that the forecast counts (a `payable_blocked` or `receivable_blocked` one only with
+// `include_blocked`), so a bucket's drill-down totals its cell of the item's row; `count` counts the
+// flows of every page. Each flow names its supplier, or a receipt its customer (`customer`, T53l1), by
+// number and name only to a caller who may use `partner.supplier.read`, and each document only to one
+// who may use its context's read permission (`ledger.entry.read`, `payables.invoice.read`,
+// `payments.run.read`, `cash.memo.read`, `procurement.order.read`, `sales.order.read`); for others it
+// is left out, never refused, and `document_count` still counts it. A liquidity item the configuration
+// does not have lists nothing. A legal entity the caller cannot act in is 404.
 //
 // GET /v1/liquidity-forecast-flows
 func (s *Server) handleListLiquidityForecastFlowsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -140562,13 +140585,14 @@ func (s *Server) handleSubmitSopPlanRequest(args [1]string, argsEscaped bool, w 
 // Takes a named snapshot of a legal entity's liquidity forecast as it is now (ADR-0051 §6, T53f),
 // such as before a board meeting, kept like the daily ones the TakeCashSnapshot workflow takes. The
 // forecast is read as `getLiquidityForecast` reads it with the company's buckets, every source and
-// certainty, blocked suppliers' flows included (marked by their source, `payable_blocked`), from one
-// database state, and stored in transaction currency: at document level for value dates within 31 days
-// of the snapshot's date (each document a flow pays, under each liquidity item it is classified in,
-// `listCashSnapshotFlows`), and summed per bucket and liquidity item beyond, up to the last bucket;
-// flows after the last bucket are not kept. The liquidity items are those the active configuration
-// derived then: a later rule change does not restate it. A legal entity the caller cannot act in is
-// 404. Audited, and published as CashSnapshotTaken.
+// certainty, blocked suppliers' flows and customers' receipts held back included (marked by their
+// source, `payable_blocked`, `receivable_blocked`), from one database state, and stored in transaction
+// currency: at document level for value dates within 31 days of the snapshot's date (each document a
+// flow pays, under each liquidity item it is classified in, `listCashSnapshotFlows`), and summed per
+// bucket and liquidity item beyond, up to the last bucket; flows after the last bucket are not kept.
+// The liquidity items are those the active configuration derived then: a later rule change does not
+// restate it. A legal entity the caller cannot act in is 404. Audited, and published as
+// CashSnapshotTaken.
 //
 // POST /v1/cash-snapshots
 func (s *Server) handleTakeCashSnapshotRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

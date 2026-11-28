@@ -286,6 +286,8 @@ func (e drillEnv) flowLine(f map[string]any) string {
 	supplier := "-"
 	if s, ok := f["supplier"].(map[string]any); ok {
 		supplier = fmt.Sprint(s["number"])
+	} else if c, ok := f["customer"].(map[string]any); ok {
+		supplier = fmt.Sprint(c["number"])
 	}
 	return fmt.Sprintf("%s %s/%s counted=%v %s share %s: %s; %s (%v)", f["date"], f["source"], f["certainty"], f["counted"], amount(f["amount"]),
 		strings.Fields(amount(f["share"]))[0], supplier, strings.Join(docs, ", "), f["document_count"])

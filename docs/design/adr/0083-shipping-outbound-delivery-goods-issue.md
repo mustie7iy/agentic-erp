@@ -455,7 +455,7 @@ Decided by default while building (listed for the product owner):
 
 
 **S2b4** (lane custret, 2026-11-27; migrations 000504, 000505;
-walkthrough step 165, `step_return_into_stock`): a customer's return
+walkthrough step 166, `step_return_into_stock`): a customer's return
 received into stock, the first item of the leaf "later: delivery
 variants: … returns deliveries" (plan-supply-chain.md §S2b4). T85b's
 return receipt moved no stock; now its items of materials kept in stock

@@ -796,7 +796,7 @@ memo for the return stays the credit memo request's.
   check that a returned serial number was delivered to the customer; a
   warehouse system reporting a return receipt.
 - **As built** (2026-11-27): ADR-0083 As built S2b4, migrations 000504
-  and 000505, walkthrough step 165 (`return_into_stock`). Batch 98S's
+  and 000505, walkthrough step 166 (`return_into_stock`). Batch 98S's
   integration with S1e2: both lanes' movement types in one schema and one
   table test; a 122 and a 653 reconcile the valuation to the stock
   account, neither is consumption to the ABC analysis, and a serial

@@ -94,7 +94,13 @@ type openOrder struct {
 // then on the part posted is the customer's open item and is no longer
 // counted here, so nothing counts twice. A removed item (T78e) is not
 // open. Orders with nothing open are left out. By order date, then id.
-const openOrders = `SELECT o.document_number, o.order_date, o.currency, x.lines
+const openOrders = `SELECT o.document_number, o.order_date, o.currency, x.lines` + openOrdersOf + ` AND o.customer_id = $2 ORDER BY o.order_date, o.id`
+
+// openOrdersOf is the company's ($1) confirmed orders not blocked for
+// credit, each with its open lines (x.lines), as openOrders reads them for
+// one customer and cashOrders, for the liquidity forecast, for all: one
+// rule of what is open of an order.
+const openOrdersOf = `
 	FROM sales.sales_order o CROSS JOIN LATERAL (
 		SELECT json_agg(json_build_object('item_no', t.item_no, 'net_amount', t.net_amount - p.posted, 'tax_code', t.tax_code) ORDER BY t.item_no) AS lines
 		FROM sales.sales_order_item t CROSS JOIN LATERAL (
@@ -102,8 +108,7 @@ const openOrders = `SELECT o.document_number, o.order_date, o.currency, x.lines
 			FROM sales.billing_document_item i JOIN sales.billing_document b ON b.tenant_id = i.tenant_id AND b.id = i.billing_document_id
 			WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no AND b.status = 'posted') p
 		WHERE t.tenant_id = o.tenant_id AND t.sales_order_id = o.id AND t.removed_in_change IS NULL AND t.net_amount > p.posted) x
-	WHERE o.legal_entity_id = $1 AND o.customer_id = $2 AND o.status = 'confirmed' AND o.credit_block <> 'blocked' AND x.lines IS NOT NULL
-	ORDER BY o.order_date, o.id`
+	WHERE o.legal_entity_id = $1 AND o.status = 'confirmed' AND o.credit_block <> 'blocked' AND x.lines IS NOT NULL`
 
 // OpenOrders is the sales context's published read for the customer's
 // credit exposure (ADR-0066 §3, As built T77b): how many confirmed

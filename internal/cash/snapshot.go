@@ -78,13 +78,14 @@ type Snapshot struct {
 func (s Snapshot) DocumentLevelUntil() time.Time { return s.Date.AddDate(0, 0, documentLevelDays) }
 
 // SnapshotCurrency is a snapshot's totals in a currency: what the
-// forecast's totals counted (every source but payable_blocked), what
-// blocked suppliers were owed, and the lines kept.
+// forecast's totals counted (every source but payable_blocked and
+// receivable_blocked), what blocked suppliers were owed, the receipts
+// collections held back (T53l1), and the lines kept.
 type SnapshotCurrency struct {
-	Currency       string
-	Exponent       int
-	Total, Blocked money.Minor
-	Lines          int
+	Currency                        string
+	Exponent                        int
+	Total, Blocked, BlockedReceipts money.Minor
+	Lines                           int
 }
 
 // snapshotLine is a line a snapshot keeps: what a flow pays of a document
@@ -101,6 +102,7 @@ type snapshotLine struct {
 	amount                      money.Minor
 	count                       int
 	supplier, payment           *uuid.UUID
+	customer                    *uuid.UUID // the customer a receipt is from (T53l1)
 	doc                         *Document
 }
 
@@ -277,7 +279,7 @@ func (fr forecastRead) snapshotLines(bs []Bucket) []snapshotLine {
 func documentLines(f datedFlow, flowNo int) []snapshotLine {
 	line := func(item string, amount money.Minor, doc *Document) snapshotLine {
 		return snapshotLine{flowNo: flowNo, date: f.date, bank: f.bank, currency: f.currency, source: f.source, certainty: f.certainty, late: f.late,
-			item: item, amount: amount, count: 1, supplier: f.supplier, payment: f.payment, doc: doc}
+			item: item, amount: amount, count: 1, supplier: f.supplier, payment: f.payment, customer: f.customer, doc: doc}
 	}
 	var out []snapshotLine
 	if len(f.partShares) == len(f.documents) {
@@ -399,22 +401,24 @@ func insertLines(ctx context.Context, tx pgx.Tx, id uuid.UUID, lines []snapshotL
 	currencies, sources, certainties, late := make([]string, n), make([]string, n), make([]string, n), make([]bool, n)
 	items, amounts, counts := make([]*string, n), make([]int64, n), make([]int, n)
 	suppliers, payments, kinds, docs, numbers := make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*string, n), make([]*uuid.UUID, n), make([]*string, n)
+	customers := make([]*uuid.UUID, n)
 	for i, l := range lines {
 		flowNo[i], dates[i], ends[i], banks[i] = l.flowNo, l.date, l.end, l.bank
 		currencies[i], sources[i], certainties[i], late[i] = l.currency, l.source, l.certainty, l.late
 		items[i], amounts[i], counts[i], suppliers[i], payments[i] = orNil(l.item), int64(l.amount), l.count, l.supplier, l.payment
+		customers[i] = l.customer
 		if d := l.doc; d != nil {
 			kinds[i], docs[i], numbers[i] = &d.Kind, &d.ID, orNil(d.Number)
 		}
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO cash.snapshot_flow (tenant_id, snapshot_id, line_no, flow_no, value_date, bucket_end, house_bank_id, currency, source,
-			certainty, late, liquidity_item, amount, flow_count, supplier_id, payment_id, document_kind, document_id, document_number)
+			certainty, late, liquidity_item, amount, flow_count, supplier_id, payment_id, document_kind, document_id, document_number, customer_id)
 		SELECT platform.current_tenant(), $1, x.ord, x.flow_no, x.value_date, x.bucket_end, x.house_bank_id, x.currency, x.source, x.certainty, x.late,
-			x.liquidity_item, x.amount, x.flow_count, x.supplier_id, x.payment_id, x.document_kind, x.document_id, x.document_number FROM unnest($2::int[], $3::date[], $4::date[], $5::uuid[], $6::text[], $7::text[], $8::text[], $9::bool[],
-			$10::text[], $11::bigint[], $12::int[], $13::uuid[], $14::uuid[], $15::text[], $16::uuid[], $17::text[]) WITH ORDINALITY AS x(
+			x.liquidity_item, x.amount, x.flow_count, x.supplier_id, x.payment_id, x.document_kind, x.document_id, x.document_number, x.customer_id FROM unnest($2::int[], $3::date[], $4::date[], $5::uuid[], $6::text[], $7::text[], $8::text[], $9::bool[],
+			$10::text[], $11::bigint[], $12::int[], $13::uuid[], $14::uuid[], $15::text[], $16::uuid[], $17::text[], $18::uuid[]) WITH ORDINALITY AS x(
 			flow_no, value_date, bucket_end, house_bank_id, currency, source, certainty, late, liquidity_item, amount, flow_count, supplier_id, payment_id,
-			document_kind, document_id, document_number, ord)`,
-		id, flowNo, dates, ends, banks, currencies, sources, certainties, late, items, amounts, counts, suppliers, payments, kinds, docs, numbers)
+			document_kind, document_id, document_number, customer_id, ord)`,
+		id, flowNo, dates, ends, banks, currencies, sources, certainties, late, items, amounts, counts, suppliers, payments, kinds, docs, numbers, customers)
 	if err != nil {
 		return fmt.Errorf("cash: lines of snapshot %s: %w", id, err)
 	}

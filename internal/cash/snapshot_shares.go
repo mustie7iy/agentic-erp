@@ -29,8 +29,8 @@ import (
 // days between them (its lag), its house bank's code ("" for none; a bank
 // is never shown by its account here, §15), its currency and that
 // currency's exponent, its source and certainty, whether it is a blocked
-// supplier's (SourcePayableBlocked, which the forecast's totals leave
-// out), its liquidity item's code and today's name ("" for no item) and
+// supplier's or a receipt held back (SourcePayableBlocked,
+// SourceReceivableBlocked, which the forecast's totals leave out), its liquidity item's code and today's name ("" for no item) and
 // its signed amount: negative is money out.
 type ForecastShare struct {
 	SnapshotID    uuid.UUID
@@ -119,7 +119,7 @@ func (e *Endpoints) forecastShares(ctx context.Context, tx pgx.Tx, _ Company, le
 		if banks[i] != nil {
 			out[i].HouseBankCode = codes[*banks[i]]
 		}
-		out[i].Blocked, out[i].ItemName = out[i].Source == SourcePayableBlocked, names[out[i].Item]
+		out[i].Blocked, out[i].ItemName = blockedSource(out[i].Source), names[out[i].Item]
 	}
 	return out, nil
 }

@@ -818,6 +818,26 @@ step_tenant() {
   jq -r --arg cc "$CC" '.T042A[] | select(.ZBUKR == $cc) | "     T042A method \(.ZLSCH), \(.WAERS), rank \(.RANGF): house bank \(.HBKID)"' "$WORK/data/extract.json"
   grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | sed 's/^/     /'
   expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$' || true)" 2
+  say "T042I names, per house bank, method and currency, the account (T012K HKTID) a bank pays from (SAP specialist A4):"
+  jq -r --arg cc "$CC" '.T042I[] | select(.ZBUKR == $cc) | "     T042I house bank \(.HBKID), method \(.ZLSCH), \(.WAERS): account \(.HKTID)"' "$WORK/data/extract.json"
+  say "Each of the pilot's house banks has one account, so each keeps its code. Had MUSD a second USD account, 00002, that"
+  say "T042I names for bank transfers in USD, each account would be a house bank of its own, coded house bank and account"
+  say "ID (product owner 2026-11-10), and the method's USD ranking would name the account T042I names (ADR-0038 As built):"
+  jq --arg cc "$CC" '.SKB1 += [(.SKB1[] | select(.BUKRS == $cc and .SAKNR == "0000102000") | .SAKNR = "0000103000")]
+    | .T012K += [(.T012K[] | select(.BUKRS == $cc and .HBKID == "MUSD") | .HKTID = "00002" | .BANKN = "5012347" | .HKONT = "0000103000")]
+    | .T042I |= map(if .ZBUKR == $cc and .HBKID == "MUSD" then .HKTID = "00002" | .UKONT = "0000103000" else . end)' \
+    "$WORK/data/extract.json" >"$WORK/data/extract-accounts.json"
+  show erp config generate -source file:data/extract-accounts.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -cutover "$YEAR-01-01" -out config-accounts.yaml
+  if "$ERP" config generate -source "file:$WORK/data/extract-accounts.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
+    -cutover "$YEAR-01-01" -out "$WORK/config-accounts.yaml" >"$WORK/generate-accounts.out" 2>&1; then
+    fail "a draft with USD house banks whose accounts are not revalued validated"
+  fi
+  if grep '\[error\]' "$WORK/generate-accounts.out" | grep -v 'must be revalue_foreign_currency'; then
+    fail "the draft of MUSD's two accounts has errors other than its unrevalued USD accounts"
+  fi
+  grep -E '^ +- name: MUSD|^          - currency: USD$|^              - MUSD' "$WORK/config-accounts.yaml" | sed 's/^ */     /'
+  expect "the house banks of MUSD's two accounts" "$(grep -cE '^      - name: MUSD0000[12]$' "$WORK/config-accounts.yaml" || true)" 2
+  expect "the account the USD ranking names" "$(grep -A 2 '^          - currency: USD$' "$WORK/config-accounts.yaml" | tail -1 | tr -d ' -')" MUSD00002
   say "SAP's cost element categories (CSKB-KATYP; T56h2) give the accounts' cost elements: sales revenue a revenue"
   say "element (11), the expenses primary costs (01), and the exchange rate accounts, no cost elements in SAP, none,"
   say "so their lines take no cost object (ADR-0050 §4)."
@@ -975,6 +995,7 @@ step_migrate() {
   small_item_refused "$connector"
   yen_item_rehearsed "$connector"
   balances_by_partner_rehearsed "$connector"
+  paid_next_year_rehearsed "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -1584,6 +1605,52 @@ yen_item_rehearsed() {
   grep -E '^Migration run|\[error\] TCURX' "$WORK/yen.out" | sed 's/^/     /'
   grep -q '\[error\] TCURX : the extract.s amounts are in SAP.s internal form .*it holds no TCURX to convert the amounts in JPY (0 decimals)' "$WORK/yen.out" ||
     { sed 's/^/     /' "$WORK/yen.out"; fail "the quality gate did not name the yen without TCURX"; }
+  mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
+}
+
+# paid_next_year_rehearsed shows a fiscal year's run holding open at the
+# year's end an invoice SAP paid in the next fiscal year (ADR-0034 As
+# built, vendor items SAP cleared in a later fiscal year; AUGGJ, A3,
+# po:2026-11-09): the extract with the first open CAD invoice of the
+# pilot's (no fixed payment method, no special G/L) paid on 15 January of
+# the next year by document 0199999970 of that year, a copy of one of
+# the mock's payments, both its lines and the invoice's vendor line
+# cleared by it (AUGBL, AUGDT, AUGGJ). Before, the run failed on it (its
+# clearing alone did not net to zero); now the rehearsal loads the invoice
+# open, leaves the next year's payment to that year's run, and its open
+# payable items agree with SAP's at the year's end. The extract is put
+# back.
+paid_next_year_rehearsed() {
+  local next=$((YEAR + 1))
+  cp "$WORK/data/extract.json" "$WORK/data/extract.good.json"
+  jq --arg cc "$CC" --arg y "$YEAR" --arg n "$next" '
+    def neg: if startswith("-") then .[1:] else "-" + . end;
+    ([.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $y and .BLART == "KZ")] | first) as $p
+    | ([.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $y and .BLART == "RE" and .LIFNR != "" and .AUGBL == ""
+        and (.ZLSCH // "") == "" and (.UMSKZ // "") == "" and (.RWCUR // "CAD") == "CAD")] | first) as $i
+    | [.ACDOCA[] | select(.RBUKRS == $cc and .GJAHR == $y and .BELNR == $p.BELNR)] as $pay
+    | .ACDOCA = [.ACDOCA[] | if .RBUKRS == $cc and .GJAHR == $y and .BELNR == $i.BELNR and .DOCLN == $i.DOCLN
+        then .AUGBL = "0199999970" | .AUGDT = ($n + "0115") | .AUGGJ = $n else . end]
+      + [$pay[] | .GJAHR = $n | .BELNR = "0199999970" | .BUDAT = ($n + "0115") | .XBLNR = $i.XBLNR
+        | if .LIFNR != "" then .LIFNR = $i.LIFNR | .HSL = ($i.HSL | neg) | .WSL = ($i.HSL | neg)
+            | .AUGBL = "0199999970" | .AUGDT = ($n + "0115") | .AUGGJ = $n
+          else .HSL = $i.HSL | .WSL = $i.HSL end]' \
+    "$WORK/data/extract.good.json" >"$WORK/data/extract.json" || fail "the extract with an invoice paid next year could not be made"
+  say "SAP paid one of the pilot's open invoices on 15 January $next, in the next fiscal year: the extract holds"
+  say "the payment of $next, and the invoice's line names it as its clearing, of fiscal year $next (AUGGJ):"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and (.AUGBL == "0199999970" or .BELNR == "0199999970"))
+    | "     ACDOCA \(.GJAHR)/\(.BELNR)/\(.DOCLN) \(.BLART): account \(.RACCT)\(if .LIFNR != "" then ", vendor \(.LIFNR)" else "" end) \(.HSL) CAD\(if (.AUGBL // "") != "" then ", cleared by \(.AUGBL) of \(.AUGGJ) on \(.AUGDT)" else "" end)"' \
+    "$WORK/data/extract.json"
+  say "A run of $YEAR reads its journal at the year's end: the invoice was open then, so it loads open, and the"
+  say "payment is $next's run's, which clears it with the payment it loads. The rehearsal reconciles:"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal
+  "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/nextyear.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/nextyear.out"; fail "the rehearsal with an invoice paid next year did not reconcile"; }
+  grep -E '^Migration run|Open payable items' "$WORK/nextyear.out" | sed 's/^/     /'
+  local check
+  for check in 'Open payable items' 'Open payable items: vendors with differences' 'Open payables total'; do
+    grep "$check" "$WORK/nextyear.out" | grep -q 'PASS$' || fail "the rehearsal's check '$check' did not pass with the invoice paid next year"
+  done
   mv "$WORK/data/extract.good.json" "$WORK/data/extract.json"
 }
 
@@ -18788,7 +18855,7 @@ cost_object_order() {
 # valuation their value, and the washers' cost of sales by segment falls by
 # it. The 653 is not reversed by hand.
 step_return_into_stock() {
-  heading "Step 165 — Customer returns into stock: 2 of 5 washers delivered, billed and returned are received into Montreal's store by a 653 at the cost their goods issue took, the cost of goods sold credited; a receipt without its storage location refused; the stock, the valuation and the cost of sales by segment show it; the 653 not reversed by hand"
+  heading "Step 166 — Customer returns into stock: 2 of 5 washers delivered, billed and returned are received into Montreal's store by a 653 at the cost their goods issue took, the cost of goods sold credited; a receipt without its storage location refused; the stock, the valuation and the cost of sales by segment show it; the 653 not reversed by hand"
   local order delivery doc returns number receipt cost issued md before after stock costs tag
   [ -n "${M10_WASHER:-}" ] && [ -n "${MONTREAL:-}" ] && [ -n "${MONTREAL_STORE:-}" ] || fail "step 147's washers and Montreal store are not there"
   accounts
@@ -18867,6 +18934,114 @@ step_return_into_stock() {
   as ines
   say "The 653 is not reversed by hand (a reversal of a return is Later):"
   refused 409 inventory.reverse_customer_return reverseMaterialDocument -p "id=$md" -if-match "$tag"
+  passed
+}
+
+# one_flow_page fails when the forecast flows just read have a further
+# page: step_cash_receipts reads one page of 100 flows over a few days,
+# and a check on it would otherwise pass without seeing the next.
+one_flow_page() {
+  [ "$(field '.next_page_token // ""')" = "" ] || fail "liquidity forecast flows: more than one page of 100; the check would not see them all"
+}
+
+# step_cash_receipts is T53l1 (ADR-0051 §4, §5, As built T53l1): the
+# liquidity forecast's receipts from customers. Ruth posts an invoice to
+# Northwind; Tom finds it in the forecast as a receivable on its due date
+# (the first working day on or after it), drilled down to its journal
+# entry and its customer. While a dunning block holds the invoice back it
+# is receivable_blocked, apart from the totals and summed in
+# blocked_receipts; released, it counts again. Sally's sales order for a
+# delivery date, not yet billed, is a planned sales_order receipt on the
+# delivery date plus NT30. The order is cancelled at the end; the
+# invoice stays Northwind's open item.
+step_cash_receipts() {
+  heading "Step 165 — Receipts from customers in the liquidity forecast: an open customer invoice on its due date, held back apart while a dunning block holds it, and a sales order not yet billed on its delivery date plus its term"
+  local customer=$CUSTOMER sales invoice entry due item year line block tag deliver order flow read
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  sales=$(account 4000)
+  as ruth
+  say "Ruth invoices Northwind CAD 800.00 for a training day; posted, it is Northwind's open item on NT30:"
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.status), gross \(.gross_amount.amount) \(.currency)"' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Training day\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"800.00\", \"currency\": \"CAD\"}}]}"
+  invoice=$(field .id)
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  api 200 '"customer invoice \(.document_number): \(.status), journal entry \(.journal_entry_number), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id) due=$(field .net_due_date)
+  as tom
+  say "Tom finds it in the forecast (T53l1): a receivable, expected, on its net due date or the first working day after"
+  say "it, netted with whatever else Northwind owes that day, drilled down to its journal entry and to Northwind:"
+  api 200 '.items[] | select(any(.documents[]; .id == "'"$entry"'")) | "  \(.date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency) from \(.customer.name // "-"): \([.documents[] | "\(.kind) \(.number // "-") \(.amount.amount)"] | join(", "))"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  one_flow_page
+  flow=$(field "[.items[] | select(any(.documents[]; .id == \"$entry\"))][0]")
+  expect "the invoice's receipt" "$(jq -r '"\(.source) \(.certainty) \(.counted) \(.customer.id)"' <<<"$flow")" "receivable expected true $customer"
+  expect "on or after its due date" "$(jq -r --arg d "$due" '.date >= $d' <<<"$flow")" true
+  expect "what it receives of the invoice" "$(jq -r --arg e "$entry" '[.documents[] | select(.id == $e) | .amount.amount][0]' <<<"$flow")" "800.00"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  item=$(field "[.items[] | select(.journal_entry_id == \"$entry\")][0]")
+  year=$(jq -r .fiscal_year <<<"$item") line=$(jq -r .line_no <<<"$item")
+  say "Northwind queries the training day's attendance. Ruth blocks the invoice from dunning until $(date_add "$TODAY" 60):"
+  api 201 '"dunning block of \(.customer_name): \(.status), entry \(.document_number), until \(.valid_to)"' \
+    createDunningBlock -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"fiscal_year\": $year, \"journal_entry_id\": \"$entry\", \"line_no\": $line, \"reason\": \"Attendance being checked\", \"valid_to\": \"$(date_add "$TODAY" 60)\"}"
+  block=$(field .id) tag=$ETAG
+  as tom
+  say "Held back, the invoice's receipt is receivable_blocked: listed on its due date, counted in no total, summed in"
+  say "blocked_receipts, and counted only with include_blocked, as what blocked suppliers are owed is:"
+  api 200 '.items[] | select(any(.documents[]; .id == "'"$entry"'")) | "  \(.date) \(.source) counted \(.counted) \(.amount.amount) \(.amount.currency)"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  one_flow_page
+  flow=$(field "[.items[] | select(any(.documents[]; .id == \"$entry\"))][0]")
+  expect "the receipt held back" "$(jq -r '"\(.source) \(.counted) \(.amount.amount)"' <<<"$flow")" "receivable_blocked false 800.00"
+  api 200 '.currencies[] | select(.currency == "CAD") | "  CAD: total \(.total.amount), held back \(.blocked_receipts.amount.amount) (\(.blocked_receipts.count) flows)"' \
+    getLiquidityForecast -p "legal_entity_id=$LE"
+  expect "held back at least the invoice" "$(field '[.currencies[] | select(.currency == "CAD") | .blocked_receipts.amount.amount | sub("\\."; "") | tonumber >= 80000][0]')" true
+  as ruth
+  say "Attendance confirmed, Ruth releases the block; the receipt counts again:"
+  api 200 '"dunning block \(.status)"' releaseDunningBlock -p "id=$block" -if-match "$tag"
+  as tom
+  QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$due" -p "to=$(date_add "$due" 4)" -p page_size=100
+  one_flow_page
+  expect "the receipt counted again" "$(field "[.items[] | select(any(.documents[]; .id == \"$entry\")) | \"\(.source) \(.counted)\"][0]")" "receivable true"
+  as sally
+  deliver=$(date_add "$TODAY" 10)
+  say "Sally takes Northwind's order for a second training day, to be delivered on $deliver, and confirms it; nothing is"
+  say "billed yet:"
+  api 201 '"sales order \(.document_number) of \(.customer_name): \(.status), net \(.net_amount.amount) \(.net_amount.currency), deliver by \(.requested_delivery_date), terms \(.payment_term_code)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"requested_delivery_date\": \"$deliver\", \"items\": [{\"description\": \"Training day\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\"}]}"
+  order=$(field .id)
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  read=$(date_add "$deliver" 30)
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as tom
+    say "Northwind is over its credit limit (the orders of the steps before): blocked for credit, the order is no receipt yet:"
+    QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+    one_flow_page
+    expect "the credit-blocked order's receipt" "$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))] | length")" 0
+    as ruth
+    say "Ruth releases the block, as in step 68:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  expect "the order confirmed, not blocked for credit" "$(field '"\(.status) \(.credit_block != "blocked")"')" "confirmed true"
+  as tom
+  say "Tom sees it as a planned sales_order receipt: billed on the delivery date and paid on NT30, so on $read or the"
+  say "first working day after it, at its open value:"
+  api 200 '.items[] | select(any(.documents[]; .id == "'"$order"'")) | "  \(.date) \(.source) \(.certainty) \(.amount.amount) \(.amount.currency) from \(.customer.name // "-"): \([.documents[] | "\(.kind) \(.number // "-")"] | join(", "))"' \
+    listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+  one_flow_page
+  flow=$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))][0]")
+  expect "the order's receipt" "$(jq -r '"\(.source) \(.certainty) \(.amount.amount) \(.customer.id) \(.documents | length)"' <<<"$flow")" "sales_order planned 250.00 $customer 1"
+  expect "on or after the delivery date plus NT30" "$(jq -r --arg d "$read" '.date >= $d' <<<"$flow")" true
+  as sally
+  say "Northwind calls the second day off: Sally cancels the order, and its receipt leaves the forecast."
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status)"' cancelSalesOrder -p "id=$order" -if-match "$ETAG" -body '{"reason": "Second training day called off"}'
+  as tom
+  QUIET=1 api 200 '' listLiquidityForecastFlows -p "legal_entity_id=$LE" -p currency=CAD -p "from=$read" -p "to=$(date_add "$read" 4)" -p page_size=100
+  one_flow_page
+  expect "the cancelled order's receipt" "$(field "[.items[] | select(any(.documents[]; .id == \"$order\"))] | length")" 0
   passed
 }
 
@@ -19171,7 +19346,7 @@ step_cash_snapshot() {
   say "Its CAD lines, the first ten: each document a flow pays under its liquidity item, then the buckets' sums:"
   api 200 '"  \(.count) lines, total \(.total.amount) \(.total.currency)", (.items[0:10][] | "  \(.value_date)\(if .bucket_end then "..\(.bucket_end)" else "" end) \(.source)/\(.certainty) \(.liquidity_item // "unclassified") \(.amount.amount)\(if .document then ": \(.document.kind) \(.document.number // "-")" else "" end)\(if .supplier then ", \(.supplier.name)" else "" end)")' \
     listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p page_size=500
-  lines_total=$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')
+  lines_total=$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select((.source | IN("payable_blocked", "receivable_blocked") | not)) | .amount.amount | c] | add // 0')
   expect "the lines add up to the snapshot's total" "$lines_total" "$forecast_cents"
   expect "per document within 31 days, per bucket after" \
     "$(field '[.items[] | select(.bucket_end == null) | .flow_count] | all(. == 1)')" true
@@ -19926,7 +20101,7 @@ step_cash_variance() {
   expect "the CAD actual, the day's statement lines (getCashActuals)" "$actual" "$(field '[.currencies[] | select(.currency == "CAD") | .total.amount][0] // "0.00"')"
   QUIET=1 api 200 '' listCashSnapshotFlows -p "id=$snap" -p currency=CAD -p "from=$day" -p "to=$day" -p page_size=500
   expect "the CAD forecast, the snapshot's lines of the day but blocked suppliers'" "$forecast" \
-    "$(amount "$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select(.source != "payable_blocked") | .amount.amount | c] | add // 0')")"
+    "$(amount "$(field 'def c: sub("\\."; "") | tonumber; [.items[] | select((.source | IN("payable_blocked", "receivable_blocked") | not)) | .amount.amount | c] | add // 0')")"
   if [ "$kind" = on_demand ]; then
     expect "the snapshot compared, step 26's" "$snap" "$board"
   fi
@@ -20712,7 +20887,7 @@ ratio4() {
 # forecast for DAY at document level, blocked suppliers' flows left out.
 kept_on() {
   jq -r --arg d "$2" 'def c: sub("\\."; "") | tonumber;
-    [.items[] | select(.bucket_end == null and .value_date == $d and .source != "payable_blocked") | .amount.amount | c] | add // 0' "$1"
+    [.items[] | select(.bucket_end == null and .value_date == $d and (.source | IN("payable_blocked", "receivable_blocked") | not)) | .amount.amount | c] | add // 0' "$1"
 }
 
 # cad_on DAY is the CAD cents of the last query's rows of DAY (currency
@@ -20929,7 +21104,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_custom_fields step_controlling_agent step_return_into_stock step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_serial_numbers step_mrp step_replenishment_agent step_count_agent step_intercompany_transport step_uae_cash_discount step_bad_debt_relief step_demand_forecast_agent step_sop_review step_wms step_tms step_gts step_custom_fields step_controlling_agent step_cash_receipts step_return_into_stock step_close'
 
 main() {
   stop_unseen

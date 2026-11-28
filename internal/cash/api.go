@@ -132,9 +132,11 @@ func bucketsToAPI(bs []Bucket) []gen.LiquidityForecastBucket {
 func forecastCurrencyToAPI(c ForecastCurrency, bs []Bucket) gen.LiquidityForecastCurrency {
 	amount := amounts(c.Currency, c.Exponent)
 	out := gen.LiquidityForecastCurrency{Currency: c.Currency, Buckets: make([]gen.LiquidityForecastBucketFlows, len(c.Buckets)), Total: amount(c.Total),
-		Opening: gen.LiquidityForecastOpening{Amount: amount(c.Opening.Amount), Banks: int32(c.Opening.Banks), Stale: c.Opening.Stale, Gap: c.Opening.Gap},
-		Beyond:  gen.LiquidityForecastBeyond{Amount: amount(c.Beyond.Amount), Count: int32(c.Beyond.Count)},
-		Blocked: gen.LiquidityForecastBlocked{Amount: amount(c.Blocked.Amount), Count: int32(c.Blocked.Count)}, Items: itemsToAPI(c.Items, amount)}
+		Opening:         gen.LiquidityForecastOpening{Amount: amount(c.Opening.Amount), Banks: int32(c.Opening.Banks), Stale: c.Opening.Stale, Gap: c.Opening.Gap},
+		Beyond:          gen.LiquidityForecastBeyond{Amount: amount(c.Beyond.Amount), Count: int32(c.Beyond.Count)},
+		Blocked:         gen.LiquidityForecastBlocked{Amount: amount(c.Blocked.Amount), Count: int32(c.Blocked.Count)},
+		BlockedReceipts: gen.LiquidityForecastBlockedReceipts{Amount: amount(c.BlockedReceipts.Amount), Count: int32(c.BlockedReceipts.Count)},
+		Items:           itemsToAPI(c.Items, amount)}
 	for j, b := range c.Buckets {
 		out.Buckets[j] = gen.LiquidityForecastBucketFlows{Start: bs[j].Start, Flows: flowsToAPI(b.Flows, amount), Total: amount(b.Total),
 			Closing: amount(b.Closing)}
@@ -162,7 +164,7 @@ func (e *Endpoints) GetGroupLiquidityForecast(ctx context.Context, params gen.Ge
 	for i, fc := range f.Currencies {
 		cur := forecastCurrencyToAPI(fc, f.Buckets)
 		out.Currencies[i] = gen.GroupLiquidityForecastCurrency{Currency: cur.Currency, Opening: cur.Opening, Buckets: cur.Buckets, Total: cur.Total,
-			Beyond: cur.Beyond, Blocked: cur.Blocked}
+			Beyond: cur.Beyond, Blocked: cur.Blocked, BlockedReceipts: cur.BlockedReceipts}
 	}
 	return &out, nil
 }
@@ -200,6 +202,9 @@ func (e *Endpoints) ListLiquidityForecastFlows(ctx context.Context, params gen.L
 			Share: amount(f.Share), DocumentCount: int32(f.DocumentCount), Documents: make([]gen.LiquidityForecastDocument, len(f.Documents))}
 		if s := f.Supplier; s != nil {
 			lf.Supplier.SetTo(gen.PartnerName{ID: s.ID, Number: s.Number, Name: s.Name})
+		}
+		if c := f.Customer; c != nil {
+			lf.Customer.SetTo(gen.PartnerName{ID: c.ID, Number: c.Number, Name: c.Name})
 		}
 		for j, d := range f.Documents {
 			lf.Documents[j] = gen.LiquidityForecastDocument{Kind: d.Kind, ID: d.ID, Number: apitypes.OptText(d.Number), Amount: amount(d.Amount)}

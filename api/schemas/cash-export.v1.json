@@ -20,7 +20,7 @@
     "period_end": {"type": "string", "format": "date", "description": "The row's last day: period_start for a day."},
     "house_bank_code": {"type": ["string", "null"], "description": "The house bank the flows are expected at, by its code; null when no bank is known."},
     "account_last4": {"type": ["string", "null"], "description": "The last four characters of the house bank's account; null with house_bank_code."},
-    "source": {"type": "string", "pattern": "^[a-z][a-z_]{0,39}$", "description": "Where the flows come from (ADR-0051 §4), one of payable, payable_blocked (owed to a supplier no run pays), invoice_unposted, down_payment, purchase_order, payment_run, in_transit and memo. Open enumeration: values may be added within v1."},
+    "source": {"type": "string", "pattern": "^[a-z][a-z_]{0,39}$", "description": "Where the flows come from (ADR-0051 §4), one of payable, payable_blocked (owed to a supplier no run pays), invoice_unposted, down_payment, purchase_order, payment_run, in_transit, memo, receivable, receivable_blocked (a customer's receipt collections holds back) and sales_order. Open enumeration: values may be added within v1."},
     "certainty": {"type": "string", "enum": ["actual", "confirmed", "expected", "planned"], "description": "How certain the flows are (ADR-0051 §4)."},
     "liquidity_item": {"type": ["string", "null"], "description": "The liquidity item's code the flows were classified in when the snapshot was taken; null when no rule assigned one."},
     "amount": {"type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$", "description": "The flows' sum, a decimal in the currency's minor-unit digits, signed: a receipt positive, a payment negative."},

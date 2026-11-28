@@ -26,8 +26,9 @@ const cashSnapshotsDataset = "cash_snapshots"
 // context reads it: the line by its snapshot and number, the snapshot's
 // date, the line's value date and lag in days, its house bank's code (""
 // for none), its currency and that currency's exponent, its source and
-// certainty, whether it is a blocked supplier's, its item's code and name
-// ("" for no item) and the signed amount in minor units.
+// certainty, whether it is a blocked supplier's or a customer's receipt
+// held back, its item's code and name ("" for no item) and the signed
+// amount in minor units.
 type ForecastShare struct {
 	SnapshotID    uuid.UUID
 	LineNo        int32
