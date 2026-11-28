@@ -32,7 +32,7 @@ func (rc *reconciler) readMaterials(ctx context.Context) (*materialStates, error
 	st := &materialStates{unitRefs: map[string]uuid.UUID{}, loaded: map[string]materials.Material{}}
 	var issues, more []Issue
 	st.plants, issues = plantsOf(rc.ext)
-	st.materials, more = materialsOf(rc.ext, rc.t.units, st.plants)
+	st.materials, more = materialsOf(rc.ext, rc.t, st.plants)
 	for _, i := range append(issues, more...) {
 		if i.Severity == SevError {
 			rc.rec.Issues = append(rc.rec.Issues, i)

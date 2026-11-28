@@ -8,16 +8,28 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
-// Lot sizing (ADR-0084 As built, lot sizing; SAP MARC-DISLS, BSTFE,
-// MABST, BSTMI, BSTMA and BSTRF, from memory): how a run sizes the
-// quantity it proposes for a material's shortage, in its base unit.
+// Lot sizing (ADR-0084 As built, lot sizing and period lot sizes; SAP
+// MARC-DISLS, BSTFE, MABST, BSTMI, BSTMA and BSTRF, from memory): how a
+// run sizes the quantity it proposes for a material's shortage, in its
+// base unit; the period procedures size it by period (period.go).
 
 // Lot sizing procedures.
 const (
 	LotForLot          = "lot_for_lot"          // SAP EX: the shortage itself
 	FixedLot           = "fixed"                // SAP FX: lots of the fixed size
 	ReplenishToMaximum = "replenish_to_maximum" // SAP HB: up to the maximum stock level
+	Daily              = "daily"                // SAP TB: a lot per day of net requirements
+	Weekly             = "weekly"               // SAP WB: a lot per ISO week, Monday to Sunday
+	Monthly            = "monthly"              // SAP MB: a lot per calendar month
 )
+
+// procedures are the lot sizing procedures a plan may name.
+var procedures = map[string]bool{LotForLot: true, FixedLot: true, ReplenishToMaximum: true, Daily: true, Weekly: true, Monthly: true}
+
+// periodic reports whether the procedure sizes by period.
+func (l LotSizing) periodic() bool {
+	return l.Procedure == Daily || l.Procedure == Weekly || l.Procedure == Monthly
+}
 
 // MaxLots is the most lots a run proposes of one material: a fixed or
 // maximum lot size so small against the requirement that it needs more
@@ -83,8 +95,8 @@ func (l LotSizing) same(o LotSizing) bool {
 // the maximum, and both multiples of the rounding value (422
 // mrp.invalid_lot_size naming the field).
 func (l LotSizing) check(reorderPoint string) error {
-	if l.Procedure != LotForLot && l.Procedure != FixedLot && l.Procedure != ReplenishToMaximum {
-		return problem.Invalid("mrp.invalid_lot_size", "lot_size", "lot_for_lot, fixed or replenish_to_maximum")
+	if !procedures[l.Procedure] {
+		return problem.Invalid("mrp.invalid_lot_size", "lot_size", "lot_for_lot, fixed, replenish_to_maximum, daily, weekly or monthly")
 	}
 	for _, f := range l.lotFields() {
 		if f.value != nil && money.PositiveQuantity(*f.value) != nil {
@@ -154,12 +166,6 @@ func (l LotSizing) lots(shortage, available *big.Rat, material string) ([]*big.R
 	if shortage.Sign() <= 0 {
 		return nil, nil
 	}
-	rat := func(s *string) *big.Rat {
-		if s == nil {
-			return nil
-		}
-		return money.ParseRat(*s)
-	}
 	if l.Procedure == FixedLot {
 		size := rat(l.Fixed)
 		return repeat(size, roundUp(shortage, size), nil, material)
@@ -168,6 +174,15 @@ func (l LotSizing) lots(shortage, available *big.Rat, material string) ([]*big.R
 	if l.Procedure == ReplenishToMaximum {
 		q = money.CeilQuantity(new(big.Rat).Sub(rat(l.MaximumLevel), available))
 	}
+	return l.bounded(q, material)
+}
+
+// bounded raises q to the minimum lot size, rounds it up to a multiple
+// of the rounding value and splits it into lots of the maximum lot size
+// and a last lot of the rest, itself raised to the minimum: the lots of
+// a lot-for-lot, replenish-to-maximum or period quantity. More than
+// MaxLots lots is 409 mrp.too_many_lots, naming the material.
+func (l LotSizing) bounded(q *big.Rat, material string) ([]*big.Rat, error) {
 	minimum, maximum, rounding := rat(l.Minimum), rat(l.Maximum), rat(l.Rounding)
 	if minimum != nil {
 		q = money.MaxRat(q, minimum)
@@ -179,6 +194,14 @@ func (l LotSizing) lots(shortage, available *big.Rat, material string) ([]*big.R
 		return []*big.Rat{q}, nil
 	}
 	return repeat(maximum, q, minimum, material)
+}
+
+// rat is a quantity given, nil for none.
+func rat(s *string) *big.Rat {
+	if s == nil {
+		return nil
+	}
+	return money.ParseRat(*s)
 }
 
 // repeat splits total into lots of size and a last lot of the rest,

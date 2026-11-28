@@ -280,7 +280,7 @@ func extractScope(entities map[string]tenancy.Entity, year int32) sap.Scope {
 
 // configure gives the target what the active configuration says of the
 // run's scope: its payment terms, number ranges, cost center categories,
-// each company's tax codes, payment methods and valuation classes, and each company's day at
+// material types and groups, each company's tax codes, payment methods and valuation classes, and each company's day at
 // instant now in its time zone (companyDays).
 func (t *target) configure(doc *config.Config, now time.Time) error {
 	for _, term := range doc.PaymentTerms {
@@ -292,6 +292,7 @@ func (t *target) configure(doc *config.Config, now time.Time) error {
 	for _, c := range doc.Controlling.CostCenterCategories {
 		t.categories[c.Code] = true
 	}
+	t.materials = doc.Materials
 	for _, co := range doc.Companies {
 		t.taxes[co.Code] = map[string]config.TaxCode{}
 		for _, code := range co.TaxCodes {
@@ -563,6 +564,7 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	t.migrated = existing.materials()
 	if t.posted, err = e.postedCurrencies(ctx, ext, existing); err != nil {
 		return operations.Operation{}, err
 	}
@@ -628,6 +630,7 @@ func (e *Endpoints) reconcileRun(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	t.migrated = existing.materials()
 	rec, err := e.reconcile(ctx, ext, t, existing)
 	if err != nil {
 		return operations.Operation{}, err

@@ -220,6 +220,11 @@ var tierRules = []struct {
 	// their approval, as purchasing's approval tiers route requisitions
 	// (ADR-0084 As built S2n2).
 	{rx(`^companies\[\*\]\.sop_approval(\.|$)`), TierOperational},
+	// The material types and groups post nothing: they decide which a new
+	// or changed material may take (ADR-0082 As built S1a4), as price
+	// groups decide which a customer may be in. Their names are texts.
+	{rx(`^materials\.(material_types|material_groups)\[\*\]\.name$`), TierCosmetic},
+	{rx(`^materials(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -289,6 +294,8 @@ var listKeys = map[string]string{
 	// order is the setting.
 	"condition_types": "code",
 	"price_groups":    "code",
+	// Material types and groups by code (ADR-0082 As built S1a4).
+	"material_types": "code", "material_groups": "code",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is

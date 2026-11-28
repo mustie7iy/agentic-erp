@@ -257,6 +257,47 @@ unit's GTIN.
   is ordered, delivered and issued by batch, nothing reading its measures
   yet (`TestMeasuredBatchIssued`).
 
+#### S1a4 Material types and groups from configuration
+
+The third item of the leaf "later: material master variants" (lane
+matgroups, 2026-11-27); what is left of it stays a leaf (Later, below).
+
+**Capability.** A configuration manager lists the material types the
+tenant uses and its material groups, each with a name, through a
+governed change; a master data specialist then creates and changes
+materials of those types and groups only, and the SAP load holds back a
+material of another.
+
+- **Reuses:** S1a's `material_type` and `material_group`, S1b's material
+  changes, the configuration's change requests and tiers, the price
+  groups' rules (ADR-0067 §13), S2o's load and its held-back warnings.
+- **Adds:** the configuration section `materials` (`material_types[]`,
+  `material_groups[]`, each `code` and `name`), `config.Materials`,
+  `config.MaterialsTransitions`, `config.MaterialTypeCodes`; the problem
+  code `materials.unknown_material_group`; ADR-0082 As built S1a4. No
+  migration.
+- **Decided by default (ADR-0082 As built S1a4):** a configured type is
+  one of the platform's six; a list left empty checks nothing, so
+  existing tenants and materials keep what they have; an entry is never
+  removed once activated, so a list never empties again; tier 2, a name
+  tier 1; checked at a create and at a change that sets the group, a
+  change that leaves the group unchecked, a change requested before the
+  list applied as approved; at most 1,000 groups.
+- **SAP:** MTART mapped onto the six as before and MATKL taken as the
+  group (from memory); a material whose type or group the configured
+  lists leave out is held back with the reason.
+- **Walkthrough:** `step_material`: Ada configures Maple's types (all but
+  `service`) and eleven groups (NUTS for step 152's N10 nut, batch 99S),
+  Priya approves; a service and the group WIDGETS are refused naming
+  their fields.
+- **Acceptance:** a tenant without lists creates materials as before; with
+  them, a create or a group change outside them is refused naming the
+  field, one inside them proceeds; a material created before keeps its
+  group through other changes; a type or group cannot be removed from
+  the configuration; the load holds back a material outside the lists and
+  loads the rest.
+- **As built** (2026-11-27): ADR-0082 As built S1a4, walkthrough step 122.
+
 **Later for Material master:** changing a material's default language,
 documents and outputs taking the material's description in their
 partner's language, the duplicate check across languages, a later SAP
@@ -268,8 +309,11 @@ weight and volume from its items' units, GTINs on documents and e-invoice
 lines and items found by GTIN, GTIN types beyond GS1's four lengths and
 several GTINs per unit (SAP's NUMTP, MEAN), a later SAP run's new or
 changed measures of a material an earlier run created;
-material types and groups from configuration (T134, T023) instead of an
-open enumeration and a code; plant-specific status and MRP data (MARC
+of material types and groups (S1a4): a tenant's own material types with
+their attributes (T134), SAP's own types mapped onto the platform's by
+the load, T023T's texts loaded into the configuration, a group retired
+for new materials, a hierarchy of groups, the type's and group's names on
+a material's read; plant-specific status and MRP data (MARC
 fields beyond the assignment, S2k); external number assignment;
 classification and characteristics; changing a material's base unit or
 type once used (SAP's MM02 refusal and MMAM).
@@ -1403,10 +1447,10 @@ pack size.
   **Acceptance:** a fixed lot covers the shortage in whole lots; a
   replenish-to-maximum plan proposes up to its level, bounded and
   rounded; the run's lines say what was proposed and in how many lots.
-- **Later:** period lot sizes (daily, weekly, monthly), optimising
-  procedures (part period, least unit cost, Groff), scrap, firming in a
-  planning time fence; the replenishment agent recommending an order per
-  lot (lots from several suppliers or on several days).
+- **Later:** period lot sizes (daily, weekly, monthly; S2k3, below),
+  optimising procedures (part period, least unit cost, Groff), scrap,
+  firming in a planning time fence; the replenishment agent recommending
+  an order per lot (lots from several suppliers or on several days).
 - **S2k2a The replenishment agent on a proposal of several lots** (lane
   repllots, 2026-11-27; the Later item "the replenishment agent
   recommending on a proposal of several lots", review:batch95; ADR-0072
@@ -1429,7 +1473,44 @@ pack size.
     without its lots refused (its recorded result `ErrLots`'s wording),
     its order naming the three lots made.
   - **Later:** an order per lot (lots from several suppliers, with quota
-    arrangements; lots on several days, with period lot sizes).
+    arrangements; a lot ordered on its own day). Since batch 99S a
+    period-lot proposal's lots are named by their own days (S2k3, below).
+
+### S2k3 Period lot sizes (MRP variants, the next item)
+
+**Capability.** A planner sizes a material's proposals by period, so a
+run proposes a lot per day, week or month in which the demand due takes
+the plant below its reorder point, each needed by the day it is first
+needed, instead of the whole shortage for today.
+
+- **Adds** (lane mrpperiod, batch 99, 2026-11-27; the tracker's "later:
+  MRP variants" split again; decided by default, ADR-0084 As built,
+  period lot sizes): `lot_size` `daily`, `weekly` or `monthly` (SAP TB,
+  WB, MB, from memory) with the minimum, maximum and rounding value lot
+  for lot takes; a run projects stock and receipts down by each demand
+  on its day (sales orders by their requested delivery dates, else their
+  dates; intercompany order items by their delivery dates; stock
+  transport orders and overdue demand on the run's day), one lot per
+  period below the reorder point needed by its first requirement date,
+  ISO weeks from Monday, calendar periods of the company's days. One
+  requisition per material, an item per lot, needed by the first lot's
+  day; `mrp.run_line_lot` and `MrpRunLine.lot_schedule` keep each lot's
+  day. Migration 000506; `createMaterialPlan`, `updateMaterialPlan`,
+  `MrpRunLine` additive.
+- **Walkthrough:** extends `step_mrp` (step 152): an N10 nut planned at
+  Montreal in weekly lots, with orders due a week and two weeks later,
+  gets two lots, each needed by its order's day.
+  **Acceptance:** requirements in two weeks are two lots, those of one
+  week one lot; each lot is needed by its period's first requirement
+  date; rounding's surplus counts towards the next period; lot for lot
+  and the other procedures propose as before.
+- **The replenishment agent** (batch 99S integration; ADR-0072 As built
+  "S2k3 in the agent"): an order of a period-lot proposal names each lot
+  by its run line's `lot_schedule` day, and a contract is its source only
+  while valid on every lot's day; `evals/replenishment` version 4.
+- **Later:** the period's start or end as a lot's date, a factory
+  calendar, receipts and stock transport orders by their delivery dates,
+  optimising procedures.
 
 ### S2l Replenishment agent
 

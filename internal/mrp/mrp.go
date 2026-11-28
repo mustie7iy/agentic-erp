@@ -141,27 +141,25 @@ type Proposed struct {
 	Version int32
 }
 
-// Due is an Open quantity due on a day: what sales orders due then
-// demand.
+// Due is an Open quantity due on a day: what sales orders or
+// intercompany orders due then demand.
 type Due struct {
 	Open
 	Day time.Time
 }
 
 // Supply is what a run reads of the plant through the other contexts'
-// published APIs, in the run's transaction: the demand of the confirmed
-// sales orders (sales) and of the intercompany orders (IntercompanyDue,
-// its days not needed) and stock transport orders (TransportsDue) the
-// plant supplies (procurement), the stock and prices (inventory), the
-// open receipts of purchase orders (Receipts) and stock transport orders
-// (TransportsOnOrder) (procurement), and the requisitions it proposed,
-// which it proposes and withdraws through procurement. An S&OP review
-// (S2n) reads besides the plant's goods issues of the days (inventory),
-// its demand by the day it is due (sales' confirmed orders,
-// procurement's intercompany orders it supplies) and the stock in
-// transit to it (procurement).
+// published APIs, in the run's transaction: the demand by the day it is
+// due of the confirmed sales orders (sales, DemandDue) and of the
+// intercompany orders (IntercompanyDue) and, undated, stock transport
+// orders (TransportsDue) the plant supplies (procurement), the stock and
+// prices (inventory), the open receipts of purchase orders (Receipts)
+// and stock transport orders (TransportsOnOrder) (procurement), and the
+// requisitions it proposed, which it proposes and withdraws through
+// procurement. An S&OP review (S2n) reads besides the plant's goods
+// issues of the days (inventory), its demand by the day it is due and
+// the stock in transit to it (procurement).
 type Supply interface {
-	Demand(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)
 	Stock(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) (map[uuid.UUID]string, error)
 	Prices(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) (map[uuid.UUID]Price, error)
 	Receipts(ctx context.Context, plant uuid.UUID, materials []uuid.UUID) ([]Open, error)

@@ -5776,7 +5776,7 @@
      },
      {
       "s": "T",
-      "t": "later: material master variants: sales and purchasing views, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created; of dimensions, weights and GTINs: a delivery's gross weight and volume from its items' units, GTINs on documents and e-invoice lines and items found by GTIN, GTIN types beyond GS1's four lengths and several GTINs per unit, a later SAP run's new or changed measures of a material an earlier run created, units of measure for dimensions in centimetres and millimetres (the SAP load leaves those out with a warning) (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2, dimensions, weights and GTINs as S1a3)",
+      "t": "later: material master variants: sales and purchasing views, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used; of material types and groups: a tenant's own material types with their attributes (SAP T134), SAP's own types mapped onto the platform's by the load, T023T's texts loaded into the configuration, a group retired for new materials, a hierarchy of groups, the type's and group's names on a material's read; of descriptions by language: changing a material's default language, documents and outputs in their partner's language, the duplicate check across languages, a later SAP run's new or changed descriptions of a material an earlier run created; of dimensions, weights and GTINs: a delivery's gross weight and volume from its items' units, GTINs on documents and e-invoice lines and items found by GTIN, GTIN types beyond GS1's four lengths and several GTINs per unit, a later SAP run's new or changed measures of a material an earlier run created, units of measure for dimensions in centimetres and millimetres (the SAP load leaves those out with a warning) (after the plan's slices; product owner 2026-11-17; descriptions by language split off as S1a2, dimensions, weights and GTINs as S1a3, material types and groups from configuration as S1a4)",
       "r": "docs/design/plan-supply-chain.md §S1a, Later",
       "src": "baseline",
       "c": []
@@ -5792,6 +5792,13 @@
       "s": "D",
       "t": "A master data specialist records each unit of measure's gross and net weight, volume, length, width and height and GTIN, the base unit's and each alternative unit's, governed as the material's other fields are; a GTIN has its GS1 check digit and names one unit of one material in the tenant; a list finds a material by a unit's GTIN; the SAP load takes MARA's and MARM's measures",
       "r": "S1a3 · docs/design/plan-supply-chain.md §S1a3 · ADR-0082 As built S1a3 · db/migrations/000495 · materials.unit_measure, materials.gtin_valid · internal/materials/measures.go · internal/platform/gtin · GET /v1/materials gtin · MaterialCreate.base_unit_measures · MaterialUpdate.base_unit_measures · MaterialUnitInput.measures · Material.base_unit_measures · MaterialUnit.measures · materials.invalid_measures, materials.invalid_gtin, materials.duplicate_gtin, materials.gtin_taken · MaterialChanged.base_unit_measures, .alternative_units[].measures · internal/integration/materialmeasures.go (MARA/MARM BRGEW, NTGEW, GEWEI, VOLUM, VOLEH, LAENG, BREIT, HOEHE, MEABM, EAN11) · walkthrough step_material (step 122)",
+      "src": "po:2026-11-17 · adr:ADR-0082",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A configuration manager lists the material types the tenant uses (of the platform's six) and its material groups, each with a name, through a governed change of tier 2; once a list has an entry, a material created, or changed in its group, takes only what it lists, materials created before keeping theirs; an entry is never removed once activated; the SAP load holds back a material whose type or group the lists leave out",
+      "r": "S1a4 · docs/design/plan-supply-chain.md §S1a4 · ADR-0082 As built S1a4 · internal/config/materials.go (materials.material_types, materials.material_groups, config.MaterialsTransitions, config.MaterialTypeCodes) · internal/materials/lists.go · materials.unknown_material_type, materials.unknown_material_group · internal/integration/materials.go typeAndGroup (MTART, MATKL) · walkthrough step_material (step 122)",
       "src": "po:2026-11-17 · adr:ADR-0082",
       "c": []
      },
@@ -6272,9 +6279,16 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Period lot sizes: a material's planning data at a plant sizes a run's proposals daily, weekly (ISO weeks) or monthly, a lot per period in which the demand due takes the plant below its reorder point, needed by the period's first requirement date, bounded and rounded as lot for lot, an item per lot with each lot's day kept on the run's line",
+      "r": "S2k3 · docs/design/plan-supply-chain.md §S2k3 · ADR-0084 As built (period lot sizes) · db/migrations/000506 · mrp.run_line_lot · internal/mrp/period.go · sales.Orders.PlantRequirementsDue · createMaterialPlan, updateMaterialPlan, MrpRunLine.lot_schedule · TestPeriodLots, TestPeriodTooManyLots, TestPlanningRunPeriodLots, TestMRPPeriodLots · walkthrough step_mrp (step 152)",
+      "src": "po:2026-11-17 · adr:ADR-0084",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: MRP variants: period lot sizes (daily, weekly, monthly), optimising lot sizing procedures (part period, least unit cost, Groff), scrap, safety stock calculation, MRP areas, planned orders for production, scheduling with calendars, firming in a planning time fence (after the plan's slices; product owner 2026-11-17; lot for lot, fixed and replenish-to-maximum lot sizes split off as S2k2)",
-      "r": "docs/design/plan-supply-chain.md §S2k, Later; §S2k2, Later",
+      "t": "later: MRP variants: optimising lot sizing procedures (part period, least unit cost, Groff), a period lot's date at the period's start or end, scrap, safety stock calculation, MRP areas, planned orders for production, scheduling with calendars (a factory calendar for periods and need dates), receipts and stock transport orders' demand by their delivery dates, firming in a planning time fence (after the plan's slices; product owner 2026-11-17; lot for lot, fixed and replenish-to-maximum lot sizes split off as S2k2, period lot sizes as S2k3)",
+      "r": "docs/design/plan-supply-chain.md §S2k, Later; §S2k2, Later; §S2k3, Later",
       "src": "baseline",
       "c": []
      },
@@ -6300,8 +6314,15 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "The replenishment agent's check names each lot of a proposal by period (S2k3) by the day its run line's lot_schedule needs it by, not the requisition's one need date, and holds a contract source valid on every lot's day; a requisition a person has changed since (its day or its items) keeps its own day",
+      "r": "S2k3 · ADR-0072 As built (S2k3 in the agent) · ADR-0084 As built (period lot sizes) · docs/design/plan-supply-chain.md §S2k3 · internal/replenishmentagent review.go (dated, span, usable) · TestReviewPeriodLots · evals/replenishment version 4",
+      "src": "review:batch99",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "later: the replenishment agent recommends an order per lot, lots from different suppliers or on different days (lots on different days come with period lot sizes, lots across suppliers with quota arrangements; S2k2a recommends one order of the lots from one supplier by the proposal's day)",
+      "t": "later: the replenishment agent recommends an order per lot, lots from different suppliers or each ordered on its own day (lots across suppliers come with quota arrangements; S2k2a recommends one order of the lots from one supplier by the proposal's day, each lot named by its day: the proposal's, or its run line's for period lots, batch 99S)",
       "r": "docs/design/plan-supply-chain.md §S2k2, Later · ADR-0072 As built S2k2a",
       "src": "review:batch95",
       "c": []

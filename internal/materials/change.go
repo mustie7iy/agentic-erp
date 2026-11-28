@@ -187,7 +187,7 @@ func (e *Endpoints) Change(ctx context.Context, id uuid.UUID, ifMatch func(int32
 // requested checks a change of the material as a creation is checked and
 // is what it asks for, the fields it changes, and the material before and
 // after it as the caller sees them (422 materials.unknown_status,
-// materials.nothing_to_change). Its descriptions are checked before they
+// materials.nothing_to_change, materials.unknown_material_group). Its descriptions are checked before they
 // are compared, so a language given twice is refused as such.
 func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Change) (Requested, []string, view, view, error) {
 	access, err := authz.Companies(ctx)
@@ -212,6 +212,9 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 	if err := problem.RequireText("description", to.Description); err != nil {
 		return Requested{}, nil, view{}, view{}, err
 	}
+	if err := e.changedGroup(ctx, fields, to.Group); err != nil {
+		return Requested{}, nil, view{}, view{}, err
+	}
 	req, err := requestedUnits(ctx, tx, m, ch)
 	if err != nil {
 		return Requested{}, nil, view{}, view{}, err
@@ -224,6 +227,20 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 		req.Plants, req.Scope = requestedPlants(*ch.Plants, companies), &Scope{All: access.All, Companies: append([]uuid.UUID{}, access.IDs...)}
 	}
 	return req.only(fields), fields, before, to, nil
+}
+
+// changedGroup checks the group a change sets against the configuration
+// (checkGroup); a change that leaves the group is not checked, so a
+// material created before the groups were configured keeps its own.
+func (e *Endpoints) changedGroup(ctx context.Context, fields []string, group string) error {
+	if !slices.Contains(fields, "material_group") {
+		return nil
+	}
+	doc, err := e.settings(ctx)
+	if err != nil {
+		return err
+	}
+	return checkGroup(doc.Materials, group)
 }
 
 // canonical is the change with its measures written as they are kept, so

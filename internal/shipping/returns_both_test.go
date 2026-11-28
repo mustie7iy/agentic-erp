@@ -1,6 +1,7 @@
 package shipping_test
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -8,8 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	gomoney "github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/mrp"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -161,5 +164,44 @@ func TestReturnedSerialIssuedAgain(t *testing.T) {
 	e.Must(200, "POST", deliveries+"/"+id+":postGoodsIssue", issueBody(t, part("1 1 EA", "", "G1")), tag)
 	if got := e.inStock(t, e.gauge); got != "G2 G3" {
 		t.Errorf("the gauges in stock after G1 is issued again: got %s, want G2 G3", got)
+	}
+}
+
+// TestPlanningRunAfterReturns (batch 99S integration: period lot sizes,
+// which read the demand by day from sales' PlantRequirementsDue, beside
+// batch 98S's returns): after 10 EA of the order's 100 are received and 4
+// of them returned to the supplier (122), and 50 EA delivered and 20 of
+// them returned by the customer into stock (653), a planning run of P1
+// counts the stock the returns leave, 176 EA, the order's 94 EA open
+// again (a 122 leaves the item to be received again, ADR-0082 As built
+// S1e2) and, as demand, only the confirmed order still to be delivered:
+// a customer's return does not reopen the order it was delivered on.
+func TestPlanningRunAfterReturns(t *testing.T) {
+	e := setupReturns(t)
+	e.goodsMovement(t, "", "10")
+	e.goodsMovement(t, "122", "4")
+	order := e.order(t, false, e.ofMaterial(e.bracket, "50 EA"))
+	d, _ := e.shipped(t, order, "1 50 EA")
+	back, _ := e.returning(t, e.posted(t, order), "1 20 EA")
+	e.Must(201, "POST", returnsOrders+"/"+back+"/receipts", receipt(t, d["goods_issue_date"].(string), received("1 20 EA", at(e.s1))), "")
+	e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "30 EA"))
+	m := app.MRP(app.Config{})
+	var run uuid.UUID
+	e.committed(t, func(ctx context.Context) error {
+		_, err := m.CreatePlan(ctx, mrp.PlanInput{PlantID: e.p1, MaterialID: uuid.MustParse(e.bracket), AccountID: e.Account(t, "2000", "150000"),
+			MRPType: mrp.ReorderPoint, ReorderPoint: "0", Lots: mrp.LotSizing{Procedure: "weekly"}})
+		return err
+	})
+	e.committed(t, func(ctx context.Context) error {
+		_, err := m.StartRun(ctx, e.p1)
+		return err
+	})
+	pgtest.Scan(t, `SELECT id FROM mrp.run WHERE tenant_id = $1 AND plant_id = $2`, []any{e.Tenant.ID, e.p1}, &run)
+	e.committed(t, func(ctx context.Context) error { return m.PlanRun(ctx, run) })
+	var got string
+	pgtest.Scan(t, `SELECT trim_scale(stock)::text || ' ' || trim_scale(receipts)::text || ' ' || trim_scale(demand)::text || ' ' || trim_scale(shortage)::text
+		FROM mrp.run_line WHERE tenant_id = $1 AND run_id = $2 AND material_id = $3`, []any{e.Tenant.ID, run, e.bracket}, &got)
+	if want := "176 94 30 0"; got != want {
+		t.Errorf("the run's stock, receipts, demand and shortage: got %s, want %s", got, want)
 	}
 }

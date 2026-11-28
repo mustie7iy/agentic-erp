@@ -41,6 +41,13 @@ const (
 	rh      = "01a1aa00-0000-7000-8000-000000000d08" // items in two units: no proposal of one
 	ri      = "01a1aa00-0000-7000-8000-000000000d09" // no item
 	rj      = "01a1aa00-0000-7000-8000-000000000d0a" // a quantity that is no plain decimal
+	rk      = "01a1aa00-0000-7000-8000-000000000d0b" // a proposal in weekly lots (ADR-0084 As built S2k3), needed by its first lot's day
+	rl      = "01a1aa00-0000-7000-8000-000000000d0c" // weekly lots, the last one after con1's validity ends
+	rm      = "01a1aa00-0000-7000-8000-000000000d0d" // weekly lots whose items a person has changed: no longer the run line's
+	rn      = "01a1aa00-0000-7000-8000-000000000d0e" // a run line's lots not in the contract's shape: no day of the line's
+	ro      = "01a1aa00-0000-7000-8000-000000000d0f" // weekly lots whose requisition a person has moved to another day
+	rp      = "01a1aa00-0000-7000-8000-000000000d10" // weekly lots in another unit than the requisition's items
+	rq      = "01a1aa00-0000-7000-8000-000000000d11" // lots whose second is needed before the first, before con1 is valid
 	s1      = "01a1aa00-0000-7000-8000-000000000e01" // an active supplier, of the catalog
 	s2      = "01a1aa00-0000-7000-8000-000000000e02" // an active supplier, of the contract
 	s3      = "01a1aa00-0000-7000-8000-000000000e03" // a blocked supplier, last ordered from
@@ -74,6 +81,20 @@ var answers = map[string]string{
 		{"material_number": "MA-HINGE", "requisition_id": "` + rh + `", "requisition_number": "PR8"},
 		{"material_number": "MA-HINGE", "requisition_id": "` + ri + `", "requisition_number": "PR9"},
 		{"material_number": "MA-HINGE", "requisition_id": "` + rj + `", "requisition_number": "PR10"},
+		{"material_number": "MA-HINGE", "lot_size": "weekly", "lots": 2, "requisition_id": "` + rk + `", "requisition_number": "PR11",
+			"lot_schedule": [{"quantity": {"value": "30", "unit": "EA"}, "needed_by": "2026-11-23"}, {"quantity": {"value": "20", "unit": "EA"}, "needed_by": "2026-11-30"}]},
+		{"material_number": "MA-HINGE", "lot_size": "weekly", "lots": 2, "requisition_id": "` + rl + `", "requisition_number": "PR12",
+			"lot_schedule": [{"quantity": {"value": "30", "unit": "EA"}, "needed_by": "2026-12-28"}, {"quantity": {"value": "20", "unit": "EA"}, "needed_by": "2027-01-04"}]},
+		{"material_number": "MA-HINGE", "lot_size": "weekly", "lots": 2, "requisition_id": "` + rm + `", "requisition_number": "PR13",
+			"lot_schedule": [{"quantity": {"value": "30", "unit": "EA"}, "needed_by": "2026-11-23"}, {"quantity": {"value": "20", "unit": "EA"}, "needed_by": "2026-11-30"}]},
+		{"material_number": "MA-HINGE", "lot_size": "weekly", "lots": 2, "requisition_id": "` + rn + `", "requisition_number": "PR14",
+			"lot_schedule": [{"quantity": {"value": "30", "unit": "EA"}, "needed_by": "2026-11-23"}, {"quantity": {"value": "x", "unit": "EA"}}]},
+		{"material_number": "MA-HINGE", "lot_size": "weekly", "lots": 2, "requisition_id": "` + ro + `", "requisition_number": "PR15",
+			"lot_schedule": [{"quantity": {"value": "30", "unit": "EA"}, "needed_by": "2026-11-23"}, {"quantity": {"value": "20", "unit": "EA"}, "needed_by": "2026-11-30"}]},
+		{"material_number": "MA-HINGE", "lot_size": "weekly", "lots": 2, "requisition_id": "` + rp + `", "requisition_number": "PR16",
+			"lot_schedule": [{"quantity": {"value": "30", "unit": "EA"}, "needed_by": "2026-11-23"}, {"quantity": {"value": "20", "unit": "BOX"}, "needed_by": "2026-11-30"}]},
+		{"material_number": "MA-HINGE", "lot_size": "weekly", "lots": 2, "requisition_id": "` + rq + `", "requisition_number": "PR17",
+			"lot_schedule": [{"quantity": {"value": "30", "unit": "EA"}, "needed_by": "2026-01-05"}, {"quantity": {"value": "20", "unit": "EA"}, "needed_by": "2025-12-29"}]},
 		{"material_number": "MA-NONE", "shortage": {"value": "0", "unit": "EA"}}]}`,
 	"/v1/requisitions/" + ra: requisition(ra, "draft", `"needed_by": "2026-11-21", `, hinge, "30", "EA"),
 	"/v1/requisitions/" + rb: requisition(rb, "draft", "", gasket, "2.5", "KG"),
@@ -84,6 +105,13 @@ var answers = map[string]string{
 	"/v1/requisitions/" + rh: lots(rh, lot{1, hinge, "20", "EA"}, lot{2, hinge, "20", "BOX"}),
 	"/v1/requisitions/" + ri: lots(ri),
 	"/v1/requisitions/" + rj: lots(rj, lot{1, hinge, "-3", "EA"}),
+	"/v1/requisitions/" + rk: lotsBy(rk, "2026-11-23", lot{1, hinge, "30", "EA"}, lot{2, hinge, "20.000", "EA"}),
+	"/v1/requisitions/" + rl: lotsBy(rl, "2026-12-28", lot{1, hinge, "30", "EA"}, lot{2, hinge, "20", "EA"}),
+	"/v1/requisitions/" + rm: lotsBy(rm, "2026-11-23", lot{1, hinge, "30", "EA"}, lot{2, hinge, "25", "EA"}),
+	"/v1/requisitions/" + rn: lotsBy(rn, "2026-11-23", lot{1, hinge, "30", "EA"}, lot{2, hinge, "20", "EA"}),
+	"/v1/requisitions/" + ro: lotsBy(ro, "2026-11-25", lot{1, hinge, "30", "EA"}, lot{2, hinge, "20", "EA"}),
+	"/v1/requisitions/" + rp: lotsBy(rp, "2026-11-23", lot{1, hinge, "30", "EA"}, lot{2, hinge, "20", "EA"}),
+	"/v1/requisitions/" + rq: lotsBy(rq, "2026-01-05", lot{1, hinge, "30", "EA"}, lot{2, hinge, "20", "EA"}),
 	"/v1/catalog-items": `{"items": [` + catalog(cat1, le, s1, hinge, "active") + `, ` + catalog(cat2, le, s1, hinge, "retired") + `, ` +
 		catalog(cat3, otherLE, s1, hinge, "active") + `, ` + catalog(cat5, le, s5, hinge, "active") +
 		`, {"id": "01a1aa00-0000-7000-8000-000000000f06", "legal_entity_id": "` + le + `", "supplier_id": "` + s1 + `", "status": "active"}]}`,
@@ -115,12 +143,15 @@ type lot struct {
 
 // lots is a draft requisition needed by the day after the run's, of the
 // items.
-func lots(id string, items ...lot) string {
+func lots(id string, items ...lot) string { return lotsBy(id, "2026-11-21", items...) }
+
+// lotsBy is a draft requisition needed by the day, of the items.
+func lotsBy(id, day string, items ...lot) string {
 	out := make([]string, len(items))
 	for i, it := range items {
 		out[i] = fmt.Sprintf(`{"item_no": %d, "material_id": %q, "quantity": {"value": %q, "unit": %q}}`, it.no, it.material, it.value, it.unit)
 	}
-	return fmt.Sprintf(`{"id": %q, "legal_entity_id": %q, "status": "draft", "needed_by": "2026-11-21", "items": [%s]}`, id, le, strings.Join(out, ", "))
+	return fmt.Sprintf(`{"id": %q, "legal_entity_id": %q, "status": "draft", "needed_by": %q, "items": [%s]}`, id, le, day, strings.Join(out, ", "))
 }
 
 func catalog(id, company, supplier, material, status string) string {
@@ -755,5 +786,70 @@ func refusedFirst(t *testing.T, res recommend.Result, a *fakeAPI, requests []str
 	}
 	if got := len(a.sent("recommendations")); got != 0 {
 		t.Errorf("recommendations sent: got %d, want none", got)
+	}
+}
+
+// TestReviewPeriodLots: an order of a proposal by period (ADR-0084 As
+// built S2k3) names each lot by the day its run line's lot_schedule needs
+// it by, not the requisition's single day, which is the first lot's and
+// the order's; a lot named by the order's day is refused, telling each
+// lot's own. A contract is a source of it only while valid to its last
+// lot's day; the catalog item, valid always, is one. A requisition whose
+// items a person has changed since the run is no longer the run line's
+// lots: its lots are named by its own day, as other proposals' are, and
+// so are those of one moved to another day, and of a run line whose lots
+// are in another unit or not in the contract's shape. A contract is no
+// source of lots any of which is needed before it is valid, whatever
+// their order.
+func TestReviewPeriodLots(t *testing.T) {
+	onContract := func(qty, by string) string {
+		return "Order " + qty + " EA from supplier " + s2 + " by " + by + ": contract " + con1 + " item 1\n"
+	}
+	weekly := "Lot 1: 30 EA by 2026-11-23\nLot 2: 20.000 EA by 2026-11-30\n"
+	late := "Lot 1: 30 EA by 2026-12-28\nLot 2: 20 EA by 2027-01-04\n"
+	why := "\nWhy: weekly lots."
+	for name, c := range map[string]struct {
+		on, content string
+		want        error  // nil: made
+		tells       string // the lines a lots refusal wants
+	}{
+		"each lot by its own day": {rk, onContract("50", "2026-11-23") + weekly + measures + why, nil, ""},
+		"every lot by the order's day": {rk, onContract("50", "2026-11-23") + "Lot 1: 30 EA by 2026-11-23\nLot 2: 20.000 EA by 2026-11-23\n" + measures + why,
+			replenishmentagent.ErrLots, weekly},
+		"the order by the last lot's day":       {rk, onContract("50", "2026-11-30") + weekly + measures + why, replenishmentagent.ErrWhen, ""},
+		"a contract ending before the last lot": {rl, onContract("50", "2026-12-28") + late + measures + why, replenishmentagent.ErrSource, ""},
+		"the catalog to the last lot": {rl, "Order 50 EA from supplier " + s1 + " by 2026-12-28: catalog item " + cat1 + "\n" + late + noReceiptsLine + why,
+			nil, ""},
+		"items changed since the run": {rm, onContract("55", "2026-11-23") + "Lot 1: 30 EA by 2026-11-23\nLot 2: 25 EA by 2026-11-23\n" + measures + why, nil, ""},
+		"changed items by the run line's days": {rm, onContract("55", "2026-11-23") + "Lot 1: 30 EA by 2026-11-23\nLot 2: 25 EA by 2026-11-30\n" + measures + why,
+			replenishmentagent.ErrLots, "Lot 1: 30 EA by 2026-11-23\nLot 2: 25 EA by 2026-11-23\n"},
+		"a requisition moved to another day": {ro, onContract("50", "2026-11-25") + "Lot 1: 30 EA by 2026-11-25\nLot 2: 20 EA by 2026-11-25\n" + measures + why,
+			nil, ""},
+		"the moved requisition's lots by the run line's days": {ro, onContract("50", "2026-11-25") + "Lot 1: 30 EA by 2026-11-23\nLot 2: 20 EA by 2026-11-30\n" +
+			measures + why, replenishmentagent.ErrLots, "Lot 1: 30 EA by 2026-11-25\nLot 2: 20 EA by 2026-11-25\n"},
+		"lots in another unit": {rp, onContract("50", "2026-11-23") + "Lot 1: 30 EA by 2026-11-23\nLot 2: 20 EA by 2026-11-23\n" + measures + why, nil, ""},
+		"a lot needed before the contract is valid": {rq, onContract("50", "2026-01-05") + "Lot 1: 30 EA by 2026-01-05\nLot 2: 20 EA by 2025-12-29\n" +
+			measures + why, replenishmentagent.ErrSource, ""},
+		"lots not in the contract's shape": {rn, onContract("50", "2026-11-23") + "Lot 1: 30 EA by 2026-11-23\nLot 2: 20 EA by 2026-11-23\n" + measures + why,
+			nil, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := &fakeAPI{}
+			model := llmtest.New(t, llmtest.Tool("getRequisition", map[string]any{"id": c.on}), llmtest.Tool("getContract", map[string]any{"id": con1}),
+				llmtest.Tool("listCatalogItems", map[string]any{"legal_entity_id": le, "text": "MA-HINGE"}),
+				llmtest.Tool("getBusinessPartner", map[string]any{"id": s1}), llmtest.Tool("getBusinessPartner", map[string]any{"id": s2}),
+				rec(c.on, "order", c.content), llmtest.Final("Done."))
+			res, err := (&replenishmentagent.Agent{LLM: model.Runner(), API: client(t, a)}).Review(context.Background(), run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.want == nil {
+				if want := []recommend.Made{{ID: "r1", ObjectType: "requisition", ObjectID: c.on, Kind: "order"}}; !slices.Equal(res.Recommendations, want) || res.Refused != 0 {
+					t.Errorf("got %v, refused %d, want %v and none refused", res.Recommendations, res.Refused, want)
+				}
+				return
+			}
+			refusedFirst(t, res, a, model.Requests, c.want, c.tells)
+		})
 	}
 }

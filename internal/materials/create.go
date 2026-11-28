@@ -81,8 +81,8 @@ func (e *Endpoints) company(ctx context.Context, id uuid.UUID) (tenancy.Entity, 
 // number draws a material's number from the company's material range of
 // the fiscal year of the company's date today, in its time zone
 // (ADR-0082 §6).
-func (e *Endpoints) number(ctx context.Context, le tenancy.Entity) (string, error) {
-	day, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
+func (e *Endpoints) number(ctx context.Context, le tenancy.Entity, doc *config.Config) (string, error) {
+	day, err := doc.CompanyDay(le.Code, clock.Now(e.Now))
 	if err != nil {
 		return "", fmt.Errorf("materials: today in company %s: %w", le.Code, err)
 	}
@@ -198,10 +198,11 @@ func canonicalUnits(units []UnitInput) []UnitInput {
 }
 
 // says checks what a request says of a material before anything is
-// written: its descriptions and their languages, a known type, then its
-// units, their measures and plants. The texts' lengths and the group's form are the
-// contract's and the database's.
-func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUID]uuid.UUID, error) {
+// written: its descriptions and their languages, a type and a group the
+// configuration's lists allow (checkType, checkGroup), then its units,
+// their measures and plants. The texts' lengths and the group's form are
+// the contract's and the database's.
+func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input, lists config.Materials) (map[uuid.UUID]uuid.UUID, error) {
 	if err := problem.RequireText("description", in.Description); err != nil {
 		return nil, err
 	}
@@ -211,9 +212,11 @@ func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUI
 	if err := checkDescriptions(in.DescriptionLanguage, in.Descriptions); err != nil {
 		return nil, err
 	}
-	if !types[in.Type] {
-		return nil, problem.Invalid("materials.unknown_material_type", "material_type", fmt.Sprintf("%q is not a material type; the types are "+
-			"raw_material, semi_finished, finished_good, trading_good, non_stock and service.", in.Type))
+	if err := checkType(lists, in.Type); err != nil {
+		return nil, err
+	}
+	if err := checkGroup(lists, in.Group); err != nil {
+		return nil, err
 	}
 	if in.BatchManaged && !stocked[in.Type] {
 		return nil, problem.Invalid("materials.batch_managed_not_stocked", "batch_managed", "A material of type "+in.Type+
@@ -249,7 +252,11 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	if err != nil {
 		return Material{}, err
 	}
-	companies, err := e.says(ctx, tx, in)
+	doc, err := e.settings(ctx)
+	if err != nil {
+		return Material{}, err
+	}
+	companies, err := e.says(ctx, tx, in, doc.Materials)
 	if err != nil {
 		return Material{}, err
 	}
@@ -260,7 +267,7 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	if err := confirmed(dups, in.ConfirmDuplicate); err != nil {
 		return Material{}, err
 	}
-	number, err := e.number(ctx, le)
+	number, err := e.number(ctx, le, doc)
 	if err != nil {
 		return Material{}, err
 	}

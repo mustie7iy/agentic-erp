@@ -14039,10 +14039,14 @@ material_request() {
 # weights and the box its GTIN, weight, volume and size, approved by
 # Priya; a list finds the bracket by its GTIN written in 13 digits; the
 # box's GTIN on another material, a net weight above the gross and a GTIN
-# whose check digit is wrong are refused.
+# whose check digit is wrong are refused. Material types and groups from
+# configuration (S1a4): Ada configures the types Maple uses and its
+# material groups through a governed change, tier 2, which Priya approves;
+# a service, a type left out, and the group WIDGETS, which the list does
+# not have, are refused naming their fields.
 step_material() {
-  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; the bracket's and the box's GTINs, weights and size approved, the bracket found by its GTIN, a GTIN taken, a net weight above the gross and a wrong check digit refused; blocked at once"
-  local plant main spares other far material number
+  heading "Step 122 — The material master: Maple's material types and groups configured, a type and a group it leaves out refused; a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; the bracket's and the box's GTINs, weights and size approved, the bracket found by its GTIN, a GTIN taken, a net weight above the gross and a wrong check digit refused; blocked at once"
+  local plant main spares other far material number base cr
   local arabic="دعامة مشغولة M10" zinc="دعامة مشغولة M10، مطلية بالزنك"
   as ada
   say "Ada adds Mira, the master data specialist, to the team:"
@@ -14066,6 +14070,25 @@ step_material() {
   QUIET=1 api 201 '' createOrgUnit -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"storage_location\", \"code\": \"SL03\", \"name\": \"Montreal store\", \"parent_id\": \"$other\"}"
   far=$(field .id)
   QUIET=1 api 200 '' activateOrgUnit -p "id=$far" -if-match "$ETAG"
+  say "Ada configures the material types Maple uses, all but services, and its material groups (SAP's T134 and"
+  say "T023, from memory; ADR-0082 As built S1a4). They post nothing: tier 2, as price groups are:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Material types and groups\", rationale: \"Maple's material master (S1a4)\", base_version: $base,
+    proposed: (.items[0].document | .materials = {material_types: [{code: \"raw_material\", name: \"Raw materials\"},
+      {code: \"semi_finished\", name: \"Semi-finished goods\"}, {code: \"finished_good\", name: \"Finished goods\"},
+      {code: \"trading_good\", name: \"Trading goods\"}, {code: \"non_stock\", name: \"Non-stock materials\"}],
+      material_groups: ([\"BRACKETS\", \"FASTENERS\", \"FURNITURE\", \"GAUGES\", \"LATCHES\", \"NUTS\", \"OILS\", \"SEALANTS\", \"SEALS\",
+        \"TOOLS\", \"WASHERS\"] | map({code: ., name: (.[0:1] + (.[1:] | ascii_downcase))}))})}" "$WORK/last.json" >"$WORK/material_lists.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @material_lists.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the lists' tier" "$(field .tier)" 2
+  approve priya "$(field .workflow_request_id)" "Maple's material master lists"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
   as mira
   say "Mira creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
   say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b). It is described in English by"
@@ -14100,6 +14123,13 @@ step_material() {
   refused 422 materials.storage_location_invalid createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$far\"]}]}"
   expect "the refused storage location's field" "$(field '.errors[0].field')" "plants[0].storage_location_ids[0]"
+  say "Maple's configuration has no service type and no group WIDGETS, so neither is a material's (S1a4):"
+  refused 422 materials.unknown_material_type createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Bracket fitting\", \"base_unit\": \"EA\",
+      \"material_type\": \"service\", \"material_group\": \"BRACKETS\"}"
+  expect "the refused type's field" "$(field '.errors[0].field')" "material_type"
+  refused 422 materials.unknown_material_group createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"WIDGETS\"}"
+  expect "the refused group's field" "$(field '.errors[0].field')" "material_group"
   say "A further description in English, the default's language, is refused: the default description is description:"
   refused 422 materials.duplicate_language createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"descriptions\": [{\"language\": \"en\", \"description\": \"Bracket M12\"}]}"
@@ -17111,10 +17141,17 @@ step_serial_numbers() {
 # built S2k2): Mira creates the W8 washer, kept at Montreal, and plans it
 # there by a reorder point of 100 in fixed lots of 40, a minimum lot size
 # with a fixed lot refused; Ben's run of Montreal, none of it in stock,
-# proposes three lots of 40 (120) as the items of one requisition.
+# proposes three lots of 40 (120) as the items of one requisition. Period
+# lot sizes (S2k3; ADR-0084 As built, period lot sizes): Mira creates the
+# N10 nut, kept at Montreal, and plans it there by a reorder point of 0
+# in weekly lots rounded to 10; Sally's orders ask for 25 a week from
+# today and 20 two weeks from today, in two ISO weeks; Ben's run of
+# Montreal proposes two lots, 30 needed on the first order's day (25
+# rounded up) and 20 on the second's (the 5 left over count, 15 rounded
+# up), as the items of one requisition needed by the first lot's day.
 step_mrp() {
-  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither; a washer planned in fixed lots is proposed in whole lots"
-  local hinge sales own own_version run first second montreal store gasket plant mistake washer
+  heading "Step 152 — Material requirements planning: a run of the Toronto plant proposes a purchase requisition for the H30 hinge's shortage below its reorder point; a rerun replaces its own proposal; a proposal a person took over and a person's own requisition are left alone; a stock transport order is the supplying plant's demand and the receiving plant's receipt, one cancelled neither; a washer planned in fixed lots is proposed in whole lots; a nut planned in weekly lots with orders due in two weeks gets a lot for each week"
+  local hinge sales own own_version run first second montreal store gasket plant mistake washer nut week fortnight due order
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)
@@ -17276,6 +17313,54 @@ step_mrp() {
   api 200 '"proposal \(.document_number): \(.status), \([.items[] | "\(.quantity.value) \(.quantity.unit)"] | join(" + "))"' \
     getRequisition -p "id=$(field .id)"
   expect "the washer's proposal" "$(field '[.items[] | .quantity.value] | join(" ")')" "40 40 40"
+  as mira
+  say "Period lot sizes (S2k3): Mira creates the N10 nut, kept in the Montreal store; Priya approves it; Ines values it at"
+  say "Montreal:"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Nut N10\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"NUTS\",
+      \"plants\": [{\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  nut=$(field .id)
+  approve priya "$(material_request "$nut")" "Nut ordered week by week."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$nut\", \"plant_id\": \"$montreal\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"0.05\", \"currency\": \"CAD\"}}"
+  as mira
+  say "Mira plans it at Montreal by a reorder point of 0 in weekly lots (SAP's lot size WB), rounded up to boxes of 10:"
+  api 201 '"\(.material_number) at \(.plant_code): reorder point \(.reorder_point.value), \(.lot_size) lots rounded to \(.rounding_value.value) \(.rounding_value.unit)"' \
+    createMaterialPlan -body "{\"plant_id\": \"$montreal\", \"material_id\": \"$nut\", \"mrp_type\": \"reorder_point\", \"reorder_point\": \"0\",
+      \"lot_size\": \"weekly\", \"rounding_value\": \"10\", \"account_id\": \"$(account 6000)\"}"
+  week=$(date_add "$TODAY" 7)
+  fortnight=$(date_add "$TODAY" 14)
+  as sally
+  say "Sally's orders for Northwind from the Montreal plant ask for 25 nuts on $week and 20 on $fortnight, in two weeks:"
+  for due in "25:$week" "20:$fortnight"; do
+    QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\",
+        \"plant_id\": \"$montreal\", \"requested_delivery_date\": \"${due##*:}\", \"items\": [{\"material_id\": \"$nut\",
+        \"quantity\": {\"value\": \"${due%%:*}\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"0.20\", \"currency\": \"CAD\"},
+        \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+    order=$(field .id)
+    QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+    api 200 '"  sales order \(.document_number): \(.status), \(.items[0].quantity.value) ordered for \(.requested_delivery_date)"' \
+      confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+    if [ "$(field .credit_block)" = blocked ]; then
+      local tag=$ETAG
+      as ruth
+      QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+      as sally
+    fi
+  done
+  as ben
+  say "Ben runs Montreal: none of the nut is there. The week of $week needs 25, rounded up to 30; the 5 left over count"
+  say "the week after, which needs 15 more, rounded up to 20. Two lots, each needed by its order's day, are the items of"
+  say "one requisition needed by the first:"
+  mrp_run "$montreal" "$nut"
+  expect "Montreal's nut" "$(field '.lines[] | select(.material_id == "'"$nut"'") | "\(.demand.value) \(.shortage.value) \(.lot_size) \(.proposed.value) \(.lots)"')" "45 45 weekly 50 2"
+  say "  the nut's weekly lots: $(field '[.lines[] | select(.material_id == "'"$nut"'") | .lot_schedule[] | "\(.quantity.value) \(.quantity.unit) by \(.needed_by)"] | join(", ")')"
+  expect "the nut's lots" "$(field '[.lines[] | select(.material_id == "'"$nut"'") | .lot_schedule[] | "\(.quantity.value)@\(.needed_by)"] | join(" ")')" "30@$week 20@$fortnight"
+  QUIET=1 api 200 '' getRequisition -p "id=$(field '.lines[] | select(.material_id == "'"$nut"'") | .requisition_id')"
+  api 200 '"proposal \(.document_number): \(.status), \([.items[] | "\(.quantity.value) \(.quantity.unit)"] | join(" + ")), needed by \(.needed_by)"' \
+    getRequisition -p "id=$(field .id)"
+  expect "the nut's proposal" "$(field '"\([.items[] | .quantity.value] | join(" ")) \(.needed_by)"')" "30 20 $week"
   HINGE=$hinge WASHER=$washer MONTREAL=$montreal
   passed
 }

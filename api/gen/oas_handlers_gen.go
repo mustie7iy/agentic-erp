@@ -24483,36 +24483,39 @@ func (s *Server) handleCreateLegalEntityRequest(args [0]string, argsEscaped bool
 // the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number
 // is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The
 // base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the
-// type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active
-// org unit of kind `plant` in a company the caller may act in, given once (422
-// `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org
-// unit of kind `storage_location` under that plant, given once (422
-// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
-// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
-// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
-// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Each unit of
-// measure, the base unit (`base_unit_measures`) and each alternative unit (`measures`), may carry its
-// dimensions, weights and GTIN (S1a3): every value a decimal above zero of up to ten digits and three
-// decimals, never a number, given with its unit and the unit only with a value, a weight unit of mass,
-// a volume unit of volume and a length unit of length, and a net weight no more than the gross (422
-// `materials.invalid_measures`; a unit no unit of measure, 422 `materials.unknown_unit`); a GTIN of 8,
-// 12, 13 or 14 digits with its GS1 check digit (422 `materials.invalid_gtin`), on one unit of the
-// request (422 `materials.duplicate_gtin`) and of no other material in the tenant, compared
-// right-justified in 14 digits, whatever that material's status (409 `materials.gtin_taken`, naming
-// it). Its `description` is its default one, in `description_language` (`en` when absent);
-// `descriptions` gives it further ones (S1a2), each in a BCP 47 language with known subtags in their
-// canonical form (422 `materials.unknown_language`), each language once and none in the default's (422
-// `materials.duplicate_language`). The base unit, the material type and the default's language do not
-// change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`;
-// ADR-0082 §9, S1b), whose approval request the role `process_owner` decides
-// (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays
-// `pending` and is used nowhere, its GTINs free for another material. The change lists the existing
-// materials with the same description, white space and case aside, whatever their status, a pending
-// one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with
-// such a description is refused (409 `materials.duplicate_description`, naming them) unless the
-// request sets `confirm_duplicate`. Two requests with one description wait for one another, so the
-// second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry
-// with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
+// type is one of the material types and the group one of the material groups the configuration allows
+// (ADR-0082 As built S1a4): every type while `materials.material_types` lists none, else one it lists
+// (422 `materials.unknown_material_type`), and any group while `materials.material_groups` lists none,
+// else one it lists (422 `materials.unknown_material_group`). Each plant is an active org unit of kind
+// `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`,
+// `materials.duplicate_plant`); each of its storage locations an active org unit of kind
+// `storage_location` under that plant, given once (422 `materials.storage_location_invalid`,
+// `materials.duplicate_storage_location`). An alternative unit is not the base unit (422
+// `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion
+// says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from
+// 1 to 1000000, never a decimal. Each unit of measure, the base unit (`base_unit_measures`) and each
+// alternative unit (`measures`), may carry its dimensions, weights and GTIN (S1a3): every value a
+// decimal above zero of up to ten digits and three decimals, never a number, given with its unit and
+// the unit only with a value, a weight unit of mass, a volume unit of volume and a length unit of
+// length, and a net weight no more than the gross (422 `materials.invalid_measures`; a unit no unit of
+// measure, 422 `materials.unknown_unit`); a GTIN of 8, 12, 13 or 14 digits with its GS1 check digit
+// (422 `materials.invalid_gtin`), on one unit of the request (422 `materials.duplicate_gtin`) and of
+// no other material in the tenant, compared right-justified in 14 digits, whatever that material's
+// status (409 `materials.gtin_taken`, naming it). Its `description` is its default one, in
+// `description_language` (`en` when absent); `descriptions` gives it further ones (S1a2), each in a
+// BCP 47 language with known subtags in their canonical form (422 `materials.unknown_language`), each
+// language once and none in the default's (422 `materials.duplicate_language`). The base unit, the
+// material type and the default's language do not change afterwards. Created `pending` with a material
+// change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role
+// `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`,
+// rejected or withdrawn it stays `pending` and is used nowhere, its GTINs free for another material.
+// The change lists the existing materials with the same description, white space and case aside,
+// whatever their status, a pending one whose create change was rejected or withdrawn aside
+// (`possible_duplicates`); a material with such a description is refused (409
+// `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two
+// requests with one description wait for one another, so the second finds the first. Audited, and
+// published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key`
+// answers the material created. Human-only (`x-agent: false`).
 //
 // POST /v1/materials
 func (s *Server) handleCreateMaterialRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -92475,7 +92478,8 @@ func (s *Server) handleListGTSMessagesRequest(args [0]string, argsEscaped bool, 
 
 // handleListGoodsReceiptsRequest handles listGoodsReceipts operation.
 //
-// Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`.
+// Goods receipts (101), returns to the supplier (122) and their reversals (102, 123), each with its
+// `movement_type`. Sortable by: `posting_date`, `document_number`.
 //
 // GET /v1/goods-receipts
 func (s *Server) handleListGoodsReceiptsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -139343,11 +139347,15 @@ func (s *Server) handleStartMigrationRunRequest(args [1]string, argsEscaped bool
 // that a person took over and that are not ordered, cancelled or rejected). Where the stock and
 // receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is
 // sized by the planning data's lot sizing procedure (lot for lot: the shortage itself; a fixed lot
-// size; or up to the maximum stock level, with the minimum and maximum lot sizes and the rounding
-// value) and proposed as a draft purchase requisition of the material in its base unit, an item per
-// lot, raised by the person who started the run in the company's currency at the material's valuation
-// price at the plant (zero when it has none), naming the planning data's account and needed by the
-// run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no
+// size; up to the maximum stock level; or a lot per day, ISO week or calendar month of the company's
+// days for what the demand due in it, by the day each sales order's customer asked for, else its date,
+// and each intercompany order item's delivery date, else its date, the stock transport orders' and
+// demand overdue on the run's day, takes below the reorder point; with the minimum and maximum lot
+// sizes and the rounding value) and proposed as a draft purchase requisition of the material in its
+// base unit, an item per lot, raised by the person who started the run in the company's currency at
+// the material's valuation price at the plant (zero when it has none), naming the planning data's
+// account and needed by the run's day, or for period lots by the first lot's day (`lot_schedule` gives
+// each lot's). Before it plans, the run cancels the plant's earlier proposals still its own: drafts no
 // person changed since a run proposed them. A proposal a person changed or submitted is theirs from
 // then on and is never touched; a requisition a person raised is never touched either. The run's lines
 // say what it counted and proposed per material. The plant is an active plant of a company the caller
@@ -139355,10 +139363,10 @@ func (s *Server) handleStartMigrationRunRequest(args [1]string, argsEscaped bool
 // `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's
 // requisition number range exhausted, the account no longer postable, the requester no longer active,
 // an open quantity in a unit the material no longer has: `mrp.unit_not_convertible`; a shortage
-// needing more than 100 lots of a material's fixed or maximum lot size: `mrp.too_many_lots`;
-// `MrpRunError` lists them) fails the run and its Operation with the problem, nothing proposed or
-// cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`.
-// Audited. Human-only (`x-agent: false`).
+// needing more than 100 lots of a material's fixed or maximum lot size or over its periods:
+// `mrp.too_many_lots`; `MrpRunError` lists them) fails the run and its Operation with the problem,
+// nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails it with
+// `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
 //
 // POST /v1/mrp-runs
 func (s *Server) handleStartMrpRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -146335,17 +146343,20 @@ func (s *Server) handleUpdateLegalEntityRequest(args [1]string, argsEscaped bool
 // empty list removing them; `descriptions` replaces its further descriptions, an empty list removing
 // them (S1a2), and `description` sets its default one; `base_unit_measures` replaces the base unit's
 // dimensions, weights and GTIN, an empty object removing them, and each alternative unit's `measures`
-// are replaced with `alternative_units` (S1a3); each is checked as `createMaterial` checks it, a GTIN
-// also against the units the change keeps (422 `materials.duplicate_gtin`) and again when the change
-// is applied (409 `materials.gtin_taken` on the approval when another material took it meanwhile). A
-// change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is
-// a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change
-// (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at
-// once, a pending change or not (the material answered blocked, with a material change of kind
-// `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the
-// fields it changes, so a pending update approved later leaves the block in place. Any other opens a
-// pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise;
-// the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
+// are replaced with `alternative_units` (S1a3); each is checked as `createMaterial` checks it (a
+// `material_group` the change sets one the configuration allows, 422
+// `materials.unknown_material_group`; a group the change leaves as it is not checked, so a material
+// created before the configuration listed groups keeps its own), a GTIN also against the units the
+// change keeps (422 `materials.duplicate_gtin`) and again when the change is applied (409
+// `materials.gtin_taken` on the approval when another material took it meanwhile). A change that would
+// leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a
+// `pending` material (409 `materials.invalid_status`) or of one with a pending change (409
+// `materials.change_pending`), but a block. A change that only blocks the material is applied at once,
+// a pending change or not (the material answered blocked, with a material change of kind `block`,
+// applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it
+// changes, so a pending update approved later leaves the block in place. Any other opens a pending
+// material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the
+// material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
 // applied to the material as it is then when its approval request is approved by the role
 // `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values
 // before and after, and published as MaterialChangeChanged, and MaterialChanged when the material

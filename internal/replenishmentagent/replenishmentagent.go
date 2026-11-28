@@ -23,11 +23,14 @@
 // and unit as the proposal has them (a proposal of several lots, ADR-0084
 // As built S2k2, is ordered as one order of its lots: the quantity their
 // sum, and each lot named in a line of its own, its item's number and
-// quantity by the order's day, ADR-0072 As built S2k2a);
+// quantity by the order's day, ADR-0072 As built S2k2a, or, for a lot by
+// period, by the day the run's line needs it by, its lot_schedule's, which
+// the check reads with the run, ADR-0084 As built S2k3);
 // the day it is needed by (or the run's day, when it names none: lead
 // times are Later); a source of the proposal's material in its company
 // that the run read, an active catalog item, an active contract item
-// valid on that day or a released or closed order's item; that source's
+// valid on that day (on each of its lots', for lots by period) or a released
+// or closed order's item; that source's
 // supplier, read as an active supplier; and the supplier's measures for
 // the proposal's material at the run's plant over the year ending on the
 // run's day, which the check reads itself (getSupplierDeliveryPerformance
@@ -116,8 +119,11 @@ with the proposal's quantity and unit as the requisition gives them (the sum of 
 more than one item (its run line's lots above 1: the plan sizes the shortage in lots, an item per lot), a line of its own for
 each item, in the order of its item numbers,
 Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>
-with the item's number and quantity as the requisition gives them, its unit and the order's day: one order of the lots from
-one supplier and source, the buyer ordering each lot as an item of it; then a line of its own
+with the item's number and quantity as the requisition gives them, its unit and its day: for a run line sized by period
+(lot_size daily, weekly or monthly) the needed_by of its lot_schedule's lot in the same place, the lots in the order of the
+requisition's items, else the order's day: one order of the lots from one supplier and source, the buyer ordering each lot
+as an item of it, delivered by its day; a contract is a source when it is valid on the order's day and every lot's;
+then a line of its own
 Measures: <the supplier's measures>
 exactly as "<receipts> receipts (<history>), lead time <observed_lead_days> days", then " against <planned_lead_days> planned"
 when the read gives a planned lead time, then ", on time <on_time_receipts> of <dated_receipts> (<on_time_percent>%)" when it
@@ -161,16 +167,18 @@ var (
 	// ErrWhen refuses an order by another day than the proposal's.
 	ErrWhen = errors.New("replenishmentagent: an order is by the day the requisition is needed by, or the run's day when it names none")
 	// ErrSource refuses an order from a source the run has not read as one
-	// of the proposal's material in its company, valid on the day, or
-	// from another supplier than the source's.
+	// of the proposal's material in its company, valid on the day (and on
+	// each of its lots', for lots by period), or from another supplier than
+	// the source's.
 	ErrSource = errors.New("replenishmentagent: an order's source is one the run read of the proposal's material in its company (an active catalog item, " +
-		"an active contract item valid on the day, a released or closed purchase order's item), and its supplier the source's")
+		"an active contract item valid on the day and, for lots by period, every lot's, a released or closed purchase order's item), and its supplier the source's")
 	// ErrLots refuses an order of a proposal of several lots that does not
-	// name each lot as the requisition has it, in its items' order, by the
-	// order's day, or names lots that are not the proposal's (S2k2).
+	// name each lot as the requisition has it, in its items' order, by its
+	// day (its run line's for a lot by period, S2k3, else the order's), or
+	// names lots that are not the proposal's (S2k2).
 	ErrLots = errors.New(`replenishmentagent: an order of a proposal of several lots names each lot in a line of its own, in the order of its ` +
 		`item numbers, "Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>" with the item's number and quantity as the requisition gives them, ` +
-		`its unit and the order's day, and no other lot`)
+		`its unit and its day (its run line's lot_schedule needed_by for a lot by period, else the order's day), and no other lot`)
 	// ErrSupplier refuses an order from a supplier the run has not read as
 	// an active supplier.
 	ErrSupplier = errors.New("replenishmentagent: an order's supplier is one the run read (getBusinessPartner) as an active supplier")
@@ -204,9 +212,10 @@ type planningRun struct {
 		Code string `json:"code"`
 	} `json:"error"`
 	Lines []struct {
-		MaterialNumber    string `json:"material_number"`
-		RequisitionID     string `json:"requisition_id"`
-		RequisitionNumber string `json:"requisition_number"`
+		MaterialNumber    string      `json:"material_number"`
+		RequisitionID     string      `json:"requisition_id"`
+		RequisitionNumber string      `json:"requisition_number"`
+		LotSchedule       []scheduled `json:"lot_schedule"`
 	} `json:"lines"`
 }
 
@@ -220,11 +229,12 @@ func (a *Agent) Review(ctx context.Context, runID string) (recommend.Result, err
 	if err != nil {
 		return recommend.Result{}, err
 	}
-	objects, names := map[string]string{}, map[string]string{}
+	objects, names, schedules := map[string]string{}, map[string]string{}, map[string][]scheduled{}
 	for _, l := range r.Lines {
 		if l.RequisitionID != "" {
 			objects[l.RequisitionID] = RequisitionObject
 			names[l.RequisitionID] = "requisition " + l.RequisitionNumber + " of " + l.MaterialNumber
+			schedules[l.RequisitionID] = l.LotSchedule
 		}
 	}
 	if len(objects) == 0 {
@@ -234,7 +244,7 @@ func (a *Agent) Review(ctx context.Context, runID string) (recommend.Result, err
 	if err != nil {
 		return recommend.Result{}, err
 	}
-	rv := newReview(r.RunDate, from, r.PlantID, func(q url.Values) (apitools.Response, error) {
+	rv := newReview(r.RunDate, from, r.PlantID, schedules, func(q url.Values) (apitools.Response, error) {
 		return a.API.Do(ctx, http.MethodGet, "/v1/supplier-delivery-performance", q, nil, "")
 	})
 	task := recommend.Task{

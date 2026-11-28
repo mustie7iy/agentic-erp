@@ -68,7 +68,11 @@ func (m Migration) Number(ctx context.Context, legalEntity uuid.UUID) (string, e
 	if err != nil {
 		return "", err
 	}
-	return m.Endpoints.number(ctx, le)
+	doc, err := m.Endpoints.settings(ctx)
+	if err != nil {
+		return "", err
+	}
+	return m.Endpoints.number(ctx, le, doc)
 }
 
 // CreateMaterial creates a migrated material, active, with its applied
@@ -85,7 +89,11 @@ func (m Migration) CreateMaterial(ctx context.Context, in MigratedMaterial) (uui
 	}
 	input := Input{LegalEntityID: in.LegalEntityID, Description: in.Description, DescriptionLanguage: in.DescriptionLanguage,
 		Descriptions: in.Descriptions, BaseUnit: in.BaseUnit, BaseMeasures: in.BaseMeasures, Type: in.Type, Group: in.Group, Plants: in.Plants, Units: in.Units, Reason: in.Reason}.defaulted()
-	companies, err := e.says(ctx, tx, input)
+	doc, err := e.settings(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	companies, err := e.says(ctx, tx, input, doc.Materials)
 	if err != nil {
 		return uuid.Nil, err
 	}

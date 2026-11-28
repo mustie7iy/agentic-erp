@@ -275,15 +275,21 @@ func inBase(ms map[uuid.UUID]materials.Material, o Open, plant, counter string) 
 	return new(big.Rat).Mul(money.ParseRat(o.Quantity), f), nil
 }
 
-// sum adds the open quantities up per material in its base unit.
-func (w *work) sum(open []Open, into map[uuid.UUID]*big.Rat) error {
+// tally adds the open quantities up per material in its base unit into
+// into and, with due, keeps each by its day: one conversion for the
+// demand and the receipts, so a unit no longer the material's is refused
+// alike for both.
+func (w *work) tally(open []Due, into map[uuid.UUID]*big.Rat, due map[uuid.UUID][]dated) error {
 	for _, o := range open {
-		q, err := w.inBase(o)
+		q, err := w.inBase(o.Open)
 		if err != nil {
 			return err
 		}
-		if q != nil {
+		if q != nil { // nil: a material the run does not plan
 			into[o.MaterialID] = new(big.Rat).Add(orZero(into[o.MaterialID]), q)
+			if due != nil {
+				due[o.MaterialID] = append(due[o.MaterialID], dated{day: o.Day, quantity: q})
+			}
 		}
 	}
 	return nil
