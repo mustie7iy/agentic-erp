@@ -42,6 +42,17 @@ func loadRefs(ctx context.Context, tx pgx.Tx, system string) (refs, error) {
 	return out, nil
 }
 
+// materials are the MATNRs of the materials the references name.
+func (r refs) materials() map[string]bool {
+	out := map[string]bool{}
+	for k := range r {
+		if matnr, ok := strings.CutPrefix(k, "MARA/"); ok {
+			out[matnr] = true
+		}
+	}
+	return out
+}
+
 // loader loads one run's extract through the application services.
 type loader struct {
 	e       *Endpoints

@@ -2323,36 +2323,39 @@ type Handler interface {
 	// the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number
 	// is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The
 	// base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the
-	// type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active
-	// org unit of kind `plant` in a company the caller may act in, given once (422
-	// `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org
-	// unit of kind `storage_location` under that plant, given once (422
-	// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
-	// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
-	// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
-	// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. Each unit of
-	// measure, the base unit (`base_unit_measures`) and each alternative unit (`measures`), may carry its
-	// dimensions, weights and GTIN (S1a3): every value a decimal above zero of up to ten digits and three
-	// decimals, never a number, given with its unit and the unit only with a value, a weight unit of mass,
-	// a volume unit of volume and a length unit of length, and a net weight no more than the gross (422
-	// `materials.invalid_measures`; a unit no unit of measure, 422 `materials.unknown_unit`); a GTIN of 8,
-	// 12, 13 or 14 digits with its GS1 check digit (422 `materials.invalid_gtin`), on one unit of the
-	// request (422 `materials.duplicate_gtin`) and of no other material in the tenant, compared
-	// right-justified in 14 digits, whatever that material's status (409 `materials.gtin_taken`, naming
-	// it). Its `description` is its default one, in `description_language` (`en` when absent);
-	// `descriptions` gives it further ones (S1a2), each in a BCP 47 language with known subtags in their
-	// canonical form (422 `materials.unknown_language`), each language once and none in the default's (422
-	// `materials.duplicate_language`). The base unit, the material type and the default's language do not
-	// change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`;
-	// ADR-0082 §9, S1b), whose approval request the role `process_owner` decides
-	// (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays
-	// `pending` and is used nowhere, its GTINs free for another material. The change lists the existing
-	// materials with the same description, white space and case aside, whatever their status, a pending
-	// one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with
-	// such a description is refused (409 `materials.duplicate_description`, naming them) unless the
-	// request sets `confirm_duplicate`. Two requests with one description wait for one another, so the
-	// second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry
-	// with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
+	// type is one of the material types and the group one of the material groups the configuration allows
+	// (ADR-0082 As built S1a4): every type while `materials.material_types` lists none, else one it lists
+	// (422 `materials.unknown_material_type`), and any group while `materials.material_groups` lists none,
+	// else one it lists (422 `materials.unknown_material_group`). Each plant is an active org unit of kind
+	// `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`,
+	// `materials.duplicate_plant`); each of its storage locations an active org unit of kind
+	// `storage_location` under that plant, given once (422 `materials.storage_location_invalid`,
+	// `materials.duplicate_storage_location`). An alternative unit is not the base unit (422
+	// `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion
+	// says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from
+	// 1 to 1000000, never a decimal. Each unit of measure, the base unit (`base_unit_measures`) and each
+	// alternative unit (`measures`), may carry its dimensions, weights and GTIN (S1a3): every value a
+	// decimal above zero of up to ten digits and three decimals, never a number, given with its unit and
+	// the unit only with a value, a weight unit of mass, a volume unit of volume and a length unit of
+	// length, and a net weight no more than the gross (422 `materials.invalid_measures`; a unit no unit of
+	// measure, 422 `materials.unknown_unit`); a GTIN of 8, 12, 13 or 14 digits with its GS1 check digit
+	// (422 `materials.invalid_gtin`), on one unit of the request (422 `materials.duplicate_gtin`) and of
+	// no other material in the tenant, compared right-justified in 14 digits, whatever that material's
+	// status (409 `materials.gtin_taken`, naming it). Its `description` is its default one, in
+	// `description_language` (`en` when absent); `descriptions` gives it further ones (S1a2), each in a
+	// BCP 47 language with known subtags in their canonical form (422 `materials.unknown_language`), each
+	// language once and none in the default's (422 `materials.duplicate_language`). The base unit, the
+	// material type and the default's language do not change afterwards. Created `pending` with a material
+	// change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role
+	// `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`,
+	// rejected or withdrawn it stays `pending` and is used nowhere, its GTINs free for another material.
+	// The change lists the existing materials with the same description, white space and case aside,
+	// whatever their status, a pending one whose create change was rejected or withdrawn aside
+	// (`possible_duplicates`); a material with such a description is refused (409
+	// `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two
+	// requests with one description wait for one another, so the second finds the first. Audited, and
+	// published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key`
+	// answers the material created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/materials
 	CreateMaterial(ctx context.Context, req *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error)
@@ -10602,17 +10605,20 @@ type Handler interface {
 	// empty list removing them; `descriptions` replaces its further descriptions, an empty list removing
 	// them (S1a2), and `description` sets its default one; `base_unit_measures` replaces the base unit's
 	// dimensions, weights and GTIN, an empty object removing them, and each alternative unit's `measures`
-	// are replaced with `alternative_units` (S1a3); each is checked as `createMaterial` checks it, a GTIN
-	// also against the units the change keeps (422 `materials.duplicate_gtin`) and again when the change
-	// is applied (409 `materials.gtin_taken` on the approval when another material took it meanwhile). A
-	// change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is
-	// a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change
-	// (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at
-	// once, a pending change or not (the material answered blocked, with a material change of kind
-	// `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the
-	// fields it changes, so a pending update approved later leaves the block in place. Any other opens a
-	// pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise;
-	// the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
+	// are replaced with `alternative_units` (S1a3); each is checked as `createMaterial` checks it (a
+	// `material_group` the change sets one the configuration allows, 422
+	// `materials.unknown_material_group`; a group the change leaves as it is not checked, so a material
+	// created before the configuration listed groups keeps its own), a GTIN also against the units the
+	// change keeps (422 `materials.duplicate_gtin`) and again when the change is applied (409
+	// `materials.gtin_taken` on the approval when another material took it meanwhile). A change that would
+	// leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a
+	// `pending` material (409 `materials.invalid_status`) or of one with a pending change (409
+	// `materials.change_pending`), but a block. A change that only blocks the material is applied at once,
+	// a pending change or not (the material answered blocked, with a material change of kind `block`,
+	// applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it
+	// changes, so a pending update approved later leaves the block in place. Any other opens a pending
+	// material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the
+	// material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`),
 	// applied to the material as it is then when its approval request is approved by the role
 	// `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values
 	// before and after, and published as MaterialChangeChanged, and MaterialChanged when the material

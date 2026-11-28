@@ -115,7 +115,9 @@ The material types are an open enumeration of SAP's standard types (from
 memory): `raw_material` (ROH), `semi_finished` (HALB), `finished_good`
 (FERT), `trading_good` (HAWA), `non_stock` (NLAG), `service` (DIEN). The
 material group is a code of 1 to 9 capitals, digits, `-` or `_` (SAP
-MATKL's length, from memory), not yet a configured list (Later).
+MATKL's length, from memory), not yet a configured list (Later; since
+As built S1a4 both are checked against the configuration's lists once
+it has them).
 
 ### 5. Quantities and units
 
@@ -3060,6 +3062,89 @@ the purchase order's or the sales order's item found by GTIN; GTIN types
 beyond GS1's four lengths (SAP's NUMTP, internal EAN ranges); several
 GTINs per unit (SAP's MEAN); a later SAP run's new or changed measures of
 a material an earlier run created.
+
+### S1a4 Material types and groups from configuration (2026-11-27)
+
+The next item of "later: material master variants" (plan-supply-chain.md
+§S1a4, lane matgroups): a material's type and group are checked against
+lists the tenant configures, as SAP's material types (T134) and material
+groups (T023) are customizing (from memory). No migration: the lists are
+the configuration document's; the material keeps its columns and their
+checks (§4).
+
+- **The section (decided by default).** `materials.material_types` and
+  `materials.material_groups`, each entry a `code` and a `name` (at most 60
+  characters), each code once, as the neighbouring lists are (price
+  groups, ADR-0067 §13; cost center categories, ADR-0050 §4). A
+  configured type is one of the platform's six (§4), whose behaviour
+  (stock, valuation by type) the platform knows: the list says which the
+  tenant uses and what it calls them. A tenant's own types with their
+  attributes (SAP T134's quantity and value updating, account category
+  reference, number range per type, from memory) are Later. A group is a
+  code of the material's form (1 to 9 capitals, digits, `-` or `_`); at
+  most 1,000 groups, since the document is read whole on each material
+  request. `internal/config/materials.go` holds the six types
+  (`config.MaterialTypeCodes`), which the materials context now reads
+  instead of a copy of its own.
+- **Tier 2, operational.** The lists post nothing: they decide which type
+  and group a new or changed material may take, as price groups decide a
+  customer's; a name is cosmetic (tier 1). Entries are compared by code.
+- **Existing materials keep working (decided by default).** A list left
+  empty checks nothing, so a tenant that has configured none, and every
+  material created before, keeps what it has: every platform type and any
+  well-formed group. Alternative: a default type or group configured for
+  every tenant; refused, it would invent a tenant's customizing and
+  change the behaviour of every tenant at once. Once a list has an entry,
+  a create takes only a type and a group it lists (422
+  `materials.unknown_material_type`, the message naming the configured
+  types; 422 `materials.unknown_material_group`, new), and so does a
+  change that sets the group. A change that leaves the group as it is,
+  a change of the description for one, is not checked, so a material
+  created before the list keeps its group; SAP likewise keeps a material's
+  group when its table changes (from memory).
+- **Never removed once activated** (`config.MaterialsTransitions`), as a
+  price group is: materials name them, and a list that became empty again
+  would silently stop the check. Names may change and entries be added.
+  Retiring a group for new materials while existing ones keep it is
+  Later.
+- **When it is checked.** At the request: a create, whose material is
+  written pending with its type and group, and a change, whose group is
+  checked when it is requested. A change requested before the list
+  existed applies as approved, as a material created before it keeps its
+  group: an entry once listed is never removed, so the only change of
+  the answer between request and approval is a first list, which is the
+  same case. The configuration is read in the request's transaction
+  without the activation lock (`configuration.Settings.Hold`): an
+  activation of a first list racing a create lets that create through as
+  if it came first, the same outcome; no removal can race, so no write
+  skew follows.
+- **SAP (S2o's load).** MTART maps onto the platform's six as before
+  (ROH, HALB, FERT, HAWA, NLAG, DIEN, from memory); once the configuration
+  lists types or groups, a material whose mapped type or whose MATKL it
+  does not list is held back with the reason (`material type "DIEN"
+  (service) is not one of the configuration's material types`, `material
+  group "WOOD" is not one of the configuration's material groups`), a
+  quality warning, and left out of the reconciliation on SAP's side as
+  every held-back material is. A material an earlier run loaded (its
+  `MARA/<MATNR>` reference) is not checked against the lists: it keeps its
+  type and group as a material created before them does, so a later run
+  still extends it, takes over its stock and reconciles it (review round
+  1; `TestMaterialListsAfterARun`). The run's target reads the lists from
+  the active configuration with its other settings (`target.configure`).
+  SAP's own types (Z…, from memory) mapped onto a platform type, and the
+  groups' texts taken from T023T into the configuration, are Later.
+- **Walkthrough:** step 122 (`step_material`): Ada configures five types
+  (every one but `service`) and Maple's ten groups through a change
+  request of tier 2 that Priya approves; a service and the group WIDGETS
+  are refused naming their fields. Every later step's material uses a
+  configured type and group.
+
+**Later for material types and groups:** a tenant's own material types
+with their attributes (T134); SAP's own types mapped onto the platform's
+by the load; T023T's texts loaded into the configuration; a group retired
+for new materials; a hierarchy of groups; the type's and group's names on
+a material's read; changing a material's type once used (§7, the leaf's
+remainder).
 
 ### S2l1: suppliers' delivery performance (2026-11-24)
 

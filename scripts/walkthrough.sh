@@ -14039,10 +14039,14 @@ material_request() {
 # weights and the box its GTIN, weight, volume and size, approved by
 # Priya; a list finds the bracket by its GTIN written in 13 digits; the
 # box's GTIN on another material, a net weight above the gross and a GTIN
-# whose check digit is wrong are refused.
+# whose check digit is wrong are refused. Material types and groups from
+# configuration (S1a4): Ada configures the types Maple uses and its
+# material groups through a governed change, tier 2, which Priya approves;
+# a service, a type left out, and the group WIDGETS, which the list does
+# not have, are refused naming their fields.
 step_material() {
-  heading "Step 122 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; the bracket's and the box's GTINs, weights and size approved, the bracket found by its GTIN, a GTIN taken, a net weight above the gross and a wrong check digit refused; blocked at once"
-  local plant main spares other far material number
+  heading "Step 122 — The material master: Maple's material types and groups configured, a type and a group it leaves out refused; a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, described in Arabic too, active once the process owner approves it; read in Arabic and in French; the base unit as an alternative unit, another plant's storage location and a second English description refused; a change approved, a stale version refused; the bracket's and the box's GTINs, weights and size approved, the bracket found by its GTIN, a GTIN taken, a net weight above the gross and a wrong check digit refused; blocked at once"
+  local plant main spares other far material number base cr
   local arabic="دعامة مشغولة M10" zinc="دعامة مشغولة M10، مطلية بالزنك"
   as ada
   say "Ada adds Mira, the master data specialist, to the team:"
@@ -14066,6 +14070,25 @@ step_material() {
   QUIET=1 api 201 '' createOrgUnit -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"storage_location\", \"code\": \"SL03\", \"name\": \"Montreal store\", \"parent_id\": \"$other\"}"
   far=$(field .id)
   QUIET=1 api 200 '' activateOrgUnit -p "id=$far" -if-match "$ETAG"
+  say "Ada configures the material types Maple uses, all but services, and its material groups (SAP's T134 and"
+  say "T023, from memory; ADR-0082 As built S1a4). They post nothing: tier 2, as price groups are:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Material types and groups\", rationale: \"Maple's material master (S1a4)\", base_version: $base,
+    proposed: (.items[0].document | .materials = {material_types: [{code: \"raw_material\", name: \"Raw materials\"},
+      {code: \"semi_finished\", name: \"Semi-finished goods\"}, {code: \"finished_good\", name: \"Finished goods\"},
+      {code: \"trading_good\", name: \"Trading goods\"}, {code: \"non_stock\", name: \"Non-stock materials\"}],
+      material_groups: ([\"BRACKETS\", \"FASTENERS\", \"FURNITURE\", \"GAUGES\", \"LATCHES\", \"OILS\", \"SEALANTS\", \"SEALS\", \"TOOLS\",
+        \"WASHERS\"] | map({code: ., name: (.[0:1] + (.[1:] | ascii_downcase))}))})}" "$WORK/last.json" >"$WORK/material_lists.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @material_lists.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the lists' tier" "$(field .tier)" 2
+  approve priya "$(field .workflow_request_id)" "Maple's material master lists"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
   as mira
   say "Mira creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
   say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b). It is described in English by"
@@ -14100,6 +14123,13 @@ step_material() {
   refused 422 materials.storage_location_invalid createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$far\"]}]}"
   expect "the refused storage location's field" "$(field '.errors[0].field')" "plants[0].storage_location_ids[0]"
+  say "Maple's configuration has no service type and no group WIDGETS, so neither is a material's (S1a4):"
+  refused 422 materials.unknown_material_type createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Bracket fitting\", \"base_unit\": \"EA\",
+      \"material_type\": \"service\", \"material_group\": \"BRACKETS\"}"
+  expect "the refused type's field" "$(field '.errors[0].field')" "material_type"
+  refused 422 materials.unknown_material_group createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"WIDGETS\"}"
+  expect "the refused group's field" "$(field '.errors[0].field')" "material_group"
   say "A further description in English, the default's language, is refused: the default description is description:"
   refused 422 materials.duplicate_language createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"descriptions\": [{\"language\": \"en\", \"description\": \"Bracket M12\"}]}"

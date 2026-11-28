@@ -44,8 +44,8 @@ const (
 // locked, before any material change is written (materials.Migration's
 // lock order).
 func (l *loader) materialMaster(ctx context.Context) error {
-	plants, _ := plantsOf(l.ext)                     // the quality gate refused their errors
-	mats, _ := materialsOf(l.ext, l.t.units, plants) // and reported the materials held back
+	plants, _ := plantsOf(l.ext)               // the quality gate refused their errors
+	mats, _ := materialsOf(l.ext, l.t, plants) // and reported the materials held back
 	var loaded []uuid.UUID
 	for _, m := range mats {
 		if id, ok := l.refs["MARA/"+m.number]; ok {

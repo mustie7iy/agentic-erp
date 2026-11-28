@@ -30,9 +30,9 @@ type Stock interface {
 // journal_we in the order a goods receipt into stock takes them
 // (ADR-0008, ADR-0082 As built S2p, Locks).
 func (l *loader) lockStock(ctx context.Context) error {
-	plants, _ := plantsOf(l.ext)                     // the quality gate refused their errors
-	mats, _ := materialsOf(l.ext, l.t.units, plants) // and reported the materials held back
-	stocks, _ := stocksOf(l.ext, l.t, plants, mats)  // and refused the stock it cannot take over
+	plants, _ := plantsOf(l.ext)                    // the quality gate refused their errors
+	mats, _ := materialsOf(l.ext, l.t, plants)      // and reported the materials held back
+	stocks, _ := stocksOf(l.ext, l.t, plants, mats) // and refused the stock it cannot take over
 	posts := map[string]bool{}
 	l.stocks = nil
 	for _, s := range stocks {
