@@ -18,13 +18,15 @@ import (
 // requested before it, keep what they name, as SAP keeps a material's
 // group when its table changes (from memory).
 
-// lists is the active configuration's material types and groups.
-func (e *Endpoints) lists(ctx context.Context) (config.Materials, error) {
+// settings is the active configuration, read once per request: a
+// creation takes its material types and groups and its company's day
+// from the one document (batch 99S, matgroups' review nit).
+func (e *Endpoints) settings(ctx context.Context) (*config.Config, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
-		return config.Materials{}, fmt.Errorf("materials: the configured material types and groups: %w", err)
+		return nil, fmt.Errorf("materials: the active configuration: %w", err)
 	}
-	return doc.Materials, nil
+	return doc, nil
 }
 
 // checkType refuses a type the configuration does not allow (422

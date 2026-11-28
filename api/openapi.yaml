@@ -13941,7 +13941,7 @@ paths:
       tags:
         - procurement
       summary: List goods receipts
-      description: "Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`."
+      description: "Goods receipts (101), returns to the supplier (122) and their reversals (102, 123), each with its `movement_type`. Sortable by: `posting_date`, `document_number`."
       x-permission: procurement.receipt.read
       x-problem-codes:
         - request.invalid_order_by

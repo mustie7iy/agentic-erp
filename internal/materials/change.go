@@ -236,11 +236,11 @@ func (e *Endpoints) changedGroup(ctx context.Context, fields []string, group str
 	if !slices.Contains(fields, "material_group") {
 		return nil
 	}
-	lists, err := e.lists(ctx)
+	doc, err := e.settings(ctx)
 	if err != nil {
 		return err
 	}
-	return checkGroup(lists, group)
+	return checkGroup(doc.Materials, group)
 }
 
 // canonical is the change with its measures written as they are kept, so

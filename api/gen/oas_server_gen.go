@@ -6865,7 +6865,8 @@ type Handler interface {
 	ListGTSMessages(ctx context.Context, params ListGTSMessagesParams) (ListGTSMessagesRes, error)
 	// ListGoodsReceipts implements listGoodsReceipts operation.
 	//
-	// Goods receipts and their reversals. Sortable by: `posting_date`, `document_number`.
+	// Goods receipts (101), returns to the supplier (122) and their reversals (102, 123), each with its
+	// `movement_type`. Sortable by: `posting_date`, `document_number`.
 	//
 	// GET /v1/goods-receipts
 	ListGoodsReceipts(ctx context.Context, params ListGoodsReceiptsParams) (ListGoodsReceiptsRes, error)
