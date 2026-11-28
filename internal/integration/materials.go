@@ -31,9 +31,6 @@ import (
 // location's SAP key must be to be one.
 var orgUnitCode = regexp.MustCompile(`^[A-Z0-9_]{1,10}$`)
 
-// materialGroup is materials.material's group (ADR-0082 §4).
-var materialGroup = regexp.MustCompile(`^[A-Z0-9_-]{1,9}$`)
-
 // materialTypes are the platform's material types by SAP's standard
 // material type (MARA-MTART; ADR-0082 §4, from memory). A material of
 // another type is held back.
@@ -173,6 +170,7 @@ func orgUnitIssues(table, key, code, name, what string, add func(table, key, for
 type materialPlan struct {
 	units     map[string]string // the platform's units of measure, with their kinds
 	lists     config.Materials  // the configured material types and groups
+	migrated  map[string]bool   // the MATNRs an earlier run loaded
 	plants    map[string]sapPlant
 	texts     map[string][]sapText
 	marm      map[string][]sap.MARM
@@ -193,7 +191,7 @@ func (mp *materialPlan) add(sev, table, key, format string, args ...any) {
 // reasons (heldBack), its type and group among them once the
 // configuration lists types and groups (ADR-0082 As built S1a4).
 func materialsOf(e *sap.Extract, t target, plants []sapPlant) ([]sapMaterial, []Issue) {
-	mp := &materialPlan{units: t.units, lists: t.materials, plants: map[string]sapPlant{}, texts: map[string][]sapText{}, marm: map[string][]sap.MARM{},
+	mp := &materialPlan{units: t.units, lists: t.materials, migrated: t.migrated, plants: map[string]sapPlant{}, texts: map[string][]sapText{}, marm: map[string][]sap.MARM{},
 		marc: map[string][]sap.MARC{}, mard: map[string][]sap.MARD{}}
 	for _, p := range plants {
 		mp.plants[p.werks] = p
@@ -296,19 +294,23 @@ func (mp *materialPlan) material(r sap.MARA) {
 // typeAndGroup are the reasons a material is held back for its type
 // (MTART) and group (MATKL): a type none of the platform's or, once the
 // configuration lists types, none of those; a group not of materials'
-// form or, once the configuration lists groups, none of those.
+// form or, once the configuration lists groups, none of those. A material
+// an earlier run loaded is not checked against the lists: it keeps its
+// type and group as a material created before them does, so a later run
+// still extends it, takes over its stock and reconciles it.
 func (mp *materialPlan) typeAndGroup(r sap.MARA, mtype string) []string {
 	var reasons []string
+	listed := !mp.migrated[r.MATNR]
 	switch {
 	case mtype == "":
 		reasons = append(reasons, fmt.Sprintf("material type %q is none of ROH, HALB, FERT, HAWA, NLAG and DIEN, which the platform's types are", r.MTART))
-	case !mp.lists.AllowsType(mtype):
+	case listed && !mp.lists.AllowsType(mtype):
 		reasons = append(reasons, fmt.Sprintf("material type %q (%s) is not one of the configuration's material types", r.MTART, mtype))
 	}
 	switch {
-	case !materialGroup.MatchString(r.MATKL):
+	case !config.IsMaterialGroupCode(r.MATKL):
 		reasons = append(reasons, fmt.Sprintf("material group %q is not 1 to 9 capitals, digits, - or _", r.MATKL))
-	case !mp.lists.AllowsGroup(r.MATKL):
+	case listed && !mp.lists.AllowsGroup(r.MATKL):
 		reasons = append(reasons, fmt.Sprintf("material group %q is not one of the configuration's material groups", r.MATKL))
 	}
 	return reasons

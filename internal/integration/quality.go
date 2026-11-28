@@ -81,6 +81,10 @@ type target struct {
 	// a migrated material's type and group must be once it lists them
 	// (materials.go; ADR-0082 As built S1a4).
 	materials config.Materials
+	// migrated are the MATNRs an earlier run already loaded (their
+	// MARA/<MATNR> references): the lists do not hold those back, since a
+	// material created before a list keeps its type and group.
+	migrated map[string]bool
 	// classes are each company code's valuation classes with their
 	// accounts (companies[].account_determination.inventory), which a
 	// migrated valuation's BKLAS must name (stock.go).

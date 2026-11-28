@@ -590,7 +590,7 @@ MARM row other than 1/1, a unit listed twice, a type other than the six
 above, a group that is none, no description; and, once the configuration
 lists material types or groups (`materials.material_types`,
 `materials.material_groups`; ADR-0082 As built S1a4), a type or a group
-it does not list. The reconciliation leaves
+it does not list, unless an earlier run loaded the material. The reconciliation leaves
 held-back materials out on SAP's side. **Measures left out, not held
 back** (S1a3): a unit's weights, volume or dimensions whose value is no
 quantity of up to ten digits and three decimals, or whose unit is no unit

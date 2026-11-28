@@ -564,6 +564,7 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	t.migrated = existing.materials()
 	if t.posted, err = e.postedCurrencies(ctx, ext, existing); err != nil {
 		return operations.Operation{}, err
 	}
@@ -629,6 +630,7 @@ func (e *Endpoints) reconcileRun(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	t.migrated = existing.materials()
 	rec, err := e.reconcile(ctx, ext, t, existing)
 	if err != nil {
 		return operations.Operation{}, err

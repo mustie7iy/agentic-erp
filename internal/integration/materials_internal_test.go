@@ -72,9 +72,14 @@ func TestMaterialTypeAndGroupConfigured(t *testing.T) {
 			`warning MARA M-2: held back: material type "DIEN" (service) is not one of the configuration's material types`,
 			`warning MARA M-3: held back: material group "WOOD" is not one of the configuration's material groups`}},
 		{"not configured", config.Materials{}, "M-1 M-2 M-3", nil},
+		{"loaded before the lists", lists, "M-1 M-2 M-3", nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			mats, issues := materialsOf(x, target{units: map[string]string{"KG": "mass"}, materials: c.lists}, plants)
+			tg := target{units: map[string]string{"KG": "mass"}, materials: c.lists}
+			if c.name == "loaded before the lists" {
+				tg.migrated = map[string]bool{"M-2": true, "M-3": true}
+			}
+			mats, issues := materialsOf(x, tg, plants)
 			var loaded, got []string
 			for _, m := range mats {
 				loaded = append(loaded, m.number)

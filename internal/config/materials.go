@@ -49,6 +49,9 @@ func IsMaterialType(code string) bool { return slices.Contains(materialTypeCodes
 // (ADR-0082 §4: SAP MATKL's length, from memory).
 var materialGroupRe = regexp.MustCompile(`^[A-Z0-9_-]{1,9}$`)
 
+// IsMaterialGroupCode reports whether code has a material group's form.
+func IsMaterialGroupCode(code string) bool { return materialGroupRe.MatchString(code) }
+
 // MaxMaterialGroups bounds the material groups: the document is read
 // whole on each material request.
 const MaxMaterialGroups = 1000
@@ -130,7 +133,7 @@ func (v *validator) materials(c *Config) {
 	for i, g := range c.Materials.MaterialGroups {
 		p := fmt.Sprintf("materials.material_groups[%s]", g.Code)
 		switch {
-		case !materialGroupRe.MatchString(g.Code):
+		case !IsMaterialGroupCode(g.Code):
 			p = fmt.Sprintf("materials.material_groups[%d]", i)
 			v.err(p+".code", "must be 1-9 capital letters, digits, - or _")
 		case seen[g.Code]:

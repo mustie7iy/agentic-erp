@@ -3021,8 +3021,12 @@ checks (§4).
   (service) is not one of the configuration's material types`, `material
   group "WOOD" is not one of the configuration's material groups`), a
   quality warning, and left out of the reconciliation on SAP's side as
-  every held-back material is. The run's target reads the lists from the
-  active configuration with its other settings (`target.configure`).
+  every held-back material is. A material an earlier run loaded (its
+  `MARA/<MATNR>` reference) is not checked against the lists: it keeps its
+  type and group as a material created before them does, so a later run
+  still extends it, takes over its stock and reconciles it (review round
+  1; `TestMaterialListsAfterARun`). The run's target reads the lists from
+  the active configuration with its other settings (`target.configure`).
   SAP's own types (Z…, from memory) mapped onto a platform type, and the
   groups' texts taken from T023T into the configuration, are Later.
 - **Walkthrough:** step 122 (`step_material`): Ada configures five types
