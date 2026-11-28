@@ -3134,10 +3134,11 @@ checks (§4).
   SAP's own types (Z…, from memory) mapped onto a platform type, and the
   groups' texts taken from T023T into the configuration, are Later.
 - **Walkthrough:** step 122 (`step_material`): Ada configures five types
-  (every one but `service`) and Maple's ten groups through a change
+  (every one but `service`) and Maple's eleven groups through a change
   request of tier 2 that Priya approves; a service and the group WIDGETS
   are refused naming their fields. Every later step's material uses a
-  configured type and group.
+  configured type and group: the lane's ten, and NUTS, which batch 99S's
+  integration adds for step 152's N10 nut (mrpperiod, merged beside it).
 
 **Later for material types and groups:** a tenant's own material types
 with their attributes (T134); SAP's own types mapped onto the platform's

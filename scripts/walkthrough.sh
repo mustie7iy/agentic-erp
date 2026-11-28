@@ -14078,8 +14078,8 @@ step_material() {
     proposed: (.items[0].document | .materials = {material_types: [{code: \"raw_material\", name: \"Raw materials\"},
       {code: \"semi_finished\", name: \"Semi-finished goods\"}, {code: \"finished_good\", name: \"Finished goods\"},
       {code: \"trading_good\", name: \"Trading goods\"}, {code: \"non_stock\", name: \"Non-stock materials\"}],
-      material_groups: ([\"BRACKETS\", \"FASTENERS\", \"FURNITURE\", \"GAUGES\", \"LATCHES\", \"OILS\", \"SEALANTS\", \"SEALS\", \"TOOLS\",
-        \"WASHERS\"] | map({code: ., name: (.[0:1] + (.[1:] | ascii_downcase))}))})}" "$WORK/last.json" >"$WORK/material_lists.json"
+      material_groups: ([\"BRACKETS\", \"FASTENERS\", \"FURNITURE\", \"GAUGES\", \"LATCHES\", \"NUTS\", \"OILS\", \"SEALANTS\", \"SEALS\",
+        \"TOOLS\", \"WASHERS\"] | map({code: ., name: (.[0:1] + (.[1:] | ascii_downcase))}))})}" "$WORK/last.json" >"$WORK/material_lists.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @material_lists.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"

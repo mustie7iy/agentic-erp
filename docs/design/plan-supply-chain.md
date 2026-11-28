@@ -287,8 +287,9 @@ material of another.
   group (from memory); a material whose type or group the configured
   lists leave out is held back with the reason.
 - **Walkthrough:** `step_material`: Ada configures Maple's types (all but
-  `service`) and ten groups, Priya approves; a service and the group
-  WIDGETS are refused naming their fields.
+  `service`) and eleven groups (NUTS for step 152's N10 nut, batch 99S),
+  Priya approves; a service and the group WIDGETS are refused naming
+  their fields.
 - **Acceptance:** a tenant without lists creates materials as before; with
   them, a create or a group change outside them is refused naming the
   field, one inside them proceeds; a material created before keeps its
@@ -1472,7 +1473,8 @@ pack size.
     without its lots refused (its recorded result `ErrLots`'s wording),
     its order naming the three lots made.
   - **Later:** an order per lot (lots from several suppliers, with quota
-    arrangements; lots on several days, with period lot sizes).
+    arrangements; a lot ordered on its own day). Since batch 99S a
+    period-lot proposal's lots are named by their own days (S2k3, below).
 
 ### S2k3 Period lot sizes (MRP variants, the next item)
 
@@ -1502,6 +1504,10 @@ needed, instead of the whole shortage for today.
   week one lot; each lot is needed by its period's first requirement
   date; rounding's surplus counts towards the next period; lot for lot
   and the other procedures propose as before.
+- **The replenishment agent** (batch 99S integration; ADR-0072 As built
+  "S2k3 in the agent"): an order of a period-lot proposal names each lot
+  by its run line's `lot_schedule` day, and a contract is its source only
+  while valid to the last lot's day; `evals/replenishment` version 4.
 - **Later:** the period's start or end as a lot's date, a factory
   calendar, receipts and stock transport orders by their delivery dates,
   optimising procedures.
