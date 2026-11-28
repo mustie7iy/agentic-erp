@@ -80,8 +80,10 @@ func windowFrom(runDate string) (string, error) {
 	return d.AddDate(0, 0, 1-window).Format(time.DateOnly), nil
 }
 
-func newReview(runDate, from, plant string, read func(url.Values) (apitools.Response, error)) *review {
-	return &review{runDate: runDate, plant: plant, from: from, read: read, proposals: map[string]proposal{}, schedules: map[string][]scheduled{},
+// newReview is a run's review; schedules are its lines' lots by period
+// by requisition id, as the run read them before its session.
+func newReview(runDate, from, plant string, schedules map[string][]scheduled, read func(url.Values) (apitools.Response, error)) *review {
+	return &review{runDate: runDate, plant: plant, from: from, read: read, proposals: map[string]proposal{}, schedules: schedules,
 		sources: map[string]source{}, suppliers: map[string]bool{}, measured: map[string]string{}}
 }
 
@@ -105,21 +107,23 @@ func (rv *review) requisitionRead(resp apitools.Response) {
 	}
 	p := proposal{legalEntity: r.LegalEntityID, status: r.Status, neededBy: r.NeededBy}
 	p.material, p.quantity, p.unit, p.lots = lotsOf(r.Items)
-	dated(p.lots, rv.schedules[r.ID])
+	dated(p, rv.schedules[r.ID])
 	rv.proposals[r.ID] = p
 }
 
 // dated gives a proposal's lots the days its run line's lots by period
-// are needed by, when they are the requisition's items as the run
-// proposed them: as many, each of the same quantity. A requisition whose
-// items a person has changed since keeps the requisition's day for each.
-func dated(lots []lot, schedule []scheduled) {
-	if len(schedule) == 0 || len(schedule) != len(lots) {
+// are needed by, when the requisition is as the run proposed it: needed
+// by the first lot's day, its items as many as the lots, each of the same
+// quantity in the same unit. A requisition a person has changed since
+// (its day or its items) keeps the requisition's day for each lot.
+func dated(p proposal, schedule []scheduled) {
+	lots := p.lots
+	if len(schedule) == 0 || len(schedule) != len(lots) || schedule[0].NeededBy != p.neededBy {
 		return
 	}
 	for i, l := range lots {
 		q, err := money.ParsePlain(schedule[i].Quantity.Value)
-		if err != nil || schedule[i].NeededBy == "" {
+		if err != nil || schedule[i].NeededBy == "" || schedule[i].Quantity.Unit != p.unit {
 			return
 		}
 		if want, _ := money.ParsePlain(l.quantity); q.Cmp(want) != 0 { // lotsOf parsed every lot's quantity
@@ -441,10 +445,10 @@ func (rv *review) sourceNeeded(p proposal, content, first string, f *recommend.F
 	if unread := f.Unread(content); len(unread) > 0 {
 		return fmt.Errorf("%w: not %s", ErrUnread, strings.Join(unread, ", "))
 	}
-	day, last := rv.day(p), lastDay(p, rv.day(p))
+	day := rv.day(p)
 	for _, ref := range slices.Sorted(maps.Keys(rv.sources)) {
 		s := rv.sources[ref]
-		if active, read := rv.suppliers[s.supplier]; usable(s, p, day, last) && (active || !read) {
+		if active, read := rv.suppliers[s.supplier]; usable(s, p, day) && (active || !read) {
 			return fmt.Errorf("%w: %s", ErrHasSource, strings.TrimSuffix(ref, " "+s.material))
 		}
 	}
@@ -460,21 +464,26 @@ func (rv *review) day(p proposal) string {
 	return p.neededBy
 }
 
-// lastDay is the day the proposal's last lot is needed by: its last lot
-// by period's (S2k3), else the order's day.
-func lastDay(p proposal, day string) string {
-	if n := len(p.lots); n > 0 && p.lots[n-1].day > day {
-		return p.lots[n-1].day
+// span is the first and last day an order of the proposal by the day
+// delivers on: the day, and each lot's by period (S2k3), whatever their
+// order.
+func span(p proposal, day string) (first, last string) {
+	first, last = day, day
+	for _, l := range p.lots {
+		if l.day != "" {
+			first, last = min(first, l.day), max(last, l.day)
+		}
 	}
-	return day
+	return first, last
 }
 
 // usable reports whether an order of the proposal by the day can be made
 // from the source: one of the proposal's material in its company, valid
-// from the day to the day its last lot is needed by (one day but for lots
-// by period). order and source_needed hold to the same test.
-func usable(s source, p proposal, day, last string) bool {
-	return s.legalEntity == p.legalEntity && s.material == p.material && (s.from == "" || day >= s.from) && (s.to == "" || last <= s.to)
+// on every day it delivers on (span: the day alone but for lots by
+// period). order and source_needed hold to the same test.
+func usable(s source, p proposal, day string) bool {
+	first, last := span(p, day)
+	return s.legalEntity == p.legalEntity && s.material == p.material && (s.from == "" || first >= s.from) && (s.to == "" || last <= s.to)
 }
 
 // ordered checks an order's quantity, day, source and supplier against
@@ -490,7 +499,7 @@ func (rv *review) ordered(p proposal, qty, unit, supplier, by, ref string) error
 		return fmt.Errorf("%w: not %s %s", ErrQuantity, qty, unit)
 	case by != day:
 		return fmt.Errorf("%w: not %s", ErrWhen, by)
-	case !known || !usable(s, p, day, lastDay(p, day)) || s.supplier != supplier:
+	case !known || !usable(s, p, day) || s.supplier != supplier:
 		return fmt.Errorf("%w: not %s from %s", ErrSource, ref, supplier)
 	case !rv.suppliers[supplier]:
 		return fmt.Errorf("%w: not %s", ErrSupplier, supplier)

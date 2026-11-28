@@ -1507,7 +1507,7 @@ needed, instead of the whole shortage for today.
 - **The replenishment agent** (batch 99S integration; ADR-0072 As built
   "S2k3 in the agent"): an order of a period-lot proposal names each lot
   by its run line's `lot_schedule` day, and a contract is its source only
-  while valid to the last lot's day; `evals/replenishment` version 4.
+  while valid on every lot's day; `evals/replenishment` version 4.
 - **Later:** the period's start or end as a lot's date, a factory
   calendar, receipts and stock transport orders by their delivery dates,
   optimising procedures.

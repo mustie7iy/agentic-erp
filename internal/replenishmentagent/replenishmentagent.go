@@ -29,7 +29,7 @@
 // the day it is needed by (or the run's day, when it names none: lead
 // times are Later); a source of the proposal's material in its company
 // that the run read, an active catalog item, an active contract item
-// valid on that day (to its last lot's, for lots by period) or a released
+// valid on that day (on each of its lots', for lots by period) or a released
 // or closed order's item; that source's
 // supplier, read as an active supplier; and the supplier's measures for
 // the proposal's material at the run's plant over the year ending on the
@@ -122,7 +122,7 @@ Lot <item_no>: <quantity> <unit> by <YYYY-MM-DD>
 with the item's number and quantity as the requisition gives them, its unit and its day: for a run line sized by period
 (lot_size daily, weekly or monthly) the needed_by of its lot_schedule's lot in the same place, the lots in the order of the
 requisition's items, else the order's day: one order of the lots from one supplier and source, the buyer ordering each lot
-as an item of it, delivered by its day; a contract is a source when it is valid from the order's day to its last lot's;
+as an item of it, delivered by its day; a contract is a source when it is valid on the order's day and every lot's;
 then a line of its own
 Measures: <the supplier's measures>
 exactly as "<receipts> receipts (<history>), lead time <observed_lead_days> days", then " against <planned_lead_days> planned"
@@ -168,10 +168,10 @@ var (
 	ErrWhen = errors.New("replenishmentagent: an order is by the day the requisition is needed by, or the run's day when it names none")
 	// ErrSource refuses an order from a source the run has not read as one
 	// of the proposal's material in its company, valid on the day (and on
-	// its last lot's, for lots by period), or from another supplier than
+	// each of its lots', for lots by period), or from another supplier than
 	// the source's.
 	ErrSource = errors.New("replenishmentagent: an order's source is one the run read of the proposal's material in its company (an active catalog item, " +
-		"an active contract item valid on the day, to its last lot's for lots by period, a released or closed purchase order's item), and its supplier the source's")
+		"an active contract item valid on the day and, for lots by period, every lot's, a released or closed purchase order's item), and its supplier the source's")
 	// ErrLots refuses an order of a proposal of several lots that does not
 	// name each lot as the requisition has it, in its items' order, by its
 	// day (its run line's for a lot by period, S2k3, else the order's), or
@@ -244,10 +244,9 @@ func (a *Agent) Review(ctx context.Context, runID string) (recommend.Result, err
 	if err != nil {
 		return recommend.Result{}, err
 	}
-	rv := newReview(r.RunDate, from, r.PlantID, func(q url.Values) (apitools.Response, error) {
+	rv := newReview(r.RunDate, from, r.PlantID, schedules, func(q url.Values) (apitools.Response, error) {
 		return a.API.Do(ctx, http.MethodGet, "/v1/supplier-delivery-performance", q, nil, "")
 	})
-	rv.schedules = schedules
 	task := recommend.Task{
 		Purpose: fmt.Sprintf("Recommend what to order for planning run %s of plant %s", r.ID, r.PlantCode),
 		Prompt: fmt.Sprintf("Planning run %s of plant %s, %s, in company %s (legal entity %s), planned on %s. Recommend, for each requisition it "+

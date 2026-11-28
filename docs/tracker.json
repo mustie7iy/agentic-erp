@@ -6315,8 +6315,8 @@
      },
      {
       "s": "D",
-      "t": "The replenishment agent's check names each lot of a proposal by period (S2k3) by the day its run line's lot_schedule needs it by, not the requisition's one need date, and holds a contract source to the last lot's day; a requisition a person has changed since keeps its own day",
-      "r": "S2k3 · ADR-0072 As built (S2k3 in the agent) · ADR-0084 As built (period lot sizes) · docs/design/plan-supply-chain.md §S2k3 · internal/replenishmentagent review.go (dated, lastDay, usable) · TestReviewPeriodLots · evals/replenishment version 4",
+      "t": "The replenishment agent's check names each lot of a proposal by period (S2k3) by the day its run line's lot_schedule needs it by, not the requisition's one need date, and holds a contract source valid on every lot's day; a requisition a person has changed since (its day or its items) keeps its own day",
+      "r": "S2k3 · ADR-0072 As built (S2k3 in the agent) · ADR-0084 As built (period lot sizes) · docs/design/plan-supply-chain.md §S2k3 · internal/replenishmentagent review.go (dated, span, usable) · TestReviewPeriodLots · evals/replenishment version 4",
       "src": "review:batch99",
       "c": []
      },

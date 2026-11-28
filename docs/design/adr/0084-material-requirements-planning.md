@@ -521,7 +521,7 @@ date of a period's receipt, **from memory**, for the SAP specialist):
   `lots` and `lot_schedule` with each lot's own day. Batch 99S's
   integration makes its check read each lot's day from `lot_schedule`,
   not from the requisition's one need date, and hold a contract source to
-  the last lot's day (ADR-0072 As built "S2k3 in the agent").
+  every lot's day (ADR-0072 As built "S2k3 in the agent").
 - **Rolling upgrade** (expand only): the checks are widened and a table
   added, which a server before never writes; its worker sizes a period
   plan it meets lot for lot (a line naming the period procedure, with no

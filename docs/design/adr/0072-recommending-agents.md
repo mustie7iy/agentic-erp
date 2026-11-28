@@ -1763,25 +1763,28 @@ said the dates per lot are read from `lot_schedule`):
 
 - **Each lot's day from the run**: the agent reads the run before its
   session (`getMrpRun`, as it did); a line's `lot_schedule` is kept by
-  its requisition. When the requisition the model reads has the line's
-  lots as its items (as many, each of the same quantity, compared as
-  numbers), each `Lot` line names its lot's own `needed_by`; a
-  requisition a person has changed since keeps the requisition's day for
-  every lot, as other proposals' lots are named. The order's first line
+  its requisition. When the requisition the model reads is as the run
+  proposed it (needed by the first lot's day, its items as many as the
+  lots, each of the same quantity, compared as numbers, in the same
+  unit), each `Lot` line names its lot's own `needed_by`; a requisition a
+  person has changed since (its day or its items) keeps the requisition's
+  day for every lot, as other proposals' lots are named (review round 1). The order's first line
   stays by the requisition's day (the first lot's), `ErrWhen` unchanged.
   No new cross-context import: the day comes through the contract, as
   every read of the agent's does.
-- **A contract valid to the last lot**: a contract item is a source of a
-  proposal by period only while valid from the order's day to its last
-  lot's day (`usable`), for an order and a source_needed alike; an
-  order from a contract that ends between the lots is `ErrSource`. A
+- **A contract valid on every lot's day**: a contract item is a source
+  of a proposal by period only while valid from the earliest of the
+  order's and its lots' days to the latest (`span`, `usable`), whatever
+  the lots' order, for an order and a source_needed alike; an order from
+  a contract that ends between the lots is `ErrSource`. A
   catalog item or a purchase order has no validity and is unchanged.
 - The prompt and `ErrLots`, `ErrSource` say so. `TestReviewPeriodLots`
   (weekly lots by their days made, by the order's day refused telling
   each lot's day, the order by the last lot's day refused, a contract
   ending before the last lot refused and the catalog to it made, a
-  requisition whose items changed named by its own day, lots not in the
-  contract's shape ignored).
+  requisition whose items or day changed named by its own day, lots in
+  another unit or not in the contract's shape ignored, a lot needed
+  before the contract is valid refused).
 - `evals/replenishment` version 4: the hinge in weekly lots from a
   reorder point of 0 with two confirmed sales orders of Northwind
   Traders, 5 on 2026-11-18 and 3 on 2026-11-25 (the replay cell plans on
