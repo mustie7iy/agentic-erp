@@ -133,8 +133,9 @@ func (v *validator) pricing(c *Config) {
 	v.priceGroups(c.Pricing.PriceGroups)
 }
 
-// name checks the name of a condition type or a price group at path p:
-// not white space alone, at most 60 characters (runes, not bytes).
+// name checks the name of a condition type, a price group, a material
+// type or a material group at path p: not white space alone, at most 60
+// characters (runes, not bytes).
 func (v *validator) name(p, name string) {
 	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 60 {
 		v.err(p+".name", "is required, at most 60 characters")

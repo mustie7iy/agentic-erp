@@ -77,6 +77,10 @@ type Config struct {
 	// condition types and the procedure that applies them. None: an item
 	// takes its price alone.
 	Pricing Pricing `yaml:"pricing,omitempty" json:"pricing,omitzero"`
+	// Materials is the material types and groups the tenant's materials
+	// may have (ADR-0082 As built S1a4); none: every platform type and any
+	// well-formed group.
+	Materials Materials `yaml:"materials,omitempty" json:"materials,omitzero"`
 }
 
 // Calendar is a company's weekend and holidays, each date once.

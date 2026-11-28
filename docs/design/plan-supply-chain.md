@@ -257,6 +257,46 @@ unit's GTIN.
   is ordered, delivered and issued by batch, nothing reading its measures
   yet (`TestMeasuredBatchIssued`).
 
+#### S1a4 Material types and groups from configuration
+
+The third item of the leaf "later: material master variants" (lane
+matgroups, 2026-11-27); what is left of it stays a leaf (Later, below).
+
+**Capability.** A configuration manager lists the material types the
+tenant uses and its material groups, each with a name, through a
+governed change; a master data specialist then creates and changes
+materials of those types and groups only, and the SAP load holds back a
+material of another.
+
+- **Reuses:** S1a's `material_type` and `material_group`, S1b's material
+  changes, the configuration's change requests and tiers, the price
+  groups' rules (ADR-0067 §13), S2o's load and its held-back warnings.
+- **Adds:** the configuration section `materials` (`material_types[]`,
+  `material_groups[]`, each `code` and `name`), `config.Materials`,
+  `config.MaterialsTransitions`, `config.MaterialTypeCodes`; the problem
+  code `materials.unknown_material_group`; ADR-0082 As built S1a4. No
+  migration.
+- **Decided by default (ADR-0082 As built S1a4):** a configured type is
+  one of the platform's six; a list left empty checks nothing, so
+  existing tenants and materials keep what they have; an entry is never
+  removed once activated, so a list never empties again; tier 2, a name
+  tier 1; checked at a create and at a change that sets the group, a
+  change that leaves the group unchecked, a change requested before the
+  list applied as approved; at most 1,000 groups.
+- **SAP:** MTART mapped onto the six as before and MATKL taken as the
+  group (from memory); a material whose type or group the configured
+  lists leave out is held back with the reason.
+- **Walkthrough:** `step_material`: Ada configures Maple's types (all but
+  `service`) and ten groups, Priya approves; a service and the group
+  WIDGETS are refused naming their fields.
+- **Acceptance:** a tenant without lists creates materials as before; with
+  them, a create or a group change outside them is refused naming the
+  field, one inside them proceeds; a material created before keeps its
+  group through other changes; a type or group cannot be removed from
+  the configuration; the load holds back a material outside the lists and
+  loads the rest.
+- **As built** (2026-11-27): ADR-0082 As built S1a4, walkthrough step 122.
+
 **Later for Material master:** changing a material's default language,
 documents and outputs taking the material's description in their
 partner's language, the duplicate check across languages, a later SAP
@@ -268,8 +308,11 @@ weight and volume from its items' units, GTINs on documents and e-invoice
 lines and items found by GTIN, GTIN types beyond GS1's four lengths and
 several GTINs per unit (SAP's NUMTP, MEAN), a later SAP run's new or
 changed measures of a material an earlier run created;
-material types and groups from configuration (T134, T023) instead of an
-open enumeration and a code; plant-specific status and MRP data (MARC
+of material types and groups (S1a4): a tenant's own material types with
+their attributes (T134), SAP's own types mapped onto the platform's by
+the load, T023T's texts loaded into the configuration, a group retired
+for new materials, a hierarchy of groups, the type's and group's names on
+a material's read; plant-specific status and MRP data (MARC
 fields beyond the assignment, S2k); external number assignment;
 classification and characteristics; changing a material's base unit or
 type once used (SAP's MM02 refusal and MMAM).

@@ -77,6 +77,10 @@ type target struct {
 	// with their kinds, which a migrated material's units and its
 	// measures' units must be (materials.go, materialmeasures.go).
 	units map[string]string
+	// materials are the configuration's material types and groups, which
+	// a migrated material's type and group must be once it lists them
+	// (materials.go; ADR-0082 As built S1a4).
+	materials config.Materials
 	// classes are each company code's valuation classes with their
 	// accounts (companies[].account_determination.inventory), which a
 	// migrated valuation's BKLAS must name (stock.go).

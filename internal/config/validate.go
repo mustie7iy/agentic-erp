@@ -95,6 +95,13 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 		registrations[co.Code] = v.taxRegistrations(p, &co, seen)
 	}
 	v.taxRegistrationsAcross(c, registrations)
+	v.sections(c)
+	return v.out
+}
+
+// sections checks the document's tenant-wide sections, each on its own
+// after the companies.
+func (v *validator) sections(c *Config) {
 	v.paymentTerms(c)
 	v.purchasing(c)
 	v.payments(c)
@@ -111,12 +118,12 @@ func Validate(c *Config, exponents currency.Exponents) []Finding {
 	v.closeTemplate(c)
 	v.consolidation(c)
 	v.pricing(c)
+	v.materials(c)
 	switch c.Output.PurchaseOrderChannel {
 	case "email", "edi", "print":
 	default:
 		v.err("output.purchase_order_channel", "must be email, edi or print")
 	}
-	return v.out
 }
 
 var (

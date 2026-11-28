@@ -45,12 +45,6 @@ const (
 // (configuration number_ranges, ADR-0082 §6).
 const NumberRange = "material"
 
-// types are the material types (ADR-0082 §4: SAP's ROH, HALB, FERT, HAWA,
-// NLAG and DIEN, from memory). The enumeration is open: a later version
-// may add to it.
-var types = map[string]bool{"raw_material": true, "semi_finished": true, "finished_good": true, "trading_good": true, "non_stock": true,
-	"service": true}
-
 // Org unit kinds a material is extended to (tenancy.OrgUnitKinds).
 const (
 	kindPlant           = "plant"
@@ -82,8 +76,8 @@ type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 }
 
-// Settings reads the active configuration: a company's time zone
-// (configuration context).
+// Settings reads the active configuration: a company's time zone and the
+// material types and groups a material may take (configuration context).
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }

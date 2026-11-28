@@ -47,7 +47,7 @@ func moving(area, stock, value string) sap.MBEW {
 // stocks plans the extract's stock against its plants and materials.
 func stocks(x *sap.Extract) ([]sapStock, []string) {
 	plants, _ := plantsOf(x)
-	mats, _ := materialsOf(x, map[string]string{"KG": "mass"}, plants)
+	mats, _ := materialsOf(x, target{units: map[string]string{"KG": "mass"}}, plants)
 	got, issues := stocksOf(x, stockTarget(), plants, mats)
 	var out []string
 	for _, i := range issues {

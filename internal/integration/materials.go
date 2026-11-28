@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/platform/langtag"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -171,6 +172,7 @@ func orgUnitIssues(table, key, code, name, what string, add func(table, key, for
 // materials the load creates, in number order, and what it finds.
 type materialPlan struct {
 	units     map[string]string // the platform's units of measure, with their kinds
+	lists     config.Materials  // the configured material types and groups
 	plants    map[string]sapPlant
 	texts     map[string][]sapText
 	marm      map[string][]sap.MARM
@@ -188,9 +190,10 @@ func (mp *materialPlan) add(sev, table, key, format string, args ...any) {
 // it finds: errors for rows that name a material, plant or storage
 // location the extract does not have, and warnings for a material flagged
 // for deletion, which is not migrated, and for one held back with its
-// reasons (heldBack).
-func materialsOf(e *sap.Extract, units map[string]string, plants []sapPlant) ([]sapMaterial, []Issue) {
-	mp := &materialPlan{units: units, plants: map[string]sapPlant{}, texts: map[string][]sapText{}, marm: map[string][]sap.MARM{},
+// reasons (heldBack), its type and group among them once the
+// configuration lists types and groups (ADR-0082 As built S1a4).
+func materialsOf(e *sap.Extract, t target, plants []sapPlant) ([]sapMaterial, []Issue) {
+	mp := &materialPlan{units: t.units, lists: t.materials, plants: map[string]sapPlant{}, texts: map[string][]sapText{}, marm: map[string][]sap.MARM{},
 		marc: map[string][]sap.MARC{}, mard: map[string][]sap.MARD{}}
 	for _, p := range plants {
 		mp.plants[p.werks] = p
@@ -268,13 +271,7 @@ func (mp *materialPlan) material(r sap.MARA) {
 		mp.add(SevWarning, "MARA", r.MATNR, "every plant of the scope flags it for deletion (MARC LVORM); not migrated")
 		return
 	}
-	var reasons []string
-	if m.mtype == "" {
-		reasons = append(reasons, fmt.Sprintf("material type %q is none of ROH, HALB, FERT, HAWA, NLAG and DIEN, which the platform's types are", r.MTART))
-	}
-	if !materialGroup.MatchString(r.MATKL) {
-		reasons = append(reasons, fmt.Sprintf("material group %q is not 1 to 9 capitals, digits, - or _", r.MATKL))
-	}
+	reasons := mp.typeAndGroup(r, m.mtype)
 	t, english, ok := pickText(mp.texts[r.MATNR])
 	switch {
 	case !ok:
@@ -294,6 +291,27 @@ func (mp *materialPlan) material(r sap.MARA) {
 	}
 	m.baseMeasures = mp.baseMeasures(r)
 	mp.materials = append(mp.materials, m)
+}
+
+// typeAndGroup are the reasons a material is held back for its type
+// (MTART) and group (MATKL): a type none of the platform's or, once the
+// configuration lists types, none of those; a group not of materials'
+// form or, once the configuration lists groups, none of those.
+func (mp *materialPlan) typeAndGroup(r sap.MARA, mtype string) []string {
+	var reasons []string
+	switch {
+	case mtype == "":
+		reasons = append(reasons, fmt.Sprintf("material type %q is none of ROH, HALB, FERT, HAWA, NLAG and DIEN, which the platform's types are", r.MTART))
+	case !mp.lists.AllowsType(mtype):
+		reasons = append(reasons, fmt.Sprintf("material type %q (%s) is not one of the configuration's material types", r.MTART, mtype))
+	}
+	switch {
+	case !materialGroup.MatchString(r.MATKL):
+		reasons = append(reasons, fmt.Sprintf("material group %q is not 1 to 9 capitals, digits, - or _", r.MATKL))
+	case !mp.lists.AllowsGroup(r.MATKL):
+		reasons = append(reasons, fmt.Sprintf("material group %q is not one of the configuration's material groups", r.MATKL))
+	}
+	return reasons
 }
 
 // materialDescriptions are a material's default description's language,
@@ -417,6 +435,6 @@ func factor(s string) (int32, bool) {
 func (q *qualityCheck) materialMaster() {
 	plants, issues := plantsOf(q.e)
 	q.out = append(q.out, issues...)
-	_, issues = materialsOf(q.e, q.t.units, plants)
+	_, issues = materialsOf(q.e, q.t, plants)
 	q.out = append(q.out, issues...)
 }

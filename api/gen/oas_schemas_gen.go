@@ -76748,9 +76748,11 @@ type MaterialCreate struct {
 	// One of the base unit's dimensions, weights and GTIN (S1a3; SAP MARA); none when absent.
 	BaseUnitMeasures OptMaterialMeasures `json:"base_unit_measures"`
 	// What kind of material it is (SAP's standard material types ROH, HALB, FERT, HAWA, NLAG and DIEN); it
-	// does not change. Open enumeration: values may be added within /v1.
+	// does not change. Once the configuration lists material types (`materials.material_types`), one of
+	// those. Open enumeration: values may be added within /v1.
 	MaterialType string `json:"material_type"`
-	// The tenant's code grouping like materials, 1 to 9 capitals, digits, `-` or `_`.
+	// The tenant's code grouping like materials, 1 to 9 capitals, digits, `-` or `_`; once the
+	// configuration lists material groups (`materials.material_groups`), one of those.
 	MaterialGroup string `json:"material_group"`
 	// The plants the material is extended to, each once; none when absent.
 	Plants []MaterialPlantInput `json:"plants"`
@@ -79125,7 +79127,8 @@ type MaterialUpdate struct {
 	// The material's further descriptions, one per language, none in its default language, replacing those
 	// it has; an empty list removes them.
 	Descriptions []MaterialDescription `json:"descriptions"`
-	// The material group.
+	// The material group; once the configuration lists material groups (`materials.material_groups`), one
+	// of those.
 	MaterialGroup OptString `json:"material_group"`
 	// `active` or `blocked`. Open enumeration: values may be added within /v1.
 	Status OptString `json:"status"`

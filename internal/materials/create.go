@@ -198,8 +198,9 @@ func canonicalUnits(units []UnitInput) []UnitInput {
 }
 
 // says checks what a request says of a material before anything is
-// written: its descriptions and their languages, a known type, then its
-// units, their measures and plants. The texts' lengths and the group's form are the
+// written: its descriptions and their languages, a type and a group the
+// configuration allows (checkType, checkGroup), then its units, their
+// measures and plants. The texts' lengths and the group's form are the
 // contract's and the database's.
 func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUID]uuid.UUID, error) {
 	if err := problem.RequireText("description", in.Description); err != nil {
@@ -211,9 +212,15 @@ func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUI
 	if err := checkDescriptions(in.DescriptionLanguage, in.Descriptions); err != nil {
 		return nil, err
 	}
-	if !types[in.Type] {
-		return nil, problem.Invalid("materials.unknown_material_type", "material_type", fmt.Sprintf("%q is not a material type; the types are "+
-			"raw_material, semi_finished, finished_good, trading_good, non_stock and service.", in.Type))
+	lists, err := e.lists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkType(lists, in.Type); err != nil {
+		return nil, err
+	}
+	if err := checkGroup(lists, in.Group); err != nil {
+		return nil, err
 	}
 	if in.BatchManaged && !stocked[in.Type] {
 		return nil, problem.Invalid("materials.batch_managed_not_stocked", "batch_managed", "A material of type "+in.Type+

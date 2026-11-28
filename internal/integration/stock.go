@@ -263,8 +263,8 @@ func (sp *stockPlan) unvalued(e *sap.Extract) {
 // stock checks the valuations and stock (S2p) after the material master,
 // whose plants and materials they are of.
 func (q *qualityCheck) stock() {
-	plants, _ := plantsOf(q.e)                     // materialMaster reported their issues
-	mats, _ := materialsOf(q.e, q.t.units, plants) // likewise
+	plants, _ := plantsOf(q.e)               // materialMaster reported their issues
+	mats, _ := materialsOf(q.e, q.t, plants) // likewise
 	_, issues := stocksOf(q.e, q.t, plants, mats)
 	q.out = append(q.out, issues...)
 }
